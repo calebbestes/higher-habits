@@ -1,0 +1,1 @@
+ALTER TABLE "custom_day_icon_selections" ADD COLUMN "notes" text DEFAULT '' NOT NULL;

@@ -1,0 +1,19 @@
+{
+    "name": "@habit/validators",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "scripts": {
+        "lint": "biome check src",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "zod": "^3.24.2"
+    },
+    "devDependencies": {
+        "typescript": "^5.8.3",
+        "@habit/typescript-config": "workspace:*"
+    }
+}

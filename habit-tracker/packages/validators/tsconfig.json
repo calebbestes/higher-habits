@@ -1,0 +1,4 @@
+{
+    "extends": "@habit/typescript-config/base.json",
+    "include": ["src/**/*.ts"]
+}

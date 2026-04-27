@@ -1,0 +1,1 @@
+ALTER TABLE "prayer_day_checklists" ADD COLUMN "resist_temptation" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,16 @@
+{
+    "name": "habit-tracker",
+    "private": true,
+    "packageManager": "pnpm@10.6.0",
+    "scripts": {
+        "dev": "turbo dev --parallel",
+        "build": "turbo build",
+        "lint": "turbo lint",
+        "typecheck": "turbo typecheck"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^1.9.4",
+        "turbo": "^2.3.3",
+        "typescript": "^5.8.3"
+    }
+}

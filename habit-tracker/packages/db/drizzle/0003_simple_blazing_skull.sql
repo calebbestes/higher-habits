@@ -1,0 +1,1 @@
+ALTER TABLE "prayer_day_checklists" ADD COLUMN "no_phone_walk" boolean DEFAULT false NOT NULL;
