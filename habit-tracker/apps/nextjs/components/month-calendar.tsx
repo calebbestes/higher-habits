@@ -1,7 +1,7 @@
 export { MonthCalendar, PortableCalendar } from "./portable-calendar";
 export type {
   PortableCalendarCategory,
-  PortableCalendarEntry,
+  PortableCalendarEntry
 } from "./portable-calendar";
 
 /*
