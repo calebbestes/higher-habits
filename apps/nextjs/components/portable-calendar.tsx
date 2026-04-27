@@ -1412,7 +1412,7 @@ const MonthView = ({
         iconPickerDate={iconPickerDate}
         slotIndex={iconPickerSlot}
         selectedIconsByDate={customDayIconsByDate}
-        notes={iconPickerDate ? (getDrawerNotes(toDateKey(iconPickerDate))[`custom_${iconPickerSlot}` as const] ?? null) : null}
+        notes={iconPickerDate ? (getDrawerNotes(toDateKey(iconPickerDate))[`custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2"] ?? null) : null}
         onIconChange={handleCustomDayIconChange}
         onNotesChange={(dateKey, nextNotes) =>
           handleDrawerNoteChange(dateKey, `custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2", nextNotes)
