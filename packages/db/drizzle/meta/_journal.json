@@ -64,6 +64,13 @@
       "when": 1777262820205,
       "tag": "0008_youthful_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777266374824,
+      "tag": "0009_wooden_snowbird",
+      "breakpoints": true
     }
   ]
 }

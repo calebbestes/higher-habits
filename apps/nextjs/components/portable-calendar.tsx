@@ -8,10 +8,12 @@ import {
   type DrawerNoteKey,
   EMPTY_DAY_DRAWER_NOTES,
   EMPTY_PRAYER_CHECKLIST,
+  EMPTY_SALES_CHECKLIST,
   EMPTY_WEIGHT_CHECKLIST,
   type PrayerChecklistState,
   type SalesActivityInput,
   type SalesActivityLog,
+  type SalesChecklistState,
   type WeightChecklistState,
   getMonthKey,
   toDateKey,
@@ -23,6 +25,7 @@ import {
   persistDayHabit,
   persistDrawerNote,
   persistPrayerChecklist,
+  persistSalesChecklist,
   persistWeightChecklist,
 } from "@/lib/habit-state-client";
 import {
@@ -456,6 +459,21 @@ const WeightProgressIcon = ({
   />
 );
 
+const SalesProgressIcon = ({
+  progress,
+  className,
+}: {
+  progress: number;
+  className?: string;
+}) => (
+  <ProgressFillIcon
+    icon="mdi:currency-usd"
+    progress={progress}
+    className={className}
+    fillClassName="text-amber-600"
+  />
+);
+
 const SearchIcon = () => (
   <svg
     aria-hidden="true"
@@ -669,6 +687,9 @@ const MonthView = ({
   const [customDayIconsByDate, setCustomDayIconsByDate] = useState<
     Record<string, CustomDayIconSelection | null>
   >({});
+  const [salesChecklistsByDate, setSalesChecklistsByDate] = useState<
+    Record<string, SalesChecklistState>
+  >({});
   const [salesByDate, setSalesByDate] = useState<
     Record<string, SalesActivityLog[]>
   >({});
@@ -747,6 +768,15 @@ const MonthView = ({
           ...snapshot.drawerNotesByDate,
         }));
 
+        setSalesChecklistsByDate((previous) => ({
+          ...Object.fromEntries(
+            Object.entries(previous).filter(
+              ([dateKey]) => !dateKey.startsWith(currentMonthKey),
+            ),
+          ),
+          ...snapshot.salesChecklistsByDate,
+        }));
+
         setSalesByDate((previous) => ({
           ...Object.fromEntries(
             Object.entries(previous).filter(
@@ -798,6 +828,14 @@ const MonthView = ({
       return;
     }
 
+    if (habitKey === "outreach") {
+      setSalesDrawerDate(startOfDay(date));
+      setPrayerDrawerDate(null);
+      setWeightDrawerDate(null);
+      setIconPickerDate(null);
+      return;
+    }
+
     const dateKey = toDateKey(date);
     const iconKey = getHabitStateKey(dateKey, habitKey);
     const nextIsActive = !activeHabitIcons.has(iconKey);
@@ -843,12 +881,6 @@ const MonthView = ({
       });
     }
 
-    if (habitKey === "outreach") {
-      setSalesDrawerDate(startOfDay(date));
-      setPrayerDrawerDate(null);
-      setWeightDrawerDate(null);
-      setIconPickerDate(null);
-    }
   };
 
   const handlePrayerChecklistChange = (
@@ -929,6 +961,43 @@ const MonthView = ({
         color: "danger",
       });
     });
+  };
+
+  const handleSalesChecklistChange = (
+    dateKey: string,
+    nextChecklist: SalesChecklistState,
+  ) => {
+    const previousChecklist =
+      salesChecklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST;
+
+    setSalesChecklistsByDate((previous) => ({
+      ...previous,
+      [dateKey]: nextChecklist,
+    }));
+
+    void persistSalesChecklist({ dateKey, checklist: nextChecklist }).catch(
+      (error) => {
+        setSalesChecklistsByDate((previous) => ({
+          ...previous,
+          [dateKey]: previousChecklist,
+        }));
+
+        addToast({
+          title: "Could not save checklist",
+          description:
+            error instanceof Error
+              ? error.message
+              : "We couldn't save that sales checklist change.",
+          color: "danger",
+        });
+      },
+    );
+  };
+
+  const getSalesProgress = (date: Date) => {
+    const dateKey = toDateKey(date);
+    const checklist = salesChecklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST;
+    return Object.values(checklist).filter(Boolean).length / 6;
   };
 
   const getWeightProgress = (date: Date) => {
@@ -1170,18 +1239,25 @@ const MonthView = ({
                             : 0;
                         const weightProgress =
                           habitIcon.key === "gym" ? getWeightProgress(date) : 0;
+                        const salesProgress =
+                          habitIcon.key === "outreach" ? getSalesProgress(date) : 0;
                         const prayerDrawerOpen = prayerDrawerDate
                           ? isSameDay(prayerDrawerDate, date)
                           : false;
                         const weightDrawerOpen = weightDrawerDate
                           ? isSameDay(weightDrawerDate, date)
                           : false;
+                        const salesDrawerOpen = salesDrawerDate
+                          ? isSameDay(salesDrawerDate, date)
+                          : false;
                         const isActive =
                           habitIcon.key === "prayer"
                             ? prayerProgress > 0 || prayerDrawerOpen
                             : habitIcon.key === "gym"
                               ? weightProgress > 0 || weightDrawerOpen
-                            : activeHabitIcons.has(iconKey);
+                              : habitIcon.key === "outreach"
+                                ? salesProgress > 0 || salesDrawerOpen
+                                : activeHabitIcons.has(iconKey);
 
                         return (
                           <button
@@ -1214,8 +1290,8 @@ const MonthView = ({
                                 className="h-6 w-6"
                               />
                             ) : (
-                              <Icon
-                                icon={habitIcon.icon}
+                              <SalesProgressIcon
+                                progress={salesProgress}
                                 className="h-6 w-6"
                               />
                             )}
@@ -1398,7 +1474,9 @@ const MonthView = ({
       <SalesOutreachDrawer
         salesDrawerDate={salesDrawerDate}
         salesByDate={salesByDate}
+        checklistsByDate={salesChecklistsByDate}
         notes={salesDrawerDate ? getDrawerNotes(toDateKey(salesDrawerDate)).outreach : null}
+        onChecklistChange={handleSalesChecklistChange}
         onSaveActivity={handleSaveSalesActivity}
         onNotesChange={(dateKey, nextNotes) =>
           handleDrawerNoteChange(dateKey, "outreach", nextNotes)

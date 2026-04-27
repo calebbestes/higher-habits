@@ -66,6 +66,24 @@ export const EMPTY_WEIGHT_CHECKLIST: WeightChecklistState = {
   wakeUpAtSeven: false,
 };
 
+export type SalesChecklistState = {
+  coldEmails: boolean;
+  linkedinMessages: boolean;
+  prospectiveClients: boolean;
+  coldCallOrVisit: boolean;
+  studyCoding: boolean;
+  workForEY: boolean;
+};
+
+export const EMPTY_SALES_CHECKLIST: SalesChecklistState = {
+  coldEmails: false,
+  linkedinMessages: false,
+  prospectiveClients: false,
+  coldCallOrVisit: false,
+  studyCoding: false,
+  workForEY: false,
+};
+
 export type DayDrawerNotes = Record<DrawerNoteKey, string | null>;
 
 export const EMPTY_DAY_DRAWER_NOTES: DayDrawerNotes = {
@@ -110,6 +128,7 @@ export type HabitStateMonthSnapshot = {
   }>;
   prayerChecklistsByDate: Record<string, PrayerChecklistState>;
   weightChecklistsByDate: Record<string, WeightChecklistState>;
+  salesChecklistsByDate: Record<string, SalesChecklistState>;
   drawerNotesByDate: Record<string, DayDrawerNotes>;
   customDayIconsByDate: Record<string, CustomDayIconSelection | null>;
   salesByDate: Record<string, SalesActivityLog[]>;

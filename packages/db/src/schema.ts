@@ -172,6 +172,23 @@ export const dayDrawerNotes = pgTable(
     ],
 );
 
+export const salesDayChecklists = pgTable(
+    "sales_day_checklists",
+    {
+        date: date("date", { mode: "string" }).primaryKey(),
+        coldEmails: boolean("cold_emails").default(false).notNull(),
+        linkedinMessages: boolean("linkedin_messages").default(false).notNull(),
+        prospectiveClients: boolean("prospective_clients").default(false).notNull(),
+        coldCallOrVisit: boolean("cold_call_or_visit").default(false).notNull(),
+        studyCoding: boolean("study_coding").default(false).notNull(),
+        workForEY: boolean("work_for_ey").default(false).notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => [index("sales_day_checklists_date_idx").on(table.date)],
+);
+
 export const salesOutreachActivities = pgTable(
     "sales_outreach_activities",
     {
@@ -211,6 +228,8 @@ export type CustomDayIconSelection = typeof customDayIconSelections.$inferSelect
 export type NewCustomDayIconSelection = typeof customDayIconSelections.$inferInsert;
 export type DayDrawerNote = typeof dayDrawerNotes.$inferSelect;
 export type NewDayDrawerNote = typeof dayDrawerNotes.$inferInsert;
+export type SalesDayChecklist = typeof salesDayChecklists.$inferSelect;
+export type NewSalesDayChecklist = typeof salesDayChecklists.$inferInsert;
 export type SalesOutreachActivity = typeof salesOutreachActivities.$inferSelect;
 export type NewSalesOutreachActivity =
     typeof salesOutreachActivities.$inferInsert;

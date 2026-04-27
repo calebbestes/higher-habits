@@ -4,6 +4,7 @@ import {
   dayDrawerNotes,
   getDb,
   prayerDayChecklists,
+  salesDayChecklists,
   salesOutreachActivities,
   weightDayChecklists,
 } from "@habit/db";
@@ -18,11 +19,13 @@ import {
   DRAWER_NOTE_KEYS,
   EMPTY_DAY_DRAWER_NOTES,
   EMPTY_PRAYER_CHECKLIST,
+  EMPTY_SALES_CHECKLIST,
   EMPTY_WEIGHT_CHECKLIST,
   type DayDrawerNotes,
   type HabitStateMonthSnapshot,
   SALES_CHANNEL_KEYS,
   type SalesActivityLog,
+  type SalesChecklistState,
   type WeightChecklistState,
   getMonthDateRange,
 } from "@/lib/habit-state";
@@ -96,6 +99,18 @@ const mutationSchema = z.discriminatedUnion("type", [
     note: drawerNoteSchema,
   }),
   z.object({
+    type: z.literal("setSalesChecklist"),
+    dateKey: z.string().regex(DATE_KEY_REGEX),
+    checklist: z.object({
+      coldEmails: z.boolean(),
+      linkedinMessages: z.boolean(),
+      prospectiveClients: z.boolean(),
+      coldCallOrVisit: z.boolean(),
+      studyCoding: z.boolean(),
+      workForEY: z.boolean(),
+    }),
+  }),
+  z.object({
     type: z.literal("addSalesActivity"),
     dateKey: z.string().regex(DATE_KEY_REGEX),
     activity: salesActivityInputSchema,
@@ -158,7 +173,7 @@ export async function GET(request: Request) {
     });
     const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
-    const [dayHabits, prayerChecklists, weightChecklists, customIcons, drawerNotes, salesActivities] =
+    const [dayHabits, prayerChecklists, weightChecklists, salesChecklists, customIcons, drawerNotes, salesActivities] =
       await Promise.all([
         db
           .select()
@@ -185,6 +200,15 @@ export async function GET(request: Request) {
             and(
               gte(weightDayChecklists.date, startDateKey),
               lt(weightDayChecklists.date, endDateKeyExclusive),
+            ),
+          ),
+        db
+          .select()
+          .from(salesDayChecklists)
+          .where(
+            and(
+              gte(salesDayChecklists.date, startDateKey),
+              lt(salesDayChecklists.date, endDateKeyExclusive),
             ),
           ),
         db
@@ -266,6 +290,19 @@ export async function GET(request: Request) {
             calories2300: checklist.calories2300,
             wakeUpAtSeven: checklist.wakeUpAtSeven,
           } satisfies WeightChecklistState,
+        ]),
+      ),
+      salesChecklistsByDate: Object.fromEntries(
+        salesChecklists.map((checklist) => [
+          checklist.date,
+          {
+            coldEmails: checklist.coldEmails,
+            linkedinMessages: checklist.linkedinMessages,
+            prospectiveClients: checklist.prospectiveClients,
+            coldCallOrVisit: checklist.coldCallOrVisit,
+            studyCoding: checklist.studyCoding,
+            workForEY: checklist.workForEY,
+          } satisfies SalesChecklistState,
         ]),
       ),
       drawerNotesByDate,
@@ -441,6 +478,35 @@ export async function POST(request: Request) {
             target: [dayDrawerNotes.date, dayDrawerNotes.drawerKey],
             set: {
               notes: input.note.notes,
+              updatedAt: new Date(),
+            },
+          });
+
+        return NextResponse.json({ ok: true });
+      }
+
+      case "setSalesChecklist": {
+        await db
+          .insert(salesDayChecklists)
+          .values({
+            date: input.dateKey,
+            coldEmails: input.checklist.coldEmails,
+            linkedinMessages: input.checklist.linkedinMessages,
+            prospectiveClients: input.checklist.prospectiveClients,
+            coldCallOrVisit: input.checklist.coldCallOrVisit,
+            studyCoding: input.checklist.studyCoding,
+            workForEY: input.checklist.workForEY,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: salesDayChecklists.date,
+            set: {
+              coldEmails: input.checklist.coldEmails,
+              linkedinMessages: input.checklist.linkedinMessages,
+              prospectiveClients: input.checklist.prospectiveClients,
+              coldCallOrVisit: input.checklist.coldCallOrVisit,
+              studyCoding: input.checklist.studyCoding,
+              workForEY: input.checklist.workForEY,
               updatedAt: new Date(),
             },
           });

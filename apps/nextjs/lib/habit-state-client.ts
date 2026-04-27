@@ -6,6 +6,7 @@ import type {
   PrayerChecklistState,
   SalesActivityInput,
   SalesActivityLog,
+  SalesChecklistState,
   WeightChecklistState,
 } from "./habit-state";
 
@@ -81,6 +82,24 @@ export const persistCustomDayIcon = async (input: {
     },
     body: JSON.stringify({
       type: "setCustomDayIcon",
+      ...input,
+    }),
+  });
+
+  return parseResponse<{ ok: true }>(response);
+};
+
+export const persistSalesChecklist = async (input: {
+  dateKey: string;
+  checklist: SalesChecklistState;
+}) => {
+  const response = await fetch(HABIT_STATE_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "setSalesChecklist",
       ...input,
     }),
   });
