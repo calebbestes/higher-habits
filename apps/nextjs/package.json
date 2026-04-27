@@ -20,6 +20,7 @@
         "@heroui/system": "^2.4.28",
         "@heroui/theme": "^2.4.26",
         "@hookform/resolvers": "^5.2.2",
+        "@iconify-json/mdi": "^1.2.3",
         "@iconify/react": "^5.2.1",
         "@internationalized/date": "^3.8.2",
         "@react-pdf/renderer": "^4.5.1",
