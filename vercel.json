@@ -1,6 +1,0 @@
-{
-  "framework": "nextjs",
-  "buildCommand": "pnpm turbo run build --filter=@habit/nextjs",
-  "outputDirectory": "apps/nextjs/.next",
-  "installCommand": "pnpm install"
-}
