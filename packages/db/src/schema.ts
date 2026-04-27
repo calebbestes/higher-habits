@@ -39,6 +39,8 @@ export const CUSTOM_DAY_ICON_KEYS = [
     "tennis",
     "cook",
     "piano",
+    "ministering",
+    "czechCall",
 ] as const;
 export const CUSTOM_DAY_ICON_STATUSES = ["planned", "complete"] as const;
 

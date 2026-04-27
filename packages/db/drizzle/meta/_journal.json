@@ -57,6 +57,13 @@
       "when": 1745780400000,
       "tag": "0007_add_meditate_stretch",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777262820205,
+      "tag": "0008_youthful_blackheart",
+      "breakpoints": true
     }
   ]
 }
