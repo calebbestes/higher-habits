@@ -52,6 +52,7 @@ import {
   TableRow,
   Tabs,
   Textarea,
+  Tooltip,
   addToast,
   useDisclosure,
 } from "@heroui/react";
@@ -66,7 +67,7 @@ import {
   PRAYER_CHECKLIST_ITEMS,
   PrayerChecklistDrawer,
 } from "./prayer-checklist-drawer";
-import { SalesOutreachDrawer } from "./sales-outreach-drawer";
+import { SALES_CHECKLIST_ITEMS, SalesOutreachDrawer } from "./sales-outreach-drawer";
 import {
   WEIGHT_CHECKLIST_ITEMS,
   WeightChecklistDrawer,
@@ -115,13 +116,6 @@ type PortableCalendarProps = {
   onEntriesChange?: (entries: PortableCalendarEntry[]) => void;
 };
 
-type MiniCalendarCell = {
-  date: Date;
-  isOutside: boolean;
-  isToday: boolean;
-  isSelected: boolean;
-};
-
 type DraftEntry = {
   title: string;
   start: string;
@@ -163,7 +157,6 @@ const MONTH_NAMES = [
 ];
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const COMPACT_DAY_NAMES = ["S", "M", "T", "W", "T", "F", "S"];
 const DAY_HABIT_ICONS = [
   { key: "prayer", label: "Prayer", icon: "mdi:hands-pray" },
   { key: "gym", label: "Weights", icon: "mdi:dumbbell" },
@@ -352,46 +345,16 @@ const buildMonthWeeks = (currentDate: Date) => {
   );
 };
 
-const buildMiniCalendarCells = (
-  currentDate: Date,
-  selectedDate: Date,
-): MiniCalendarCell[] => {
-  const monthStart = startOfMonth(currentDate);
-  const gridStart = startOfWeek(monthStart);
-
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = addDays(gridStart, index);
-    return {
-      date,
-      isOutside: !isSameMonth(date, currentDate),
-      isToday: isToday(date),
-      isSelected: isSameDay(date, selectedDate),
-    };
-  });
-};
-
 const titleForView = (view: CalendarView, currentDate: Date) => {
-  switch (view) {
-    case "day":
-      return formatDayLabel(currentDate);
-    case "week":
-      return formatWeekRange(currentDate);
-    case "month":
-    default:
-      return formatMonthYear(currentDate);
-  }
+  if (view === "day") return formatDayLabel(currentDate);
+  if (view === "week") return formatWeekRange(currentDate);
+  return formatMonthYear(currentDate);
 };
 
 const navigateDate = (date: Date, view: CalendarView, direction: number) => {
-  switch (view) {
-    case "day":
-      return addDays(date, direction);
-    case "week":
-      return addWeeks(date, direction);
-    case "month":
-    default:
-      return addMonths(date, direction);
-  }
+  if (view === "day") return addDays(date, direction);
+  if (view === "week") return addWeeks(date, direction);
+  return addMonths(date, direction);
 };
 
 const ProgressFillIcon = ({
@@ -475,76 +438,39 @@ const SalesProgressIcon = ({
 );
 
 const SearchIcon = () => (
-  <svg
-    aria-hidden="true"
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-  >
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Search">
+    <title>Search</title>
     <circle cx="8.5" cy="8.5" r="5.5" />
     <path d="m13 13 4 4" strokeLinecap="round" />
   </svg>
 );
 
 const ChevronLeftIcon = () => (
-  <svg
-    aria-hidden="true"
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-  >
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Previous">
+    <title>Previous</title>
     <path d="m12.5 4.5-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const ChevronRightIcon = () => (
-  <svg
-    aria-hidden="true"
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-  >
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Next">
+    <title>Next</title>
     <path d="m7.5 4.5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const CloseIcon = () => (
-  <svg
-    aria-hidden="true"
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-  >
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Close">
+    <title>Close</title>
     <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
   </svg>
 );
 
 const PlusIcon = () => (
-  <svg
-    aria-hidden="true"
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-  >
+  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Add">
+    <title>Add</title>
     <path d="M10 4v12M4 10h12" strokeLinecap="round" />
   </svg>
-);
-
-const DotIcon = ({ color }: { color: string }) => (
-  <span
-    className="inline-block h-2.5 w-2.5 rounded-full"
-    style={{ backgroundColor: color }}
-  />
 );
 
 const CategoryPill = ({
@@ -596,79 +522,26 @@ const CategoryPill = ({
   </button>
 );
 
-const MiniCalendar = ({
-  currentDate,
-  selectedDate,
-  onSelectDate,
-  onPreviousMonth,
-  onNextMonth,
-}: {
-  currentDate: Date;
-  selectedDate: Date;
-  onSelectDate: (date: Date) => void;
-  onPreviousMonth: () => void;
-  onNextMonth: () => void;
-}) => {
-  const cells = useMemo(
-    () => buildMiniCalendarCells(currentDate, selectedDate),
-    [currentDate, selectedDate],
-  );
-
-  return (
-    <div className="border-divider mt-6 border-t pt-4">
-      <div className="mb-3 flex items-center justify-between">
-        <Button isIconOnly size="sm" variant="light" onPress={onPreviousMonth}>
-          <ChevronLeftIcon />
-        </Button>
-        <span className="text-sm font-semibold tracking-tight">
-          {formatMonthYear(currentDate)}
-        </span>
-        <Button isIconOnly size="sm" variant="light" onPress={onNextMonth}>
-          <ChevronRightIcon />
-        </Button>
-      </div>
-
-      <div className="text-foreground-500 grid grid-cols-7 gap-1 text-center text-[10px] uppercase">
-        {COMPACT_DAY_NAMES.map((dayName, index) => (
-          <span key={`${dayName}-${index}`}>{dayName}</span>
-        ))}
-      </div>
-      <div className="mt-2 grid grid-cols-7 gap-1">
-        {cells.map((cell) => (
-          <button
-            type="button"
-            key={`mini-${cell.date.toISOString()}`}
-            onClick={() => onSelectDate(cell.date)}
-            className={cn(
-              "h-7 rounded-md text-[11px] transition-colors",
-              cell.isSelected
-                ? "bg-primary text-primary-foreground"
-                : cell.isToday
-                  ? "border-primary text-primary border"
-                  : "hover:bg-default-100",
-              cell.isOutside && !cell.isSelected && "text-foreground-400",
-            )}
-          >
-            {cell.date.getDate()}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 const MonthView = ({
   currentDate,
   selectedDate,
   entries,
   onSelectDate,
   onSelectEntry,
+  onCustomDayIconsByDateChange,
+  onPrayerChecklistsByDateChange,
+  onWeightChecklistsByDateChange,
+  onSalesChecklistsByDateChange,
 }: {
   currentDate: Date;
   selectedDate: Date;
   entries: NormalizedCalendarEntry[];
   onSelectDate: (date: Date) => void;
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
+  onCustomDayIconsByDateChange?: (data: Record<string, CustomDayIconSelection | null>) => void;
+  onPrayerChecklistsByDateChange?: (data: Record<string, PrayerChecklistState>) => void;
+  onWeightChecklistsByDateChange?: (data: Record<string, WeightChecklistState>) => void;
+  onSalesChecklistsByDateChange?: (data: Record<string, SalesChecklistState>) => void;
 }) => {
   const [selectedDayForOverflow, setSelectedDayForOverflow] =
     useState<Date | null>(null);
@@ -678,18 +551,30 @@ const MonthView = ({
   const [prayerChecklistsByDate, setPrayerChecklistsByDate] = useState<
     Record<string, PrayerChecklistState>
   >({});
+  useEffect(() => {
+    onPrayerChecklistsByDateChange?.(prayerChecklistsByDate);
+  }, [prayerChecklistsByDate, onPrayerChecklistsByDateChange]);
   const [weightChecklistsByDate, setWeightChecklistsByDate] = useState<
     Record<string, WeightChecklistState>
   >({});
+  useEffect(() => {
+    onWeightChecklistsByDateChange?.(weightChecklistsByDate);
+  }, [weightChecklistsByDate, onWeightChecklistsByDateChange]);
   const [drawerNotesByDate, setDrawerNotesByDate] = useState<
     Record<string, DayDrawerNotes>
   >({});
   const [customDayIconsByDate, setCustomDayIconsByDate] = useState<
     Record<string, CustomDayIconSelection | null>
   >({});
+  useEffect(() => {
+    onCustomDayIconsByDateChange?.(customDayIconsByDate);
+  }, [customDayIconsByDate, onCustomDayIconsByDateChange]);
   const [salesChecklistsByDate, setSalesChecklistsByDate] = useState<
     Record<string, SalesChecklistState>
   >({});
+  useEffect(() => {
+    onSalesChecklistsByDateChange?.(salesChecklistsByDate);
+  }, [salesChecklistsByDate, onSalesChecklistsByDateChange]);
   const [salesByDate, setSalesByDate] = useState<
     Record<string, SalesActivityLog[]>
   >({});
@@ -1821,6 +1706,78 @@ export const PortableCalendar = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<Set<string> | null>(null);
+  const [monthViewIconsByDate, setMonthViewIconsByDate] = useState<
+    Record<string, CustomDayIconSelection | null>
+  >({});
+  const [goalsCollapsed, setGoalsCollapsed] = useState(false);
+  const [dailyGoalsCollapsed, setDailyGoalsCollapsed] = useState(false);
+  const [monthViewPrayerChecklists, setMonthViewPrayerChecklists] = useState<Record<string, PrayerChecklistState>>({});
+  const [monthViewWeightChecklists, setMonthViewWeightChecklists] = useState<Record<string, WeightChecklistState>>({});
+  const [monthViewSalesChecklists, setMonthViewSalesChecklists] = useState<Record<string, SalesChecklistState>>({});
+
+  const goalMetrics = useMemo(() => {
+    const monthKey = getMonthKey(currentDate);
+    return CUSTOM_DAY_ICON_OPTIONS.map((opt) => {
+        const targetCount =
+          opt.frequency === "monthly" ? 1 : opt.frequency === "biweekly" ? 2 : 4;
+        const completedCount = Object.entries(monthViewIconsByDate).reduce(
+          (n, [dateKey, sel]) =>
+            dateKey.startsWith(monthKey) &&
+            sel?.iconKey === opt.key &&
+            sel.status === "complete"
+              ? n + 1
+              : n,
+          0,
+        );
+        return { opt, completedCount, targetCount, ratio: completedCount / targetCount };
+      })
+      .sort((a, b) =>
+        a.ratio !== b.ratio
+          ? b.ratio - a.ratio
+          : a.targetCount - b.targetCount,
+      );
+  }, [monthViewIconsByDate, currentDate]);
+
+  const dailyGoalMetrics = useMemo(() => {
+    const monthKey = getMonthKey(currentDate);
+    const today = toDateKey(new Date());
+    const monthEnd = `${monthKey}-31`;
+    const lastDate = today < monthEnd ? today : monthEnd;
+    const msPerDay = 86400000;
+
+    type ChecklistItem = { key: string; label: string; icon: string };
+
+    const itemsWithSource: Array<{ item: ChecklistItem; byDate: Record<string, Record<string, boolean>> }> = [
+      ...PRAYER_CHECKLIST_ITEMS.map((item) => ({
+        item: item as ChecklistItem,
+        byDate: monthViewPrayerChecklists as Record<string, Record<string, boolean>>,
+      })),
+      ...WEIGHT_CHECKLIST_ITEMS.map((item) => ({
+        item: item as ChecklistItem,
+        byDate: monthViewWeightChecklists as Record<string, Record<string, boolean>>,
+      })),
+      ...SALES_CHECKLIST_ITEMS.map((item) => ({
+        item: item as ChecklistItem,
+        byDate: monthViewSalesChecklists as Record<string, Record<string, boolean>>,
+      })),
+    ];
+
+    return itemsWithSource
+      .map(({ item, byDate }) => {
+        const completedDateKeys = Object.entries(byDate)
+          .filter(([dateKey, state]) => dateKey.startsWith(monthKey) && state[item.key])
+          .map(([dateKey]) => dateKey)
+          .sort();
+        const completedCount = completedDateKeys.length;
+        if (completedCount === 0) return { item, ratio: 0 };
+        const firstDate = completedDateKeys[0];
+        const end = new Date(lastDate > firstDate ? lastDate : firstDate);
+        const totalDays = Math.round((end.getTime() - new Date(firstDate).getTime()) / msPerDay) + 1;
+        return { item, ratio: completedCount / totalDays };
+      })
+      .sort((a, b) => b.ratio - a.ratio);
+  }, [monthViewPrayerChecklists, monthViewWeightChecklists, monthViewSalesChecklists, currentDate]);
+
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
   const [draftEntry, setDraftEntry] = useState<DraftEntry>(() => ({
     title: "",
@@ -1897,12 +1854,6 @@ export const PortableCalendar = ({
       effectiveSelectedCategoryIds.has(entry.category.id),
     );
   }, [effectiveSelectedCategoryIds, normalizedEntries]);
-
-  const selectedDateEntries = useMemo(
-    () =>
-      visibleEntries.filter((entry) => isDateInEntryRange(selectedDate, entry)),
-    [selectedDate, visibleEntries],
-  );
 
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -2096,7 +2047,7 @@ export const PortableCalendar = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [allowCreate, currentDate, view]);
+  }, [allowCreate, navigate, handleSelectDate, openCreateModal]);
 
   return (
     <>
@@ -2124,72 +2075,11 @@ export const PortableCalendar = ({
                     <ChevronRightIcon />
                   </Button>
 
-                  <div className="mt-4 flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto">
-                    {categoryFilters.slice(0, 6).map((category) => (
-                      <span
-                        key={category.id}
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: category.color }}
-                        title={category.name}
-                      />
-                    ))}
-                  </div>
+                  <div className="mt-4 flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto" />
                 </>
               ) : (
                 <>
-                  <div className="flex items-start justify-between gap-2 px-1 pt-1">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-base font-semibold tracking-tight">
-                          Categories
-                        </p>
-                        <Popover placement="bottom-start" showArrow>
-                          <PopoverTrigger>
-                            <button
-                              type="button"
-                              className="text-foreground-500 text-xs hover:text-foreground"
-                            >
-                              ▼
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-56 p-0">
-                            <Table
-                              removeWrapper
-                              aria-label="Category summary"
-                              classNames={{ td: "py-2", th: "py-2" }}
-                            >
-                              <TableHeader>
-                                <TableColumn>Category</TableColumn>
-                                <TableColumn align="end">Count</TableColumn>
-                              </TableHeader>
-                              <TableBody items={categoryFilters}>
-                                {(category) => (
-                                  <TableRow key={category.id}>
-                                    <TableCell>
-                                      <span className="flex items-center gap-2">
-                                        <DotIcon color={category.color} />
-                                        <span className="text-sm">
-                                          {category.name}
-                                        </span>
-                                      </span>
-                                    </TableCell>
-                                    <TableCell className="text-right text-sm text-foreground-500">
-                                      {category.eventCount}
-                                    </TableCell>
-                                  </TableRow>
-                                )}
-                              </TableBody>
-                            </Table>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                      <p className="text-foreground-500 text-xs">
-                        {effectiveSelectedCategoryIds === null
-                          ? categoryFilters.length
-                          : effectiveSelectedCategoryIds.size}{" "}
-                        selected
-                      </p>
-                    </div>
+                  <div className="flex items-start justify-end px-1 pt-1">
                     <Button
                       isIconOnly
                       size="sm"
@@ -2201,130 +2091,84 @@ export const PortableCalendar = ({
                     </Button>
                   </div>
 
-                  <div className="mt-4">
-                    <div className="space-y-1">
-                      {categoryFilters.length > 0 ? (
-                        <Table
-                          aria-label="Category filters"
-                          hideHeader
-                          removeWrapper
-                          selectionMode="none"
-                          classNames={{
-                            tr: "cursor-pointer",
-                            td: "py-1.5",
-                          }}
-                        >
-                          <TableHeader>
-                            <TableColumn>Category</TableColumn>
-                            <TableColumn>Count</TableColumn>
-                          </TableHeader>
-                          <TableBody items={categoryFilters}>
-                            {(category) => {
-                              const selected = isCategorySelected(category.id);
-                              return (
-                                <TableRow
-                                  key={category.id}
-                                  onClick={() =>
-                                    toggleCategorySelection(category.id)
-                                  }
-                                  className={cn(
-                                    selected
-                                      ? "bg-primary/10"
-                                      : "hover:bg-default-100",
-                                  )}
-                                >
-                                  <TableCell>
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <DotIcon color={category.color} />
-                                      <span className="truncate text-sm">
-                                        {category.name}
-                                      </span>
-                                      {selected ? (
-                                        <Chip
-                                          size="sm"
-                                          variant="flat"
-                                          className="ml-1 h-5 text-[10px]"
-                                          color="primary"
-                                        >
-                                          On
-                                        </Chip>
-                                      ) : null}
-                                    </span>
-                                  </TableCell>
-                                  <TableCell className="text-right text-xs text-foreground-500">
-                                    {category.eventCount}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            }}
-                          </TableBody>
-                        </Table>
-                      ) : (
-                        <div className="text-foreground-500 rounded-2xl border border-dashed border-default-200 px-4 py-6 text-center text-sm">
-                          Add entries and categories will show up here.
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        color="primary"
-                        variant="flat"
-                        onPress={selectAllCategories}
-                        isDisabled={categoryFilters.length === 0}
-                      >
-                        Select All
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        onPress={clearCategorySelection}
-                        isDisabled={categoryFilters.length === 0}
-                      >
-                        Clear
-                      </Button>
-                    </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setGoalsCollapsed((v) => !v)}
+                      className="flex w-full items-center gap-1 text-left"
+                    >
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                        Monthly Goal Progress
+                      </span>
+                      <Icon
+                        icon={goalsCollapsed ? "mdi:chevron-right" : "mdi:chevron-down"}
+                        className="ml-auto h-3.5 w-3.5 text-foreground-400"
+                      />
+                    </button>
+                    {!goalsCollapsed && (
+                      <div className="mt-2 space-y-1.5">
+                        {goalMetrics.map(({ opt, completedCount, targetCount, ratio }) => (
+                          <div key={opt.key} className="flex items-center gap-2">
+                            <Tooltip content={opt.label} placement="right" size="sm">
+                              <span className="shrink-0 cursor-default">
+                                <Icon icon={opt.icon} className="h-4 w-4 text-foreground-500" />
+                              </span>
+                            </Tooltip>
+                            <div className="min-w-0 flex-1">
+                              <div className="h-2 overflow-hidden rounded-full bg-default-200">
+                                <div
+                                  className="h-full rounded-full bg-primary transition-all"
+                                  style={{ width: `${Math.min(ratio, 1) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
+                              {completedCount}/{targetCount}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  <MiniCalendar
-                    currentDate={currentDate}
-                    selectedDate={selectedDate}
-                    onSelectDate={handleSelectDate}
-                    onPreviousMonth={() =>
-                      setCurrentDate((prev) => addMonths(prev, -1))
-                    }
-                    onNextMonth={() =>
-                      setCurrentDate((prev) => addMonths(prev, 1))
-                    }
-                  />
-
-                  <div className="mt-4">
-                    <p className="text-sm font-semibold">
-                      {formatDayLabel(selectedDate)}
-                    </p>
-                    <div className="mt-3 min-h-0 space-y-2">
-                      {selectedDateEntries.length > 0 ? (
-                        selectedDateEntries.slice(0, 5).map((entry) => (
-                          <button
-                            type="button"
-                            key={entry.id}
-                            onClick={() => handleSelectEntry(entry)}
-                            className="hover:bg-default-50 w-full rounded-[18px] border border-default-200 p-3 text-left transition-colors"
-                          >
-                            <CategoryPill
-                              entry={entry}
-                              onPress={() => handleSelectEntry(entry)}
-                              compact
-                            />
-                          </button>
-                        ))
-                      ) : (
-                        <div className="text-foreground-500 rounded-[22px] border border-dashed border-default-300 px-4 py-9 text-center text-lg">
-                          Nothing scheduled.
-                        </div>
-                      )}
-                    </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setDailyGoalsCollapsed((v) => !v)}
+                      className="flex w-full items-center gap-1 text-left"
+                    >
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                        {formatMonthYear(currentDate)} Daily Goal %
+                      </span>
+                      <Icon
+                        icon={dailyGoalsCollapsed ? "mdi:chevron-right" : "mdi:chevron-down"}
+                        className="ml-auto h-3.5 w-3.5 text-foreground-400"
+                      />
+                    </button>
+                    {!dailyGoalsCollapsed && (
+                      <div className="mt-2 space-y-1.5">
+                        {dailyGoalMetrics.map(({ item, ratio }) => (
+                          <div key={item.key} className="flex items-center gap-2">
+                            <Tooltip content={item.label} placement="right" size="sm">
+                              <span className="shrink-0 cursor-default">
+                                <Icon icon={item.icon} className="h-4 w-4 text-foreground-500" />
+                              </span>
+                            </Tooltip>
+                            <div className="min-w-0 flex-1">
+                              <div className="h-2 overflow-hidden rounded-full bg-default-200">
+                                <div
+                                  className="h-full rounded-full bg-primary transition-all"
+                                  style={{ width: `${Math.min(ratio, 1) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
+                              {Math.round(ratio * 100)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -2474,6 +2318,10 @@ export const PortableCalendar = ({
                       entries={visibleEntries}
                       onSelectDate={handleSelectDate}
                       onSelectEntry={handleSelectEntry}
+                      onCustomDayIconsByDateChange={setMonthViewIconsByDate}
+                      onPrayerChecklistsByDateChange={setMonthViewPrayerChecklists}
+                      onWeightChecklistsByDateChange={setMonthViewWeightChecklists}
+                      onSalesChecklistsByDateChange={setMonthViewSalesChecklists}
                     />
                   ) : view === "week" ? (
                     <WeekView
