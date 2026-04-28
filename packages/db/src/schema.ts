@@ -116,6 +116,9 @@ export const weightDayChecklists = pgTable(
         meditateStretch: boolean("meditate_stretch").default(false).notNull(),
         calories2300: boolean("calories_2300").default(false).notNull(),
         wakeUpAtSeven: boolean("wake_up_at_seven").default(false).notNull(),
+        noPhoneInBathroomBedDriving: boolean("no_phone_in_bathroom_bed_driving").default(false).notNull(),
+        fruitAndVeggies: boolean("fruit_and_veggies").default(false).notNull(),
+        creatineAndProtein: boolean("creatine_and_protein").default(false).notNull(),
         createdAt: timestamp("created_at", { withTimezone: true })
             .defaultNow()
             .notNull(),
