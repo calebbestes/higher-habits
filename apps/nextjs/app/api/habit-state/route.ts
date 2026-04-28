@@ -50,6 +50,9 @@ const weightChecklistSchema = z.object({
   "meditate/stretch": z.boolean(),
   calories2300: z.boolean(),
   wakeUpAtSeven: z.boolean(),
+  noPhoneInBathroomBedDriving: z.boolean().optional().default(false),
+  fruitAndVeggies: z.boolean().optional().default(false),
+  creatineAndProtein: z.boolean().optional().default(false),
 });
 
 const customDayIconSelectionSchema = z.object({
@@ -289,6 +292,9 @@ export async function GET(request: Request) {
             "meditate/stretch": checklist.meditateStretch,
             calories2300: checklist.calories2300,
             wakeUpAtSeven: checklist.wakeUpAtSeven,
+            noPhoneInBathroomBedDriving: checklist.noPhoneInBathroomBedDriving ?? false,
+            fruitAndVeggies: checklist.fruitAndVeggies ?? false,
+            creatineAndProtein: checklist.creatineAndProtein ?? false,
           } satisfies WeightChecklistState,
         ]),
       ),
@@ -400,6 +406,9 @@ export async function POST(request: Request) {
           meditateStretch: input.checklist["meditate/stretch"],
           calories2300: input.checklist.calories2300,
           wakeUpAtSeven: input.checklist.wakeUpAtSeven,
+          noPhoneInBathroomBedDriving: input.checklist.noPhoneInBathroomBedDriving,
+          fruitAndVeggies: input.checklist.fruitAndVeggies,
+          creatineAndProtein: input.checklist.creatineAndProtein,
         };
         await db
           .insert(weightDayChecklists)
