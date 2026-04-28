@@ -56,11 +56,26 @@ const BASE_ITEMS = [
     label: "Wake up at 7:00",
     icon: "mdi:alarm",
   },
+  {
+    key: "noPhoneInBathroomBedDriving",
+    label: "No phone in bathroom, bed, or driving",
+    icon: "mdi:cellphone-off",
+  },
+  {
+    key: "fruitAndVeggies",
+    label: "Fruit (Avocado, Banana, Mango) & Veggies (Sweet potato, Spinach, Broccoli)",
+    icon: "mdi:fruit-watermelon",
+  },
+  {
+    key: "creatineAndProtein",
+    label: "Creatine + Protein shake",
+    icon: "mdi:bottle-tonic-plus",
+  },
 ] as const;
 
 export const WEIGHT_CHECKLIST_ITEMS = [GYM_ITEM, ...BASE_ITEMS] as const;
 
-export type WeightChecklistKey = "gym" | "meditate/stretch" | "calories2300" | "wakeUpAtSeven";
+export type WeightChecklistKey = "gym" | "meditate/stretch" | "calories2300" | "wakeUpAtSeven" | "noPhoneInBathroomBedDriving" | "fruitAndVeggies" | "creatineAndProtein";
 
 const getChecklistItems = (date: Date | null) => {
   if (!date || date.getDay() !== 0) return WEIGHT_CHECKLIST_ITEMS;

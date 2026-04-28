@@ -49,7 +49,7 @@ import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { DrawerNotesCard } from "./drawer-notes-card";
 
-const SALES_CHECKLIST_ITEMS = [
+export const SALES_CHECKLIST_ITEMS = [
   { key: "coldEmails", label: "50 cold emails", icon: "mdi:email-multiple-outline" },
   { key: "linkedinMessages", label: "10 LinkedIn messages", icon: "mdi:linkedin" },
   { key: "prospectiveClients", label: "Contact 3 prospective clients", icon: "mdi:account-group-outline" },

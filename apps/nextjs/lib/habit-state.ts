@@ -57,6 +57,9 @@ export type WeightChecklistState = {
   "meditate/stretch": boolean;
   calories2300: boolean;
   wakeUpAtSeven: boolean;
+  noPhoneInBathroomBedDriving: boolean;
+  fruitAndVeggies: boolean;
+  creatineAndProtein: boolean;
 };
 
 export const EMPTY_WEIGHT_CHECKLIST: WeightChecklistState = {
@@ -64,6 +67,9 @@ export const EMPTY_WEIGHT_CHECKLIST: WeightChecklistState = {
   "meditate/stretch": false,
   calories2300: false,
   wakeUpAtSeven: false,
+  noPhoneInBathroomBedDriving: false,
+  fruitAndVeggies: false,
+  creatineAndProtein: false,
 };
 
 export type SalesChecklistState = {
