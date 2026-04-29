@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   CardBody,
+  Chip,
   Drawer,
   DrawerBody,
   DrawerContent,
@@ -336,12 +337,43 @@ export const DayIconPickerDrawer = ({
                 <Icon icon="mdi:shape-plus" className="h-5 w-5" />
               </div>
               <div className="min-w-0">
+                <Chip
+                  size="sm"
+                  variant="flat"
+                  className="border border-sky-200/80 bg-sky-50 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-800"
+                >
+                  Custom corner
+                </Chip>
                 <p className="mt-2 text-lg font-semibold text-slate-950">
-                  Monthly Goals
+                  Choose Day Icon
                 </p>
                 <p className="text-sm text-slate-500">
                   {iconPickerDate ? formatDayLabel(iconPickerDate) : ""}
                 </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Current icon
+              </p>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-700">
+                  <Icon
+                    icon={selectedIcon?.icon ?? "mdi:plus"}
+                    className="h-6 w-6"
+                  />
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    {selectedIcon?.label ?? "Nothing selected"}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {selectedIcon
+                      ? CUSTOM_DAY_ICON_FREQUENCY_LABELS[selectedIcon.frequency]
+                      : "Pick an icon to fill the bottom-right corner for this day."}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

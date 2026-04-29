@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  EMPTY_WEIGHT_CHECKLIST,
-  type WeightChecklistState,
+  EMPTY_PRAYER_CHECKLIST,
+  type PrayerChecklistState,
   toDateKey,
 } from "@/lib/habit-state";
 import {
@@ -21,13 +21,13 @@ import { Icon } from "@iconify/react";
 import { useMemo } from "react";
 import { DrawerNotesCard } from "./drawer-notes-card";
 
-type WeightChecklistDrawerProps = {
-  weightDrawerDate: Date | null;
-  checklistsByDate: Record<string, WeightChecklistState>;
+type PrayerChecklistDrawerProps = {
+  prayerDrawerDate: Date | null;
+  checklistsByDate: Record<string, PrayerChecklistState>;
   notes: string | null;
   onChecklistChange: (
     dateKey: string,
-    nextChecklist: WeightChecklistState,
+    nextChecklist: PrayerChecklistState,
   ) => void;
   onNotesChange: (
     dateKey: string,
@@ -36,62 +36,35 @@ type WeightChecklistDrawerProps = {
   onClose: () => void;
 };
 
-const GYM_ITEM = {
-  key: "gym",
-  label: "Gym",
-  icon: "mdi:dumbbell",
-} as const;
-
-const MEDITATE_ITEM = {
-  key: "meditate/stretch",
-  label: "Meditate/Stretch",
-  icon: "mdi:yoga",
-} as const;
-
-const BASE_ITEMS = [
+export const PRAYER_CHECKLIST_ITEMS = [
   {
-    key: "calories2300",
-    label: "2300 calories",
-    icon: "mdi:fire-circle",
+    key: "scriptures",
+    label: "Scriptures",
+    icon: "mdi:book-open-page-variant",
   },
   {
-    key: "wakeUpAtSeven",
-    label: "Wake up at 7:00",
-    icon: "mdi:alarm",
+    key: "prayer",
+    label: "Prayer",
+    icon: "mdi:hands-pray",
   },
   {
-    key: "noPhoneInBathroomBedDriving",
-    label: "No phone in bathroom, bed, or driving",
-    icon: "mdi:cellphone-off",
+    key: "cleanRoom",
+    label: "Clean room",
+    icon: "mdi:broom",
   },
   {
-    key: "fruitAndVeggies",
-    label:
-      "Fruit (Avocado, Banana, Mango) & Veggies (Sweet potato, Spinach, Broccoli)",
-    icon: "mdi:fruit-watermelon",
+    key: "resistTemptation",
+    label: "Keep opal and tampermonkey on",
+    icon: "mdi:eye-outline",
   },
   {
-    key: "creatineAndProtein",
-    label: "Creatine + Protein shake",
-    icon: "mdi:bottle-tonic-plus",
+    key: "noPhoneWalk",
+    label: "No-phone walk",
+    icon: "mdi:walk",
   },
 ] as const;
 
-export const WEIGHT_CHECKLIST_ITEMS = [GYM_ITEM, ...BASE_ITEMS] as const;
-
-export type WeightChecklistKey =
-  | "gym"
-  | "meditate/stretch"
-  | "calories2300"
-  | "wakeUpAtSeven"
-  | "noPhoneInBathroomBedDriving"
-  | "fruitAndVeggies"
-  | "creatineAndProtein";
-
-const getChecklistItems = (date: Date | null) => {
-  if (!date || date.getDay() !== 0) return WEIGHT_CHECKLIST_ITEMS;
-  return [MEDITATE_ITEM, ...BASE_ITEMS] as const;
-};
+export type PrayerChecklistKey = typeof PRAYER_CHECKLIST_ITEMS[number]["key"];
 
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
@@ -104,30 +77,25 @@ const formatDayLabel = (date: Date) =>
     year: "numeric",
   }).format(date);
 
-export const WeightChecklistDrawer = ({
-  weightDrawerDate,
+export const PrayerChecklistDrawer = ({
+  prayerDrawerDate,
   checklistsByDate,
   notes,
   onChecklistChange,
   onNotesChange,
   onClose,
-}: WeightChecklistDrawerProps) => {
+}: PrayerChecklistDrawerProps) => {
   const dateKey = useMemo(
-    () => (weightDrawerDate ? toDateKey(weightDrawerDate) : ""),
-    [weightDrawerDate],
+    () => (prayerDrawerDate ? toDateKey(prayerDrawerDate) : ""),
+    [prayerDrawerDate],
   );
 
   const dayChecklist = useMemo(
     () =>
       dateKey
-        ? checklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST
-        : EMPTY_WEIGHT_CHECKLIST,
+        ? checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST
+        : EMPTY_PRAYER_CHECKLIST,
     [checklistsByDate, dateKey],
-  );
-
-  const checklistItems = useMemo(
-    () => getChecklistItems(weightDrawerDate),
-    [weightDrawerDate],
   );
 
   const completedCount = useMemo(
@@ -135,12 +103,12 @@ export const WeightChecklistDrawer = ({
     [dayChecklist],
   );
 
-  const toggleItem = (itemKey: WeightChecklistKey) => {
+  const toggleItem = (itemKey: PrayerChecklistKey) => {
     if (!dateKey) {
       return;
     }
 
-    const current = checklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST;
+    const current = checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST;
     onChecklistChange(dateKey, {
       ...current,
       [itemKey]: !current[itemKey],
@@ -152,18 +120,18 @@ export const WeightChecklistDrawer = ({
       return;
     }
 
-    onChecklistChange(dateKey, EMPTY_WEIGHT_CHECKLIST);
+    onChecklistChange(dateKey, EMPTY_PRAYER_CHECKLIST);
 
     addToast({
       title: "Checklist reset",
-      description: "The weight checklist was cleared for this day.",
+      description: "The prayer checklist was cleared for this day.",
       color: "primary",
     });
   };
 
   return (
     <Drawer
-      isOpen={Boolean(weightDrawerDate)}
+      isOpen={Boolean(prayerDrawerDate)}
       onOpenChange={(open) => {
         if (!open) {
           onClose();
@@ -183,31 +151,38 @@ export const WeightChecklistDrawer = ({
           "right-4 top-4 z-20 rounded-full border border-white/70 bg-white/85 text-slate-700 shadow-sm transition hover:bg-white sm:right-5 sm:top-5",
       }}
     >
-      <DrawerContent className="h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,#ffffff_0%,#f4fbff_46%,#ffffff_100%)] shadow-2xl">
+      <DrawerContent className="h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(129,140,248,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(34,197,94,0.14),transparent_24%),linear-gradient(180deg,#ffffff_0%,#faf9ff_46%,#ffffff_100%)] shadow-2xl">
         <DrawerHeader className="border-b border-slate-200/70 bg-white/85 px-4 py-5 backdrop-blur sm:px-6">
           <div className="pr-12">
             <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-cyan-500 to-emerald-500 text-white shadow-lg shadow-sky-500/20">
-                <Icon icon="mdi:dumbbell" className="h-5 w-5" />
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-emerald-500 text-white shadow-lg shadow-violet-500/20">
+                <Icon icon="mdi:hands-pray" className="h-5 w-5" />
               </div>
               <div className="min-w-0">
+                <Chip
+                  size="sm"
+                  variant="flat"
+                  className="border border-violet-200/80 bg-violet-50 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-800"
+                >
+                  Daily reset
+                </Chip>
                 <p className="mt-2 text-lg font-semibold text-slate-950">
-                  Healthy Habits
+                  Prayer Checklist
                 </p>
                 <p className="text-sm text-slate-500">
-                  {weightDrawerDate ? formatDayLabel(weightDrawerDate) : ""}
+                  {prayerDrawerDate ? formatDayLabel(prayerDrawerDate) : ""}
                 </p>
               </div>
             </div>
           </div>
         </DrawerHeader>
 
-        <DrawerBody className="bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_34%)]">
+        <DrawerBody className="bg-[radial-gradient(circle_at_top,rgba(129,140,248,0.08),transparent_34%)]">
           <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
             <DrawerNotesCard
               value={notes}
               onSave={(nextNotes) => onNotesChange(dateKey, nextNotes)}
-              placeholder="Add notes about training, calories, energy, recovery, or what got in the way..."
+              placeholder="Add notes about scripture impressions, temptations, or how the day felt spiritually..."
             />
 
             <Card
@@ -215,7 +190,7 @@ export const WeightChecklistDrawer = ({
               className="border border-slate-200/80 bg-white/90"
             >
               <CardBody className="gap-3 p-3 sm:p-4">
-                {checklistItems.map((item) => {
+                {PRAYER_CHECKLIST_ITEMS.map((item) => {
                   const isComplete = dayChecklist[item.key];
 
                   return (
@@ -227,7 +202,7 @@ export const WeightChecklistDrawer = ({
                         "flex w-full items-center gap-3 rounded-[22px] border p-4 text-left transition-all",
                         isComplete
                           ? "border-emerald-200 bg-emerald-50/80 shadow-sm"
-                          : "border-slate-200/80 bg-slate-50/80 hover:border-sky-200 hover:bg-sky-50/50",
+                          : "border-slate-200/80 bg-slate-50/80 hover:border-violet-200 hover:bg-violet-50/50",
                       )}
                     >
                       <div

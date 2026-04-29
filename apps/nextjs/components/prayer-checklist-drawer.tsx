@@ -29,7 +29,10 @@ type PrayerChecklistDrawerProps = {
     dateKey: string,
     nextChecklist: PrayerChecklistState,
   ) => void;
-  onNotesChange: (dateKey: string, nextNotes: string | null) => Promise<void> | void;
+  onNotesChange: (
+    dateKey: string,
+    nextNotes: string | null,
+  ) => Promise<void> | void;
   onClose: () => void;
 };
 
@@ -61,7 +64,7 @@ export const PRAYER_CHECKLIST_ITEMS = [
   },
 ] as const;
 
-export type PrayerChecklistKey = (typeof PRAYER_CHECKLIST_ITEMS)[number]["key"];
+export type PrayerChecklistKey = typeof PRAYER_CHECKLIST_ITEMS[number]["key"];
 
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
@@ -90,7 +93,7 @@ export const PrayerChecklistDrawer = ({
   const dayChecklist = useMemo(
     () =>
       dateKey
-        ? (checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST)
+        ? checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST
         : EMPTY_PRAYER_CHECKLIST,
     [checklistsByDate, dateKey],
   );
@@ -138,7 +141,7 @@ export const PrayerChecklistDrawer = ({
       backdrop="blur"
       scrollBehavior="inside"
       classNames={{
-        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-slate-200/80 bg-transparent sm:w-2/3 sm:max-w-[38rem]",
+        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-slate-200/80 bg-transparent sm:w-2/3 sm:max-w-[60rem]",
         backdrop: "bg-slate-950/45 backdrop-blur-[3px]",
         header: "p-0",
         body: "p-0",
@@ -156,23 +159,14 @@ export const PrayerChecklistDrawer = ({
                 <Icon icon="mdi:hands-pray" className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <Chip
-                  size="sm"
-                  variant="flat"
-                  className="border border-violet-200/80 bg-violet-50 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-800"
-                >
-                  Daily reset
-                </Chip>
                 <p className="mt-2 text-lg font-semibold text-slate-950">
-                  Prayer Checklist
+                  Daily Manna
                 </p>
                 <p className="text-sm text-slate-500">
                   {prayerDrawerDate ? formatDayLabel(prayerDrawerDate) : ""}
                 </p>
               </div>
             </div>
-
-          
           </div>
         </DrawerHeader>
 
