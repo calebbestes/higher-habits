@@ -67,7 +67,10 @@ import {
   PRAYER_CHECKLIST_ITEMS,
   PrayerChecklistDrawer,
 } from "./prayer-checklist-drawer";
-import { SALES_CHECKLIST_ITEMS, SalesOutreachDrawer } from "./sales-outreach-drawer";
+import {
+  SALES_CHECKLIST_ITEMS,
+  SalesOutreachDrawer,
+} from "./sales-outreach-drawer";
 import {
   WEIGHT_CHECKLIST_ITEMS,
   WeightChecklistDrawer,
@@ -158,9 +161,9 @@ const MONTH_NAMES = [
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_HABIT_ICONS = [
-  { key: "prayer", label: "Prayer", icon: "mdi:hands-pray" },
-  { key: "gym", label: "Weights", icon: "mdi:dumbbell" },
-  { key: "outreach", label: "Sales/Outreach", icon: "mdi:currency-usd" },
+  { key: "prayer", label: "Spiritual", icon: "mdi:hands-pray" },
+  { key: "gym", label: "Health", icon: "mdi:dumbbell" },
+  { key: "outreach", label: "Career", icon: "mdi:currency-usd" },
 ] as const;
 
 const cn = (...values: Array<string | false | null | undefined>) =>
@@ -236,7 +239,9 @@ const formatWeekRange = (date: Date) => {
   const sameYear = weekStart.getFullYear() === weekEnd.getFullYear();
 
   if (sameMonth && sameYear) {
-    return `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getDate()} - ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+    return `${
+      MONTH_NAMES[weekStart.getMonth()]
+    } ${weekStart.getDate()} - ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
   }
 
   return `${new Intl.DateTimeFormat("en-US", {
@@ -438,7 +443,15 @@ const SalesProgressIcon = ({
 );
 
 const SearchIcon = () => (
-  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Search">
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    className="h-4 w-4"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    role="img"
+    aria-label="Search"
+  >
     <title>Search</title>
     <circle cx="8.5" cy="8.5" r="5.5" />
     <path d="m13 13 4 4" strokeLinecap="round" />
@@ -446,28 +459,60 @@ const SearchIcon = () => (
 );
 
 const ChevronLeftIcon = () => (
-  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Previous">
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    className="h-4 w-4"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    role="img"
+    aria-label="Previous"
+  >
     <title>Previous</title>
     <path d="m12.5 4.5-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const ChevronRightIcon = () => (
-  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Next">
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    className="h-4 w-4"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    role="img"
+    aria-label="Next"
+  >
     <title>Next</title>
     <path d="m7.5 4.5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const CloseIcon = () => (
-  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Close">
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    className="h-4 w-4"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    role="img"
+    aria-label="Close"
+  >
     <title>Close</title>
     <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
   </svg>
 );
 
 const PlusIcon = () => (
-  <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" role="img" aria-label="Add">
+  <svg
+    viewBox="0 0 20 20"
+    fill="none"
+    className="h-4 w-4"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    role="img"
+    aria-label="Add"
+  >
     <title>Add</title>
     <path d="M10 4v12M4 10h12" strokeLinecap="round" />
   </svg>
@@ -493,7 +538,9 @@ const CategoryPill = ({
       compact ? "min-h-8 pl-3.5" : "min-h-9 pl-4",
     )}
     style={{ backgroundColor: withAlpha(entry.color, compact ? "18" : "14") }}
-    title={`${entry.title} • ${entry.category.name} • ${formatEntryTiming(entry)}`}
+    title={`${entry.title} • ${entry.category.name} • ${formatEntryTiming(
+      entry,
+    )}`}
   >
     <span
       className="absolute top-1 bottom-1 left-1 w-1 rounded-full"
@@ -538,10 +585,18 @@ const MonthView = ({
   entries: NormalizedCalendarEntry[];
   onSelectDate: (date: Date) => void;
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
-  onCustomDayIconsByDateChange?: (data: Record<string, CustomDayIconSelection | null>) => void;
-  onPrayerChecklistsByDateChange?: (data: Record<string, PrayerChecklistState>) => void;
-  onWeightChecklistsByDateChange?: (data: Record<string, WeightChecklistState>) => void;
-  onSalesChecklistsByDateChange?: (data: Record<string, SalesChecklistState>) => void;
+  onCustomDayIconsByDateChange?: (
+    data: Record<string, CustomDayIconSelection | null>,
+  ) => void;
+  onPrayerChecklistsByDateChange?: (
+    data: Record<string, PrayerChecklistState>,
+  ) => void;
+  onWeightChecklistsByDateChange?: (
+    data: Record<string, WeightChecklistState>,
+  ) => void;
+  onSalesChecklistsByDateChange?: (
+    data: Record<string, SalesChecklistState>,
+  ) => void;
 }) => {
   const [selectedDayForOverflow, setSelectedDayForOverflow] =
     useState<Date | null>(null);
@@ -765,7 +820,6 @@ const MonthView = ({
         color: "danger",
       });
     }
-
   };
 
   const handlePrayerChecklistChange = (
@@ -1021,10 +1075,10 @@ const MonthView = ({
       option.frequency === "monthly"
         ? 1
         : option.frequency === "biweekly"
-          ? 2
-          : option.frequency === "weekly"
-            ? 4
-            : new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+        ? 2
+        : option.frequency === "weekly"
+        ? 4
+        : new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
 
     return Math.min(completedCount / targetCount, 1);
   };
@@ -1125,7 +1179,9 @@ const MonthView = ({
                         const weightProgress =
                           habitIcon.key === "gym" ? getWeightProgress(date) : 0;
                         const salesProgress =
-                          habitIcon.key === "outreach" ? getSalesProgress(date) : 0;
+                          habitIcon.key === "outreach"
+                            ? getSalesProgress(date)
+                            : 0;
                         const prayerDrawerOpen = prayerDrawerDate
                           ? isSameDay(prayerDrawerDate, date)
                           : false;
@@ -1139,10 +1195,10 @@ const MonthView = ({
                           habitIcon.key === "prayer"
                             ? prayerProgress > 0 || prayerDrawerOpen
                             : habitIcon.key === "gym"
-                              ? weightProgress > 0 || weightDrawerOpen
-                              : habitIcon.key === "outreach"
-                                ? salesProgress > 0 || salesDrawerOpen
-                                : activeHabitIcons.has(iconKey);
+                            ? weightProgress > 0 || weightDrawerOpen
+                            : habitIcon.key === "outreach"
+                            ? salesProgress > 0 || salesDrawerOpen
+                            : activeHabitIcons.has(iconKey);
 
                         return (
                           <button
@@ -1156,9 +1212,12 @@ const MonthView = ({
                             }}
                             className={cn(
                               "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-[9px] transition-all",
-                              habitIcon.key === "prayer" && "col-start-1 row-start-1",
-                              habitIcon.key === "gym" && "col-start-2 row-start-1",
-                              habitIcon.key === "outreach" && "col-start-1 row-start-2",
+                              habitIcon.key === "prayer" &&
+                                "col-start-1 row-start-1",
+                              habitIcon.key === "gym" &&
+                                "col-start-2 row-start-1",
+                              habitIcon.key === "outreach" &&
+                                "col-start-1 row-start-2",
                               isActive
                                 ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
                                 : "border-default-200/40 bg-content1/40 text-foreground-300 opacity-30",
@@ -1185,24 +1244,28 @@ const MonthView = ({
                       })}
 
                       {([0, 1, 2] as const).map((slotIdx) => {
-                        const selectedCustomIcon = getCustomDayIcon(date, slotIdx);
+                        const selectedCustomIcon = getCustomDayIcon(
+                          date,
+                          slotIdx,
+                        );
                         const isThisSlotOpen = iconPickerDate
-                          ? isSameDay(iconPickerDate, date) && iconPickerSlot === slotIdx
+                          ? isSameDay(iconPickerDate, date) &&
+                            iconPickerSlot === slotIdx
                           : false;
 
                         const gridClass =
                           slotIdx === 0
                             ? "col-start-1 row-start-3"
                             : slotIdx === 1
-                              ? "col-start-2 row-start-2"
-                              : "col-start-2 row-start-3";
+                            ? "col-start-2 row-start-2"
+                            : "col-start-2 row-start-3";
 
                         return (
                           <button
                             type="button"
                             key={`custom-${slotIdx}-${toDateKey(date)}`}
-                            title="Choose day icon"
-                            aria-label="Choose day icon"
+                            title="Custom icon"
+                            aria-label="Custom icon"
                             onClick={(event) => {
                               event.stopPropagation();
                               handleOpenIconPicker(date, slotIdx);
@@ -1213,10 +1276,10 @@ const MonthView = ({
                               selectedCustomIcon?.status === "complete"
                                 ? "border-sky-200 bg-sky-50/90 text-sky-600 opacity-100"
                                 : selectedCustomIcon?.status === "planned"
-                                  ? "border-slate-300 bg-slate-50/90 text-slate-500 opacity-100"
-                                  : isThisSlotOpen
-                                    ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
-                                    : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
+                                ? "border-slate-300 bg-slate-50/90 text-slate-500 opacity-100"
+                                : isThisSlotOpen
+                                ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
+                                : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
                             )}
                           >
                             {selectedCustomIcon?.status === "complete" ? (
@@ -1231,7 +1294,9 @@ const MonthView = ({
                               />
                             ) : (
                               <Icon
-                                icon={selectedCustomIcon?.option.icon ?? "mdi:plus"}
+                                icon={
+                                  selectedCustomIcon?.option.icon ?? "mdi:plus"
+                                }
                                 className="h-6 w-6"
                               />
                             )}
@@ -1292,7 +1357,9 @@ const MonthView = ({
                               <div className="space-y-1">
                                 {hiddenEntries.map((entry) => (
                                   <Chip
-                                    key={`${entry.id}-overflow-${date.toISOString()}`}
+                                    key={`${
+                                      entry.id
+                                    }-overflow-${date.toISOString()}`}
                                     size="sm"
                                     variant="flat"
                                     className="h-6 w-full max-w-full cursor-pointer justify-start border border-transparent text-xs transition-all hover:border-current"
@@ -1333,7 +1400,11 @@ const MonthView = ({
       <PrayerChecklistDrawer
         prayerDrawerDate={prayerDrawerDate}
         checklistsByDate={prayerChecklistsByDate}
-        notes={prayerDrawerDate ? getDrawerNotes(toDateKey(prayerDrawerDate)).prayer : null}
+        notes={
+          prayerDrawerDate
+            ? getDrawerNotes(toDateKey(prayerDrawerDate)).prayer
+            : null
+        }
         onChecklistChange={handlePrayerChecklistChange}
         onNotesChange={(dateKey, nextNotes) =>
           handleDrawerNoteChange(dateKey, "prayer", nextNotes)
@@ -1346,7 +1417,11 @@ const MonthView = ({
       <WeightChecklistDrawer
         weightDrawerDate={weightDrawerDate}
         checklistsByDate={weightChecklistsByDate}
-        notes={weightDrawerDate ? getDrawerNotes(toDateKey(weightDrawerDate)).gym : null}
+        notes={
+          weightDrawerDate
+            ? getDrawerNotes(toDateKey(weightDrawerDate)).gym
+            : null
+        }
         onChecklistChange={handleWeightChecklistChange}
         onNotesChange={(dateKey, nextNotes) =>
           handleDrawerNoteChange(dateKey, "gym", nextNotes)
@@ -1360,7 +1435,11 @@ const MonthView = ({
         salesDrawerDate={salesDrawerDate}
         salesByDate={salesByDate}
         checklistsByDate={salesChecklistsByDate}
-        notes={salesDrawerDate ? getDrawerNotes(toDateKey(salesDrawerDate)).outreach : null}
+        notes={
+          salesDrawerDate
+            ? getDrawerNotes(toDateKey(salesDrawerDate)).outreach
+            : null
+        }
         onChecklistChange={handleSalesChecklistChange}
         onSaveActivity={handleSaveSalesActivity}
         onNotesChange={(dateKey, nextNotes) =>
@@ -1375,10 +1454,23 @@ const MonthView = ({
         iconPickerDate={iconPickerDate}
         slotIndex={iconPickerSlot}
         selectedIconsByDate={customDayIconsByDate}
-        notes={iconPickerDate ? (getDrawerNotes(toDateKey(iconPickerDate))[`custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2"] ?? null) : null}
+        notes={
+          iconPickerDate
+            ? getDrawerNotes(toDateKey(iconPickerDate))[
+                `custom_${iconPickerSlot}` as
+                  | "custom_0"
+                  | "custom_1"
+                  | "custom_2"
+              ] ?? null
+            : null
+        }
         onIconChange={handleCustomDayIconChange}
         onNotesChange={(dateKey, nextNotes) =>
-          handleDrawerNoteChange(dateKey, `custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2", nextNotes)
+          handleDrawerNoteChange(
+            dateKey,
+            `custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2",
+            nextNotes,
+          )
         }
         onClose={() => {
           setIconPickerDate(null);
@@ -1711,31 +1803,39 @@ export const PortableCalendar = ({
   >({});
   const [goalsCollapsed, setGoalsCollapsed] = useState(false);
   const [dailyGoalsCollapsed, setDailyGoalsCollapsed] = useState(false);
-  const [monthViewPrayerChecklists, setMonthViewPrayerChecklists] = useState<Record<string, PrayerChecklistState>>({});
-  const [monthViewWeightChecklists, setMonthViewWeightChecklists] = useState<Record<string, WeightChecklistState>>({});
-  const [monthViewSalesChecklists, setMonthViewSalesChecklists] = useState<Record<string, SalesChecklistState>>({});
+  const [monthViewPrayerChecklists, setMonthViewPrayerChecklists] = useState<
+    Record<string, PrayerChecklistState>
+  >({});
+  const [monthViewWeightChecklists, setMonthViewWeightChecklists] = useState<
+    Record<string, WeightChecklistState>
+  >({});
+  const [monthViewSalesChecklists, setMonthViewSalesChecklists] = useState<
+    Record<string, SalesChecklistState>
+  >({});
 
   const goalMetrics = useMemo(() => {
     const monthKey = getMonthKey(currentDate);
     return CUSTOM_DAY_ICON_OPTIONS.map((opt) => {
-        const targetCount =
-          opt.frequency === "monthly" ? 1 : opt.frequency === "biweekly" ? 2 : 4;
-        const completedCount = Object.entries(monthViewIconsByDate).reduce(
-          (n, [dateKey, sel]) =>
-            dateKey.startsWith(monthKey) &&
-            sel?.iconKey === opt.key &&
-            sel.status === "complete"
-              ? n + 1
-              : n,
-          0,
-        );
-        return { opt, completedCount, targetCount, ratio: completedCount / targetCount };
-      })
-      .sort((a, b) =>
-        a.ratio !== b.ratio
-          ? b.ratio - a.ratio
-          : a.targetCount - b.targetCount,
+      const targetCount =
+        opt.frequency === "monthly" ? 1 : opt.frequency === "biweekly" ? 2 : 4;
+      const completedCount = Object.entries(monthViewIconsByDate).reduce(
+        (n, [dateKey, sel]) =>
+          dateKey.startsWith(monthKey) &&
+          sel?.iconKey === opt.key &&
+          sel.status === "complete"
+            ? n + 1
+            : n,
+        0,
       );
+      return {
+        opt,
+        completedCount,
+        targetCount,
+        ratio: completedCount / targetCount,
+      };
+    }).sort((a, b) =>
+      a.ratio !== b.ratio ? b.ratio - a.ratio : a.targetCount - b.targetCount,
+    );
   }, [monthViewIconsByDate, currentDate]);
 
   const dailyGoalMetrics = useMemo(() => {
@@ -1747,36 +1847,59 @@ export const PortableCalendar = ({
 
     type ChecklistItem = { key: string; label: string; icon: string };
 
-    const itemsWithSource: Array<{ item: ChecklistItem; byDate: Record<string, Record<string, boolean>> }> = [
+    const itemsWithSource: Array<{
+      item: ChecklistItem;
+      byDate: Record<string, Record<string, boolean>>;
+    }> = [
       ...PRAYER_CHECKLIST_ITEMS.map((item) => ({
         item: item as ChecklistItem,
-        byDate: monthViewPrayerChecklists as Record<string, Record<string, boolean>>,
+        byDate: monthViewPrayerChecklists as Record<
+          string,
+          Record<string, boolean>
+        >,
       })),
       ...WEIGHT_CHECKLIST_ITEMS.map((item) => ({
         item: item as ChecklistItem,
-        byDate: monthViewWeightChecklists as Record<string, Record<string, boolean>>,
+        byDate: monthViewWeightChecklists as Record<
+          string,
+          Record<string, boolean>
+        >,
       })),
       ...SALES_CHECKLIST_ITEMS.map((item) => ({
         item: item as ChecklistItem,
-        byDate: monthViewSalesChecklists as Record<string, Record<string, boolean>>,
+        byDate: monthViewSalesChecklists as Record<
+          string,
+          Record<string, boolean>
+        >,
       })),
     ];
 
     return itemsWithSource
       .map(({ item, byDate }) => {
         const completedDateKeys = Object.entries(byDate)
-          .filter(([dateKey, state]) => dateKey.startsWith(monthKey) && state[item.key])
+          .filter(
+            ([dateKey, state]) =>
+              dateKey.startsWith(monthKey) && state[item.key],
+          )
           .map(([dateKey]) => dateKey)
           .sort();
         const completedCount = completedDateKeys.length;
         if (completedCount === 0) return { item, ratio: 0 };
         const firstDate = completedDateKeys[0];
         const end = new Date(lastDate > firstDate ? lastDate : firstDate);
-        const totalDays = Math.round((end.getTime() - new Date(firstDate).getTime()) / msPerDay) + 1;
+        const totalDays =
+          Math.round(
+            (end.getTime() - new Date(firstDate).getTime()) / msPerDay,
+          ) + 1;
         return { item, ratio: completedCount / totalDays };
       })
       .sort((a, b) => b.ratio - a.ratio);
-  }, [monthViewPrayerChecklists, monthViewWeightChecklists, monthViewSalesChecklists, currentDate]);
+  }, [
+    monthViewPrayerChecklists,
+    monthViewWeightChecklists,
+    monthViewSalesChecklists,
+    currentDate,
+  ]);
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
   const [draftEntry, setDraftEntry] = useState<DraftEntry>(() => ({
@@ -1860,8 +1983,9 @@ export const PortableCalendar = ({
     if (!query) return [];
 
     return visibleEntries.filter((entry) => {
-      const haystack =
-        `${entry.title} ${entry.notes ?? ""} ${entry.category.name}`.toLowerCase();
+      const haystack = `${entry.title} ${entry.notes ?? ""} ${
+        entry.category.name
+      }`.toLowerCase();
       return haystack.includes(query);
     });
   }, [searchQuery, visibleEntries]);
@@ -1952,7 +2076,7 @@ export const PortableCalendar = ({
       categoryName:
         preferredCategory?.id === UNCATEGORIZED_CATEGORY.id
           ? ""
-          : (preferredCategory?.name ?? ""),
+          : preferredCategory?.name ?? "",
       categoryColor: preferredCategory?.color ?? DEFAULT_ENTRY_COLOR,
     });
 
@@ -1988,11 +2112,11 @@ export const PortableCalendar = ({
       notes: draftEntry.notes.trim() || undefined,
       color: draftEntry.categoryColor,
       category: trimmedCategory
-        ? (matchingCategory ?? {
+        ? matchingCategory ?? {
             id: slugify(trimmedCategory) || `category-${Date.now()}`,
             name: trimmedCategory,
             color: draftEntry.categoryColor,
-          })
+          }
         : null,
     };
 
@@ -2101,32 +2225,50 @@ export const PortableCalendar = ({
                         Monthly Goal Progress
                       </span>
                       <Icon
-                        icon={goalsCollapsed ? "mdi:chevron-right" : "mdi:chevron-down"}
+                        icon={
+                          goalsCollapsed
+                            ? "mdi:chevron-right"
+                            : "mdi:chevron-down"
+                        }
                         className="ml-auto h-3.5 w-3.5 text-foreground-400"
                       />
                     </button>
                     {!goalsCollapsed && (
                       <div className="mt-2 space-y-1.5">
-                        {goalMetrics.map(({ opt, completedCount, targetCount, ratio }) => (
-                          <div key={opt.key} className="flex items-center gap-2">
-                            <Tooltip content={opt.label} placement="right" size="sm">
-                              <span className="shrink-0 cursor-default">
-                                <Icon icon={opt.icon} className="h-4 w-4 text-foreground-500" />
-                              </span>
-                            </Tooltip>
-                            <div className="min-w-0 flex-1">
-                              <div className="h-2 overflow-hidden rounded-full bg-default-200">
-                                <div
-                                  className="h-full rounded-full bg-primary transition-all"
-                                  style={{ width: `${Math.min(ratio, 1) * 100}%` }}
-                                />
+                        {goalMetrics.map(
+                          ({ opt, completedCount, targetCount, ratio }) => (
+                            <div
+                              key={opt.key}
+                              className="flex items-center gap-2"
+                            >
+                              <Tooltip
+                                content={opt.label}
+                                placement="right"
+                                size="sm"
+                              >
+                                <span className="shrink-0 cursor-default">
+                                  <Icon
+                                    icon={opt.icon}
+                                    className="h-4 w-4 text-foreground-500"
+                                  />
+                                </span>
+                              </Tooltip>
+                              <div className="min-w-0 flex-1">
+                                <div className="h-2 overflow-hidden rounded-full bg-default-200">
+                                  <div
+                                    className="h-full rounded-full bg-primary transition-all"
+                                    style={{
+                                      width: `${Math.min(ratio, 1) * 100}%`,
+                                    }}
+                                  />
+                                </div>
                               </div>
+                              <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
+                                {completedCount}/{targetCount}
+                              </span>
                             </div>
-                            <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
-                              {completedCount}/{targetCount}
-                            </span>
-                          </div>
-                        ))}
+                          ),
+                        )}
                       </div>
                     )}
                   </div>
@@ -2141,24 +2283,40 @@ export const PortableCalendar = ({
                         {formatMonthYear(currentDate)} Daily Goal %
                       </span>
                       <Icon
-                        icon={dailyGoalsCollapsed ? "mdi:chevron-right" : "mdi:chevron-down"}
+                        icon={
+                          dailyGoalsCollapsed
+                            ? "mdi:chevron-right"
+                            : "mdi:chevron-down"
+                        }
                         className="ml-auto h-3.5 w-3.5 text-foreground-400"
                       />
                     </button>
                     {!dailyGoalsCollapsed && (
                       <div className="mt-2 space-y-1.5">
                         {dailyGoalMetrics.map(({ item, ratio }) => (
-                          <div key={item.key} className="flex items-center gap-2">
-                            <Tooltip content={item.label} placement="right" size="sm">
+                          <div
+                            key={item.key}
+                            className="flex items-center gap-2"
+                          >
+                            <Tooltip
+                              content={item.label}
+                              placement="right"
+                              size="sm"
+                            >
                               <span className="shrink-0 cursor-default">
-                                <Icon icon={item.icon} className="h-4 w-4 text-foreground-500" />
+                                <Icon
+                                  icon={item.icon}
+                                  className="h-4 w-4 text-foreground-500"
+                                />
                               </span>
                             </Tooltip>
                             <div className="min-w-0 flex-1">
                               <div className="h-2 overflow-hidden rounded-full bg-default-200">
                                 <div
                                   className="h-full rounded-full bg-primary transition-all"
-                                  style={{ width: `${Math.min(ratio, 1) * 100}%` }}
+                                  style={{
+                                    width: `${Math.min(ratio, 1) * 100}%`,
+                                  }}
                                 />
                               </div>
                             </div>
@@ -2319,9 +2477,15 @@ export const PortableCalendar = ({
                       onSelectDate={handleSelectDate}
                       onSelectEntry={handleSelectEntry}
                       onCustomDayIconsByDateChange={setMonthViewIconsByDate}
-                      onPrayerChecklistsByDateChange={setMonthViewPrayerChecklists}
-                      onWeightChecklistsByDateChange={setMonthViewWeightChecklists}
-                      onSalesChecklistsByDateChange={setMonthViewSalesChecklists}
+                      onPrayerChecklistsByDateChange={
+                        setMonthViewPrayerChecklists
+                      }
+                      onWeightChecklistsByDateChange={
+                        setMonthViewWeightChecklists
+                      }
+                      onSalesChecklistsByDateChange={
+                        setMonthViewSalesChecklists
+                      }
                     />
                   ) : view === "week" ? (
                     <WeekView
