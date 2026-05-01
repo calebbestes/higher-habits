@@ -25,6 +25,7 @@ type DayIconPickerDrawerProps = {
   slotIndex: number;
   selectedIconsByDate: Record<string, CustomDayIconSelection | null>;
   notes: string | null;
+  hiddenGoalKeys?: Set<string>;
   onIconChange: (
     slotKey: string,
     nextIcon: CustomDayIconSelection | null,
@@ -183,10 +184,14 @@ export const DayIconPickerDrawer = ({
   slotIndex,
   selectedIconsByDate,
   notes,
+  hiddenGoalKeys,
   onIconChange,
   onNotesChange,
   onClose,
 }: DayIconPickerDrawerProps) => {
+  const visibleOptions = CUSTOM_DAY_ICON_OPTIONS.filter(
+    (o) => !hiddenGoalKeys?.has(o.key),
+  );
   const rawDateKey = useMemo(
     () => (iconPickerDate ? toDateKey(iconPickerDate) : ""),
     [iconPickerDate],
@@ -360,7 +365,7 @@ export const DayIconPickerDrawer = ({
               className="border border-slate-200/80 bg-white/90"
             >
               <CardBody className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
-                {CUSTOM_DAY_ICON_OPTIONS.map((option) => {
+                {visibleOptions.map((option) => {
                   const isSelected = option.key === pendingIconKey;
                   const {
                     completedCount,

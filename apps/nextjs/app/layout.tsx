@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { SidebarLayout } from "@/components/sidebar-layout";
 
 export const metadata: Metadata = {
   title: "Habit Tracker",
@@ -12,8 +13,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
-        <Providers>{children}</Providers>
+      <body className="antialiased">
+        <Providers>
+          <SidebarLayout>{children}</SidebarLayout>
+        </Providers>
       </body>
     </html>
   );
