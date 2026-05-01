@@ -650,7 +650,11 @@ const MonthView = ({
   const showCount = 3;
 
   const prevMonthKey = useMemo(() => {
-    const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+    const d = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() - 1,
+      1,
+    );
     return getMonthKey(d);
   }, [currentDate]);
 
@@ -677,7 +681,10 @@ const MonthView = ({
             ),
           );
 
-          for (const habit of [...snapshot.dayHabits, ...prevSnapshot.dayHabits]) {
+          for (const habit of [
+            ...snapshot.dayHabits,
+            ...prevSnapshot.dayHabits,
+          ]) {
             if (habit.isActive) {
               next.add(getHabitStateKey(habit.dateKey, habit.habitKey));
             }
@@ -1247,9 +1254,9 @@ const MonthView = ({
                               habitIcon.key === "prayer" &&
                                 "col-start-1 row-start-1",
                               habitIcon.key === "gym" &&
-                                "col-start-2 row-start-1",
-                              habitIcon.key === "outreach" &&
                                 "col-start-1 row-start-2",
+                              habitIcon.key === "outreach" &&
+                                "col-start-1 row-start-3",
                               isActive
                                 ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
                                 : "border-default-200/40 bg-content1/40 text-foreground-300 opacity-30",
@@ -1287,7 +1294,7 @@ const MonthView = ({
 
                         const gridClass =
                           slotIdx === 0
-                            ? "col-start-1 row-start-3"
+                            ? "col-start-2 row-start-1"
                             : slotIdx === 1
                               ? "col-start-2 row-start-2"
                               : "col-start-2 row-start-3";
@@ -1296,8 +1303,8 @@ const MonthView = ({
                           <button
                             type="button"
                             key={`custom-${slotIdx}-${toDateKey(date)}`}
-                            title="Custom icon"
-                            aria-label="Custom icon"
+                            title="Monthly goal"
+                            aria-label="Monthly goal"
                             onClick={(event) => {
                               event.stopPropagation();
                               handleOpenIconPicker(date, slotIdx);
@@ -1306,9 +1313,9 @@ const MonthView = ({
                               "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-[9px] transition-all",
                               gridClass,
                               selectedCustomIcon?.status === "complete"
-                                ? "border-indigo-200 bg-indigo-50/90 text-indigo-900 opacity-100"
+                                ? "border-default-300 bg-content1 text-foreground opacity-100"
                                 : selectedCustomIcon?.status === "planned"
-                                  ? "border-slate-300 bg-slate-50/90 text-slate-500 opacity-100"
+                                  ? "border-default-300/70 bg-content1/70 text-foreground-500 opacity-70"
                                   : isThisSlotOpen
                                     ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
                                     : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
@@ -1322,7 +1329,7 @@ const MonthView = ({
                                   selectedCustomIcon.option.key,
                                 )}
                                 className="h-6 w-6"
-                                fillClassName="text-indigo-900"
+                                fillClassName="text-foreground"
                               />
                             ) : (
                               <Icon
@@ -1844,7 +1851,9 @@ export const PortableCalendar = ({
   const [hoveredGoalKey, setHoveredGoalKey] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchGoalPreferences().then(setHiddenGoalKeys).catch(() => {});
+    fetchGoalPreferences()
+      .then(setHiddenGoalKeys)
+      .catch(() => {});
   }, []);
 
   const hideGoal = (key: string) => {
@@ -1982,30 +1991,30 @@ export const PortableCalendar = ({
       ).map((item) => ({
         item: item as ChecklistItem,
         category: "spiritual" as Category,
-        byDate: { ...prevMonthPrayerChecklists, ...monthViewPrayerChecklists } as Record<
-          string,
-          Record<string, boolean>
-        >,
+        byDate: {
+          ...prevMonthPrayerChecklists,
+          ...monthViewPrayerChecklists,
+        } as Record<string, Record<string, boolean>>,
       })),
       ...WEIGHT_CHECKLIST_ITEMS.filter(
         (item) => !hiddenGoalKeys.has(item.key),
       ).map((item) => ({
         item: item as ChecklistItem,
         category: "physical" as Category,
-        byDate: { ...prevMonthWeightChecklists, ...monthViewWeightChecklists } as Record<
-          string,
-          Record<string, boolean>
-        >,
+        byDate: {
+          ...prevMonthWeightChecklists,
+          ...monthViewWeightChecklists,
+        } as Record<string, Record<string, boolean>>,
       })),
       ...SALES_CHECKLIST_ITEMS.filter(
         (item) => !hiddenGoalKeys.has(item.key),
       ).map((item) => ({
         item: item as ChecklistItem,
         category: "work" as Category,
-        byDate: { ...prevMonthSalesChecklists, ...monthViewSalesChecklists } as Record<
-          string,
-          Record<string, boolean>
-        >,
+        byDate: {
+          ...prevMonthSalesChecklists,
+          ...monthViewSalesChecklists,
+        } as Record<string, Record<string, boolean>>,
       })),
     ];
 
@@ -2384,13 +2393,10 @@ export const PortableCalendar = ({
                               className="flex items-center gap-2"
                             >
                               <Tooltip
-                                content={
-                                  hoveredGoalKey === opt.key
-                                    ? "Hide goal"
-                                    : opt.label
-                                }
+                                content={opt.label}
                                 placement="right"
                                 size="sm"
+                                color="foreground"
                               >
                                 <button
                                   type="button"
@@ -2418,7 +2424,7 @@ export const PortableCalendar = ({
                               <div className="min-w-0 flex-1">
                                 <div className="flex h-2 overflow-hidden rounded-full bg-default-200">
                                   <div
-                                    className="h-full bg-primary transition-all"
+                                    className="h-full bg-foreground transition-all"
                                     style={{
                                       width: `${completedFraction * 100}%`,
                                     }}
@@ -2428,7 +2434,7 @@ export const PortableCalendar = ({
                                     style={{
                                       width: `${plannedFraction * 100}%`,
                                       backgroundImage:
-                                        "repeating-linear-gradient(45deg, hsl(var(--heroui-primary)) 0px, hsl(var(--heroui-primary)) 2px, transparent 2px, transparent 5px)",
+                                        "repeating-linear-gradient(45deg, hsl(var(--heroui-foreground)) 0px, hsl(var(--heroui-foreground)) 2px, transparent 2px, transparent 5px)",
                                     }}
                                   />
                                 </div>
@@ -2504,13 +2510,10 @@ export const PortableCalendar = ({
                                       className="flex items-center gap-2"
                                     >
                                       <Tooltip
-                                        content={
-                                          hoveredGoalKey === item.key
-                                            ? "Hide goal"
-                                            : item.label
-                                        }
+                                        content={item.label}
                                         placement="right"
                                         size="sm"
+                                        color="foreground"
                                       >
                                         <button
                                           type="button"
@@ -2582,13 +2585,10 @@ export const PortableCalendar = ({
                           ).map((g) => (
                             <Tooltip
                               key={g.key}
-                              content={
-                                hoveredGoalKey === `unhide_${g.key}`
-                                  ? "Unhide goal"
-                                  : g.label
-                              }
+                              content={g.label}
                               placement="right"
                               size="sm"
+                              color="foreground"
                             >
                               <button
                                 type="button"

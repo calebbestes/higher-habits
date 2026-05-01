@@ -425,55 +425,55 @@ export const SalesOutreachDrawer = ({
       backdrop="blur"
       scrollBehavior="inside"
       classNames={{
-        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-slate-200/80 bg-transparent sm:w-2/3 sm:max-w-[42rem]",
+        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-divider bg-transparent sm:w-2/3 sm:max-w-[80rem]",
         backdrop: "bg-slate-950/45 backdrop-blur-[3px]",
         header: "p-0",
         body: "p-0",
         footer:
-          "border-t border-slate-200/80 bg-white/88 px-4 py-4 backdrop-blur sm:px-6",
+          "border-t border-divider bg-content1/88 px-4 py-4 backdrop-blur sm:px-6",
         closeButton:
-          "right-4 top-4 z-20 rounded-full border border-white/70 bg-white/85 text-slate-700 shadow-sm transition hover:bg-white sm:right-5 sm:top-5",
+          "right-4 top-4 z-20 rounded-full border border-content1/70 bg-content1/85 text-foreground-600 shadow-sm transition hover:bg-content1 sm:right-5 sm:top-5",
       }}
     >
-      <DrawerContent className="h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.14),transparent_28%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.12),transparent_24%),linear-gradient(180deg,#ffffff_0%,#fffaf2_48%,#ffffff_100%)] shadow-2xl">
-        <DrawerHeader className="border-b border-slate-200/70 bg-white/85 px-4 py-5 backdrop-blur sm:px-6">
+      <DrawerContent className="h-full overflow-hidden bg-content1 shadow-2xl">
+        <DrawerHeader className="border-b border-divider bg-content1/85 px-4 py-5 backdrop-blur sm:px-6">
           <div className="pr-12">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 via-orange-400 to-emerald-500 text-white shadow-lg shadow-amber-500/20">
                 <Icon icon="mdi:currency-usd" className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="mt-2 text-lg font-semibold text-slate-950">
+                <p className="mt-2 text-lg font-semibold text-foreground">
                   Daily Work Goals
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-foreground-500">
                   {salesDrawerDate ? formatDayLabel(salesDrawerDate) : ""}
                 </p>
               </div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-3">
-              <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <div className="rounded-2xl border border-divider bg-content1/90 p-3 shadow-sm shadow-default-200/40">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-500">
                   Checklist
                 </p>
-                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                <p className="mt-1 text-2xl font-semibold text-foreground">
                   {completedCount}/{SALES_CHECKLIST_ITEMS.length}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <div className="rounded-2xl border border-divider bg-content1/90 p-3 shadow-sm shadow-default-200/40">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-500">
                   Activities
                 </p>
-                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                <p className="mt-1 text-2xl font-semibold text-foreground">
                   {daySales.length}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <div className="rounded-2xl border border-divider bg-content1/90 p-3 shadow-sm shadow-default-200/40">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground-500">
                   Pipeline
                 </p>
-                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                <p className="mt-1 text-2xl font-semibold text-foreground">
                   ${totalAmount.toLocaleString()}
                 </p>
               </div>
@@ -481,7 +481,7 @@ export const SalesOutreachDrawer = ({
           </div>
         </DrawerHeader>
 
-        <DrawerBody className="bg-[radial-gradient(circle_at_top,rgba(251,191,36,0.08),transparent_34%)]">
+        <DrawerBody className="">
           <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
             <DrawerNotesCard
               value={notes}
@@ -497,18 +497,18 @@ export const SalesOutreachDrawer = ({
               classNames={{
                 base: "w-full",
                 tabList:
-                  "grid w-full grid-cols-3 rounded-2xl bg-slate-100/90 p-1",
-                cursor: "rounded-xl bg-white shadow-sm",
+                  "grid w-full grid-cols-3 rounded-2xl bg-default-100/90 p-1",
+                cursor: "rounded-xl bg-content1 shadow-sm",
                 tab: "h-11",
                 tabContent:
-                  "text-sm font-medium text-slate-500 group-data-[selected=true]:text-slate-950",
+                  "text-sm font-medium text-foreground-500 group-data-[selected=true]:text-foreground",
                 panel: "px-0 pt-5",
               }}
             >
               <Tab key="checklist" title="Checklist">
                 <Card
                   shadow="none"
-                  className="border border-slate-200/80 bg-white/90"
+                  className="border border-divider bg-content1/90"
                 >
                   <CardBody className="gap-3 p-3 sm:p-4">
                     {SALES_CHECKLIST_ITEMS.filter((item) => !hiddenGoalKeys?.has(item.key)).map((item) => {
@@ -522,7 +522,7 @@ export const SalesOutreachDrawer = ({
                             "flex w-full items-center gap-3 rounded-[22px] border p-4 text-left transition-all",
                             isComplete
                               ? "border-emerald-200 bg-emerald-50/80 shadow-sm"
-                              : "border-slate-200/80 bg-slate-50/80 hover:border-amber-200 hover:bg-amber-50/50",
+                              : "border-divider bg-content2/80 hover:border-amber-200 hover:bg-amber-50/50",
                           )}
                         >
                           <div
@@ -530,7 +530,7 @@ export const SalesOutreachDrawer = ({
                               "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border",
                               isComplete
                                 ? "border-emerald-200 bg-emerald-500 text-white"
-                                : "border-slate-200 bg-white text-slate-500",
+                                : "border-default-300 bg-content1 text-foreground-500",
                             )}
                           >
                             <Icon
@@ -539,10 +539,10 @@ export const SalesOutreachDrawer = ({
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-slate-900">
+                            <p className="font-semibold text-foreground">
                               {item.label}
                             </p>
-                            <p className="text-sm text-slate-500">
+                            <p className="text-sm text-foreground-500">
                               {isComplete
                                 ? "Completed for the day"
                                 : "Tap to mark complete"}
@@ -554,8 +554,8 @@ export const SalesOutreachDrawer = ({
                             className={cn(
                               "shrink-0 border",
                               isComplete
-                                ? "border-emerald-200 bg-white text-emerald-700"
-                                : "border-slate-200 bg-white text-slate-600",
+                                ? "border-emerald-200 bg-content1 text-emerald-700"
+                                : "border-default-300 bg-content1 text-foreground-500",
                             )}
                           >
                             {isComplete ? "Done" : "Pending"}
