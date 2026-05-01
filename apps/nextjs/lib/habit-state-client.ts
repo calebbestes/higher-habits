@@ -148,6 +148,22 @@ export const persistDrawerNote = async (input: {
   return parseResponse<{ ok: true }>(response);
 };
 
+export const fetchGoalPreferences = async (): Promise<Set<string>> => {
+  const response = await fetch("/api/goal-preferences", { cache: "no-store" });
+  const payload = (await response.json()) as { hiddenKeys: string[]; error?: string };
+  if (!response.ok) throw new Error(payload.error ?? "Request failed.");
+  return new Set(payload.hiddenKeys);
+};
+
+export const persistGoalHidden = async (goalKey: string, isHidden: boolean) => {
+  const response = await fetch("/api/goal-preferences", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ goalKey, isHidden }),
+  });
+  return parseResponse<{ ok: true }>(response);
+};
+
 export const createSalesActivity = async (input: {
   dateKey: string;
   activity: SalesActivityInput;

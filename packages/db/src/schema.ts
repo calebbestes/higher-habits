@@ -192,6 +192,14 @@ export const salesDayChecklists = pgTable(
     (table) => [index("sales_day_checklists_date_idx").on(table.date)],
 );
 
+export const goalPreferences = pgTable("goal_preferences", {
+    goalKey: text("goal_key").primaryKey(),
+    isHidden: boolean("is_hidden").default(false).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+        .defaultNow()
+        .notNull(),
+});
+
 export const salesOutreachActivities = pgTable(
     "sales_outreach_activities",
     {
@@ -236,3 +244,5 @@ export type NewSalesDayChecklist = typeof salesDayChecklists.$inferInsert;
 export type SalesOutreachActivity = typeof salesOutreachActivities.$inferSelect;
 export type NewSalesOutreachActivity =
     typeof salesOutreachActivities.$inferInsert;
+export type GoalPreference = typeof goalPreferences.$inferSelect;
+export type NewGoalPreference = typeof goalPreferences.$inferInsert;

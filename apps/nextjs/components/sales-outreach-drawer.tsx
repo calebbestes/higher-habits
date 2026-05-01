@@ -119,6 +119,7 @@ type SalesOutreachDrawerProps = {
   salesByDate: Record<string, SalesActivityLog[]>;
   checklistsByDate: Record<string, SalesChecklistState>;
   notes: string | null;
+  hiddenGoalKeys?: Set<string>;
   onChecklistChange: (
     dateKey: string,
     nextChecklist: SalesChecklistState,
@@ -256,6 +257,7 @@ export const SalesOutreachDrawer = ({
   salesByDate,
   checklistsByDate,
   notes,
+  hiddenGoalKeys,
   onChecklistChange,
   onSaveActivity,
   onNotesChange,
@@ -509,7 +511,7 @@ export const SalesOutreachDrawer = ({
                   className="border border-slate-200/80 bg-white/90"
                 >
                   <CardBody className="gap-3 p-3 sm:p-4">
-                    {SALES_CHECKLIST_ITEMS.map((item) => {
+                    {SALES_CHECKLIST_ITEMS.filter((item) => !hiddenGoalKeys?.has(item.key)).map((item) => {
                       const isComplete = dayChecklist[item.key];
                       return (
                         <button

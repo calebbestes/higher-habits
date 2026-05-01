@@ -25,6 +25,7 @@ type WeightChecklistDrawerProps = {
   weightDrawerDate: Date | null;
   checklistsByDate: Record<string, WeightChecklistState>;
   notes: string | null;
+  hiddenGoalKeys?: Set<string>;
   onChecklistChange: (
     dateKey: string,
     nextChecklist: WeightChecklistState,
@@ -108,6 +109,7 @@ export const WeightChecklistDrawer = ({
   weightDrawerDate,
   checklistsByDate,
   notes,
+  hiddenGoalKeys,
   onChecklistChange,
   onNotesChange,
   onClose,
@@ -126,8 +128,10 @@ export const WeightChecklistDrawer = ({
   );
 
   const checklistItems = useMemo(
-    () => getChecklistItems(weightDrawerDate),
-    [weightDrawerDate],
+    () => getChecklistItems(weightDrawerDate).filter(
+      (item) => !hiddenGoalKeys?.has(item.key),
+    ),
+    [weightDrawerDate, hiddenGoalKeys],
   );
 
   const completedCount = useMemo(

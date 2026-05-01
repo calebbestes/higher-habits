@@ -25,6 +25,7 @@ type PrayerChecklistDrawerProps = {
   prayerDrawerDate: Date | null;
   checklistsByDate: Record<string, PrayerChecklistState>;
   notes: string | null;
+  hiddenGoalKeys?: Set<string>;
   onChecklistChange: (
     dateKey: string,
     nextChecklist: PrayerChecklistState,
@@ -81,10 +82,14 @@ export const PrayerChecklistDrawer = ({
   prayerDrawerDate,
   checklistsByDate,
   notes,
+  hiddenGoalKeys,
   onChecklistChange,
   onNotesChange,
   onClose,
 }: PrayerChecklistDrawerProps) => {
+  const visibleItems = PRAYER_CHECKLIST_ITEMS.filter(
+    (item) => !hiddenGoalKeys?.has(item.key),
+  );
   const dateKey = useMemo(
     () => (prayerDrawerDate ? toDateKey(prayerDrawerDate) : ""),
     [prayerDrawerDate],
@@ -183,7 +188,7 @@ export const PrayerChecklistDrawer = ({
               className="border border-slate-200/80 bg-white/90"
             >
               <CardBody className="gap-3 p-3 sm:p-4">
-                {PRAYER_CHECKLIST_ITEMS.map((item) => {
+                {visibleItems.map((item) => {
                   const isComplete = dayChecklist[item.key];
 
                   return (
