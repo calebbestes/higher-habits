@@ -323,28 +323,28 @@ export const DayIconPickerDrawer = ({
       backdrop="blur"
       scrollBehavior="inside"
       classNames={{
-        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-slate-200/80 bg-transparent sm:w-2/3 sm:max-w-[60rem]",
+        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-divider bg-transparent sm:w-2/3 sm:max-w-[80rem]",
         backdrop: "bg-slate-950/45 backdrop-blur-[3px]",
         header: "p-0",
         body: "p-0",
         footer:
-          "border-t border-slate-200/80 bg-white/88 px-4 py-4 backdrop-blur sm:px-6",
+          "border-t border-divider bg-content1/88 px-4 py-4 backdrop-blur sm:px-6",
         closeButton:
-          "right-4 top-4 z-20 rounded-full border border-white/70 bg-white/85 text-slate-700 shadow-sm transition hover:bg-white sm:right-5 sm:top-5",
+          "right-4 top-4 z-20 rounded-full border border-content1/70 bg-content1/85 text-foreground-600 shadow-sm transition hover:bg-content1 sm:right-5 sm:top-5",
       }}
     >
-      <DrawerContent className="h-full overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_28%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.14),transparent_24%),linear-gradient(180deg,#ffffff_0%,#f8fbff_46%,#ffffff_100%)] shadow-2xl">
-        <DrawerHeader className="border-b border-slate-200/70 bg-white/85 px-4 py-5 backdrop-blur sm:px-6">
+      <DrawerContent className="h-full overflow-hidden bg-content1 shadow-2xl">
+        <DrawerHeader className="border-b border-divider bg-content1/85 px-4 py-5 backdrop-blur sm:px-6">
           <div className="pr-12">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-emerald-500 text-white shadow-lg shadow-sky-500/20">
                 <Icon icon="mdi:shape-plus" className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <p className="mt-2 text-lg font-semibold text-slate-950">
+                <p className="mt-2 text-lg font-semibold text-foreground">
                   Monthly Goals
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-foreground-500">
                   {iconPickerDate ? formatDayLabel(iconPickerDate) : ""}
                 </p>
               </div>
@@ -352,7 +352,7 @@ export const DayIconPickerDrawer = ({
           </div>
         </DrawerHeader>
 
-        <DrawerBody className="bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_34%)]">
+        <DrawerBody className="">
           <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
             <DrawerNotesCard
               value={notes}
@@ -362,7 +362,7 @@ export const DayIconPickerDrawer = ({
 
             <Card
               shadow="none"
-              className="border border-slate-200/80 bg-white/90"
+              className="border border-divider bg-content1/90"
             >
               <CardBody className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
                 {visibleOptions.map((option) => {
@@ -383,7 +383,7 @@ export const DayIconPickerDrawer = ({
                         "flex items-start gap-3 rounded-[22px] border p-4 text-left transition-all",
                         isSelected
                           ? "border-sky-300 bg-sky-50 shadow-sm"
-                          : "border-slate-200/80 bg-slate-50/80 hover:border-sky-200 hover:bg-sky-50/50",
+                          : "border-divider bg-content2/80 hover:border-sky-200 hover:bg-sky-50/50",
                       )}
                     >
                       <div
@@ -391,21 +391,21 @@ export const DayIconPickerDrawer = ({
                           "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border",
                           isSelected
                             ? "border-sky-200 bg-sky-500 text-white"
-                            : "border-slate-200 bg-white text-slate-600",
+                            : "border-default-300 bg-content1 text-foreground-500",
                         )}
                       >
                         <Icon icon={option.icon} className="h-6 w-6" />
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900">
+                        <p className="font-semibold text-foreground">
                           {option.label}
                         </p>
-                        <p className="text-sm text-slate-500">
+                        <p className="text-sm text-foreground-500">
                           {CUSTOM_DAY_ICON_FREQUENCY_LABELS[option.frequency]}
                         </p>
                         <div className="mt-3 space-y-1.5">
-                          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-500">
                             <span>Monthly progress</span>
                             <span>
                               {completedCount}/{targetCount}
@@ -445,14 +445,14 @@ export const DayIconPickerDrawer = ({
           <Button
             variant="flat"
             onPress={handleClearIcon}
-            className="border border-slate-200 bg-white text-slate-700"
+            className="border border-divider bg-content1 text-foreground-600"
           >
             Clear icon
           </Button>
           <Button
             variant="light"
             onPress={handleClose}
-            className="text-slate-600"
+            className="text-foreground-500"
           >
             Close
           </Button>

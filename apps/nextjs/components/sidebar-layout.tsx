@@ -29,7 +29,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
 
   useEffect(() => {
