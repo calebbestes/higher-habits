@@ -1596,15 +1596,58 @@ const WeekView = ({
   );
 };
 
+const DAY_VIEW_CATEGORY_CONFIG = {
+  spiritual: {
+    label: "Spiritual",
+    activeBg: "bg-teal-500",
+    activeShadow: "shadow-teal-500/30",
+    hoverBg: "hover:bg-teal-500/10",
+    hoverText: "hover:text-teal-500",
+    dot: "bg-teal-500",
+  },
+  physical: {
+    label: "Physical",
+    activeBg: "bg-[#F59E0C]",
+    activeShadow: "shadow-[#F59E0C]/30",
+    hoverBg: "hover:bg-[#F59E0C]/10",
+    hoverText: "hover:text-[#F59E0C]",
+    dot: "bg-[#F59E0C]",
+  },
+  work: {
+    label: "Work",
+    activeBg: "bg-purple-500",
+    activeShadow: "shadow-purple-500/30",
+    hoverBg: "hover:bg-purple-500/10",
+    hoverText: "hover:text-purple-500",
+    dot: "bg-purple-500",
+  },
+} as const;
+
 const DayView = ({
   currentDate,
   entries,
   onSelectEntry,
+  prayerChecklist = EMPTY_PRAYER_CHECKLIST,
+  weightChecklist = EMPTY_WEIGHT_CHECKLIST,
+  salesChecklist = EMPTY_SALES_CHECKLIST,
+  hiddenGoalKeys = new Set<string>(),
+  onTogglePrayerItem,
+  onToggleWeightItem,
+  onToggleSalesItem,
 }: {
   currentDate: Date;
   entries: NormalizedCalendarEntry[];
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
+  prayerChecklist?: PrayerChecklistState;
+  weightChecklist?: WeightChecklistState;
+  salesChecklist?: SalesChecklistState;
+  hiddenGoalKeys?: Set<string>;
+  onTogglePrayerItem?: (key: string) => void;
+  onToggleWeightItem?: (key: string) => void;
+  onToggleSalesItem?: (key: string) => void;
 }) => {
+  const [showCompleted, setShowCompleted] = useState(false);
+
   const dayEntries = useMemo(
     () =>
       entries
@@ -1613,18 +1656,178 @@ const DayView = ({
     [currentDate, entries],
   );
 
+  type GoalItem = {
+    key: string;
+    label: string;
+    icon: string;
+    category: "spiritual" | "physical" | "work";
+    completed: boolean;
+    onToggle: () => void;
+  };
+
+  const allGoalItems = useMemo<GoalItem[]>(
+    () => [
+      ...PRAYER_CHECKLIST_ITEMS.filter(
+        (item) => !hiddenGoalKeys.has(item.key),
+      ).map((item) => ({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+        category: "spiritual" as const,
+        completed: Boolean(
+          (prayerChecklist as Record<string, boolean>)[item.key],
+        ),
+        onToggle: () => onTogglePrayerItem?.(item.key),
+      })),
+      ...WEIGHT_CHECKLIST_ITEMS.filter(
+        (item) => !hiddenGoalKeys.has(item.key),
+      ).map((item) => ({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+        category: "physical" as const,
+        completed: Boolean(
+          (weightChecklist as Record<string, boolean>)[item.key],
+        ),
+        onToggle: () => onToggleWeightItem?.(item.key),
+      })),
+      ...SALES_CHECKLIST_ITEMS.filter(
+        (item) => !hiddenGoalKeys.has(item.key),
+      ).map((item) => ({
+        key: item.key,
+        label: item.label,
+        icon: item.icon,
+        category: "work" as const,
+        completed: Boolean(
+          (salesChecklist as Record<string, boolean>)[item.key],
+        ),
+        onToggle: () => onToggleSalesItem?.(item.key),
+      })),
+    ],
+    [
+      prayerChecklist,
+      weightChecklist,
+      salesChecklist,
+      hiddenGoalKeys,
+      onTogglePrayerItem,
+      onToggleWeightItem,
+      onToggleSalesItem,
+    ],
+  );
+
+  const pendingItems = allGoalItems.filter((item) => !item.completed);
+  const completedItems = allGoalItems.filter((item) => item.completed);
+
+  const pendingByCategory = {
+    spiritual: pendingItems.filter((i) => i.category === "spiritual"),
+    physical: pendingItems.filter((i) => i.category === "physical"),
+    work: pendingItems.filter((i) => i.category === "work"),
+  };
+
+  const renderIconButton = (
+    item: GoalItem,
+    size: "normal" | "small" = "normal",
+  ) => {
+    const cfg = DAY_VIEW_CATEGORY_CONFIG[item.category];
+    return (
+      <Tooltip content={item.label} color="foreground" key={item.key}>
+        <button
+          type="button"
+          onClick={item.onToggle}
+          className={cn(
+            "flex flex-col items-center justify-center rounded-2xl border transition-all",
+            size === "normal" ? "gap-2 p-3" : "gap-1.5 p-2",
+            item.completed
+              ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
+              : `border-default-200 bg-content2 text-foreground-400 ${cfg.hoverBg} ${cfg.hoverText} hover:border-transparent`,
+          )}
+        >
+          <Icon
+            icon={item.completed ? "mdi:check-bold" : item.icon}
+            className={size === "normal" ? "h-6 w-6" : "h-5 w-5"}
+          />
+        </button>
+      </Tooltip>
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="bg-content1 border-divider rounded-3xl border p-5">
-        <p className="text-foreground-500 text-xs uppercase tracking-[0.14em]">
-          Selected day
-        </p>
         <h2 className="mt-1 text-2xl font-semibold">
           {formatDayLabel(currentDate)}
         </h2>
       </div>
 
-      <div className="bg-content1 border-divider min-h-0 flex-1 rounded-3xl border p-5">
+      <div className="bg-content1 border-divider min-h-0 flex-1 overflow-y-auto rounded-3xl border p-5">
+        <div className="flex flex-col gap-5">
+          {(["spiritual", "physical", "work"] as const).map((cat) => {
+            const items = pendingByCategory[cat];
+            if (items.length === 0) return null;
+            const cfg = DAY_VIEW_CATEGORY_CONFIG[cat];
+            return (
+              <div key={cat}>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className={cn("h-2 w-2 rounded-full", cfg.dot)} />
+                  <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+                    {cfg.label}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+                  {items.map((item) => renderIconButton(item))}
+                </div>
+              </div>
+            );
+          })}
+
+          {pendingItems.length === 0 && completedItems.length > 0 && (
+            <div className="flex flex-col items-center justify-center gap-2 py-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-500/15 text-teal-500">
+                <Icon icon="mdi:check-all" className="h-7 w-7" />
+              </div>
+              <p className="text-sm font-semibold text-foreground">All done!</p>
+              <p className="text-xs text-foreground-500">
+                All goals completed for today.
+              </p>
+            </div>
+          )}
+
+          {pendingItems.length === 0 && completedItems.length === 0 && (
+            <div className="flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-8 text-sm text-foreground-500">
+              No active goals configured.
+            </div>
+          )}
+
+          {completedItems.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowCompleted((c) => !c)}
+                className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
+              >
+                <Icon
+                  icon={
+                    showCompleted
+                      ? "fa7-solid:chevron-down"
+                      : "fa7-solid:chevron-right"
+                  }
+                  className="h-3 w-3"
+                />
+                Show completed ({completedItems.length})
+              </button>
+              {showCompleted && (
+                <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(48px,1fr))] gap-2">
+                  {completedItems.map((item) =>
+                    renderIconButton(item, "small"),
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-content1 border-divider rounded-3xl border p-5">
         {dayEntries.length > 0 ? (
           <div className="space-y-3">
             {dayEntries.map((entry) => (
@@ -1671,7 +1874,7 @@ const DayView = ({
             ))}
           </div>
         ) : (
-          <div className="text-foreground-500 flex h-full items-center justify-center rounded-[20px] border border-dashed border-default-200 text-sm">
+          <div className="text-foreground-500 flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-6 text-sm">
             No entries on this day.
           </div>
         )}
@@ -2045,6 +2248,77 @@ export const PortableCalendar = ({
     prevMonthSalesChecklists,
     hiddenGoalKeys,
   ]);
+
+  const [dayViewPrayerChecklists, setDayViewPrayerChecklists] = useState<
+    Record<string, PrayerChecklistState>
+  >({});
+  const [dayViewWeightChecklists, setDayViewWeightChecklists] = useState<
+    Record<string, WeightChecklistState>
+  >({});
+  const [dayViewSalesChecklists, setDayViewSalesChecklists] = useState<
+    Record<string, SalesChecklistState>
+  >({});
+
+  const dayViewMonthKey = useMemo(
+    () => (view === "day" ? getMonthKey(selectedDate) : null),
+    [view, selectedDate],
+  );
+
+  useEffect(() => {
+    if (!dayViewMonthKey) return;
+    fetchHabitMonthSnapshot(dayViewMonthKey)
+      .then((snap) => {
+        setDayViewPrayerChecklists((prev) => ({
+          ...prev,
+          ...snap.prayerChecklistsByDate,
+        }));
+        setDayViewWeightChecklists((prev) => ({
+          ...prev,
+          ...snap.weightChecklistsByDate,
+        }));
+        setDayViewSalesChecklists((prev) => ({
+          ...prev,
+          ...snap.salesChecklistsByDate,
+        }));
+      })
+      .catch(() => {});
+  }, [dayViewMonthKey]);
+
+  const handleDayViewPrayerToggle = (dateKey: string, itemKey: string) => {
+    const current = dayViewPrayerChecklists[dateKey] ?? EMPTY_PRAYER_CHECKLIST;
+    const next = {
+      ...current,
+      [itemKey]: !(current as Record<string, boolean>)[itemKey],
+    } as PrayerChecklistState;
+    setDayViewPrayerChecklists((prev) => ({ ...prev, [dateKey]: next }));
+    void persistPrayerChecklist({ dateKey, checklist: next }).catch(() => {
+      setDayViewPrayerChecklists((prev) => ({ ...prev, [dateKey]: current }));
+    });
+  };
+
+  const handleDayViewWeightToggle = (dateKey: string, itemKey: string) => {
+    const current = dayViewWeightChecklists[dateKey] ?? EMPTY_WEIGHT_CHECKLIST;
+    const next = {
+      ...current,
+      [itemKey]: !(current as Record<string, boolean>)[itemKey],
+    } as WeightChecklistState;
+    setDayViewWeightChecklists((prev) => ({ ...prev, [dateKey]: next }));
+    void persistWeightChecklist({ dateKey, checklist: next }).catch(() => {
+      setDayViewWeightChecklists((prev) => ({ ...prev, [dateKey]: current }));
+    });
+  };
+
+  const handleDayViewSalesToggle = (dateKey: string, itemKey: string) => {
+    const current = dayViewSalesChecklists[dateKey] ?? EMPTY_SALES_CHECKLIST;
+    const next = {
+      ...current,
+      [itemKey]: !(current as Record<string, boolean>)[itemKey],
+    } as SalesChecklistState;
+    setDayViewSalesChecklists((prev) => ({ ...prev, [dateKey]: next }));
+    void persistSalesChecklist({ dateKey, checklist: next }).catch(() => {
+      setDayViewSalesChecklists((prev) => ({ ...prev, [dateKey]: current }));
+    });
+  };
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
   const [draftEntry, setDraftEntry] = useState<DraftEntry>(() => ({
@@ -2790,6 +3064,28 @@ export const PortableCalendar = ({
                       currentDate={currentDate}
                       entries={visibleEntries}
                       onSelectEntry={handleSelectEntry}
+                      prayerChecklist={
+                        dayViewPrayerChecklists[toDateKey(currentDate)] ??
+                        EMPTY_PRAYER_CHECKLIST
+                      }
+                      weightChecklist={
+                        dayViewWeightChecklists[toDateKey(currentDate)] ??
+                        EMPTY_WEIGHT_CHECKLIST
+                      }
+                      salesChecklist={
+                        dayViewSalesChecklists[toDateKey(currentDate)] ??
+                        EMPTY_SALES_CHECKLIST
+                      }
+                      hiddenGoalKeys={hiddenGoalKeys}
+                      onTogglePrayerItem={(key) =>
+                        handleDayViewPrayerToggle(toDateKey(currentDate), key)
+                      }
+                      onToggleWeightItem={(key) =>
+                        handleDayViewWeightToggle(toDateKey(currentDate), key)
+                      }
+                      onToggleSalesItem={(key) =>
+                        handleDayViewSalesToggle(toDateKey(currentDate), key)
+                      }
                     />
                   )}
                 </div>
