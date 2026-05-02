@@ -1,6 +1,13 @@
 "use client";
 
-import { Icon } from "@iconify/react";
+import {
+  type Contact,
+  type ContactInput,
+  createContact,
+  deleteManyContacts,
+  fetchContacts,
+  updateContact,
+} from "@/lib/contacts-client";
 import {
   Button,
   Chip,
@@ -32,16 +39,9 @@ import {
   addToast,
   cn,
 } from "@heroui/react";
+import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import {
-  type Contact,
-  type ContactInput,
-  createContact,
-  deleteManyContacts,
-  fetchContacts,
-  updateContact,
-} from "@/lib/contacts-client";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +73,7 @@ const COLUMNS = [
   { name: "Priority", uid: "priority", sortable: true },
   { name: "Last Response", uid: "lastResponse", sortable: true },
   { name: "Last Contacted", uid: "lastContacted", sortable: true },
+  { name: "Notes", uid: "notes", sortable: false },
   { name: "", uid: "actions", sortable: false },
 ] as const;
 
@@ -80,11 +81,10 @@ type ColumnUid = (typeof COLUMNS)[number]["uid"];
 
 const INITIAL_VISIBLE_COLUMNS: Set<ColumnUid> = new Set([
   "name",
-  "company",
-  "category",
   "status",
   "priority",
   "lastContacted",
+  "notes",
   "actions",
 ]);
 
@@ -116,6 +116,14 @@ const CATEGORY_COLORS: Record<string, string> = {
   Rental: "bg-amber-500/15 text-amber-600",
   Sports: "bg-teal-500/15 text-teal-600",
   City: "bg-purple-500/15 text-purple-600",
+};
+
+const STATUS_RANK: Record<string, number> = {
+  Customer: 0,
+  "Close to Customer": 1,
+  Meeting: 2,
+  "Not Sure": 3,
+  Archived: 4,
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -189,7 +197,10 @@ function TopContent({
             className="w-52 sm:w-72"
             placeholder="Search contacts…"
             startContent={
-              <Icon icon="fa7-solid:magnifying-glass" className="h-3.5 w-3.5 text-foreground-400" />
+              <Icon
+                icon="fa7-solid:magnifying-glass"
+                className="h-3.5 w-3.5 text-foreground-400"
+              />
             }
             value={filterValue}
             onClear={onClear}
@@ -219,7 +230,9 @@ function TopContent({
               <Button
                 variant="flat"
                 size="sm"
-                endContent={<Icon icon="fa7-solid:chevron-down" className="h-3 w-3" />}
+                endContent={
+                  <Icon icon="fa7-solid:chevron-down" className="h-3 w-3" />
+                }
                 className="hidden sm:flex"
               >
                 Columns
@@ -245,7 +258,12 @@ function TopContent({
 
           {/* Refresh */}
           <Tooltip content="Refresh" color="foreground">
-            <Button isIconOnly variant="flat" size="sm" onPress={() => refetch()}>
+            <Button
+              isIconOnly
+              variant="flat"
+              size="sm"
+              onPress={() => refetch()}
+            >
               <Icon icon="fa7-solid:rotate-right" className="h-3.5 w-3.5" />
             </Button>
           </Tooltip>
@@ -254,7 +272,9 @@ function TopContent({
           <Button
             color="primary"
             size="sm"
-            startContent={<Icon icon="fa7-solid:plus" className="h-3.5 w-3.5" />}
+            startContent={
+              <Icon icon="fa7-solid:plus" className="h-3.5 w-3.5" />
+            }
             onPress={onAddNew}
           >
             Add Contact
@@ -337,7 +357,12 @@ function ContactFormModal({
     setForm((prev) => ({ ...prev, [field]: v }));
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={(o) => !o && onClose()} size="xl" placement="center">
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={(o) => !o && onClose()}
+      size="xl"
+      placement="center"
+    >
       <ModalContent>
         <ModalHeader>{contact ? "Edit Contact" : "New Contact"}</ModalHeader>
         <ModalBody className="gap-4 pb-2">
@@ -372,8 +397,12 @@ function ContactFormModal({
             <Select
               label="Category"
               placeholder="Select category"
-              selectedKeys={form.category ? new Set([form.category]) : new Set()}
-              onSelectionChange={(keys) => set("category")([...keys][0] as string ?? "")}
+              selectedKeys={
+                form.category ? new Set([form.category]) : new Set()
+              }
+              onSelectionChange={(keys) =>
+                set("category")(([...keys][0] as string) ?? "")
+              }
             >
               {CONTACT_CATEGORIES.map((c) => (
                 <SelectItem key={c}>{c}</SelectItem>
@@ -389,7 +418,9 @@ function ContactFormModal({
               label="Status"
               placeholder="Select status"
               selectedKeys={form.status ? new Set([form.status]) : new Set()}
-              onSelectionChange={(keys) => set("status")([...keys][0] as string ?? "")}
+              onSelectionChange={(keys) =>
+                set("status")(([...keys][0] as string) ?? "")
+              }
             >
               {CONTACT_STATUSES.map((s) => (
                 <SelectItem key={s}>{s}</SelectItem>
@@ -398,8 +429,12 @@ function ContactFormModal({
             <Select
               label="Priority"
               placeholder="Select priority"
-              selectedKeys={form.priority ? new Set([form.priority]) : new Set()}
-              onSelectionChange={(keys) => set("priority")([...keys][0] as string ?? "")}
+              selectedKeys={
+                form.priority ? new Set([form.priority]) : new Set()
+              }
+              onSelectionChange={(keys) =>
+                set("priority")(([...keys][0] as string) ?? "")
+              }
             >
               {CONTACT_PRIORITIES.map((p) => (
                 <SelectItem key={p}>{p}</SelectItem>
@@ -409,13 +444,17 @@ function ContactFormModal({
               label="Last Contacted"
               type="date"
               value={form.lastContacted ?? ""}
-              onValueChange={(v) => setForm((prev) => ({ ...prev, lastContacted: v || null }))}
+              onValueChange={(v) =>
+                setForm((prev) => ({ ...prev, lastContacted: v || null }))
+              }
             />
             <Input
               label="Last Response"
               type="date"
               value={form.lastResponse ?? ""}
-              onValueChange={(v) => setForm((prev) => ({ ...prev, lastResponse: v || null }))}
+              onValueChange={(v) =>
+                setForm((prev) => ({ ...prev, lastResponse: v || null }))
+              }
             />
           </div>
           <Textarea
@@ -460,9 +499,16 @@ function DeleteModal({
   isDeleting: boolean;
 }) {
   return (
-    <Modal isOpen={isOpen} onOpenChange={(o) => !o && onClose()} size="sm" placement="center">
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={(o) => !o && onClose()}
+      size="sm"
+      placement="center"
+    >
       <ModalContent>
-        <ModalHeader>Delete {count > 1 ? `${count} contacts` : "contact"}</ModalHeader>
+        <ModalHeader>
+          Delete {count > 1 ? `${count} contacts` : "contact"}
+        </ModalHeader>
         <ModalBody>
           <p className="text-sm text-foreground-600">
             {count > 1
@@ -489,7 +535,11 @@ export function ContactsTable() {
   const queryClient = useQueryClient();
 
   // Data
-  const { data = [], isLoading, refetch } = useQuery({
+  const {
+    data = [],
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["contacts"],
     queryFn: fetchContacts,
   });
@@ -582,11 +632,12 @@ export function ContactsTable() {
   const [expandedCompanyKeys, setExpandedCompanyKeys] = useState<Set<string>>(
     new Set(),
   );
-  const [visibleColumns, setVisibleColumns] =
-    useState<Set<ColumnUid>>(INITIAL_VISIBLE_COLUMNS);
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnUid>>(
+    INITIAL_VISIBLE_COLUMNS,
+  );
   const [rowsPerPage, setRowsPerPage] = useState(24);
   const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
-    column: "name",
+    column: "status",
     direction: "ascending",
   });
   const [page, setPage] = useState(1);
@@ -597,6 +648,8 @@ export function ContactsTable() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pendingDeleteContact, setPendingDeleteContact] =
     useState<Contact | null>(null);
+  const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
+  const [editingNotesValue, setEditingNotesValue] = useState("");
 
   const archivedCount = useMemo(
     () => data.filter((c) => c.status === "Archived").length,
@@ -605,7 +658,9 @@ export function ContactsTable() {
 
   // Derived: filter
   const filteredItems = useMemo(() => {
-    const list = showArchived ? data : data.filter((c) => c.status !== "Archived");
+    const list = showArchived
+      ? data
+      : data.filter((c) => c.status !== "Archived");
     if (!filterValue) return list;
     const re = new RegExp(
       filterValue.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
@@ -623,11 +678,32 @@ export function ContactsTable() {
   // Derived: sort
   const sortedItems = useMemo(() => {
     const col = sortDescriptor.column as keyof Contact;
+    const dir = sortDescriptor.direction === "ascending" ? 1 : -1;
+
+    const byStatus = (a: Contact, b: Contact) =>
+      (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99);
+
+    const byLastContacted = (a: Contact, b: Contact) => {
+      const ad = a.lastContacted ?? "9999-99-99";
+      const bd = b.lastContacted ?? "9999-99-99";
+      return ad < bd ? -1 : ad > bd ? 1 : 0;
+    };
+
     return [...filteredItems].sort((a, b) => {
-      const av = String(a[col] ?? "").toLowerCase();
-      const bv = String(b[col] ?? "").toLowerCase();
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-      return sortDescriptor.direction === "ascending" ? cmp : -cmp;
+      let cmp: number;
+      if (col === "status") {
+        cmp = byStatus(a, b) * dir;
+      } else {
+        const av = String(a[col] ?? "").toLowerCase();
+        const bv = String(b[col] ?? "").toLowerCase();
+        cmp = (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+      }
+      if (cmp !== 0) return cmp;
+      // tiebreaker 1: status rank
+      const sc = byStatus(a, b);
+      if (sc !== 0) return sc;
+      // tiebreaker 2: least recently contacted first
+      return byLastContacted(a, b);
     });
   }, [filteredItems, sortDescriptor]);
 
@@ -649,18 +725,21 @@ export function ContactsTable() {
     }
     return [...grouped.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([groupName, children]): GroupRow => ({
-        id: `group-${groupName}`,
-        kind: "category-group",
-        groupName,
-        itemCount: children.length,
-        children,
-      }));
+      .map(
+        ([groupName, children]): GroupRow => ({
+          id: `group-${groupName}`,
+          kind: "category-group",
+          groupName,
+          itemCount: children.length,
+          children,
+        }),
+      );
   }, [sortedItems]);
 
   // Header columns
   const headerColumns = useMemo(
-    () => COLUMNS.filter((c) => visibleColumns.has(c.uid) || c.uid === "actions"),
+    () =>
+      COLUMNS.filter((c) => visibleColumns.has(c.uid) || c.uid === "actions"),
     [visibleColumns],
   );
 
@@ -702,11 +781,10 @@ export function ContactsTable() {
         return (
           <div className="flex flex-col">
             <span className="text-sm font-semibold">{row.name}</span>
-            {row.notes && (
-              <span className="max-w-[200px] truncate text-xs text-foreground-400">
-                {row.notes}
-              </span>
-            )}
+
+            <span className="max-w-[200px] truncate text-xs text-foreground-400">
+              {row.company}
+            </span>
           </div>
         );
       case "company":
@@ -752,7 +830,8 @@ export function ContactsTable() {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
-                      CATEGORY_COLORS[row.category] ?? "bg-default-200 text-foreground-500",
+                      CATEGORY_COLORS[row.category] ??
+                        "bg-default-200 text-foreground-500",
                     )}
                   >
                     {row.category}
@@ -771,7 +850,11 @@ export function ContactsTable() {
               selectedKeys={row.category ? new Set([row.category]) : new Set()}
               onSelectionChange={(keys) => {
                 const selected = [...keys][0];
-                handleInlineUpdate(row.id, "category", selected ? String(selected) : "");
+                handleInlineUpdate(
+                  row.id,
+                  "category",
+                  selected ? String(selected) : "",
+                );
               }}
             >
               {CONTACT_CATEGORIES.map((c) => (
@@ -799,7 +882,8 @@ export function ContactsTable() {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
-                      STATUS_COLORS[row.status] ?? "bg-default-200 text-foreground-500",
+                      STATUS_COLORS[row.status] ??
+                        "bg-default-200 text-foreground-500",
                     )}
                   >
                     {row.status}
@@ -818,7 +902,11 @@ export function ContactsTable() {
               selectedKeys={row.status ? new Set([row.status]) : new Set()}
               onSelectionChange={(keys) => {
                 const selected = [...keys][0];
-                handleInlineUpdate(row.id, "status", selected ? String(selected) : "");
+                handleInlineUpdate(
+                  row.id,
+                  "status",
+                  selected ? String(selected) : "",
+                );
               }}
             >
               {CONTACT_STATUSES.map((s) => (
@@ -840,7 +928,8 @@ export function ContactsTable() {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
-                      PRIORITY_COLORS[row.priority] ?? "bg-default-200 text-foreground-500",
+                      PRIORITY_COLORS[row.priority] ??
+                        "bg-default-200 text-foreground-500",
                     )}
                   >
                     {row.priority}
@@ -859,7 +948,11 @@ export function ContactsTable() {
               selectedKeys={row.priority ? new Set([row.priority]) : new Set()}
               onSelectionChange={(keys) => {
                 const selected = [...keys][0];
-                handleInlineUpdate(row.id, "priority", selected ? String(selected) : "");
+                handleInlineUpdate(
+                  row.id,
+                  "priority",
+                  selected ? String(selected) : "",
+                );
               }}
             >
               {CONTACT_PRIORITIES.map((p) => (
@@ -886,11 +979,59 @@ export function ContactsTable() {
             type="date"
             value={row.lastContacted ?? ""}
             onChange={(e) =>
-              handleInlineUpdate(row.id, "lastContacted", e.target.value || null)
+              handleInlineUpdate(
+                row.id,
+                "lastContacted",
+                e.target.value || null,
+              )
             }
             onClick={(e) => e.stopPropagation()}
             className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
           />
+        );
+      case "notes":
+        if (editingNotesId === row.id) {
+          return (
+            <textarea
+              ref={(el) => el?.focus()}
+              value={editingNotesValue}
+              rows={2}
+              onChange={(e) => setEditingNotesValue(e.target.value)}
+              onBlur={() => {
+                handleInlineUpdate(row.id, "notes", editingNotesValue);
+                setEditingNotesId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEditingNotesId(null);
+                e.stopPropagation();
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full resize-none rounded-lg bg-default-100 px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+            />
+          );
+        }
+        return (
+          <button
+            type="button"
+            className="w-full cursor-text text-left"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingNotesId(row.id);
+              setEditingNotesValue(row.notes);
+            }}
+          >
+            {row.notes ? (
+              <span className="line-clamp-2 text-sm text-foreground-600 hover:text-foreground">
+                {row.notes}
+              </span>
+            ) : (
+              <span className="text-xs text-foreground-300 hover:text-foreground-500">
+                Add notes…
+              </span>
+            )}
+          </button>
         );
       case "actions":
         return (
@@ -898,13 +1039,18 @@ export function ContactsTable() {
             <Dropdown>
               <DropdownTrigger>
                 <Button isIconOnly size="sm" variant="light">
-                  <Icon icon="fa7-solid:ellipsis-vertical" className="h-3.5 w-3.5" />
+                  <Icon
+                    icon="fa7-solid:ellipsis-vertical"
+                    className="h-3.5 w-3.5"
+                  />
                 </Button>
               </DropdownTrigger>
               <DropdownMenu aria-label="Actions">
                 <DropdownItem
                   key="edit"
-                  startContent={<Icon icon="fa7-solid:pen" className="h-3.5 w-3.5" />}
+                  startContent={
+                    <Icon icon="fa7-solid:pen" className="h-3.5 w-3.5" />
+                  }
                   onPress={() => {
                     setEditingContact(row);
                     setFormOpen(true);
@@ -999,7 +1145,9 @@ export function ContactsTable() {
             setExpandedCategories(new Set());
             setExpandedCompanyKeys(new Set());
           } else {
-            setExpandedCategories(new Set(groupedItems.map((g) => g.groupName)));
+            setExpandedCategories(
+              new Set(groupedItems.map((g) => g.groupName)),
+            );
             setExpandedCompanyKeys(new Set(allCompanyKeys));
           }
         }}
@@ -1017,7 +1165,9 @@ export function ContactsTable() {
         </div>
         <div>
           <h1 className="text-xl font-bold">Contacts</h1>
-          <p className="text-xs text-foreground-500">Manage your relationships</p>
+          <p className="text-xs text-foreground-500">
+            Manage your relationships
+          </p>
         </div>
       </div>
 
@@ -1101,7 +1251,9 @@ export function ContactsTable() {
               {(contact) => (
                 <TableRow key={contact.id}>
                   {(columnKey) => (
-                    <TableCell>{renderCell(contact, String(columnKey))}</TableCell>
+                    <TableCell>
+                      {renderCell(contact, String(columnKey))}
+                    </TableCell>
                   )}
                 </TableRow>
               )}
@@ -1169,14 +1321,19 @@ export function ContactsTable() {
                   onClick={() =>
                     setExpandedCategories((prev) => {
                       const next = new Set(prev);
-                      if (next.has(group.groupName)) next.delete(group.groupName);
+                      if (next.has(group.groupName))
+                        next.delete(group.groupName);
                       else next.add(group.groupName);
                       return next;
                     })
                   }
                 >
                   <Icon
-                    icon={isCatExpanded ? "fa7-solid:folder-open" : "fa7-solid:folder"}
+                    icon={
+                      isCatExpanded
+                        ? "fa7-solid:folder-open"
+                        : "fa7-solid:folder"
+                    }
                     className="h-4 w-4 text-foreground-400"
                   />
                   <span className="font-semibold">{group.groupName}</span>
@@ -1184,7 +1341,11 @@ export function ContactsTable() {
                     {group.itemCount}
                   </Chip>
                   <Icon
-                    icon={isCatExpanded ? "fa7-solid:chevron-up" : "fa7-solid:chevron-down"}
+                    icon={
+                      isCatExpanded
+                        ? "fa7-solid:chevron-up"
+                        : "fa7-solid:chevron-down"
+                    }
                     className="ml-auto h-3 w-3 text-foreground-400"
                   />
                 </button>
@@ -1196,10 +1357,7 @@ export function ContactsTable() {
                     const isCoExpanded = expandedCompanyKeys.has(companyKey);
 
                     return (
-                      <div
-                        key={companyKey}
-                        className="border-t border-divider"
-                      >
+                      <div key={companyKey} className="border-t border-divider">
                         {/* Company header */}
                         <button
                           type="button"
@@ -1221,7 +1379,9 @@ export function ContactsTable() {
                             }
                             className="h-3.5 w-3.5 text-foreground-400"
                           />
-                          <span className="text-sm font-medium">{companyName}</span>
+                          <span className="text-sm font-medium">
+                            {companyName}
+                          </span>
                           <Chip size="sm" variant="flat" className="ml-1">
                             {contacts.length}
                           </Chip>
@@ -1236,109 +1396,168 @@ export function ContactsTable() {
                         </button>
 
                         {/* Contact rows — with optional team sub-folders */}
-                        {isCoExpanded && (() => {
-                          // Split into contacts-with-team and contacts-without-team
-                          const teamMap = new Map<string, Contact[]>();
-                          const noTeam: Contact[] = [];
-                          for (const c of contacts) {
-                            if (c.team) {
-                              if (!teamMap.has(c.team)) teamMap.set(c.team, []);
-                              const b = teamMap.get(c.team);
-                              if (b) b.push(c);
-                            } else {
-                              noTeam.push(c);
+                        {isCoExpanded &&
+                          (() => {
+                            // Split into contacts-with-team and contacts-without-team
+                            const teamMap = new Map<string, Contact[]>();
+                            const noTeam: Contact[] = [];
+                            for (const c of contacts) {
+                              if (c.team) {
+                                if (!teamMap.has(c.team))
+                                  teamMap.set(c.team, []);
+                                const b = teamMap.get(c.team);
+                                if (b) b.push(c);
+                              } else {
+                                noTeam.push(c);
+                              }
                             }
-                          }
-                          const teams = [...teamMap.entries()].sort(([a], [b]) =>
-                            a.localeCompare(b),
-                          );
+                            const teams = [...teamMap.entries()].sort(
+                              ([a], [b]) => a.localeCompare(b),
+                            );
 
-                          const contactRow = (contact: Contact, indent: string) => (
-                            <div
-                              key={contact.id}
-                              className={cn("flex items-center gap-2 border-t border-divider py-3 pr-4 hover:bg-default-50", indent)}
-                            >
-                              {categoryDataCols.map((col) => (
-                                <div
-                                  key={col.uid}
-                                  className={cn("min-w-0", col.uid === "name" ? "flex-2" : "flex-1")}
-                                >
-                                  {renderCell(contact, col.uid)}
-                                </div>
-                              ))}
-                              <div className="w-10 shrink-0">
-                                <Dropdown>
-                                  <DropdownTrigger>
-                                    <Button isIconOnly size="sm" variant="light">
-                                      <Icon icon="fa7-solid:ellipsis-vertical" className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </DropdownTrigger>
-                                  <DropdownMenu aria-label="Actions">
-                                    <DropdownItem
-                                      key="edit"
-                                      startContent={<Icon icon="fa7-solid:pen" className="h-3.5 w-3.5" />}
-                                      onPress={() => { setEditingContact(contact); setFormOpen(true); }}
-                                    >Edit</DropdownItem>
-                                    <DropdownItem
-                                      key="delete"
-                                      className="text-danger"
-                                      color="danger"
-                                      startContent={<Icon icon="fa7-solid:trash-can" className="h-3.5 w-3.5" />}
-                                      onPress={() => { setPendingDeleteContact(contact); setDeleteOpen(true); }}
-                                    >Delete</DropdownItem>
-                                  </DropdownMenu>
-                                </Dropdown>
-                              </div>
-                            </div>
-                          );
-
-                          return (
-                            <div className="border-t border-divider">
-                              {/* Team sub-folders */}
-                              {teams.map(([teamName, teamContacts]) => {
-                                const teamKey = `${companyKey}::${teamName}`;
-                                const isTeamExpanded = expandedCompanyKeys.has(teamKey);
-                                return (
-                                  <div key={teamKey} className="border-b border-divider last:border-b-0">
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center gap-3 py-2 pl-16 pr-4 transition-colors hover:bg-default-50"
-                                      onClick={() =>
-                                        setExpandedCompanyKeys((prev) => {
-                                          const next = new Set(prev);
-                                          if (next.has(teamKey)) next.delete(teamKey);
-                                          else next.add(teamKey);
-                                          return next;
-                                        })
-                                      }
-                                    >
-                                      <Icon
-                                        icon={isTeamExpanded ? "fa7-solid:folder-open" : "fa7-solid:folder"}
-                                        className="h-3 w-3 text-foreground-400"
-                                      />
-                                      <span className="text-xs font-medium">{teamName}</span>
-                                      <Chip size="sm" variant="flat" className="ml-1">
-                                        {teamContacts.length}
-                                      </Chip>
-                                      <Icon
-                                        icon={isTeamExpanded ? "fa7-solid:chevron-up" : "fa7-solid:chevron-down"}
-                                        className="ml-auto h-3 w-3 text-foreground-400"
-                                      />
-                                    </button>
-                                    {isTeamExpanded && (
-                                      <div className="border-t border-divider">
-                                        {teamContacts.map((c) => contactRow(c, "pl-16"))}
-                                      </div>
+                            const contactRow = (
+                              contact: Contact,
+                              indent: string,
+                            ) => (
+                              <div
+                                key={contact.id}
+                                className={cn(
+                                  "flex items-center gap-2 border-t border-divider py-3 pr-4 hover:bg-default-50",
+                                  indent,
+                                )}
+                              >
+                                {categoryDataCols.map((col) => (
+                                  <div
+                                    key={col.uid}
+                                    className={cn(
+                                      "min-w-0",
+                                      col.uid === "name" ? "flex-2" : "flex-1",
                                     )}
+                                  >
+                                    {renderCell(contact, col.uid)}
                                   </div>
-                                );
-                              })}
-                              {/* Contacts without a team */}
-                              {noTeam.length > 0 &&
-                                noTeam.map((c) => contactRow(c, "pl-10"))}
-                            </div>
-                          );
-                        })()}
+                                ))}
+                                <div className="w-10 shrink-0">
+                                  <Dropdown>
+                                    <DropdownTrigger>
+                                      <Button
+                                        isIconOnly
+                                        size="sm"
+                                        variant="light"
+                                      >
+                                        <Icon
+                                          icon="fa7-solid:ellipsis-vertical"
+                                          className="h-3.5 w-3.5"
+                                        />
+                                      </Button>
+                                    </DropdownTrigger>
+                                    <DropdownMenu aria-label="Actions">
+                                      <DropdownItem
+                                        key="edit"
+                                        startContent={
+                                          <Icon
+                                            icon="fa7-solid:pen"
+                                            className="h-3.5 w-3.5"
+                                          />
+                                        }
+                                        onPress={() => {
+                                          setEditingContact(contact);
+                                          setFormOpen(true);
+                                        }}
+                                      >
+                                        Edit
+                                      </DropdownItem>
+                                      <DropdownItem
+                                        key="delete"
+                                        className="text-danger"
+                                        color="danger"
+                                        startContent={
+                                          <Icon
+                                            icon="fa7-solid:trash-can"
+                                            className="h-3.5 w-3.5"
+                                          />
+                                        }
+                                        onPress={() => {
+                                          setPendingDeleteContact(contact);
+                                          setDeleteOpen(true);
+                                        }}
+                                      >
+                                        Delete
+                                      </DropdownItem>
+                                    </DropdownMenu>
+                                  </Dropdown>
+                                </div>
+                              </div>
+                            );
+
+                            return (
+                              <div className="border-t border-divider">
+                                {/* Team sub-folders */}
+                                {teams.map(([teamName, teamContacts]) => {
+                                  const teamKey = `${companyKey}::${teamName}`;
+                                  const isTeamExpanded =
+                                    expandedCompanyKeys.has(teamKey);
+                                  return (
+                                    <div
+                                      key={teamKey}
+                                      className="border-b border-divider last:border-b-0"
+                                    >
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center gap-3 py-2 pl-16 pr-4 transition-colors hover:bg-default-50"
+                                        onClick={() =>
+                                          setExpandedCompanyKeys((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(teamKey))
+                                              next.delete(teamKey);
+                                            else next.add(teamKey);
+                                            return next;
+                                          })
+                                        }
+                                      >
+                                        <Icon
+                                          icon={
+                                            isTeamExpanded
+                                              ? "fa7-solid:folder-open"
+                                              : "fa7-solid:folder"
+                                          }
+                                          className="h-3 w-3 text-foreground-400"
+                                        />
+                                        <span className="text-xs font-medium">
+                                          {teamName}
+                                        </span>
+                                        <Chip
+                                          size="sm"
+                                          variant="flat"
+                                          className="ml-1"
+                                        >
+                                          {teamContacts.length}
+                                        </Chip>
+                                        <Icon
+                                          icon={
+                                            isTeamExpanded
+                                              ? "fa7-solid:chevron-up"
+                                              : "fa7-solid:chevron-down"
+                                          }
+                                          className="ml-auto h-3 w-3 text-foreground-400"
+                                        />
+                                      </button>
+                                      {isTeamExpanded && (
+                                        <div className="border-t border-divider">
+                                          {teamContacts.map((c) =>
+                                            contactRow(c, "pl-16"),
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {/* Contacts without a team */}
+                                {noTeam.length > 0 &&
+                                  noTeam.map((c) => contactRow(c, "pl-10"))}
+                              </div>
+                            );
+                          })()}
                       </div>
                     );
                   })}
