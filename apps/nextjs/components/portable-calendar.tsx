@@ -1634,6 +1634,8 @@ const DayView = ({
   onTogglePrayerItem,
   onToggleWeightItem,
   onToggleSalesItem,
+  customIconSlots,
+  onToggleCustomIconSlot,
 }: {
   currentDate: Date;
   entries: NormalizedCalendarEntry[];
@@ -1645,6 +1647,8 @@ const DayView = ({
   onTogglePrayerItem?: (key: string) => void;
   onToggleWeightItem?: (key: string) => void;
   onToggleSalesItem?: (key: string) => void;
+  customIconSlots?: Array<{ slotKey: string; selection: CustomDayIconSelection }>;
+  onToggleCustomIconSlot?: (slotKey: string) => void;
 }) => {
   const [showCompleted, setShowCompleted] = useState(false);
 
@@ -1826,6 +1830,45 @@ const DayView = ({
           )}
         </div>
       </div>
+
+      {customIconSlots && customIconSlots.length > 0 && (
+        <div className="bg-content1 border-divider rounded-3xl border p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-foreground-400" />
+            <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+              Monthly Goals
+            </p>
+          </div>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+            {customIconSlots.map(({ slotKey, selection }) => {
+              const opt = CUSTOM_DAY_ICON_OPTIONS.find(
+                (o) => o.key === selection.iconKey,
+              );
+              if (!opt) return null;
+              const isComplete = selection.status === "complete";
+              return (
+                <Tooltip content={opt.label} color="foreground" key={slotKey}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleCustomIconSlot?.(slotKey)}
+                    className={cn(
+                      "flex flex-col items-center justify-center rounded-2xl border p-3 transition-all",
+                      isComplete
+                        ? "border-transparent bg-foreground text-background shadow-md"
+                        : "border-default-200 bg-content2 text-foreground-400 hover:border-transparent hover:bg-foreground/10 hover:text-foreground",
+                    )}
+                  >
+                    <Icon
+                      icon={isComplete ? "mdi:check-bold" : opt.icon}
+                      className="h-6 w-6"
+                    />
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="bg-content1 border-divider rounded-3xl border p-5">
         {dayEntries.length > 0 ? (
@@ -2258,6 +2301,9 @@ export const PortableCalendar = ({
   const [dayViewSalesChecklists, setDayViewSalesChecklists] = useState<
     Record<string, SalesChecklistState>
   >({});
+  const [dayViewCustomIconsByDate, setDayViewCustomIconsByDate] = useState<
+    Record<string, CustomDayIconSelection | null>
+  >({});
 
   const dayViewMonthKey = useMemo(
     () => (view === "day" ? getMonthKey(selectedDate) : null),
@@ -2279,6 +2325,10 @@ export const PortableCalendar = ({
         setDayViewSalesChecklists((prev) => ({
           ...prev,
           ...snap.salesChecklistsByDate,
+        }));
+        setDayViewCustomIconsByDate((prev) => ({
+          ...prev,
+          ...snap.customDayIconsByDate,
         }));
       })
       .catch(() => {});
@@ -2318,6 +2368,24 @@ export const PortableCalendar = ({
     void persistSalesChecklist({ dateKey, checklist: next }).catch(() => {
       setDayViewSalesChecklists((prev) => ({ ...prev, [dateKey]: current }));
     });
+  };
+
+  const handleDayViewCustomIconToggle = (slotKey: string) => {
+    const current = dayViewCustomIconsByDate[slotKey];
+    if (!current) return;
+    const next: CustomDayIconSelection = {
+      ...current,
+      status: current.status === "complete" ? "planned" : "complete",
+    };
+    setDayViewCustomIconsByDate((prev) => ({ ...prev, [slotKey]: next }));
+    const lastUnderscore = slotKey.lastIndexOf("_");
+    const dateKey = slotKey.slice(0, lastUnderscore);
+    const slotIndex = Number.parseInt(slotKey.slice(lastUnderscore + 1), 10);
+    void persistCustomDayIcon({ dateKey, slotIndex, selection: next }).catch(
+      () => {
+        setDayViewCustomIconsByDate((prev) => ({ ...prev, [slotKey]: current }));
+      },
+    );
   };
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
