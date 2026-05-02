@@ -103,6 +103,7 @@ const CONTACT_STATUSES = [
   "Close to Customer",
   "Meeting",
   "Not Sure",
+  "Archived",
 ] as const;
 
 const CONTACT_PRIORITIES = ["High", "Medium", "Low"] as const;
@@ -122,6 +123,7 @@ const STATUS_COLORS: Record<string, string> = {
   "Close to Customer": "bg-blue-500/15 text-blue-600",
   Meeting: "bg-amber-500/15 text-amber-600",
   "Not Sure": "bg-default-200 text-foreground-500",
+  Archived: "bg-default-100 text-foreground-400",
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -157,6 +159,9 @@ function TopContent({
   refetch,
   viewMode,
   onAddNew,
+  showArchived,
+  onToggleArchived,
+  archivedCount,
   actionSlot,
 }: {
   filterValue: string;
@@ -169,6 +174,9 @@ function TopContent({
   refetch: () => void;
   viewMode: ViewMode;
   onAddNew: () => void;
+  showArchived: boolean;
+  onToggleArchived: () => void;
+  archivedCount: number;
   actionSlot?: React.ReactNode;
 }) {
   return (
@@ -192,6 +200,16 @@ function TopContent({
           <span className="hidden text-xs text-foreground-400 sm:block">
             {displayCount} record{displayCount !== 1 ? "s" : ""}
           </span>
+          {archivedCount > 0 && (
+            <Button
+              variant={showArchived ? "flat" : "light"}
+              size="sm"
+              className="hidden text-foreground-500 sm:flex"
+              onPress={onToggleArchived}
+            >
+              {showArchived ? "Hide archived" : `${archivedCount} archived`}
+            </Button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -514,6 +532,47 @@ export function ContactsTable() {
     },
   });
 
+  const inlineUpdateMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ContactInput }) =>
+      updateContact(id, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    },
+    onError: (err) => {
+      addToast({
+        title: "Could not update",
+        description: err instanceof Error ? err.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+
+  const handleInlineUpdate = (
+    id: string,
+    field: keyof ContactInput,
+    value: string | null,
+  ) => {
+    const contact = data.find((c) => c.id === id);
+    if (!contact) return;
+    inlineUpdateMutation.mutate({
+      id,
+      input: {
+        name: contact.name,
+        company: contact.company,
+        phone: contact.phone,
+        email: contact.email,
+        category: contact.category,
+        team: contact.team,
+        status: contact.status,
+        priority: contact.priority,
+        lastResponse: contact.lastResponse,
+        lastContacted: contact.lastContacted,
+        notes: contact.notes,
+        [field]: value,
+      },
+    });
+  };
+
   // UI state
   const [filterValue, setFilterValue] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set());
@@ -532,27 +591,34 @@ export function ContactsTable() {
   });
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [showArchived, setShowArchived] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pendingDeleteContact, setPendingDeleteContact] =
     useState<Contact | null>(null);
 
+  const archivedCount = useMemo(
+    () => data.filter((c) => c.status === "Archived").length,
+    [data],
+  );
+
   // Derived: filter
   const filteredItems = useMemo(() => {
-    if (!filterValue) return data;
+    const list = showArchived ? data : data.filter((c) => c.status !== "Archived");
+    if (!filterValue) return list;
     const re = new RegExp(
       filterValue.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
       "i",
     );
-    return data.filter(
+    return list.filter(
       (c) =>
         re.test(c.name) ||
         re.test(c.company) ||
         re.test(c.email) ||
         re.test(c.category),
     );
-  }, [data, filterValue]);
+  }, [data, filterValue, showArchived]);
 
   // Derived: sort
   const sortedItems = useMemo(() => {
@@ -596,6 +662,11 @@ export function ContactsTable() {
   const headerColumns = useMemo(
     () => COLUMNS.filter((c) => visibleColumns.has(c.uid) || c.uid === "actions"),
     [visibleColumns],
+  );
+
+  const categoryDataCols = useMemo(
+    () => headerColumns.filter((c) => c.uid !== "actions"),
+    [headerColumns],
   );
 
   // Selection helpers
@@ -669,17 +740,45 @@ export function ContactsTable() {
           <span className="text-foreground-300">—</span>
         );
       case "category":
-        return row.category ? (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-              CATEGORY_COLORS[row.category] ?? "bg-default-200 text-foreground-500",
-            )}
-          >
-            {row.category}
-          </span>
-        ) : (
-          <span className="text-foreground-300">—</span>
+        return (
+          <Dropdown placement="bottom-start">
+            <DropdownTrigger>
+              <button
+                type="button"
+                className="cursor-pointer rounded-full focus:outline-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.category ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
+                      CATEGORY_COLORS[row.category] ?? "bg-default-200 text-foreground-500",
+                    )}
+                  >
+                    {row.category}
+                  </span>
+                ) : (
+                  <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
+                    Set category
+                  </span>
+                )}
+              </button>
+            </DropdownTrigger>
+            <DropdownMenu
+              aria-label="Category"
+              selectionMode="single"
+              disallowEmptySelection={false}
+              selectedKeys={row.category ? new Set([row.category]) : new Set()}
+              onSelectionChange={(keys) => {
+                const selected = [...keys][0];
+                handleInlineUpdate(row.id, "category", selected ? String(selected) : "");
+              }}
+            >
+              {CONTACT_CATEGORIES.map((c) => (
+                <DropdownItem key={c}>{c}</DropdownItem>
+              ))}
+            </DropdownMenu>
+          </Dropdown>
         );
       case "team":
         return row.team ? (
@@ -688,42 +787,110 @@ export function ContactsTable() {
           <span className="text-foreground-300">—</span>
         );
       case "status":
-        return row.status ? (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-              STATUS_COLORS[row.status] ?? "bg-default-200 text-foreground-500",
-            )}
-          >
-            {row.status}
-          </span>
-        ) : (
-          <span className="text-foreground-300">—</span>
+        return (
+          <Dropdown placement="bottom-start">
+            <DropdownTrigger>
+              <button
+                type="button"
+                className="cursor-pointer rounded-full focus:outline-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.status ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
+                      STATUS_COLORS[row.status] ?? "bg-default-200 text-foreground-500",
+                    )}
+                  >
+                    {row.status}
+                  </span>
+                ) : (
+                  <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
+                    Set status
+                  </span>
+                )}
+              </button>
+            </DropdownTrigger>
+            <DropdownMenu
+              aria-label="Status"
+              selectionMode="single"
+              disallowEmptySelection={false}
+              selectedKeys={row.status ? new Set([row.status]) : new Set()}
+              onSelectionChange={(keys) => {
+                const selected = [...keys][0];
+                handleInlineUpdate(row.id, "status", selected ? String(selected) : "");
+              }}
+            >
+              {CONTACT_STATUSES.map((s) => (
+                <DropdownItem key={s}>{s}</DropdownItem>
+              ))}
+            </DropdownMenu>
+          </Dropdown>
         );
       case "priority":
-        return row.priority ? (
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-              PRIORITY_COLORS[row.priority] ?? "bg-default-200 text-foreground-500",
-            )}
-          >
-            {row.priority}
-          </span>
-        ) : (
-          <span className="text-foreground-300">—</span>
+        return (
+          <Dropdown placement="bottom-start">
+            <DropdownTrigger>
+              <button
+                type="button"
+                className="cursor-pointer rounded-full focus:outline-none"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.priority ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
+                      PRIORITY_COLORS[row.priority] ?? "bg-default-200 text-foreground-500",
+                    )}
+                  >
+                    {row.priority}
+                  </span>
+                ) : (
+                  <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
+                    Set priority
+                  </span>
+                )}
+              </button>
+            </DropdownTrigger>
+            <DropdownMenu
+              aria-label="Priority"
+              selectionMode="single"
+              disallowEmptySelection={false}
+              selectedKeys={row.priority ? new Set([row.priority]) : new Set()}
+              onSelectionChange={(keys) => {
+                const selected = [...keys][0];
+                handleInlineUpdate(row.id, "priority", selected ? String(selected) : "");
+              }}
+            >
+              {CONTACT_PRIORITIES.map((p) => (
+                <DropdownItem key={p}>{p}</DropdownItem>
+              ))}
+            </DropdownMenu>
+          </Dropdown>
         );
       case "lastResponse":
-        return row.lastResponse ? (
-          <span className="text-sm text-foreground-600">{row.lastResponse}</span>
-        ) : (
-          <span className="text-foreground-300">—</span>
+        return (
+          <input
+            type="date"
+            value={row.lastResponse ?? ""}
+            onChange={(e) =>
+              handleInlineUpdate(row.id, "lastResponse", e.target.value || null)
+            }
+            onClick={(e) => e.stopPropagation()}
+            className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
+          />
         );
       case "lastContacted":
-        return row.lastContacted ? (
-          <span className="text-sm text-foreground-600">{row.lastContacted}</span>
-        ) : (
-          <span className="text-foreground-300">—</span>
+        return (
+          <input
+            type="date"
+            value={row.lastContacted ?? ""}
+            onChange={(e) =>
+              handleInlineUpdate(row.id, "lastContacted", e.target.value || null)
+            }
+            onClick={(e) => e.stopPropagation()}
+            className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
+          />
         );
       case "actions":
         return (
@@ -883,6 +1050,9 @@ export function ContactsTable() {
           setEditingContact(null);
           setFormOpen(true);
         }}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((p) => !p)}
+        archivedCount={archivedCount}
       />
 
       {/* Table view */}
@@ -955,6 +1125,23 @@ export function ContactsTable() {
               No contacts yet.
             </div>
           )}
+          {/* Single column header for all category rows */}
+          {!isLoading && groupedItems.length > 0 && (
+            <div className="flex items-center gap-2 rounded-xl bg-default-100 px-4 py-2">
+              {categoryDataCols.map((col) => (
+                <div
+                  key={col.uid}
+                  className={cn(
+                    "text-xs font-semibold uppercase tracking-wider text-foreground-500",
+                    col.uid === "name" ? "flex-2" : "flex-1",
+                  )}
+                >
+                  {col.name}
+                </div>
+              ))}
+              <div className="w-10 shrink-0" />
+            </div>
+          )}
           {groupedItems.map((group) => {
             const isCatExpanded = expandedCategories.has(group.groupName);
 
@@ -969,9 +1156,6 @@ export function ContactsTable() {
             const companies = [...companyMap.entries()].sort(([a], [b]) =>
               a.localeCompare(b),
             );
-
-            // Visible columns minus actions for the header row
-            const dataColumns = headerColumns.filter((c) => c.uid !== "actions");
 
             return (
               <div
@@ -1069,29 +1253,12 @@ export function ContactsTable() {
                             a.localeCompare(b),
                           );
 
-                          const colHeader = (indent: string) => (
-                            <div className={cn("flex items-center gap-2 bg-default-50 py-2 pr-4", indent)}>
-                              {dataColumns.map((col) => (
-                                <div
-                                  key={col.uid}
-                                  className={cn(
-                                    "text-xs font-semibold uppercase tracking-wider text-foreground-500",
-                                    col.uid === "name" ? "flex-2" : "flex-1",
-                                  )}
-                                >
-                                  {col.name}
-                                </div>
-                              ))}
-                              <div className="w-10 shrink-0" />
-                            </div>
-                          );
-
                           const contactRow = (contact: Contact, indent: string) => (
                             <div
                               key={contact.id}
                               className={cn("flex items-center gap-2 border-t border-divider py-3 pr-4 hover:bg-default-50", indent)}
                             >
-                              {dataColumns.map((col) => (
+                              {categoryDataCols.map((col) => (
                                 <div
                                   key={col.uid}
                                   className={cn("min-w-0", col.uid === "name" ? "flex-2" : "flex-1")}
@@ -1160,7 +1327,6 @@ export function ContactsTable() {
                                     </button>
                                     {isTeamExpanded && (
                                       <div className="border-t border-divider">
-                                        {colHeader("pl-16")}
                                         {teamContacts.map((c) => contactRow(c, "pl-16"))}
                                       </div>
                                     )}
@@ -1168,12 +1334,8 @@ export function ContactsTable() {
                                 );
                               })}
                               {/* Contacts without a team */}
-                              {noTeam.length > 0 && (
-                                <>
-                                  {colHeader("pl-10")}
-                                  {noTeam.map((c) => contactRow(c, "pl-10"))}
-                                </>
-                              )}
+                              {noTeam.length > 0 &&
+                                noTeam.map((c) => contactRow(c, "pl-10"))}
                             </div>
                           );
                         })()}
