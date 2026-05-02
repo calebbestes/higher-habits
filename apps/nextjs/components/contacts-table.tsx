@@ -126,6 +126,12 @@ const STATUS_RANK: Record<string, number> = {
   Archived: 4,
 };
 
+const PRIORITY_RANK: Record<string, number> = {
+  High: 0,
+  Medium: 1,
+  Low: 2,
+};
+
 const STATUS_COLORS: Record<string, string> = {
   Customer: "bg-teal-500/15 text-teal-600",
   "Close to Customer": "bg-blue-500/15 text-blue-600",
@@ -637,7 +643,7 @@ export function ContactsTable() {
   );
   const [rowsPerPage, setRowsPerPage] = useState(24);
   const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
-    column: "status",
+    column: "priority",
     direction: "ascending",
   });
   const [page, setPage] = useState(1);
@@ -683,6 +689,12 @@ export function ContactsTable() {
     const byStatus = (a: Contact, b: Contact) =>
       (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99);
 
+    const byPriority = (a: Contact, b: Contact) =>
+      (PRIORITY_RANK[a.priority] ?? 99) - (PRIORITY_RANK[b.priority] ?? 99);
+
+    const byNotes = (a: Contact, b: Contact) =>
+      (a.notes ? 0 : 1) - (b.notes ? 0 : 1);
+
     const byLastContacted = (a: Contact, b: Contact) => {
       const ad = a.lastContacted ?? "9999-99-99";
       const bd = b.lastContacted ?? "9999-99-99";
@@ -693,16 +705,21 @@ export function ContactsTable() {
       let cmp: number;
       if (col === "status") {
         cmp = byStatus(a, b) * dir;
+      } else if (col === "priority") {
+        cmp = byPriority(a, b) * dir;
       } else {
         const av = String(a[col] ?? "").toLowerCase();
         const bv = String(b[col] ?? "").toLowerCase();
         cmp = (av < bv ? -1 : av > bv ? 1 : 0) * dir;
       }
       if (cmp !== 0) return cmp;
-      // tiebreaker 1: status rank
-      const sc = byStatus(a, b);
-      if (sc !== 0) return sc;
-      // tiebreaker 2: least recently contacted first
+      // tiebreaker 1: priority rank
+      const pc = byPriority(a, b);
+      if (pc !== 0) return pc;
+      // tiebreaker 2: notes first
+      const nc = byNotes(a, b);
+      if (nc !== 0) return nc;
+      // tiebreaker 3: least recently contacted first
       return byLastContacted(a, b);
     });
   }, [filteredItems, sortDescriptor]);
@@ -1016,7 +1033,8 @@ export function ContactsTable() {
             type="button"
             className="w-full cursor-text text-left"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
               e.stopPropagation();
               setEditingNotesId(row.id);
               setEditingNotesValue(row.notes);

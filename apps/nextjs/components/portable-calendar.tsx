@@ -2636,15 +2636,6 @@ export const PortableCalendar = ({
           event.preventDefault();
           handleSelectDate(new Date());
           break;
-        case "1":
-          setView("month");
-          break;
-        case "2":
-          setView("week");
-          break;
-        case "3":
-          setView("day");
-          break;
         case "n":
           if ((event.metaKey || event.ctrlKey) && allowCreate) {
             event.preventDefault();

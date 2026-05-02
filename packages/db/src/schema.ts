@@ -9,6 +9,7 @@ import {
     primaryKey,
     text,
     timestamp,
+    unique,
     uuid,
 } from "drizzle-orm/pg-core";
 
@@ -272,7 +273,82 @@ export type NewSalesDayChecklist = typeof salesDayChecklists.$inferInsert;
 export type SalesOutreachActivity = typeof salesOutreachActivities.$inferSelect;
 export type NewSalesOutreachActivity =
     typeof salesOutreachActivities.$inferInsert;
+export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
+export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
+export const LOG_STATUSES = ["complete", "incomplete"] as const;
+
+export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
+export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
+export const logStatusEnum = pgEnum("log_status", LOG_STATUSES);
+
+export const categories = pgTable("categories", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    icon: text("icon").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+        .defaultNow()
+        .notNull(),
+});
+
+export const goals = pgTable(
+    "goals",
+    {
+        id: uuid("id").defaultRandom().primaryKey(),
+        name: text("name").notNull(),
+        frequencyGoal: integer("frequency_goal"),
+        period: goalPeriodEnum("period"),
+        categoryId: uuid("category_id")
+            .notNull()
+            .references(() => categories.id),
+        priority: goalPriorityEnum("priority").notNull(),
+        iconKey: text("icon_key").default("").notNull(),
+        hidden: boolean("hidden").default(false).notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => [
+        index("goals_category_id_idx").on(table.categoryId),
+        index("goals_priority_idx").on(table.priority),
+    ],
+);
+
+export const goalLogs = pgTable(
+    "goal_logs",
+    {
+        id: uuid("id").defaultRandom().primaryKey(),
+        goalId: uuid("goal_id")
+            .notNull()
+            .references(() => goals.id, { onDelete: "cascade" }),
+        date: date("date", { mode: "string" }).notNull(),
+        status: logStatusEnum("status").notNull(),
+        notes: text("notes").default("").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => [
+        unique("goal_logs_goal_id_date_uidx").on(table.goalId, table.date),
+        index("goal_logs_date_idx").on(table.date),
+    ],
+);
+
 export type GoalPreference = typeof goalPreferences.$inferSelect;
 export type NewGoalPreference = typeof goalPreferences.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
+export type GoalPeriod = (typeof GOAL_PERIODS)[number];
+export type GoalPriority = (typeof GOAL_PRIORITIES)[number];
+export type LogStatus = (typeof LOG_STATUSES)[number];
+export type Category = typeof categories.$inferSelect;
+export type NewCategory = typeof categories.$inferInsert;
+export type Goal = typeof goals.$inferSelect;
+export type NewGoal = typeof goals.$inferInsert;
+export type GoalLog = typeof goalLogs.$inferSelect;
+export type NewGoalLog = typeof goalLogs.$inferInsert;
