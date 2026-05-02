@@ -17,6 +17,7 @@ import { Icon } from "@iconify/react";
 const NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
   { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
+  { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
   { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
 ] as const;
 
