@@ -221,6 +221,34 @@ export const salesOutreachActivities = pgTable(
     (table) => [index("sales_outreach_activities_date_idx").on(table.date)],
 );
 
+export const contacts = pgTable(
+    "contacts",
+    {
+        id: uuid("id").defaultRandom().primaryKey(),
+        name: text("name").notNull(),
+        company: text("company").default("").notNull(),
+        phone: text("phone").default("").notNull(),
+        email: text("email").default("").notNull(),
+        category: text("category").default("").notNull(),
+        team: text("team").default("").notNull(),
+        status: text("status").default("").notNull(),
+        priority: text("priority").default("").notNull(),
+        lastResponse: date("last_response", { mode: "string" }),
+        lastContacted: date("last_contacted", { mode: "string" }),
+        notes: text("notes").default("").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => [
+        index("contacts_name_idx").on(table.name),
+        index("contacts_category_idx").on(table.category),
+    ],
+);
+
 export type CalendarHabitKey = (typeof CALENDAR_HABIT_KEYS)[number];
 export type SalesChannelKey = (typeof SALES_CHANNEL_KEYS)[number];
 export type DrawerNoteKey = (typeof DRAWER_NOTE_KEYS)[number];
@@ -246,3 +274,5 @@ export type NewSalesOutreachActivity =
     typeof salesOutreachActivities.$inferInsert;
 export type GoalPreference = typeof goalPreferences.$inferSelect;
 export type NewGoalPreference = typeof goalPreferences.$inferInsert;
+export type Contact = typeof contacts.$inferSelect;
+export type NewContact = typeof contacts.$inferInsert;

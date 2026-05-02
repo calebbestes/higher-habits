@@ -3,9 +3,9 @@
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 body {
-  @apply bg-zinc-50 text-zinc-900 antialiased;
+  @apply bg-background text-foreground antialiased;
 }
