@@ -1,0 +1,183 @@
+import { categories, goalLogs, goals, getDb } from "@habit/db";
+import { and, asc, eq, gte, isNull, lt, ne, or } from "drizzle-orm";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { getMonthDateRange } from "@/lib/habit-state";
+
+const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
+const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const monthQuerySchema = z.object({
+  month: z.string().regex(MONTH_KEY_REGEX, "Month must be YYYY-MM"),
+});
+
+const bodySchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("setLog"),
+    goalId: z.string().uuid(),
+    dateKey: z.string().regex(DATE_KEY_REGEX),
+    status: z.enum(["complete", "incomplete"]).nullable(),
+  }),
+  z.object({
+    type: z.literal("setHidden"),
+    goalId: z.string().uuid(),
+    hidden: z.boolean(),
+  }),
+]);
+
+const getDatabase = () => getDb() ?? null;
+
+export async function GET(request: Request) {
+  try {
+    const db = getDatabase();
+    if (!db)
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
+    const url = new URL(request.url);
+    const { month } = monthQuerySchema.parse({ month: url.searchParams.get("month") });
+    const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
+
+    const periodicFields = {
+      id: goals.id,
+      name: goals.name,
+      iconKey: goals.iconKey,
+      categoryId: goals.categoryId,
+      priority: goals.priority,
+      period: goals.period,
+      frequencyGoal: goals.frequencyGoal,
+    };
+
+    const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] = await Promise.all([
+      db.select().from(categories).orderBy(asc(categories.name)),
+      db
+        .select()
+        .from(goals)
+        .where(and(eq(goals.period, "daily"), eq(goals.hidden, false)))
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select(periodicFields)
+        .from(goals)
+        .where(
+          and(
+            or(ne(goals.period, "daily"), isNull(goals.period)),
+            eq(goals.hidden, false),
+          ),
+        )
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select(periodicFields)
+        .from(goals)
+        .where(eq(goals.hidden, true))
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select({
+          goalId: goalLogs.goalId,
+          date: goalLogs.date,
+          status: goalLogs.status,
+        })
+        .from(goalLogs)
+        .where(
+          and(
+            gte(goalLogs.date, startDateKey),
+            lt(goalLogs.date, endDateKeyExclusive),
+            eq(goalLogs.status, "complete"),
+          ),
+        ),
+    ]);
+
+    const goalsByCategoryId = dailyGoals.reduce<Record<string, typeof dailyGoals>>(
+      (acc, goal) => {
+        if (!acc[goal.categoryId]) acc[goal.categoryId] = [];
+        acc[goal.categoryId].push(goal);
+        return acc;
+      },
+      {},
+    );
+
+    const categoriesWithGoals = cats
+      .map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        icon: cat.icon,
+        goals: (goalsByCategoryId[cat.id] ?? []).map((g) => ({
+          id: g.id,
+          name: g.name,
+          iconKey: g.iconKey,
+          categoryId: g.categoryId,
+          priority: g.priority as "high" | "medium" | "low",
+          hidden: g.hidden,
+        })),
+      }))
+      .filter((cat) => cat.goals.length > 0);
+
+    const mapPeriodic = (g: (typeof periodicGoals)[number]) => ({
+      id: g.id,
+      name: g.name,
+      iconKey: g.iconKey,
+      categoryId: g.categoryId,
+      priority: g.priority as "high" | "medium" | "low",
+      period: g.period,
+      frequencyGoal: g.frequencyGoal,
+    });
+
+    return NextResponse.json({
+      categories: categoriesWithGoals,
+      periodicGoals: periodicGoals.map(mapPeriodic),
+      hiddenGoals: hiddenGoals.map(mapPeriodic),
+      logsByGoalDate: Object.fromEntries(
+        logs.map((l) => [`${l.goalId}_${l.date}`, l.status]),
+      ),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const db = getDatabase();
+    if (!db)
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
+    const data = bodySchema.parse(await request.json());
+
+    if (data.type === "setLog") {
+      if (!data.status) {
+        await db
+          .delete(goalLogs)
+          .where(
+            and(eq(goalLogs.goalId, data.goalId), eq(goalLogs.date, data.dateKey)),
+          );
+      } else {
+        await db
+          .insert(goalLogs)
+          .values({
+            goalId: data.goalId,
+            date: data.dateKey,
+            status: data.status,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [goalLogs.goalId, goalLogs.date],
+            set: { status: data.status, updatedAt: new Date() },
+          });
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    if (data.type === "setHidden") {
+      await db
+        .update(goals)
+        .set({ hidden: data.hidden, updatedAt: new Date() })
+        .where(eq(goals.id, data.goalId));
+      return NextResponse.json({ ok: true });
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
