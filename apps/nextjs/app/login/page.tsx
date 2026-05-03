@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 
 import { AuthFormCard } from "@/components/auth-form-card";
