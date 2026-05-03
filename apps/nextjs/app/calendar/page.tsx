@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
 import { requireUser } from "@/lib/auth";
