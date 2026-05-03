@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { ContactsTable } from "@/components/contacts-table";
 import { requireUser } from "@/lib/auth";
 
