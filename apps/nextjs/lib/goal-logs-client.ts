@@ -42,6 +42,8 @@ export type GoalLogsSnapshot = {
   hiddenGoals: HiddenGoalInfo[];
   /** key: `${goalId}_${dateKey}` */
   logsByGoalDate: Record<string, "complete">;
+  /** key: `${goalId}_${dateKey}`, only non-empty notes */
+  notesByGoalDate: Record<string, string>;
 };
 
 export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
@@ -49,6 +51,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   periodicGoals: [],
   hiddenGoals: [],
   logsByGoalDate: {},
+  notesByGoalDate: {},
 };
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -77,4 +80,15 @@ export const setGoalHidden = (goalId: string, hidden: boolean): Promise<{ ok: tr
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type: "setHidden", goalId, hidden }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const setGoalLogNote = (
+  goalId: string,
+  dateKey: string,
+  notes: string,
+): Promise<{ ok: true }> =>
+  fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "setNote", goalId, dateKey, notes }),
   }).then((r) => parseResponse<{ ok: true }>(r));

@@ -12,6 +12,7 @@ import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
   CALENDAR_HABIT_KEYS,
   CUSTOM_DAY_ICON_KEYS,
@@ -161,6 +162,7 @@ const handleError = (error: unknown) => {
 
 export async function GET(request: Request) {
   try {
+    const user = await requireRequestUser(request);
     const db = getDatabase();
 
     if (!db) {
@@ -183,6 +185,7 @@ export async function GET(request: Request) {
           .from(calendarDayHabits)
           .where(
             and(
+              eq(calendarDayHabits.userId, user.id),
               gte(calendarDayHabits.date, startDateKey),
               lt(calendarDayHabits.date, endDateKeyExclusive),
             ),
@@ -192,6 +195,7 @@ export async function GET(request: Request) {
           .from(prayerDayChecklists)
           .where(
             and(
+              eq(prayerDayChecklists.userId, user.id),
               gte(prayerDayChecklists.date, startDateKey),
               lt(prayerDayChecklists.date, endDateKeyExclusive),
             ),
@@ -201,6 +205,7 @@ export async function GET(request: Request) {
           .from(weightDayChecklists)
           .where(
             and(
+              eq(weightDayChecklists.userId, user.id),
               gte(weightDayChecklists.date, startDateKey),
               lt(weightDayChecklists.date, endDateKeyExclusive),
             ),
@@ -210,6 +215,7 @@ export async function GET(request: Request) {
           .from(salesDayChecklists)
           .where(
             and(
+              eq(salesDayChecklists.userId, user.id),
               gte(salesDayChecklists.date, startDateKey),
               lt(salesDayChecklists.date, endDateKeyExclusive),
             ),
@@ -219,6 +225,7 @@ export async function GET(request: Request) {
           .from(customDayIconSelections)
           .where(
             and(
+              eq(customDayIconSelections.userId, user.id),
               gte(customDayIconSelections.date, startDateKey),
               lt(customDayIconSelections.date, endDateKeyExclusive),
             ),
@@ -228,6 +235,7 @@ export async function GET(request: Request) {
           .from(dayDrawerNotes)
           .where(
             and(
+              eq(dayDrawerNotes.userId, user.id),
               gte(dayDrawerNotes.date, startDateKey),
               lt(dayDrawerNotes.date, endDateKeyExclusive),
             ),
@@ -237,6 +245,7 @@ export async function GET(request: Request) {
           .from(salesOutreachActivities)
           .where(
             and(
+              eq(salesOutreachActivities.userId, user.id),
               gte(salesOutreachActivities.date, startDateKey),
               lt(salesOutreachActivities.date, endDateKeyExclusive),
             ),
@@ -349,6 +358,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const user = await requireRequestUser(request);
     const db = getDatabase();
 
     if (!db) {
@@ -365,13 +375,18 @@ export async function POST(request: Request) {
         await db
           .insert(calendarDayHabits)
           .values({
+            userId: user.id,
             date: input.dateKey,
             habitKey: input.habitKey,
             isActive: input.isActive,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: [calendarDayHabits.date, calendarDayHabits.habitKey],
+            target: [
+              calendarDayHabits.userId,
+              calendarDayHabits.date,
+              calendarDayHabits.habitKey,
+            ],
             set: {
               isActive: input.isActive,
               updatedAt: new Date(),
@@ -385,12 +400,13 @@ export async function POST(request: Request) {
         await db
           .insert(prayerDayChecklists)
           .values({
+            userId: user.id,
             date: input.dateKey,
             ...input.checklist,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: prayerDayChecklists.date,
+            target: [prayerDayChecklists.userId, prayerDayChecklists.date],
             set: {
               ...input.checklist,
               updatedAt: new Date(),
@@ -413,12 +429,13 @@ export async function POST(request: Request) {
         await db
           .insert(weightDayChecklists)
           .values({
+            userId: user.id,
             date: input.dateKey,
             ...checklistValues,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: weightDayChecklists.date,
+            target: [weightDayChecklists.userId, weightDayChecklists.date],
             set: {
               ...checklistValues,
               updatedAt: new Date(),
@@ -434,6 +451,7 @@ export async function POST(request: Request) {
             .delete(customDayIconSelections)
             .where(
               and(
+                eq(customDayIconSelections.userId, user.id),
                 eq(customDayIconSelections.date, input.dateKey),
                 eq(customDayIconSelections.slotIndex, input.slotIndex),
               ),
@@ -445,6 +463,7 @@ export async function POST(request: Request) {
         await db
           .insert(customDayIconSelections)
           .values({
+            userId: user.id,
             date: input.dateKey,
             slotIndex: input.slotIndex,
             iconKey: input.selection.iconKey,
@@ -452,7 +471,11 @@ export async function POST(request: Request) {
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: [customDayIconSelections.date, customDayIconSelections.slotIndex],
+            target: [
+              customDayIconSelections.userId,
+              customDayIconSelections.date,
+              customDayIconSelections.slotIndex,
+            ],
             set: {
               iconKey: input.selection.iconKey,
               status: input.selection.status,
@@ -467,6 +490,7 @@ export async function POST(request: Request) {
         if (!input.note.notes?.trim()) {
           await db.delete(dayDrawerNotes).where(
             and(
+              eq(dayDrawerNotes.userId, user.id),
               eq(dayDrawerNotes.date, input.dateKey),
               eq(dayDrawerNotes.drawerKey, input.note.drawerKey),
             ),
@@ -478,13 +502,18 @@ export async function POST(request: Request) {
         await db
           .insert(dayDrawerNotes)
           .values({
+            userId: user.id,
             date: input.dateKey,
             drawerKey: input.note.drawerKey,
             notes: input.note.notes,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: [dayDrawerNotes.date, dayDrawerNotes.drawerKey],
+            target: [
+              dayDrawerNotes.userId,
+              dayDrawerNotes.date,
+              dayDrawerNotes.drawerKey,
+            ],
             set: {
               notes: input.note.notes,
               updatedAt: new Date(),
@@ -498,6 +527,7 @@ export async function POST(request: Request) {
         await db
           .insert(salesDayChecklists)
           .values({
+            userId: user.id,
             date: input.dateKey,
             coldEmails: input.checklist.coldEmails,
             linkedinMessages: input.checklist.linkedinMessages,
@@ -508,7 +538,7 @@ export async function POST(request: Request) {
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
-            target: salesDayChecklists.date,
+            target: [salesDayChecklists.userId, salesDayChecklists.date],
             set: {
               coldEmails: input.checklist.coldEmails,
               linkedinMessages: input.checklist.linkedinMessages,
@@ -527,6 +557,7 @@ export async function POST(request: Request) {
         const [savedActivity] = await db
           .insert(salesOutreachActivities)
           .values({
+            userId: user.id,
             date: input.dateKey,
             leadName: input.activity.leadName,
             company: input.activity.company,
@@ -542,6 +573,12 @@ export async function POST(request: Request) {
       }
     }
   } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
     return handleError(error);
   }
 }

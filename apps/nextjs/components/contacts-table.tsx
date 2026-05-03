@@ -41,6 +41,7 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useMemo, useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -657,6 +658,31 @@ export function ContactsTable() {
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
   const [editingNotesValue, setEditingNotesValue] = useState("");
 
+  const startEditingNotes = (contact: Contact) => {
+    setEditingNotesId(contact.id);
+    setEditingNotesValue(contact.notes);
+  };
+
+  const stopEditingNotes = () => {
+    setEditingNotesId(null);
+  };
+
+  const saveEditingNotes = (contact: Contact) => {
+    handleInlineUpdate(contact.id, "notes", editingNotesValue);
+    stopEditingNotes();
+  };
+
+  const handleNotesDisplayClick = (
+    event: ReactMouseEvent<HTMLElement>,
+    contact: Contact,
+  ) => {
+    event.stopPropagation();
+
+    if (event.detail >= 2) {
+      startEditingNotes(contact);
+    }
+  };
+
   const archivedCount = useMemo(
     () => data.filter((c) => c.status === "Archived").length,
     [data],
@@ -1014,12 +1040,9 @@ export function ContactsTable() {
               value={editingNotesValue}
               rows={2}
               onChange={(e) => setEditingNotesValue(e.target.value)}
-              onBlur={() => {
-                handleInlineUpdate(row.id, "notes", editingNotesValue);
-                setEditingNotesId(null);
-              }}
+              onBlur={() => saveEditingNotes(row)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setEditingNotesId(null);
+                if (e.key === "Escape") stopEditingNotes();
                 e.stopPropagation();
               }}
               onPointerDown={(e) => e.stopPropagation()}
@@ -1033,11 +1056,10 @@ export function ContactsTable() {
             type="button"
             className="w-full cursor-text text-left"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => handleNotesDisplayClick(e, row)}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setEditingNotesId(row.id);
-              setEditingNotesValue(row.notes);
+              startEditingNotes(row);
             }}
           >
             {row.notes ? (
@@ -1269,7 +1291,19 @@ export function ContactsTable() {
               {(contact) => (
                 <TableRow key={contact.id}>
                   {(columnKey) => (
-                    <TableCell>
+                    <TableCell
+                      onDoubleClick={
+                        String(columnKey) === "notes"
+                          ? (event) => {
+                              event.stopPropagation();
+                              startEditingNotes(contact);
+                            }
+                          : undefined
+                      }
+                      className={
+                        String(columnKey) === "notes" ? "cursor-text" : undefined
+                      }
+                    >
                       {renderCell(contact, String(columnKey))}
                     </TableCell>
                   )}

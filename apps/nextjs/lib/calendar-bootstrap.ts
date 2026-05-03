@@ -29,6 +29,7 @@ const getDatabase = () => getDb() ?? null;
 const getGoalLogsSnapshotForMonth = async (
   db: NonNullable<ReturnType<typeof getDatabase>>,
   month: string,
+  userId: string,
 ): Promise<GoalLogsSnapshot> => {
   const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
@@ -43,17 +44,28 @@ const getGoalLogsSnapshotForMonth = async (
   };
 
   const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] = await Promise.all([
-    db.select().from(categories).orderBy(asc(categories.name)),
+    db
+      .select()
+      .from(categories)
+      .where(eq(categories.userId, userId))
+      .orderBy(asc(categories.name)),
     db
       .select()
       .from(goals)
-      .where(and(eq(goals.period, "daily"), eq(goals.hidden, false)))
+      .where(
+        and(
+          eq(goals.userId, userId),
+          eq(goals.period, "daily"),
+          eq(goals.hidden, false),
+        ),
+      )
       .orderBy(asc(goals.priority), asc(goals.name)),
     db
       .select(periodicFields)
       .from(goals)
       .where(
         and(
+          eq(goals.userId, userId),
           or(ne(goals.period, "daily"), isNull(goals.period)),
           eq(goals.hidden, false),
         ),
@@ -62,7 +74,7 @@ const getGoalLogsSnapshotForMonth = async (
     db
       .select(periodicFields)
       .from(goals)
-      .where(eq(goals.hidden, true))
+      .where(and(eq(goals.userId, userId), eq(goals.hidden, true)))
       .orderBy(asc(goals.priority), asc(goals.name)),
     db
       .select({
@@ -73,6 +85,7 @@ const getGoalLogsSnapshotForMonth = async (
       .from(goalLogs)
       .where(
         and(
+          eq(goalLogs.userId, userId),
           gte(goalLogs.date, startDateKey),
           lt(goalLogs.date, endDateKeyExclusive),
           eq(goalLogs.status, "complete"),
@@ -122,12 +135,14 @@ const getGoalLogsSnapshotForMonth = async (
     logsByGoalDate: Object.fromEntries(
       logs.map((log) => [`${log.goalId}_${log.date}`, "complete" as const]),
     ),
+    notesByGoalDate: {},
   };
 };
 
 const getGoalLogsByDateForMonth = async (
   db: NonNullable<ReturnType<typeof getDatabase>>,
   month: string,
+  userId: string,
 ) => {
   const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
@@ -140,6 +155,7 @@ const getGoalLogsByDateForMonth = async (
     .from(goalLogs)
     .where(
       and(
+        eq(goalLogs.userId, userId),
         gte(goalLogs.date, startDateKey),
         lt(goalLogs.date, endDateKeyExclusive),
         eq(goalLogs.status, "complete"),
@@ -154,6 +170,7 @@ const getGoalLogsByDateForMonth = async (
 const getCustomDayIconsByDateForMonth = async (
   db: NonNullable<ReturnType<typeof getDatabase>>,
   month: string,
+  userId: string,
 ) => {
   const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
@@ -167,6 +184,7 @@ const getCustomDayIconsByDateForMonth = async (
     .from(customDayIconSelections)
     .where(
       and(
+        eq(customDayIconSelections.userId, userId),
         gte(customDayIconSelections.date, startDateKey),
         lt(customDayIconSelections.date, endDateKeyExclusive),
       ),
@@ -185,6 +203,7 @@ const getCustomDayIconsByDateForMonth = async (
 
 export const getCalendarBootstrap = async (
   monthInput: string,
+  userId: string,
 ): Promise<CalendarBootstrapData> => {
   const month = monthSchema.parse(monthInput);
   const db = getDatabase();
@@ -204,10 +223,15 @@ export const getCalendarBootstrap = async (
     currentGoalLogsSnapshot,
     prevGoalLogsByDate,
   ] = await Promise.all([
-    db.select().from(goalPreferences).where(eq(goalPreferences.isHidden, true)),
-    getCustomDayIconsByDateForMonth(db, month),
-    getGoalLogsSnapshotForMonth(db, month),
-    getGoalLogsByDateForMonth(db, prevMonth),
+    db
+      .select()
+      .from(goalPreferences)
+      .where(
+        and(eq(goalPreferences.userId, userId), eq(goalPreferences.isHidden, true)),
+      ),
+    getCustomDayIconsByDateForMonth(db, month, userId),
+    getGoalLogsSnapshotForMonth(db, month, userId),
+    getGoalLogsByDateForMonth(db, prevMonth, userId),
   ]);
 
   return {

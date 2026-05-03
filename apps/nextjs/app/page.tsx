@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 
-export default function HomePage() {
-  redirect("/calendar");
+import { getServerSession } from "@/lib/auth";
+
+export default async function HomePage() {
+  const session = await getServerSession();
+
+  redirect(session ? "/calendar" : "/login");
 }

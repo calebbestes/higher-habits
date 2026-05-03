@@ -71,6 +71,83 @@
       "when": 1777266374824,
       "tag": "0009_wooden_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1745866800000,
+      "tag": "0010_add_weight_checklist_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1745953200000,
+      "tag": "0011_add_goal_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1746039600000,
+      "tag": "0012_add_contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1746126000000,
+      "tag": "0013_add_contact_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1746212400000,
+      "tag": "0014_add_contact_team",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1746298800000,
+      "tag": "0015_add_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1746385200000,
+      "tag": "0016_redo_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1746471600000,
+      "tag": "0017_seed_daily_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1746558000000,
+      "tag": "0018_seed_weekly_monthly_goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777785470931,
+      "tag": "0019_add_better_auth_user_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777789800000,
+      "tag": "0020_make_app_data_user_private",
+      "breakpoints": true
     }
   ]
 }

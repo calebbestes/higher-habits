@@ -60,6 +60,91 @@ export const customDayIconStatusEnum = pgEnum(
     CUSTOM_DAY_ICON_STATUSES,
 );
 
+export const users = pgTable(
+    "user",
+    {
+        id: text("id").primaryKey(),
+        name: text("name").notNull(),
+        email: text("email").notNull(),
+        emailVerified: boolean("email_verified").default(false).notNull(),
+        image: text("image"),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    },
+    (table) => [unique("user_email_unique").on(table.email)],
+);
+
+export const sessions = pgTable(
+    "session",
+    {
+        id: text("id").primaryKey(),
+        expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+        token: text("token").notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+        ipAddress: text("ip_address"),
+        userAgent: text("user_agent"),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+    },
+    (table) => [
+        unique("session_token_unique").on(table.token),
+        index("session_user_id_idx").on(table.userId),
+    ],
+);
+
+export const accounts = pgTable(
+    "account",
+    {
+        id: text("id").primaryKey(),
+        accountId: text("account_id").notNull(),
+        providerId: text("provider_id").notNull(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        accessToken: text("access_token"),
+        refreshToken: text("refresh_token"),
+        idToken: text("id_token"),
+        accessTokenExpiresAt: timestamp("access_token_expires_at", {
+            withTimezone: true,
+        }),
+        refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+            withTimezone: true,
+        }),
+        scope: text("scope"),
+        password: text("password"),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    },
+    (table) => [
+        unique("account_provider_account_unique").on(
+            table.providerId,
+            table.accountId,
+        ),
+        index("account_user_id_idx").on(table.userId),
+    ],
+);
+
+export const verifications = pgTable(
+    "verification",
+    {
+        id: text("id").primaryKey(),
+        identifier: text("identifier").notNull(),
+        value: text("value").notNull(),
+        expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+        createdAt: timestamp("created_at", { withTimezone: true }),
+        updatedAt: timestamp("updated_at", { withTimezone: true }),
+    },
+    (table) => [
+        index("verification_identifier_idx").on(table.identifier),
+        unique("verification_identifier_value_unique").on(
+            table.identifier,
+            table.value,
+        ),
+    ],
+);
+
 export const habits = pgTable("habits", {
     id: uuid("id").defaultRandom().primaryKey(),
     name: text("name").notNull(),
@@ -71,6 +156,9 @@ export const habits = pgTable("habits", {
 export const calendarDayHabits = pgTable(
     "calendar_day_habits",
     {
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         date: date("date", { mode: "string" }).notNull(),
         habitKey: calendarHabitKeyEnum("habit_key").notNull(),
         isActive: boolean("is_active").default(false).notNull(),
@@ -83,17 +171,21 @@ export const calendarDayHabits = pgTable(
     },
     (table) => [
         primaryKey({
-            name: "calendar_day_habits_date_habit_key_pk",
-            columns: [table.date, table.habitKey],
+            name: "calendar_day_habits_user_date_habit_key_pk",
+            columns: [table.userId, table.date, table.habitKey],
         }),
-        index("calendar_day_habits_date_idx").on(table.date),
+        index("calendar_day_habits_user_id_idx").on(table.userId),
+        index("calendar_day_habits_user_date_idx").on(table.userId, table.date),
     ],
 );
 
 export const prayerDayChecklists = pgTable(
     "prayer_day_checklists",
     {
-        date: date("date", { mode: "string" }).primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        date: date("date", { mode: "string" }).notNull(),
         scriptures: boolean("scriptures").default(false).notNull(),
         prayer: boolean("prayer").default(false).notNull(),
         cleanRoom: boolean("clean_room").default(false).notNull(),
@@ -106,13 +198,23 @@ export const prayerDayChecklists = pgTable(
             .defaultNow()
             .notNull(),
     },
-    (table) => [index("prayer_day_checklists_date_idx").on(table.date)],
+    (table) => [
+        primaryKey({
+            name: "prayer_day_checklists_user_date_pk",
+            columns: [table.userId, table.date],
+        }),
+        index("prayer_day_checklists_user_id_idx").on(table.userId),
+        index("prayer_day_checklists_user_date_idx").on(table.userId, table.date),
+    ],
 );
 
 export const weightDayChecklists = pgTable(
     "weight_day_checklists",
     {
-        date: date("date", { mode: "string" }).primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        date: date("date", { mode: "string" }).notNull(),
         gym: boolean("gym").default(false).notNull(),
         meditateStretch: boolean("meditate_stretch").default(false).notNull(),
         calories2300: boolean("calories_2300").default(false).notNull(),
@@ -127,12 +229,22 @@ export const weightDayChecklists = pgTable(
             .defaultNow()
             .notNull(),
     },
-    (table) => [index("weight_day_checklists_date_idx").on(table.date)],
+    (table) => [
+        primaryKey({
+            name: "weight_day_checklists_user_date_pk",
+            columns: [table.userId, table.date],
+        }),
+        index("weight_day_checklists_user_id_idx").on(table.userId),
+        index("weight_day_checklists_user_date_idx").on(table.userId, table.date),
+    ],
 );
 
 export const customDayIconSelections = pgTable(
     "custom_day_icon_selections",
     {
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         date: date("date", { mode: "string" }).notNull(),
         slotIndex: integer("slot_index").notNull().default(0),
         iconKey: customDayIconKeyEnum("icon_key").notNull(),
@@ -147,16 +259,20 @@ export const customDayIconSelections = pgTable(
     },
     (table) => [
         primaryKey({
-            name: "custom_day_icon_selections_date_slot_pk",
-            columns: [table.date, table.slotIndex],
+            name: "custom_day_icon_selections_user_date_slot_pk",
+            columns: [table.userId, table.date, table.slotIndex],
         }),
-        index("custom_day_icon_selections_date_idx").on(table.date),
+        index("custom_day_icon_selections_user_id_idx").on(table.userId),
+        index("custom_day_icon_selections_user_date_idx").on(table.userId, table.date),
     ],
 );
 
 export const dayDrawerNotes = pgTable(
     "day_drawer_notes",
     {
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         date: date("date", { mode: "string" }).notNull(),
         drawerKey: drawerNoteKeyEnum("drawer_key").notNull(),
         notes: text("notes").default("").notNull(),
@@ -169,17 +285,21 @@ export const dayDrawerNotes = pgTable(
     },
     (table) => [
         primaryKey({
-            name: "day_drawer_notes_date_drawer_key_pk",
-            columns: [table.date, table.drawerKey],
+            name: "day_drawer_notes_user_date_drawer_key_pk",
+            columns: [table.userId, table.date, table.drawerKey],
         }),
-        index("day_drawer_notes_date_idx").on(table.date),
+        index("day_drawer_notes_user_id_idx").on(table.userId),
+        index("day_drawer_notes_user_date_idx").on(table.userId, table.date),
     ],
 );
 
 export const salesDayChecklists = pgTable(
     "sales_day_checklists",
     {
-        date: date("date", { mode: "string" }).primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        date: date("date", { mode: "string" }).notNull(),
         coldEmails: boolean("cold_emails").default(false).notNull(),
         linkedinMessages: boolean("linkedin_messages").default(false).notNull(),
         prospectiveClients: boolean("prospective_clients").default(false).notNull(),
@@ -190,21 +310,46 @@ export const salesDayChecklists = pgTable(
             .defaultNow()
             .notNull(),
     },
-    (table) => [index("sales_day_checklists_date_idx").on(table.date)],
+    (table) => [
+        primaryKey({
+            name: "sales_day_checklists_user_date_pk",
+            columns: [table.userId, table.date],
+        }),
+        index("sales_day_checklists_user_id_idx").on(table.userId),
+        index("sales_day_checklists_user_date_idx").on(table.userId, table.date),
+    ],
 );
 
-export const goalPreferences = pgTable("goal_preferences", {
-    goalKey: text("goal_key").primaryKey(),
-    isHidden: boolean("is_hidden").default(false).notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-        .defaultNow()
-        .notNull(),
-});
+export const goalPreferences = pgTable(
+    "goal_preferences",
+    {
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, {
+                onDelete: "cascade",
+            }),
+        goalKey: text("goal_key").notNull(),
+        isHidden: boolean("is_hidden").default(false).notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => [
+        index("goal_preferences_user_id_idx").on(table.userId),
+        unique("goal_preferences_user_goal_key_uidx").on(
+            table.userId,
+            table.goalKey,
+        ),
+    ],
+);
 
 export const salesOutreachActivities = pgTable(
     "sales_outreach_activities",
     {
         id: uuid("id").defaultRandom().primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         date: date("date", { mode: "string" }).notNull(),
         leadName: text("lead_name").notNull(),
         company: text("company").notNull(),
@@ -219,13 +364,19 @@ export const salesOutreachActivities = pgTable(
             .defaultNow()
             .notNull(),
     },
-    (table) => [index("sales_outreach_activities_date_idx").on(table.date)],
+    (table) => [
+        index("sales_outreach_activities_user_id_idx").on(table.userId),
+        index("sales_outreach_activities_user_date_idx").on(table.userId, table.date),
+    ],
 );
 
 export const contacts = pgTable(
     "contacts",
     {
         id: uuid("id").defaultRandom().primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         name: text("name").notNull(),
         company: text("company").default("").notNull(),
         phone: text("phone").default("").notNull(),
@@ -245,6 +396,7 @@ export const contacts = pgTable(
             .notNull(),
     },
     (table) => [
+        index("contacts_user_id_idx").on(table.userId),
         index("contacts_name_idx").on(table.name),
         index("contacts_category_idx").on(table.category),
     ],
@@ -283,17 +435,28 @@ export const logStatusEnum = pgEnum("log_status", LOG_STATUSES);
 
 export const categories = pgTable("categories", {
     id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     icon: text("icon").default("").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
         .defaultNow()
         .notNull(),
-});
+},
+    (table) => [
+        index("categories_user_id_idx").on(table.userId),
+        unique("categories_user_id_name_uidx").on(table.userId, table.name),
+    ],
+);
 
 export const goals = pgTable(
     "goals",
     {
         id: uuid("id").defaultRandom().primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         name: text("name").notNull(),
         frequencyGoal: integer("frequency_goal"),
         period: goalPeriodEnum("period"),
@@ -311,8 +474,14 @@ export const goals = pgTable(
             .notNull(),
     },
     (table) => [
+        index("goals_user_id_idx").on(table.userId),
         index("goals_category_id_idx").on(table.categoryId),
         index("goals_priority_idx").on(table.priority),
+        unique("goals_user_category_name_uidx").on(
+            table.userId,
+            table.categoryId,
+            table.name,
+        ),
     ],
 );
 
@@ -320,6 +489,9 @@ export const goalLogs = pgTable(
     "goal_logs",
     {
         id: uuid("id").defaultRandom().primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
         goalId: uuid("goal_id")
             .notNull()
             .references(() => goals.id, { onDelete: "cascade" }),
@@ -336,9 +508,18 @@ export const goalLogs = pgTable(
     (table) => [
         unique("goal_logs_goal_id_date_uidx").on(table.goalId, table.date),
         index("goal_logs_date_idx").on(table.date),
+        index("goal_logs_user_id_idx").on(table.userId),
     ],
 );
 
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type Account = typeof accounts.$inferSelect;
+export type NewAccount = typeof accounts.$inferInsert;
+export type Verification = typeof verifications.$inferSelect;
+export type NewVerification = typeof verifications.$inferInsert;
 export type GoalPreference = typeof goalPreferences.$inferSelect;
 export type NewGoalPreference = typeof goalPreferences.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;

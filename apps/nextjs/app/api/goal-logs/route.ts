@@ -3,6 +3,7 @@ import { and, asc, eq, gte, isNull, lt, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getMonthDateRange } from "@/lib/habit-state";
 
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
@@ -24,15 +25,24 @@ const bodySchema = z.discriminatedUnion("type", [
     goalId: z.string().uuid(),
     hidden: z.boolean(),
   }),
+  z.object({
+    type: z.literal("setNote"),
+    goalId: z.string().uuid(),
+    dateKey: z.string().regex(DATE_KEY_REGEX),
+    notes: z.string().max(20_000),
+  }),
 ]);
 
 const getDatabase = () => getDb() ?? null;
 
 export async function GET(request: Request) {
   try {
+    const user = await requireRequestUser(request);
     const db = getDatabase();
-    if (!db)
+
+    if (!db) {
       return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
 
     const url = new URL(request.url);
     const { month } = monthQuerySchema.parse({ month: url.searchParams.get("month") });
@@ -49,17 +59,28 @@ export async function GET(request: Request) {
     };
 
     const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] = await Promise.all([
-      db.select().from(categories).orderBy(asc(categories.name)),
+      db
+        .select()
+        .from(categories)
+        .where(eq(categories.userId, user.id))
+        .orderBy(asc(categories.name)),
       db
         .select()
         .from(goals)
-        .where(and(eq(goals.period, "daily"), eq(goals.hidden, false)))
+        .where(
+          and(
+            eq(goals.userId, user.id),
+            eq(goals.period, "daily"),
+            eq(goals.hidden, false),
+          ),
+        )
         .orderBy(asc(goals.priority), asc(goals.name)),
       db
         .select(periodicFields)
         .from(goals)
         .where(
           and(
+            eq(goals.userId, user.id),
             or(ne(goals.period, "daily"), isNull(goals.period)),
             eq(goals.hidden, false),
           ),
@@ -68,17 +89,19 @@ export async function GET(request: Request) {
       db
         .select(periodicFields)
         .from(goals)
-        .where(eq(goals.hidden, true))
+        .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
         .orderBy(asc(goals.priority), asc(goals.name)),
       db
         .select({
           goalId: goalLogs.goalId,
           date: goalLogs.date,
           status: goalLogs.status,
+          notes: goalLogs.notes,
         })
         .from(goalLogs)
         .where(
           and(
+            eq(goalLogs.userId, user.id),
             gte(goalLogs.date, startDateKey),
             lt(goalLogs.date, endDateKeyExclusive),
             eq(goalLogs.status, "complete"),
@@ -126,35 +149,66 @@ export async function GET(request: Request) {
       periodicGoals: periodicGoals.map(mapPeriodic),
       hiddenGoals: hiddenGoals.map(mapPeriodic),
       logsByGoalDate: Object.fromEntries(
-        logs.map((l) => [`${l.goalId}_${l.date}`, l.status]),
+        logs.map((log) => [`${log.goalId}_${log.date}`, log.status]),
+      ),
+      notesByGoalDate: Object.fromEntries(
+        logs
+          .filter((log) => log.notes?.trim())
+          .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
       ),
     });
   } catch (error) {
-    if (error instanceof z.ZodError)
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
+    if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const user = await requireRequestUser(request);
     const db = getDatabase();
-    if (!db)
+
+    if (!db) {
       return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
 
     const data = bodySchema.parse(await request.json());
+
+    const [goal] = await db
+      .select({ id: goals.id })
+      .from(goals)
+      .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)))
+      .limit(1);
+
+    if (!goal) {
+      return NextResponse.json({ error: "Goal not found" }, { status: 404 });
+    }
 
     if (data.type === "setLog") {
       if (!data.status) {
         await db
           .delete(goalLogs)
           .where(
-            and(eq(goalLogs.goalId, data.goalId), eq(goalLogs.date, data.dateKey)),
+            and(
+              eq(goalLogs.goalId, data.goalId),
+              eq(goalLogs.date, data.dateKey),
+              eq(goalLogs.userId, user.id),
+            ),
           );
       } else {
         await db
           .insert(goalLogs)
           .values({
+            userId: user.id,
             goalId: data.goalId,
             date: data.dateKey,
             status: data.status,
@@ -162,22 +216,45 @@ export async function POST(request: Request) {
           })
           .onConflictDoUpdate({
             target: [goalLogs.goalId, goalLogs.date],
-            set: { status: data.status, updatedAt: new Date() },
+            set: { status: data.status, updatedAt: new Date(), userId: user.id },
           });
       }
+
       return NextResponse.json({ ok: true });
     }
 
-    if (data.type === "setHidden") {
+    if (data.type === "setNote") {
       await db
-        .update(goals)
-        .set({ hidden: data.hidden, updatedAt: new Date() })
-        .where(eq(goals.id, data.goalId));
+        .update(goalLogs)
+        .set({ notes: data.notes, updatedAt: new Date() })
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        );
+
       return NextResponse.json({ ok: true });
     }
+
+    await db
+      .update(goals)
+      .set({ hidden: data.hidden, updatedAt: new Date() })
+      .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)));
+
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    if (error instanceof z.ZodError)
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
+    if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

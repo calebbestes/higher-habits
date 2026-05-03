@@ -11,6 +11,7 @@ import {
   DrawerContent,
   DrawerFooter,
   DrawerHeader,
+  Tooltip,
   addToast,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
@@ -171,7 +172,7 @@ export const CategoryGoalDrawer = ({
                 {(category?.goals ?? []).map((goal) => {
                   const isComplete =
                     logsByGoalDate[`${goal.id}_${dateKey}`] === "complete";
-                  return (
+                  const button = (
                     <button
                       type="button"
                       key={goal.id}
@@ -215,6 +216,16 @@ export const CategoryGoalDrawer = ({
                         {isComplete ? "Done" : "Pending"}
                       </Chip>
                     </button>
+                  );
+
+                  if (!isComplete) {
+                    return button;
+                  }
+
+                  return (
+                    <Tooltip content="Add note" color="foreground" key={goal.id}>
+                      {button}
+                    </Tooltip>
                   );
                 })}
               </CardBody>

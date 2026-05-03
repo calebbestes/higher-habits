@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
@@ -11,20 +12,28 @@ const querySchema = z.object({
 
 export async function GET(request: Request) {
   try {
+    const user = await requireRequestUser(request);
     const url = new URL(request.url);
     const { month } = querySchema.parse({
       month: url.searchParams.get("month"),
     });
 
-    return NextResponse.json(await getCalendarBootstrap(month));
+    return NextResponse.json(await getCalendarBootstrap(month, user.id));
   } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
     if (
       error instanceof Error &&
-      error.message === "Database is not configured."
+      (error.message === "Database is not configured." ||
+        error.message === "Auth is not configured.")
     ) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }

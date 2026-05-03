@@ -32,6 +32,7 @@ import {
   EMPTY_GOAL_LOGS_SNAPSHOT,
   fetchGoalLogsSnapshot,
   setGoalLog,
+  setGoalLogNote,
   type CategoryWithGoals,
   type GoalLogsSnapshot,
 } from "@/lib/goal-logs-client";
@@ -76,6 +77,7 @@ import {
 import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
 import { SALES_CHECKLIST_ITEMS } from "./sales-outreach-drawer";
 import { WEIGHT_CHECKLIST_ITEMS } from "./weight-checklist-drawer";
+import { RichTextEditor } from "./rich-text-editor";
 
 type CalendarView = "month" | "week" | "day";
 
@@ -806,6 +808,19 @@ const MonthView = ({
             ),
             ...prevGoalsSnap.logsByGoalDate,
             ...goalsSnap.logsByGoalDate,
+          },
+          notesByGoalDate: {
+            ...Object.fromEntries(
+              Object.entries(previous.notesByGoalDate).filter(([key]) => {
+                const dateKey = key.slice(-10);
+                return (
+                  !dateKey.startsWith(currentMonthKey) &&
+                  !dateKey.startsWith(prevMonthKey)
+                );
+              }),
+            ),
+            ...(prevGoalsSnap.notesByGoalDate ?? {}),
+            ...(goalsSnap.notesByGoalDate ?? {}),
           },
         }));
       } catch (error) {
@@ -1625,7 +1640,9 @@ const DayView = ({
   onSelectEntry,
   goalLogsCategories = [],
   logsByGoalDate = {},
+  notesByGoalDate = {},
   onToggleGoalLog,
+  onSaveGoalNote,
   customIconSlots,
   onToggleCustomIconSlot,
 }: {
@@ -1634,7 +1651,9 @@ const DayView = ({
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
   goalLogsCategories?: CategoryWithGoals[];
   logsByGoalDate?: Record<string, "complete">;
+  notesByGoalDate?: Record<string, string>;
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
+  onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
   customIconSlots?: Array<{ slotKey: string; selection: CustomDayIconSelection }>;
   onToggleCustomIconSlot?: (slotKey: string) => void;
 }) => {
@@ -1642,6 +1661,10 @@ const DayView = ({
   const [revealedPriorityByCategory, setRevealedPriorityByCategory] =
     useState<Record<string, GoalPriorityStage>>({});
   const currentDateKey = toDateKey(currentDate);
+
+  const [noteModalGoal, setNoteModalGoal] = useState<{ key: string; label: string; note: string | null } | null>(null);
+  const [noteEditorValue, setNoteEditorValue] = useState<string | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
   const dayEntries = useMemo(
     () =>
@@ -1659,6 +1682,7 @@ const DayView = ({
     categoryName: string;
     priority: GoalPriorityStage;
     completed: boolean;
+    note: string | null;
     onToggle: () => void;
   };
 
@@ -1673,10 +1697,11 @@ const DayView = ({
           categoryName: cat.name,
           priority: goal.priority,
           completed: logsByGoalDate[`${goal.id}_${currentDateKey}`] === "complete",
+          note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         })),
       ),
-    [goalLogsCategories, logsByGoalDate, currentDateKey, onToggleGoalLog],
+    [goalLogsCategories, logsByGoalDate, notesByGoalDate, currentDateKey, onToggleGoalLog],
   );
 
   const pendingItems = allGoalItems.filter((item) => !item.completed);
@@ -1738,13 +1763,22 @@ const DayView = ({
     size: "normal" | "small" = "normal",
   ) => {
     const cfg = DAY_VIEW_CATEGORY_CONFIG[item.categoryName] ?? DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+    const tooltipLabel = item.completed
+      ? item.note ? "Edit note" : "Add note"
+      : item.label;
+    const handleClick = item.completed
+      ? () => {
+          setNoteModalGoal({ key: item.key, label: item.label, note: item.note });
+          setNoteEditorValue(item.note);
+        }
+      : item.onToggle;
     return (
-      <Tooltip content={item.label} color="foreground" key={item.key}>
+      <Tooltip content={tooltipLabel} color="foreground" key={item.key}>
         <button
           type="button"
-          onClick={item.onToggle}
+          onClick={handleClick}
           className={cn(
-            "flex flex-col items-center justify-center rounded-2xl border transition-all",
+            "relative flex flex-col items-center justify-center rounded-2xl border transition-all",
             size === "normal" ? "gap-2 p-3" : "gap-1.5 p-2",
             item.completed
               ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
@@ -1755,12 +1789,27 @@ const DayView = ({
             icon={item.completed ? "mdi:check-bold" : item.icon}
             className={size === "normal" ? "h-6 w-6" : "h-5 w-5"}
           />
+          {item.completed && item.note && (
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/70" />
+          )}
         </button>
       </Tooltip>
     );
   };
 
+  const handleSaveNote = async () => {
+    if (!noteModalGoal) return;
+    setIsSavingNote(true);
+    try {
+      await onSaveGoalNote?.(noteModalGoal.key, currentDateKey, noteEditorValue ?? "");
+      setNoteModalGoal(null);
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
   return (
+    <>
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="bg-content1 border-divider rounded-3xl border p-5">
         <h2 className="mt-1 text-2xl font-semibold">
@@ -1942,6 +1991,55 @@ const DayView = ({
         )}
       </div>
     </div>
+
+    <Modal
+      isOpen={noteModalGoal != null}
+      onOpenChange={(open) => { if (!open) setNoteModalGoal(null); }}
+      placement="center"
+      size="lg"
+    >
+      <ModalContent>
+        <ModalHeader className="flex flex-col gap-0.5">
+          <span className="text-base font-semibold">{noteModalGoal?.label}</span>
+          <span className="text-xs font-normal text-foreground-400">{currentDateKey}</span>
+        </ModalHeader>
+        <ModalBody className="pb-2">
+          <RichTextEditor
+            value={noteEditorValue}
+            onChange={setNoteEditorValue}
+            placeholder="Write a note for this goal…"
+          />
+        </ModalBody>
+        <ModalFooter className="flex items-center justify-between">
+          <Button
+            size="sm"
+            variant="light"
+            color="danger"
+            onPress={() => {
+              const item = allGoalItems.find((i) => i.key === noteModalGoal?.key);
+              if (item) item.onToggle();
+              setNoteModalGoal(null);
+            }}
+          >
+            Mark incomplete
+          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="flat" onPress={() => setNoteModalGoal(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              color="primary"
+              isLoading={isSavingNote}
+              onPress={() => void handleSaveNote()}
+            >
+              Save note
+            </Button>
+          </div>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+    </>
   );
 };
 
@@ -2292,6 +2390,28 @@ export const PortableCalendar = ({
       });
       addToast({ title: "Could not save goal", color: "danger" });
     });
+  };
+
+  const handleDayViewSaveGoalNote = async (goalId: string, dateKey: string, notes: string) => {
+    const key = `${goalId}_${dateKey}`;
+    const prev = goalLogsSnapshot.notesByGoalDate[key] ?? null;
+    setGoalLogsSnapshot((s) => ({
+      ...s,
+      notesByGoalDate: notes.trim()
+        ? { ...s.notesByGoalDate, [key]: notes }
+        : Object.fromEntries(Object.entries(s.notesByGoalDate).filter(([k]) => k !== key)),
+    }));
+    try {
+      await setGoalLogNote(goalId, dateKey, notes);
+    } catch {
+      setGoalLogsSnapshot((s) => ({
+        ...s,
+        notesByGoalDate: prev
+          ? { ...s.notesByGoalDate, [key]: prev }
+          : Object.fromEntries(Object.entries(s.notesByGoalDate).filter(([k]) => k !== key)),
+      }));
+      addToast({ title: "Could not save note", color: "danger" });
+    }
   };
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
@@ -2939,7 +3059,9 @@ export const PortableCalendar = ({
                       onSelectEntry={handleSelectEntry}
                       goalLogsCategories={goalLogsSnapshot.categories}
                       logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
+                      notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
                       onToggleGoalLog={handleDayViewToggleGoalLog}
+                      onSaveGoalNote={handleDayViewSaveGoalNote}
                     />
                   )}
                 </div>
