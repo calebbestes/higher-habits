@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -13,6 +13,8 @@ import {
   cn,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
+
+import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
@@ -28,10 +30,12 @@ function isNavActive(href: string, pathname: string): boolean {
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
+  const isAuthPage = pathname === "/login" || pathname === "/sign-up";
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
@@ -39,8 +43,14 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = async () => {
     setOpenSignOut(false);
-    window.location.href = "/";
+    await authClient.signOut();
+    router.replace("/login");
+    router.refresh();
   };
+
+  if (isAuthPage) {
+    return <div className="min-h-dvh bg-background">{children}</div>;
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">

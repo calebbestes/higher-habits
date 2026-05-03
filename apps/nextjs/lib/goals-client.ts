@@ -33,6 +33,11 @@ export type GoalInput = {
   hidden: boolean;
 };
 
+export type CategoryInput = {
+  name: string;
+  icon: string;
+};
+
 async function parseResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
@@ -50,6 +55,13 @@ export const fetchGoals = (): Promise<Goal[]> =>
   fetch(GOALS_ENDPOINT, { cache: "no-store" }).then((r) =>
     parseResponse<Goal[]>(r),
   );
+
+export const createCategory = (input: CategoryInput): Promise<Category> =>
+  fetch(CATEGORIES_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }).then((r) => parseResponse<Category>(r));
 
 export const createGoal = (input: GoalInput): Promise<Goal> =>
   fetch(GOALS_ENDPOINT, {

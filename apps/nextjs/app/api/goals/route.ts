@@ -1,10 +1,12 @@
 import { categories, goals, getDb } from "@habit/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+
 const goalFields = {
-  name: z.string().min(1),
+  name: z.string().trim().min(1),
   frequencyGoal: z.number().int().positive().nullable().default(null),
   period: z
     .union([z.enum(["daily", "weekly", "monthly"]), z.null()])
@@ -32,137 +34,175 @@ const bodySchema = z.discriminatedUnion("type", [
   deleteManySchema,
 ]);
 
-const getDatabase = () => {
-  const db = getDb();
-  if (!db) return null;
-  return db;
-};
+const getDatabase = () => getDb() ?? null;
 
-export async function GET() {
-  const db = getDatabase();
-  if (!db)
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+const selectGoalShape = {
+  id: goals.id,
+  name: goals.name,
+  frequencyGoal: goals.frequencyGoal,
+  period: goals.period,
+  categoryId: goals.categoryId,
+  categoryName: categories.name,
+  categoryIcon: categories.icon,
+  priority: goals.priority,
+  iconKey: goals.iconKey,
+  hidden: goals.hidden,
+  createdAt: goals.createdAt,
+  updatedAt: goals.updatedAt,
+} as const;
 
-  const rows = await db
-    .select({
-      id: goals.id,
-      name: goals.name,
-      frequencyGoal: goals.frequencyGoal,
-      period: goals.period,
-      categoryId: goals.categoryId,
-      categoryName: categories.name,
-      categoryIcon: categories.icon,
-      priority: goals.priority,
-      iconKey: goals.iconKey,
-      hidden: goals.hidden,
-      createdAt: goals.createdAt,
-      updatedAt: goals.updatedAt,
-    })
+async function getGoalById(
+  db: NonNullable<ReturnType<typeof getDatabase>>,
+  userId: string,
+  goalId: string,
+) {
+  const [full] = await db
+    .select(selectGoalShape)
     .from(goals)
-    .leftJoin(categories, eq(goals.categoryId, categories.id))
-    .orderBy(asc(goals.name));
+    .leftJoin(
+      categories,
+      and(eq(goals.categoryId, categories.id), eq(categories.userId, userId)),
+    )
+    .where(and(eq(goals.id, goalId), eq(goals.userId, userId)));
 
-  return NextResponse.json(
-    rows.map((r) => ({
-      ...r,
-      categoryName: r.categoryName ?? "",
-      categoryIcon: r.categoryIcon ?? "",
-    })),
-  );
+  if (!full) {
+    return null;
+  }
+
+  return {
+    ...full,
+    categoryName: full.categoryName ?? "",
+    categoryIcon: full.categoryIcon ?? "",
+  };
+}
+
+export async function GET(request: Request) {
+  try {
+    const user = await requireRequestUser(request);
+    const db = getDatabase();
+
+    if (!db) {
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
+
+    const rows = await db
+      .select(selectGoalShape)
+      .from(goals)
+      .leftJoin(
+        categories,
+        and(eq(goals.categoryId, categories.id), eq(categories.userId, user.id)),
+      )
+      .where(eq(goals.userId, user.id))
+      .orderBy(asc(goals.name));
+
+    return NextResponse.json(
+      rows.map((row) => ({
+        ...row,
+        categoryName: row.categoryName ?? "",
+        categoryIcon: row.categoryIcon ?? "",
+      })),
+    );
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const parsed = bodySchema.safeParse(body);
-  if (!parsed.success)
-    return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+  try {
+    const user = await requireRequestUser(request);
+    const db = getDatabase();
 
-  const db = getDatabase();
-  if (!db)
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    if (!db) {
+      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    }
 
-  const data = parsed.data;
+    const body = await request.json();
+    const parsed = bodySchema.safeParse(body);
 
-  const goalValues = (
-    d: typeof createSchema._type | typeof updateSchema._type,
-  ) => ({
-    name: d.name,
-    frequencyGoal: d.frequencyGoal,
-    period: d.period,
-    categoryId: d.categoryId,
-    priority: d.priority,
-    iconKey: d.iconKey,
-    hidden: d.hidden,
-  });
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+    }
 
-  if (data.type === "create") {
-    const [row] = await db
-      .insert(goals)
-      .values(goalValues(data))
-      .returning({ id: goals.id });
-    if (!row) return NextResponse.json({ error: "Insert failed" }, { status: 500 });
+    const data = parsed.data;
 
-    const [full] = await db
-      .select({
-        id: goals.id,
-        name: goals.name,
-        frequencyGoal: goals.frequencyGoal,
-        period: goals.period,
-        categoryId: goals.categoryId,
-        categoryName: categories.name,
-        categoryIcon: categories.icon,
-        priority: goals.priority,
-        iconKey: goals.iconKey,
-        hidden: goals.hidden,
-        createdAt: goals.createdAt,
-        updatedAt: goals.updatedAt,
-      })
-      .from(goals)
-      .leftJoin(categories, eq(goals.categoryId, categories.id))
-      .where(eq(goals.id, row.id));
-
-    return NextResponse.json({
-      ...full,
-      categoryName: full?.categoryName ?? "",
-      categoryIcon: full?.categoryIcon ?? "",
+    const goalValues = (
+      d: typeof createSchema._type | typeof updateSchema._type,
+    ) => ({
+      userId: user.id,
+      name: d.name,
+      frequencyGoal: d.frequencyGoal,
+      period: d.period,
+      categoryId: d.categoryId,
+      priority: d.priority,
+      iconKey: d.iconKey,
+      hidden: d.hidden,
     });
-  }
 
-  if (data.type === "update") {
+    if (data.type === "create") {
+      const [category] = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(and(eq(categories.id, data.categoryId), eq(categories.userId, user.id)))
+        .limit(1);
+
+      if (!category) {
+        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      }
+
+      const [row] = await db
+        .insert(goals)
+        .values(goalValues(data))
+        .returning({ id: goals.id });
+
+      if (!row) {
+        return NextResponse.json({ error: "Insert failed" }, { status: 500 });
+      }
+
+      return NextResponse.json(await getGoalById(db, user.id, row.id));
+    }
+
+    if (data.type === "update") {
+      const [category] = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(and(eq(categories.id, data.categoryId), eq(categories.userId, user.id)))
+        .limit(1);
+
+      if (!category) {
+        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+      }
+
+      const [updated] = await db
+        .update(goals)
+        .set({ ...goalValues(data), updatedAt: new Date() })
+        .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)))
+        .returning({ id: goals.id });
+
+      if (!updated) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      return NextResponse.json(await getGoalById(db, user.id, data.id));
+    }
+
     await db
-      .update(goals)
-      .set({ ...goalValues(data), updatedAt: new Date() })
-      .where(eq(goals.id, data.id));
+      .delete(goals)
+      .where(and(eq(goals.userId, user.id), inArray(goals.id, data.ids)));
 
-    const [full] = await db
-      .select({
-        id: goals.id,
-        name: goals.name,
-        frequencyGoal: goals.frequencyGoal,
-        period: goals.period,
-        categoryId: goals.categoryId,
-        categoryName: categories.name,
-        categoryIcon: categories.icon,
-        priority: goals.priority,
-        iconKey: goals.iconKey,
-        hidden: goals.hidden,
-        createdAt: goals.createdAt,
-        updatedAt: goals.updatedAt,
-      })
-      .from(goals)
-      .leftJoin(categories, eq(goals.categoryId, categories.id))
-      .where(eq(goals.id, data.id));
-
-    if (!full) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({
-      ...full,
-      categoryName: full.categoryName ?? "",
-      categoryIcon: full.categoryIcon ?? "",
-    });
-  }
-
-  if (data.type === "deleteMany") {
-    for (const id of data.ids) await db.delete(goals).where(eq(goals.id, id));
     return NextResponse.json({ ok: true });
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

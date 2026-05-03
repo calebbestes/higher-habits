@@ -2,8 +2,10 @@
 
 import {
   type Category,
+  type CategoryInput,
   type Goal,
   type GoalInput,
+  createCategory,
   createGoal,
   deleteManyGoals,
   fetchCategories,
@@ -201,14 +203,18 @@ function GoalFormModal({
   goal,
   categories,
   onClose,
+  onCreateCategory,
   onSave,
+  isCreatingCategory,
   isSaving,
 }: {
   isOpen: boolean;
   goal: Goal | null;
   categories: Category[];
   onClose: () => void;
+  onCreateCategory: (input: CategoryInput) => Promise<Category>;
   onSave: (input: GoalInput) => void;
+  isCreatingCategory: boolean;
   isSaving: boolean;
 }) {
   const [form, setForm] = useState<GoalInput>(
@@ -224,8 +230,11 @@ function GoalFormModal({
         }
       : EMPTY_FORM,
   );
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryIcon, setNewCategoryIcon] = useState("");
 
-  useMemo(() => {
+  useEffect(() => {
     setForm(
       goal
         ? {
@@ -236,10 +245,29 @@ function GoalFormModal({
             priority: goal.priority,
             iconKey: goal.iconKey,
             hidden: goal.hidden,
-          }
+        }
         : EMPTY_FORM,
     );
-  }, [goal]);
+    setIsAddingCategory(false);
+    setNewCategoryName("");
+    setNewCategoryIcon("");
+  }, [goal, isOpen]);
+
+  const handleCreateCategory = async () => {
+    try {
+      const category = await onCreateCategory({
+        name: newCategoryName.trim(),
+        icon: newCategoryIcon.trim(),
+      });
+
+      setForm((prev) => ({ ...prev, categoryId: category.id }));
+      setIsAddingCategory(false);
+      setNewCategoryName("");
+      setNewCategoryIcon("");
+    } catch {
+      // Toast handling lives in the parent mutation.
+    }
+  };
 
   return (
     <Modal
@@ -310,6 +338,56 @@ function GoalFormModal({
                 </SelectItem>
               ))}
             </Select>
+
+            <div className="sm:col-span-2">
+              {isAddingCategory ? (
+                <div className="rounded-xl border border-divider bg-default-50 p-3">
+                  <div className="space-y-3">
+                    <Input
+                      label="New category name"
+                      value={newCategoryName}
+                      onValueChange={setNewCategoryName}
+                      isRequired
+                    />
+                    <IconPicker
+                      value={newCategoryIcon}
+                      onChange={setNewCategoryIcon}
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        color="primary"
+                        isLoading={isCreatingCategory}
+                        isDisabled={!newCategoryName.trim()}
+                        onPress={() => void handleCreateCategory()}
+                      >
+                        Save category
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        onPress={() => {
+                          setIsAddingCategory(false);
+                          setNewCategoryName("");
+                          setNewCategoryIcon("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="flat"
+                  startContent={<Icon icon="fa7-solid:plus" className="h-3 w-3" />}
+                  onPress={() => setIsAddingCategory(true)}
+                >
+                  Create category
+                </Button>
+              )}
+            </div>
 
             <Select
               label="Priority"
@@ -391,6 +469,70 @@ function GoalFormModal({
   );
 }
 
+function CategoryFormModal({
+  isOpen,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (input: CategoryInput) => void;
+  isSaving: boolean;
+}) {
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setName("");
+      setIcon("");
+    }
+  }, [isOpen]);
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={(o) => !o && onClose()}
+      size="md"
+      placement="center"
+    >
+      <ModalContent>
+        <ModalHeader>New Category</ModalHeader>
+        <ModalBody className="gap-4 pb-2">
+          <Input
+            label="Name"
+            placeholder="Category name"
+            value={name}
+            onValueChange={setName}
+            isRequired
+            autoFocus
+          />
+          <IconPicker value={icon} onChange={setIcon} />
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="flat" onPress={onClose}>
+            Cancel
+          </Button>
+          <Button
+            color="primary"
+            isDisabled={!name.trim()}
+            isLoading={isSaving}
+            onPress={() =>
+              onSave({
+                name: name.trim(),
+                icon: icon.trim(),
+              })
+            }
+          >
+            Add category
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
+
 // ── Delete Confirmation Modal ──────────────────────────────────────────────────
 
 function DeleteModal({
@@ -450,6 +592,25 @@ export function GoalsTable() {
   const { data: categories = [] } = useQuery({
     queryKey: ["categories"],
     queryFn: fetchCategories,
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: (input: CategoryInput) => createCategory(input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["categories"] });
+      setCategoryFormOpen(false);
+      addToast({
+        title: "Category added",
+        color: "success",
+      });
+    },
+    onError: (err) => {
+      addToast({
+        title: "Could not create category",
+        description: err instanceof Error ? err.message : undefined,
+        color: "danger",
+      });
+    },
   });
 
   const saveMutation = useMutation({
@@ -531,6 +692,7 @@ export function GoalsTable() {
     direction: "ascending" as "ascending" | "descending",
   });
   const [formOpen, setFormOpen] = useState(false);
+  const [categoryFormOpen, setCategoryFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pendingDeleteGoal, setPendingDeleteGoal] = useState<Goal | null>(null);
@@ -980,6 +1142,16 @@ export function GoalsTable() {
             </Button>
           </Tooltip>
           <Button
+            variant="flat"
+            size="sm"
+            startContent={
+              <Icon icon="fa7-solid:folder-plus" className="h-3.5 w-3.5" />
+            }
+            onPress={() => setCategoryFormOpen(true)}
+          >
+            Add Category
+          </Button>
+          <Button
             color="primary"
             size="sm"
             startContent={
@@ -1088,6 +1260,13 @@ export function GoalsTable() {
       )}
 
       {/* Modals */}
+      <CategoryFormModal
+        isOpen={categoryFormOpen}
+        onClose={() => setCategoryFormOpen(false)}
+        onSave={(input) => createCategoryMutation.mutate(input)}
+        isSaving={createCategoryMutation.isPending}
+      />
+
       <GoalFormModal
         isOpen={formOpen}
         goal={editingGoal}
@@ -1096,9 +1275,11 @@ export function GoalsTable() {
           setFormOpen(false);
           setEditingGoal(null);
         }}
+        onCreateCategory={(input) => createCategoryMutation.mutateAsync(input)}
         onSave={(input) =>
           saveMutation.mutate({ id: editingGoal?.id ?? null, input })
         }
+        isCreatingCategory={createCategoryMutation.isPending}
         isSaving={saveMutation.isPending}
       />
 
