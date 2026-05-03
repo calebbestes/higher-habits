@@ -1,5 +1,6 @@
 "use client";
 
+import type { PeriodicGoalInfo } from "@/lib/goal-logs-client";
 import {
   type CustomDayIconKey,
   type CustomDayIconSelection,
@@ -24,6 +25,7 @@ type DayIconPickerDrawerProps = {
   iconPickerDate: Date | null;
   slotIndex: number;
   selectedIconsByDate: Record<string, CustomDayIconSelection | null>;
+  periodicGoals?: PeriodicGoalInfo[];
   notes: string | null;
   hiddenGoalKeys?: Set<string>;
   onIconChange: (
@@ -183,15 +185,13 @@ export const DayIconPickerDrawer = ({
   iconPickerDate,
   slotIndex,
   selectedIconsByDate,
+  periodicGoals = [],
   notes,
   hiddenGoalKeys,
   onIconChange,
   onNotesChange,
   onClose,
 }: DayIconPickerDrawerProps) => {
-  const visibleOptions = CUSTOM_DAY_ICON_OPTIONS.filter(
-    (o) => !hiddenGoalKeys?.has(o.key),
-  );
   const rawDateKey = useMemo(
     () => (iconPickerDate ? toDateKey(iconPickerDate) : ""),
     [iconPickerDate],
@@ -211,10 +211,57 @@ export const DayIconPickerDrawer = ({
   const [pendingIconKey, setPendingIconKey] = useState<CustomDayIconKey | null>(
     null,
   );
+  const [showLowerPriorityGoals, setShowLowerPriorityGoals] = useState(false);
 
   useEffect(() => {
     setPendingIconKey(selectedIconKey);
   }, [selectedIconKey]);
+
+  const periodicGoalOptions = useMemo(
+    () =>
+      periodicGoals.flatMap((goal) => {
+        const option = CUSTOM_DAY_ICON_OPTIONS.find(
+          (candidate) =>
+            candidate.icon === goal.iconKey && !hiddenGoalKeys?.has(candidate.key),
+        );
+
+        if (!option) {
+          return [];
+        }
+
+        return [
+          {
+            goal,
+            option,
+          },
+        ];
+      }),
+    [periodicGoals, hiddenGoalKeys],
+  );
+
+  const lowerPriorityOptionKeys = useMemo(
+    () =>
+      new Set<CustomDayIconKey>(
+        periodicGoalOptions
+          .filter(({ goal }) => goal.priority !== "high")
+          .map(({ option }) => option.key),
+      ),
+    [periodicGoalOptions],
+  );
+
+  useEffect(() => {
+    setShowLowerPriorityGoals(
+      selectedIconKey != null && lowerPriorityOptionKeys.has(selectedIconKey),
+    );
+  }, [lowerPriorityOptionKeys, selectedIconKey]);
+
+  const visibleOptions = useMemo(
+    () =>
+      periodicGoalOptions.filter(
+        ({ goal }) => showLowerPriorityGoals || goal.priority === "high",
+      ),
+    [periodicGoalOptions, showLowerPriorityGoals],
+  );
 
   const selectedIcon = CUSTOM_DAY_ICON_OPTIONS.find(
     (option) => option.key === pendingIconKey,
@@ -365,7 +412,7 @@ export const DayIconPickerDrawer = ({
               className="border border-divider bg-content1/90"
             >
               <CardBody className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
-                {visibleOptions.map((option) => {
+                {visibleOptions.map(({ goal, option }) => {
                   const isSelected = option.key === pendingIconKey;
                   const {
                     completedCount,
@@ -399,7 +446,7 @@ export const DayIconPickerDrawer = ({
 
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-foreground">
-                          {option.label}
+                          {goal.name}
                         </p>
                         <p className="text-sm text-foreground-500">
                           {CUSTOM_DAY_ICON_FREQUENCY_LABELS[option.frequency]}
@@ -438,6 +485,30 @@ export const DayIconPickerDrawer = ({
                 })}
               </CardBody>
             </Card>
+
+            {periodicGoalOptions.some(({ goal }) => goal.priority !== "high") ? (
+              <div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowLowerPriorityGoals((previous) => !previous)
+                  }
+                  className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
+                >
+                  <Icon
+                    icon={
+                      showLowerPriorityGoals
+                        ? "fa7-solid:chevron-down"
+                        : "fa7-solid:chevron-right"
+                    }
+                    className="h-3 w-3"
+                  />
+                  {showLowerPriorityGoals
+                    ? "Hide lower priority goals"
+                    : "Show lower priority goals"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </DrawerBody>
 
