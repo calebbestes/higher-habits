@@ -25,18 +25,12 @@ type AuthSession = {
     user: AuthUser;
 };
 
-function getConfiguredAuth() {
+export async function getServerSession(): Promise<AuthSession | null> {
     const auth = createAuth();
 
     if (!auth) {
-        throw new Error("Auth is not configured.");
+        return null;
     }
-
-    return auth;
-}
-
-export async function getServerSession(): Promise<AuthSession | null> {
-    const auth = getConfiguredAuth();
 
     return (await auth.api.getSession({
         headers: await headers(),
@@ -56,7 +50,11 @@ export async function requireUser(): Promise<AuthSession["user"]> {
 export async function getRequestSession(
     request: Request,
 ): Promise<AuthSession | null> {
-    const auth = getConfiguredAuth();
+    const auth = createAuth();
+
+    if (!auth) {
+        return null;
+    }
 
     return (await auth.api.getSession({
         headers: request.headers,
