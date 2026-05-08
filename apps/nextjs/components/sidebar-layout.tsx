@@ -1,8 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import {
   Button,
   Modal,
@@ -13,18 +10,22 @@ import {
   cn,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
-  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
-  { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
   { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
+  { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
+  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
 ] as const;
 
 function isNavActive(href: string, pathname: string): boolean {
-  if (href === "/calendar") return pathname === "/" || pathname.startsWith("/calendar");
+  if (href === "/calendar")
+    return pathname === "/" || pathname.startsWith("/calendar");
   return pathname.startsWith(href);
 }
 
@@ -57,8 +58,10 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       {/* Mobile backdrop */}
       {isMobileOpen && (
         <div
+          role="presentation"
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
           onClick={() => setIsMobileOpen(false)}
+          onKeyDown={() => setIsMobileOpen(false)}
         />
       )}
 
@@ -68,7 +71,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-divider bg-content1 transition-all duration-200",
           "lg:static lg:z-auto",
           isCollapsed ? "lg:w-14" : "lg:w-60",
-          isMobileOpen ? "w-64 translate-x-0" : "-translate-x-full lg:translate-x-0",
+          isMobileOpen
+            ? "w-64 translate-x-0"
+            : "-translate-x-full lg:translate-x-0",
         )}
       >
         {/* Sidebar.Header */}
@@ -82,7 +87,12 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
             <Icon icon="mdi:dumbbell" className="h-4 w-4" />
           </div>
-          <span className={cn("truncate text-sm font-semibold", isCollapsed && "lg:hidden")}>
+          <span
+            className={cn(
+              "truncate text-sm font-semibold",
+              isCollapsed && "lg:hidden",
+            )}
+          >
             Higher Habits
           </span>
         </div>
@@ -108,7 +118,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     )}
                   >
                     <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
-                    <span className={cn(isCollapsed && "lg:hidden")}>{item.label}</span>
+                    <span className={cn(isCollapsed && "lg:hidden")}>
+                      {item.label}
+                    </span>
                   </Link>
                 </li>
               );
@@ -123,7 +135,13 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => setIsDark((d) => !d)}
-                title={isCollapsed ? (isDark ? "Light mode" : "Dark mode") : undefined}
+                title={
+                  isCollapsed
+                    ? isDark
+                      ? "Light mode"
+                      : "Dark mode"
+                    : undefined
+                }
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-foreground-600 transition-colors hover:bg-default-100 hover:text-foreground",
                   isCollapsed && "lg:justify-center lg:px-0",
@@ -148,7 +166,10 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   isCollapsed && "lg:justify-center lg:px-0",
                 )}
               >
-                <Icon icon="fa7-solid:arrow-right-from-bracket" className="h-4 w-4 shrink-0" />
+                <Icon
+                  icon="fa7-solid:arrow-right-from-bracket"
+                  className="h-4 w-4 shrink-0"
+                />
                 <span className={cn(isCollapsed && "lg:hidden")}>Log Out</span>
               </button>
             </li>
@@ -163,7 +184,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           className="absolute -right-3 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-divider bg-content1 shadow-sm transition-colors hover:bg-default-100 lg:flex"
         >
           <Icon
-            icon={isCollapsed ? "fa7-solid:chevron-right" : "fa7-solid:chevron-left"}
+            icon={
+              isCollapsed ? "fa7-solid:chevron-right" : "fa7-solid:chevron-left"
+            }
             className="h-2.5 w-2.5 text-foreground-400"
           />
         </button>

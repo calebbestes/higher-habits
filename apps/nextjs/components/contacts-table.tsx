@@ -2,9 +2,14 @@
 
 import {
   type Contact,
+  type ContactCategory,
   type ContactInput,
+  type ContactStatus,
   createContact,
+  createContactCategory,
   deleteManyContacts,
+  fetchContactCategories,
+  fetchContactStatuses,
   fetchContacts,
   updateContact,
 } from "@/lib/contacts-client";
@@ -65,14 +70,13 @@ type GroupRow = {
 
 const COLUMNS = [
   { name: "Name", uid: "name", sortable: true },
-  { name: "Company", uid: "company", sortable: true },
+  { name: "Organization", uid: "organization", sortable: true },
   { name: "Phone", uid: "phone", sortable: false },
   { name: "Email", uid: "email", sortable: true },
   { name: "Category", uid: "category", sortable: true },
-  { name: "Team", uid: "team", sortable: true },
   { name: "Status", uid: "status", sortable: true },
   { name: "Priority", uid: "priority", sortable: true },
-  { name: "Last Response", uid: "lastResponse", sortable: true },
+  { name: "Next Contact Date", uid: "nextContactDate", sortable: true },
   { name: "Last Contacted", uid: "lastContacted", sortable: true },
   { name: "Notes", uid: "notes", sortable: false },
   { name: "", uid: "actions", sortable: false },
@@ -82,42 +86,38 @@ type ColumnUid = (typeof COLUMNS)[number]["uid"];
 
 const INITIAL_VISIBLE_COLUMNS: Set<ColumnUid> = new Set([
   "name",
-  "status",
   "priority",
+  "nextContactDate",
   "lastContacted",
   "notes",
   "actions",
 ]);
 
-const CONTACT_CATEGORIES = [
-  "University",
-  "Corporate",
-  "Wedding",
-  "Races",
-  "Rental",
-  "Sports",
-  "City",
-] as const;
-
-const CONTACT_STATUSES = [
-  "Customer",
-  "Close to Customer",
-  "Meeting",
-  "Not Sure",
-  "Archived",
-] as const;
-
 const CONTACT_PRIORITIES = ["High", "Medium", "Low"] as const;
 
-const CATEGORY_COLORS: Record<string, string> = {
-  University: "bg-blue-500/15 text-blue-600",
-  Corporate: "bg-indigo-500/15 text-indigo-600",
-  Wedding: "bg-rose-500/15 text-rose-600",
-  Races: "bg-orange-500/15 text-orange-600",
-  Rental: "bg-amber-500/15 text-amber-600",
-  Sports: "bg-teal-500/15 text-teal-600",
-  City: "bg-purple-500/15 text-purple-600",
-};
+const CATEGORY_PALETTE = [
+  "bg-blue-500/15 text-blue-600",
+  "bg-indigo-500/15 text-indigo-600",
+  "bg-rose-500/15 text-rose-600",
+  "bg-orange-500/15 text-orange-600",
+  "bg-amber-500/15 text-amber-600",
+  "bg-teal-500/15 text-teal-600",
+  "bg-purple-500/15 text-purple-600",
+  "bg-green-500/15 text-green-600",
+  "bg-cyan-500/15 text-cyan-600",
+];
+
+function categoryColor(
+  categoryId: string | null,
+  cats: ContactCategory[],
+): string {
+  const idx = cats.findIndex((c) => c.id === categoryId);
+  if (idx === -1) return "bg-default-200 text-foreground-500";
+  return (
+    CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length] ??
+    "bg-default-200 text-foreground-500"
+  );
+}
 
 const STATUS_RANK: Record<string, number> = {
   Customer: 0,
@@ -149,14 +149,13 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const EMPTY_FORM: ContactInput = {
   name: "",
-  company: "",
+  organization: "",
   phone: "",
   email: "",
-  category: "",
-  team: "",
-  status: "",
+  contactCategoryId: null,
+  contactStatusId: null,
   priority: "",
-  lastResponse: null,
+  nextContactDate: null,
   lastContacted: null,
   notes: "",
 };
@@ -174,6 +173,7 @@ function TopContent({
   refetch,
   viewMode,
   onAddNew,
+  onAddCategory,
   showArchived,
   onToggleArchived,
   archivedCount,
@@ -189,6 +189,7 @@ function TopContent({
   refetch: () => void;
   viewMode: ViewMode;
   onAddNew: () => void;
+  onAddCategory: () => void;
   showArchived: boolean;
   onToggleArchived: () => void;
   archivedCount: number;
@@ -275,7 +276,17 @@ function TopContent({
             </Button>
           </Tooltip>
 
-          {/* Add button */}
+          {/* Add Category button */}
+          <Button
+            variant="flat"
+            size="sm"
+            startContent={<Icon icon="fa7-solid:tag" className="h-3.5 w-3.5" />}
+            onPress={onAddCategory}
+          >
+            Add Category
+          </Button>
+
+          {/* Add Contact button */}
           <Button
             color="primary"
             size="sm"
@@ -343,19 +354,22 @@ function BottomContent({
 function ContactFormModal({
   isOpen,
   contact,
+  categories,
+  statuses,
   onClose,
   onSave,
   isSaving,
 }: {
   isOpen: boolean;
   contact: Contact | null;
+  categories: ContactCategory[];
+  statuses: ContactStatus[];
   onClose: () => void;
   onSave: (input: ContactInput) => void;
   isSaving: boolean;
 }) {
   const [form, setForm] = useState<ContactInput>(contact ?? EMPTY_FORM);
 
-  // Sync form when contact changes (edit vs new)
   useMemo(() => {
     setForm(contact ?? EMPTY_FORM);
   }, [contact]);
@@ -383,10 +397,10 @@ function ContactFormModal({
               autoFocus
             />
             <Input
-              label="Company"
-              placeholder="Company or org"
-              value={form.company}
-              onValueChange={set("company")}
+              label="Organization"
+              placeholder="Organization or company"
+              value={form.organization}
+              onValueChange={set("organization")}
             />
             <Input
               label="Phone"
@@ -405,32 +419,38 @@ function ContactFormModal({
               label="Category"
               placeholder="Select category"
               selectedKeys={
-                form.category ? new Set([form.category]) : new Set()
+                form.contactCategoryId
+                  ? new Set([form.contactCategoryId])
+                  : new Set()
               }
               onSelectionChange={(keys) =>
-                set("category")(([...keys][0] as string) ?? "")
+                setForm((prev) => ({
+                  ...prev,
+                  contactCategoryId: ([...keys][0] as string) ?? null,
+                }))
               }
             >
-              {CONTACT_CATEGORIES.map((c) => (
-                <SelectItem key={c}>{c}</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c.id}>{c.name}</SelectItem>
               ))}
             </Select>
-            <Input
-              label="Team"
-              placeholder="Team or division"
-              value={form.team}
-              onValueChange={set("team")}
-            />
             <Select
               label="Status"
               placeholder="Select status"
-              selectedKeys={form.status ? new Set([form.status]) : new Set()}
+              selectedKeys={
+                form.contactStatusId
+                  ? new Set([form.contactStatusId])
+                  : new Set()
+              }
               onSelectionChange={(keys) =>
-                set("status")(([...keys][0] as string) ?? "")
+                setForm((prev) => ({
+                  ...prev,
+                  contactStatusId: ([...keys][0] as string) ?? null,
+                }))
               }
             >
-              {CONTACT_STATUSES.map((s) => (
-                <SelectItem key={s}>{s}</SelectItem>
+              {statuses.map((s) => (
+                <SelectItem key={s.id}>{s.name}</SelectItem>
               ))}
             </Select>
             <Select
@@ -456,11 +476,11 @@ function ContactFormModal({
               }
             />
             <Input
-              label="Last Response"
+              label="Next Contact Date"
               type="date"
-              value={form.lastResponse ?? ""}
+              value={form.nextContactDate ?? ""}
               onValueChange={(v) =>
-                setForm((prev) => ({ ...prev, lastResponse: v || null }))
+                setForm((prev) => ({ ...prev, nextContactDate: v || null }))
               }
             />
           </div>
@@ -483,6 +503,62 @@ function ContactFormModal({
             onPress={() => onSave(form)}
           >
             {contact ? "Save changes" : "Add contact"}
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+}
+
+// ── Add Category Modal ────────────────────────────────────────────────────────
+
+function AddCategoryModal({
+  isOpen,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (name: string) => void;
+  isSaving: boolean;
+}) {
+  const [name, setName] = useState("");
+
+  const handleClose = () => {
+    setName("");
+    onClose();
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onOpenChange={(o) => !o && handleClose()}
+      size="sm"
+      placement="center"
+    >
+      <ModalContent>
+        <ModalHeader>New Category</ModalHeader>
+        <ModalBody>
+          <Input
+            label="Category name"
+            placeholder="e.g. Prospect"
+            value={name}
+            onValueChange={setName}
+            autoFocus
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="flat" onPress={handleClose}>
+            Cancel
+          </Button>
+          <Button
+            color="primary"
+            isDisabled={!name.trim()}
+            isLoading={isSaving}
+            onPress={() => onSave(name.trim())}
+          >
+            Add category
           </Button>
         </ModalFooter>
       </ModalContent>
@@ -551,6 +627,16 @@ export function ContactsTable() {
     queryFn: fetchContacts,
   });
 
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: fetchContactCategories,
+  });
+
+  const { data: statuses = [] } = useQuery({
+    queryKey: ["contactStatuses"],
+    queryFn: fetchContactStatuses,
+  });
+
   const saveMutation = useMutation({
     mutationFn: ({ id, input }: { id: string | null; input: ContactInput }) =>
       id ? updateContact(id, input) : createContact(input),
@@ -566,6 +652,22 @@ export function ContactsTable() {
     onError: (err) => {
       addToast({
         title: "Could not save contact",
+        description: err instanceof Error ? err.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+
+  const addCategoryMutation = useMutation({
+    mutationFn: (name: string) => createContactCategory(name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["categories"] });
+      setCategoryFormOpen(false);
+      addToast({ title: "Category added", color: "success" });
+    },
+    onError: (err) => {
+      addToast({
+        title: "Could not add category",
         description: err instanceof Error ? err.message : undefined,
         color: "danger",
       });
@@ -615,14 +717,13 @@ export function ContactsTable() {
       id,
       input: {
         name: contact.name,
-        company: contact.company,
+        organization: contact.organization,
         phone: contact.phone,
         email: contact.email,
-        category: contact.category,
-        team: contact.team,
-        status: contact.status,
+        contactCategoryId: contact.contactCategoryId,
+        contactStatusId: contact.contactStatusId,
         priority: contact.priority,
-        lastResponse: contact.lastResponse,
+        nextContactDate: contact.nextContactDate,
         lastContacted: contact.lastContacted,
         notes: contact.notes,
         [field]: value,
@@ -634,7 +735,7 @@ export function ContactsTable() {
   const [filterValue, setFilterValue] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(CONTACT_CATEGORIES),
+    new Set(),
   );
   const [expandedCompanyKeys, setExpandedCompanyKeys] = useState<Set<string>>(
     new Set(),
@@ -650,6 +751,7 @@ export function ContactsTable() {
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [showArchived, setShowArchived] = useState(false);
+  const [categoryFormOpen, setCategoryFormOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -683,16 +785,21 @@ export function ContactsTable() {
     }
   };
 
+  const archivedStatusId = useMemo(
+    () => statuses.find((s) => s.name === "Archived")?.id,
+    [statuses],
+  );
+
   const archivedCount = useMemo(
-    () => data.filter((c) => c.status === "Archived").length,
-    [data],
+    () => data.filter((c) => c.contactStatusId === archivedStatusId).length,
+    [data, archivedStatusId],
   );
 
   // Derived: filter
   const filteredItems = useMemo(() => {
     const list = showArchived
       ? data
-      : data.filter((c) => c.status !== "Archived");
+      : data.filter((c) => c.contactStatusId !== archivedStatusId);
     if (!filterValue) return list;
     const re = new RegExp(
       filterValue.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&"),
@@ -701,19 +808,27 @@ export function ContactsTable() {
     return list.filter(
       (c) =>
         re.test(c.name) ||
-        re.test(c.company) ||
+        re.test(c.organization) ||
         re.test(c.email) ||
-        re.test(c.category),
+        re.test(
+          categories.find((cat) => cat.id === c.contactCategoryId)?.name ?? "",
+        ) ||
+        re.test(statuses.find((s) => s.id === c.contactStatusId)?.name ?? ""),
     );
-  }, [data, filterValue, showArchived]);
+  }, [data, filterValue, showArchived, categories, statuses, archivedStatusId]);
 
   // Derived: sort
   const sortedItems = useMemo(() => {
-    const col = sortDescriptor.column as keyof Contact;
+    const col = sortDescriptor.column;
     const dir = sortDescriptor.direction === "ascending" ? 1 : -1;
 
     const byStatus = (a: Contact, b: Contact) =>
-      (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99);
+      (STATUS_RANK[
+        statuses.find((s) => s.id === a.contactStatusId)?.name ?? ""
+      ] ?? 99) -
+      (STATUS_RANK[
+        statuses.find((s) => s.id === b.contactStatusId)?.name ?? ""
+      ] ?? 99);
 
     const byPriority = (a: Contact, b: Contact) =>
       (PRIORITY_RANK[a.priority] ?? 99) - (PRIORITY_RANK[b.priority] ?? 99);
@@ -733,9 +848,15 @@ export function ContactsTable() {
         cmp = byStatus(a, b) * dir;
       } else if (col === "priority") {
         cmp = byPriority(a, b) * dir;
+      } else if (col === "category") {
+        const an =
+          categories.find((c) => c.id === a.contactCategoryId)?.name ?? "";
+        const bn =
+          categories.find((c) => c.id === b.contactCategoryId)?.name ?? "";
+        cmp = an.localeCompare(bn) * dir;
       } else {
-        const av = String(a[col] ?? "").toLowerCase();
-        const bv = String(b[col] ?? "").toLowerCase();
+        const av = String(a[col as keyof Contact] ?? "").toLowerCase();
+        const bv = String(b[col as keyof Contact] ?? "").toLowerCase();
         cmp = (av < bv ? -1 : av > bv ? 1 : 0) * dir;
       }
       if (cmp !== 0) return cmp;
@@ -748,7 +869,7 @@ export function ContactsTable() {
       // tiebreaker 3: least recently contacted first
       return byLastContacted(a, b);
     });
-  }, [filteredItems, sortDescriptor]);
+  }, [filteredItems, sortDescriptor, categories, statuses]);
 
   // Derived: pagination
   const pages = Math.max(1, Math.ceil(sortedItems.length / rowsPerPage));
@@ -761,7 +882,9 @@ export function ContactsTable() {
   const groupedItems = useMemo(() => {
     const grouped = new Map<string, Contact[]>();
     for (const c of sortedItems) {
-      const key = c.category || "Uncategorized";
+      const key =
+        categories.find((cat) => cat.id === c.contactCategoryId)?.name ??
+        "Uncategorized";
       if (!grouped.has(key)) grouped.set(key, []);
       const bucket = grouped.get(key);
       if (bucket) bucket.push(c);
@@ -777,7 +900,7 @@ export function ContactsTable() {
           children,
         }),
       );
-  }, [sortedItems]);
+  }, [sortedItems, categories]);
 
   // Header columns
   const headerColumns = useMemo(
@@ -824,16 +947,15 @@ export function ContactsTable() {
         return (
           <div className="flex flex-col">
             <span className="text-sm font-semibold">{row.name}</span>
-
             <span className="max-w-[200px] truncate text-xs text-foreground-400">
-              {row.company}
+              {row.organization}
             </span>
           </div>
         );
-      case "company":
+      case "organization":
         return (
           <span className="text-sm text-foreground-600">
-            {row.company || <span className="text-foreground-300">—</span>}
+            {row.organization || <span className="text-foreground-300">—</span>}
           </span>
         );
       case "phone":
@@ -860,7 +982,10 @@ export function ContactsTable() {
         ) : (
           <span className="text-foreground-300">—</span>
         );
-      case "category":
+      case "category": {
+        const catName = categories.find(
+          (c) => c.id === row.contactCategoryId,
+        )?.name;
         return (
           <Dropdown placement="bottom-start">
             <DropdownTrigger>
@@ -869,15 +994,14 @@ export function ContactsTable() {
                 className="cursor-pointer rounded-full focus:outline-none"
                 onClick={(e) => e.stopPropagation()}
               >
-                {row.category ? (
+                {catName ? (
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
-                      CATEGORY_COLORS[row.category] ??
-                        "bg-default-200 text-foreground-500",
+                      categoryColor(row.contactCategoryId, categories),
                     )}
                   >
-                    {row.category}
+                    {catName}
                   </span>
                 ) : (
                   <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
@@ -890,28 +1014,23 @@ export function ContactsTable() {
               aria-label="Category"
               selectionMode="single"
               disallowEmptySelection={false}
-              selectedKeys={row.category ? new Set([row.category]) : new Set()}
+              selectedKeys={
+                row.contactCategoryId
+                  ? new Set([row.contactCategoryId])
+                  : new Set()
+              }
               onSelectionChange={(keys) => {
-                const selected = [...keys][0];
-                handleInlineUpdate(
-                  row.id,
-                  "category",
-                  selected ? String(selected) : "",
-                );
+                const selected = ([...keys][0] as string) ?? null;
+                handleInlineUpdate(row.id, "contactCategoryId", selected);
               }}
             >
-              {CONTACT_CATEGORIES.map((c) => (
-                <DropdownItem key={c}>{c}</DropdownItem>
+              {categories.map((c) => (
+                <DropdownItem key={c.id}>{c.name}</DropdownItem>
               ))}
             </DropdownMenu>
           </Dropdown>
         );
-      case "team":
-        return row.team ? (
-          <span className="text-sm text-foreground-600">{row.team}</span>
-        ) : (
-          <span className="text-foreground-300">—</span>
-        );
+      }
       case "status":
         return (
           <Dropdown placement="bottom-start">
@@ -921,15 +1040,17 @@ export function ContactsTable() {
                 className="cursor-pointer rounded-full focus:outline-none"
                 onClick={(e) => e.stopPropagation()}
               >
-                {row.status ? (
+                {row.contactStatusId ? (
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium hover:opacity-80",
-                      STATUS_COLORS[row.status] ??
-                        "bg-default-200 text-foreground-500",
+                      STATUS_COLORS[
+                        statuses.find((s) => s.id === row.contactStatusId)
+                          ?.name ?? ""
+                      ] ?? "bg-default-200 text-foreground-500",
                     )}
                   >
-                    {row.status}
+                    {statuses.find((s) => s.id === row.contactStatusId)?.name}
                   </span>
                 ) : (
                   <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
@@ -942,18 +1063,16 @@ export function ContactsTable() {
               aria-label="Status"
               selectionMode="single"
               disallowEmptySelection={false}
-              selectedKeys={row.status ? new Set([row.status]) : new Set()}
+              selectedKeys={
+                row.contactStatusId ? new Set([row.contactStatusId]) : new Set()
+              }
               onSelectionChange={(keys) => {
-                const selected = [...keys][0];
-                handleInlineUpdate(
-                  row.id,
-                  "status",
-                  selected ? String(selected) : "",
-                );
+                const selected = ([...keys][0] as string) ?? null;
+                handleInlineUpdate(row.id, "contactStatusId", selected);
               }}
             >
-              {CONTACT_STATUSES.map((s) => (
-                <DropdownItem key={s}>{s}</DropdownItem>
+              {statuses.map((s) => (
+                <DropdownItem key={s.id}>{s.name}</DropdownItem>
               ))}
             </DropdownMenu>
           </Dropdown>
@@ -1004,13 +1123,17 @@ export function ContactsTable() {
             </DropdownMenu>
           </Dropdown>
         );
-      case "lastResponse":
+      case "nextContactDate":
         return (
           <input
             type="date"
-            value={row.lastResponse ?? ""}
+            value={row.nextContactDate ?? ""}
             onChange={(e) =>
-              handleInlineUpdate(row.id, "lastResponse", e.target.value || null)
+              handleInlineUpdate(
+                row.id,
+                "nextContactDate",
+                e.target.value || null,
+              )
             }
             onClick={(e) => e.stopPropagation()}
             className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
@@ -1127,7 +1250,7 @@ export function ContactsTable() {
     for (const group of groupedItems) {
       const companies = new Map<string, number>();
       for (const c of group.children) {
-        const co = c.company || "No Company";
+        const co = c.organization || "No Organization";
         companies.set(co, (companies.get(co) ?? 0) + 1);
       }
       for (const co of companies.keys()) {
@@ -1240,6 +1363,7 @@ export function ContactsTable() {
           setEditingContact(null);
           setFormOpen(true);
         }}
+        onAddCategory={() => setCategoryFormOpen(true)}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((p) => !p)}
         archivedCount={archivedCount}
@@ -1301,7 +1425,9 @@ export function ContactsTable() {
                           : undefined
                       }
                       className={
-                        String(columnKey) === "notes" ? "cursor-text" : undefined
+                        String(columnKey) === "notes"
+                          ? "cursor-text"
+                          : undefined
                       }
                     >
                       {renderCell(contact, String(columnKey))}
@@ -1349,10 +1475,10 @@ export function ContactsTable() {
           {groupedItems.map((group) => {
             const isCatExpanded = expandedCategories.has(group.groupName);
 
-            // Build company sub-groups
+            // Build organization sub-groups
             const companyMap = new Map<string, Contact[]>();
             for (const c of group.children) {
-              const co = c.company || "No Company";
+              const co = c.organization || "No Organization";
               if (!companyMap.has(co)) companyMap.set(co, []);
               const bucket = companyMap.get(co);
               if (bucket) bucket.push(c);
@@ -1447,26 +1573,9 @@ export function ContactsTable() {
                           />
                         </button>
 
-                        {/* Contact rows — with optional team sub-folders */}
+                        {/* Contact rows */}
                         {isCoExpanded &&
                           (() => {
-                            // Split into contacts-with-team and contacts-without-team
-                            const teamMap = new Map<string, Contact[]>();
-                            const noTeam: Contact[] = [];
-                            for (const c of contacts) {
-                              if (c.team) {
-                                if (!teamMap.has(c.team))
-                                  teamMap.set(c.team, []);
-                                const b = teamMap.get(c.team);
-                                if (b) b.push(c);
-                              } else {
-                                noTeam.push(c);
-                              }
-                            }
-                            const teams = [...teamMap.entries()].sort(
-                              ([a], [b]) => a.localeCompare(b),
-                            );
-
                             const contactRow = (
                               contact: Contact,
                               indent: string,
@@ -1544,69 +1653,7 @@ export function ContactsTable() {
 
                             return (
                               <div className="border-t border-divider">
-                                {/* Team sub-folders */}
-                                {teams.map(([teamName, teamContacts]) => {
-                                  const teamKey = `${companyKey}::${teamName}`;
-                                  const isTeamExpanded =
-                                    expandedCompanyKeys.has(teamKey);
-                                  return (
-                                    <div
-                                      key={teamKey}
-                                      className="border-b border-divider last:border-b-0"
-                                    >
-                                      <button
-                                        type="button"
-                                        className="flex w-full items-center gap-3 py-2 pl-16 pr-4 transition-colors hover:bg-default-50"
-                                        onClick={() =>
-                                          setExpandedCompanyKeys((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(teamKey))
-                                              next.delete(teamKey);
-                                            else next.add(teamKey);
-                                            return next;
-                                          })
-                                        }
-                                      >
-                                        <Icon
-                                          icon={
-                                            isTeamExpanded
-                                              ? "fa7-solid:folder-open"
-                                              : "fa7-solid:folder"
-                                          }
-                                          className="h-3 w-3 text-foreground-400"
-                                        />
-                                        <span className="text-xs font-medium">
-                                          {teamName}
-                                        </span>
-                                        <Chip
-                                          size="sm"
-                                          variant="flat"
-                                          className="ml-1"
-                                        >
-                                          {teamContacts.length}
-                                        </Chip>
-                                        <Icon
-                                          icon={
-                                            isTeamExpanded
-                                              ? "fa7-solid:chevron-up"
-                                              : "fa7-solid:chevron-down"
-                                          }
-                                          className="ml-auto h-3 w-3 text-foreground-400"
-                                        />
-                                      </button>
-                                      {isTeamExpanded && (
-                                        <div className="border-t border-divider">
-                                          {teamContacts.map((c) =>
-                                            contactRow(c, "pl-16"),
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {/* Contacts without a team */}
-                                {noTeam.length > 0 &&
-                                  noTeam.map((c) => contactRow(c, "pl-10"))}
+                                {contacts.map((c) => contactRow(c, "pl-10"))}
                               </div>
                             );
                           })()}
@@ -1655,9 +1702,18 @@ export function ContactsTable() {
       )}
 
       {/* Modals */}
+      <AddCategoryModal
+        isOpen={categoryFormOpen}
+        onClose={() => setCategoryFormOpen(false)}
+        onSave={(name) => addCategoryMutation.mutate(name)}
+        isSaving={addCategoryMutation.isPending}
+      />
+
       <ContactFormModal
         isOpen={formOpen}
         contact={editingContact}
+        categories={categories}
+        statuses={statuses}
         onClose={() => {
           setFormOpen(false);
           setEditingContact(null);

@@ -1,8 +1,8 @@
 "use client";
 
-import { RichTextEditor } from "./rich-text-editor";
 import { Card, CardBody, Chip } from "@heroui/react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { RichTextEditor } from "./rich-text-editor";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 

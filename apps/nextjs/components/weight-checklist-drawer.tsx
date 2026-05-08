@@ -122,15 +122,16 @@ export const WeightChecklistDrawer = ({
   const dayChecklist = useMemo(
     () =>
       dateKey
-        ? checklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST
+        ? (checklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST)
         : EMPTY_WEIGHT_CHECKLIST,
     [checklistsByDate, dateKey],
   );
 
   const checklistItems = useMemo(
-    () => getChecklistItems(weightDrawerDate).filter(
-      (item) => !hiddenGoalKeys?.has(item.key),
-    ),
+    () =>
+      getChecklistItems(weightDrawerDate).filter(
+        (item) => !hiddenGoalKeys?.has(item.key),
+      ),
     [weightDrawerDate, hiddenGoalKeys],
   );
 
@@ -287,7 +288,11 @@ export const WeightChecklistDrawer = ({
           >
             Reset day
           </Button>
-          <Button variant="light" onPress={onClose} className="text-foreground-500">
+          <Button
+            variant="light"
+            onPress={onClose}
+            className="text-foreground-500"
+          >
             Close
           </Button>
         </DrawerFooter>

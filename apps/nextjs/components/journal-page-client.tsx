@@ -1,73 +1,30 @@
 "use client";
 
-import { CUSTOM_DAY_ICON_OPTIONS } from "@/components/day-icon-picker-drawer";
-import { PRAYER_CHECKLIST_ITEMS } from "@/components/prayer-checklist-drawer";
-import { SALES_CHECKLIST_ITEMS } from "@/components/sales-outreach-drawer";
-import { WEIGHT_CHECKLIST_ITEMS } from "@/components/weight-checklist-drawer";
-import { fetchHabitMonthSnapshot } from "@/lib/habit-state-client";
-import { getMonthKey } from "@/lib/habit-state";
 import {
-  fetchGoalLogsSnapshot,
   type GoalLogsSnapshot,
+  fetchGoalLogsSnapshot,
 } from "@/lib/goal-logs-client";
-import { Button, Select, SelectItem, SelectSection, Spinner, cn } from "@heroui/react";
-import parse from "html-react-parser";
+import {
+  Button,
+  Select,
+  SelectItem,
+  SelectSection,
+  Spinner,
+  cn,
+} from "@heroui/react";
 import { Icon } from "@iconify/react";
+import parse from "html-react-parser";
 import { useEffect, useMemo, useState } from "react";
 
 type Period = "30d" | "6m";
-
-type GoalSource = "custom" | "prayer" | "weight" | "sales" | "goalLog";
 
 type GoalOption = {
   key: string;
   label: string;
   icon: string;
-  source: GoalSource;
 };
 
-const STATIC_GOAL_SECTIONS: Array<{ title: string; goals: GoalOption[] }> = [
-  {
-    title: "Monthly Goals",
-    goals: CUSTOM_DAY_ICON_OPTIONS.map((o) => ({
-      key: o.key,
-      label: o.label,
-      icon: o.icon,
-      source: "custom" as GoalSource,
-    })),
-  },
-  {
-    title: "Spiritual",
-    goals: PRAYER_CHECKLIST_ITEMS.map((o) => ({
-      key: o.key,
-      label: o.label,
-      icon: o.icon,
-      source: "prayer" as GoalSource,
-    })),
-  },
-  {
-    title: "Physical",
-    goals: WEIGHT_CHECKLIST_ITEMS.map((o) => ({
-      key: o.key,
-      label: o.label,
-      icon: o.icon,
-      source: "weight" as GoalSource,
-    })),
-  },
-  {
-    title: "Work",
-    goals: SALES_CHECKLIST_ITEMS.map((o) => ({
-      key: o.key,
-      label: o.label,
-      icon: o.icon,
-      source: "sales" as GoalSource,
-    })),
-  },
-];
-
-type SnapshotData = Awaited<ReturnType<typeof fetchHabitMonthSnapshot>>;
-
-type MergedGoalLogsData = {
+type MergedData = {
   categories: GoalLogsSnapshot["categories"];
   logsByGoalDate: Record<string, "complete">;
   notesByGoalDate: Record<string, string>;
@@ -87,11 +44,14 @@ function toDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function getMonthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function getMonthKeysForPeriod(period: Period): string[] {
   const today = new Date();
   const months = new Set<string>();
   months.add(getMonthKey(today));
-
   if (period === "30d") {
     const d = new Date(today);
     d.setDate(d.getDate() - 30);
@@ -102,122 +62,45 @@ function getMonthKeysForPeriod(period: Period): string[] {
       months.add(getMonthKey(d));
     }
   }
-
   return [...months];
 }
 
-function mergeSnapshots(snapshots: SnapshotData[]): SnapshotData {
-  return snapshots.reduce<SnapshotData>(
-    (acc, s) => ({
-      month: s.month,
-      dayHabits: [...acc.dayHabits, ...s.dayHabits],
-      prayerChecklistsByDate: { ...acc.prayerChecklistsByDate, ...s.prayerChecklistsByDate },
-      weightChecklistsByDate: { ...acc.weightChecklistsByDate, ...s.weightChecklistsByDate },
-      salesChecklistsByDate: { ...acc.salesChecklistsByDate, ...s.salesChecklistsByDate },
-      salesByDate: { ...acc.salesByDate, ...s.salesByDate },
-      drawerNotesByDate: { ...acc.drawerNotesByDate, ...s.drawerNotesByDate },
-      customDayIconsByDate: { ...acc.customDayIconsByDate, ...s.customDayIconsByDate },
-    }),
-    {
-      month: "",
-      dayHabits: [],
-      prayerChecklistsByDate: {},
-      weightChecklistsByDate: {},
-      salesChecklistsByDate: {},
-      salesByDate: {},
-      drawerNotesByDate: {},
-      customDayIconsByDate: {},
-    },
-  );
-}
-
-function mergeGoalLogsSnapshots(snapshots: GoalLogsSnapshot[]): MergedGoalLogsData {
+function mergeSnapshots(snapshots: GoalLogsSnapshot[]): MergedData {
   return {
     categories: snapshots[0]?.categories ?? [],
-    logsByGoalDate: Object.assign({}, ...snapshots.map((s) => s.logsByGoalDate)),
-    notesByGoalDate: Object.assign({}, ...snapshots.map((s) => s.notesByGoalDate ?? {})),
+    logsByGoalDate: Object.assign(
+      {},
+      ...snapshots.map((s) => s.logsByGoalDate),
+    ),
+    notesByGoalDate: Object.assign(
+      {},
+      ...snapshots.map((s) => s.notesByGoalDate ?? {}),
+    ),
   };
 }
 
-function getEntries(snapshot: SnapshotData, goal: GoalOption, startDateKey: string) {
-  const {
-    customDayIconsByDate,
-    drawerNotesByDate,
-    prayerChecklistsByDate,
-    weightChecklistsByDate,
-    salesChecklistsByDate,
-  } = snapshot;
-
-  let completedDates: string[] = [];
-
-  if (goal.source === "custom") {
-    const dateSet = new Set<string>();
-    for (const [key, sel] of Object.entries(customDayIconsByDate)) {
-      if (sel?.iconKey === goal.key && sel.status === "complete") {
-        dateSet.add(key.slice(0, 10));
-      }
-    }
-    completedDates = [...dateSet];
-  } else {
-    const checklistsByDate =
-      goal.source === "prayer" ? prayerChecklistsByDate
-      : goal.source === "weight" ? weightChecklistsByDate
-      : salesChecklistsByDate;
-
-    for (const [dateKey, state] of Object.entries(checklistsByDate)) {
-      if ((state as Record<string, boolean>)[goal.key]) {
-        completedDates.push(dateKey);
-      }
-    }
-  }
-
-  const notesKey =
-    goal.source === "custom" ? "custom"
-    : goal.source === "prayer" ? "prayer"
-    : goal.source === "weight" ? "gym"
-    : "outreach";
-
-  const todayKey = toDateKey(new Date());
-
-  return completedDates
-    .filter((dateKey) => {
-      if (dateKey < startDateKey || dateKey > todayKey) return false;
-      const notes = drawerNotesByDate[dateKey]?.[notesKey];
-      return notes != null && (notes as string).trim() !== "";
-    })
-    .sort()
-    .reverse()
-    .map((dateKey) => ({
-      dateKey,
-      notes: (drawerNotesByDate[dateKey]?.[notesKey] ?? "") as string,
-    }));
-}
-
-function getGoalLogEntries(
-  goalLogsData: MergedGoalLogsData,
+function getEntries(
+  data: MergedData,
   goalId: string,
   startDateKey: string,
 ): { dateKey: string; notes: string }[] {
   const todayKey = toDateKey(new Date());
   const results: { dateKey: string; notes: string }[] = [];
-
-  for (const [key, notes] of Object.entries(goalLogsData.notesByGoalDate)) {
+  for (const [key, notes] of Object.entries(data.notesByGoalDate)) {
     if (!key.startsWith(`${goalId}_`)) continue;
     const dateKey = key.slice(goalId.length + 1);
     if (dateKey < startDateKey || dateKey > todayKey) continue;
-    if (goalLogsData.logsByGoalDate[key] !== "complete") continue;
+    if (data.logsByGoalDate[key] !== "complete") continue;
     if (!notes?.trim()) continue;
     results.push({ dateKey, notes });
   }
-
   return results.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 }
 
 export function JournalPageClient() {
   const [period, setPeriod] = useState<Period>("30d");
-  const [selectedGoalKey, setSelectedGoalKey] = useState<string>("scriptures");
-  const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
-  const [goalLogsData, setGoalLogsData] = useState<MergedGoalLogsData | null>(null);
+  const [selectedGoalKey, setSelectedGoalKey] = useState<string>("");
+  const [data, setData] = useState<MergedData | null>(null);
   const [loading, setLoading] = useState(false);
 
   const monthKeys = useMemo(() => getMonthKeysForPeriod(period), [period]);
@@ -225,19 +108,17 @@ export function JournalPageClient() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([
-      ...monthKeys.map((mk) => fetchHabitMonthSnapshot(mk)),
-      ...monthKeys.map((mk) => fetchGoalLogsSnapshot(mk)),
-    ]).then((results) => {
-      if (!cancelled) {
-        const habitResults = results.slice(0, monthKeys.length) as SnapshotData[];
-        const goalLogsResults = results.slice(monthKeys.length) as GoalLogsSnapshot[];
-        setSnapshot(mergeSnapshots(habitResults));
-        setGoalLogsData(mergeGoalLogsSnapshots(goalLogsResults));
-        setLoading(false);
-      }
-    });
-    return () => { cancelled = true; };
+    Promise.all(monthKeys.map((mk) => fetchGoalLogsSnapshot(mk))).then(
+      (results) => {
+        if (!cancelled) {
+          setData(mergeSnapshots(results));
+          setLoading(false);
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [monthKeys]);
 
   const startDateKey = useMemo(() => {
@@ -251,69 +132,47 @@ export function JournalPageClient() {
     return toDateKey(d);
   }, [period]);
 
-  const dynamicGoalSections = useMemo(() => {
-    if (!goalLogsData) return [];
-    return goalLogsData.categories.map((cat) => ({
-      title: cat.name,
-      goals: cat.goals.map((goal) => ({
-        key: goal.id,
-        label: goal.name,
-        icon: goal.iconKey || "mdi:circle",
-        source: "goalLog" as GoalSource,
-      })),
-    }));
-  }, [goalLogsData]);
-
   const availableSections = useMemo(() => {
-    if (!snapshot) return [];
+    if (!data) return [];
+    return data.categories
+      .map((cat) => ({
+        title: cat.name,
+        goals: cat.goals
+          .map((goal): GoalOption & { count: number } => ({
+            key: goal.id,
+            label: goal.name,
+            icon: goal.iconKey || "mdi:circle",
+            count: getEntries(data, goal.id, startDateKey).length,
+          }))
+          .filter(({ count }) => count > 0)
+          .sort((a, b) => b.count - a.count)
+          .map(({ count: _c, ...g }) => g),
+      }))
+      .filter((s) => s.goals.length > 0);
+  }, [data, startDateKey]);
 
-    const staticSections = STATIC_GOAL_SECTIONS.map((section) => ({
-      ...section,
-      goals: section.goals
-        .map((goal) => ({ goal, count: getEntries(snapshot, goal, startDateKey).length }))
-        .filter(({ count }) => count > 0)
-        .sort((a, b) => b.count - a.count)
-        .map(({ goal }) => goal),
-    })).filter((section) => section.goals.length > 0);
-
-    const dynamicSections = goalLogsData
-      ? dynamicGoalSections.map((section) => ({
-          ...section,
-          goals: section.goals
-            .map((goal) => ({
-              goal,
-              count: getGoalLogEntries(goalLogsData, goal.key, startDateKey).length,
-            }))
-            .filter(({ count }) => count > 0)
-            .sort((a, b) => b.count - a.count)
-            .map(({ goal }) => goal),
-        })).filter((section) => section.goals.length > 0)
-      : [];
-
-    return [...dynamicSections, ...staticSections];
-  }, [snapshot, startDateKey, goalLogsData, dynamicGoalSections]);
-
-  const allAvailableGoals = useMemo(
+  const allGoals = useMemo(
     () => availableSections.flatMap((s) => s.goals),
     [availableSections],
   );
 
-  const selectedGoal = allAvailableGoals.find((o) => o.key === selectedGoalKey);
+  const selectedGoal = allGoals.find((o) => o.key === selectedGoalKey);
 
   useEffect(() => {
-    if (!selectedGoalKey || !snapshot) return;
-    const stillAvailable = availableSections.some((s) => s.goals.some((g) => g.key === selectedGoalKey));
-    if (!stillAvailable) setSelectedGoalKey("");
-  }, [availableSections, selectedGoalKey, snapshot]);
+    if (!selectedGoalKey || !data) return;
+    if (
+      !availableSections.some((s) =>
+        s.goals.some((g) => g.key === selectedGoalKey),
+      )
+    ) {
+      setSelectedGoalKey("");
+    }
+  }, [availableSections, selectedGoalKey, data]);
 
   const entries = useMemo(() => {
-    if (!snapshot || !selectedGoal) return [];
-    if (selectedGoal.source === "goalLog") {
-      if (!goalLogsData) return [];
-      return getGoalLogEntries(goalLogsData, selectedGoal.key, startDateKey);
-    }
-    return getEntries(snapshot, selectedGoal, startDateKey);
-  }, [snapshot, selectedGoal, startDateKey, goalLogsData]);
+    if (!data || !selectedGoal) return [];
+    return getEntries(data, selectedGoal.key, startDateKey);
+  }, [data, selectedGoal, startDateKey]);
 
   const periodLabel = period === "30d" ? "last 30 days" : "last 6 months";
 
@@ -330,23 +189,37 @@ export function JournalPageClient() {
         <div className="flex-1">
           <Select
             label="Goal"
-            placeholder={loading ? "Loading…" : availableSections.length === 0 ? "No goals with notes yet" : "Select a goal…"}
+            placeholder={
+              loading
+                ? "Loading…"
+                : availableSections.length === 0
+                  ? "No goals with notes yet"
+                  : "Select a goal…"
+            }
             isDisabled={loading || availableSections.length === 0}
-            selectedKeys={selectedGoalKey ? new Set([selectedGoalKey]) : new Set()}
-            onSelectionChange={(keys) => {
-              const key = [...keys][0] as string | undefined;
-              setSelectedGoalKey(key ?? "");
-            }}
+            selectedKeys={
+              selectedGoalKey ? new Set([selectedGoalKey]) : new Set()
+            }
+            onSelectionChange={(keys) =>
+              setSelectedGoalKey(([...keys][0] as string | undefined) ?? "")
+            }
             classNames={{ trigger: "h-10" }}
             size="sm"
           >
             {availableSections.map((section) => (
-              <SelectSection key={section.title} title={section.title} showDivider>
+              <SelectSection
+                key={section.title}
+                title={section.title}
+                showDivider
+              >
                 {section.goals.map((opt) => (
                   <SelectItem
                     key={opt.key}
                     startContent={
-                      <Icon icon={opt.icon} className="h-4 w-4 text-foreground-500" />
+                      <Icon
+                        icon={opt.icon}
+                        className="h-4 w-4 text-foreground-500"
+                      />
                     }
                   >
                     {opt.label}
@@ -383,7 +256,9 @@ export function JournalPageClient() {
             icon="fa7-solid:book-open"
             className="mx-auto mb-3 h-8 w-8 text-foreground-300"
           />
-          <p className="text-sm font-medium text-foreground-600">No journal entries yet</p>
+          <p className="text-sm font-medium text-foreground-600">
+            No journal entries yet
+          </p>
           <p className="mt-1 text-xs text-foreground-400">
             Complete a goal and add a note to see it here
           </p>
@@ -407,7 +282,8 @@ export function JournalPageClient() {
             />
           )}
           <p className="text-sm font-medium text-foreground-600">
-            No entries for {selectedGoal?.label ?? "this goal"} in the {periodLabel}
+            No entries for {selectedGoal?.label ?? "this goal"} in the{" "}
+            {periodLabel}
           </p>
           <p className="mt-1 text-xs text-foreground-400">
             Complete the goal and add a note to see it here

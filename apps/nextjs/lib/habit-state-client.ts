@@ -150,7 +150,10 @@ export const persistDrawerNote = async (input: {
 
 export const fetchGoalPreferences = async (): Promise<Set<string>> => {
   const response = await fetch("/api/goal-preferences", { cache: "no-store" });
-  const payload = (await response.json()) as { hiddenKeys: string[]; error?: string };
+  const payload = (await response.json()) as {
+    hiddenKeys: string[];
+    error?: string;
+  };
   if (!response.ok) throw new Error(payload.error ?? "Request failed.");
   return new Set(payload.hiddenKeys);
 };

@@ -39,23 +39,29 @@ const CATEGORY_STYLE: Record<
   Spiritual: {
     gradient: "from-teal-500 via-cyan-500 to-emerald-500",
     shadow: "shadow-teal-500/20",
-    activeItem: "border-teal-200 bg-teal-50/80 dark:bg-teal-950/40 dark:border-teal-800",
+    activeItem:
+      "border-teal-200 bg-teal-50/80 dark:bg-teal-950/40 dark:border-teal-800",
     checkboxActive: "border-teal-200 bg-teal-500 text-white",
-    hoverBorder: "hover:border-teal-200 hover:bg-teal-50/50 dark:hover:bg-teal-950/30",
+    hoverBorder:
+      "hover:border-teal-200 hover:bg-teal-50/50 dark:hover:bg-teal-950/30",
   },
   Physical: {
     gradient: "from-amber-400 via-orange-400 to-yellow-400",
     shadow: "shadow-amber-400/20",
-    activeItem: "border-amber-200 bg-amber-50/80 dark:bg-amber-950/40 dark:border-amber-800",
+    activeItem:
+      "border-amber-200 bg-amber-50/80 dark:bg-amber-950/40 dark:border-amber-800",
     checkboxActive: "border-amber-200 bg-amber-500 text-white",
-    hoverBorder: "hover:border-amber-200 hover:bg-amber-50/50 dark:hover:bg-amber-950/30",
+    hoverBorder:
+      "hover:border-amber-200 hover:bg-amber-50/50 dark:hover:bg-amber-950/30",
   },
   Work: {
     gradient: "from-purple-500 via-violet-500 to-indigo-500",
     shadow: "shadow-purple-500/20",
-    activeItem: "border-purple-200 bg-purple-50/80 dark:bg-purple-950/40 dark:border-purple-800",
+    activeItem:
+      "border-purple-200 bg-purple-50/80 dark:bg-purple-950/40 dark:border-purple-800",
     checkboxActive: "border-purple-200 bg-purple-500 text-white",
-    hoverBorder: "hover:border-purple-200 hover:bg-purple-50/50 dark:hover:bg-purple-950/30",
+    hoverBorder:
+      "hover:border-purple-200 hover:bg-purple-50/50 dark:hover:bg-purple-950/30",
   },
 };
 
@@ -94,12 +100,15 @@ export const CategoryGoalDrawer = ({
   onClose,
 }: Props) => {
   const dateKey = useMemo(() => (date ? toDateKey(date) : ""), [date]);
-  const style = category ? (CATEGORY_STYLE[category.name] ?? DEFAULT_STYLE) : DEFAULT_STYLE;
+  const style = category
+    ? (CATEGORY_STYLE[category.name] ?? DEFAULT_STYLE)
+    : DEFAULT_STYLE;
 
   const completedCount = useMemo(
     () =>
-      category?.goals.filter((g) => logsByGoalDate[`${g.id}_${dateKey}`] === "complete")
-        .length ?? 0,
+      category?.goals.filter(
+        (g) => logsByGoalDate[`${g.id}_${dateKey}`] === "complete",
+      ).length ?? 0,
     [category, dateKey, logsByGoalDate],
   );
 
@@ -167,7 +176,10 @@ export const CategoryGoalDrawer = ({
 
         <DrawerBody>
           <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
-            <Card shadow="none" className="border border-divider bg-content1/90">
+            <Card
+              shadow="none"
+              className="border border-divider bg-content1/90"
+            >
               <CardBody className="gap-3 p-3 sm:p-4">
                 {(category?.goals ?? []).map((goal) => {
                   const isComplete =
@@ -193,14 +205,22 @@ export const CategoryGoalDrawer = ({
                         )}
                       >
                         <Icon
-                          icon={isComplete ? "mdi:check-bold" : (goal.iconKey || "mdi:circle")}
+                          icon={
+                            isComplete
+                              ? "mdi:check-bold"
+                              : goal.iconKey || "mdi:circle"
+                          }
                           className="h-5 w-5"
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground">{goal.name}</p>
+                        <p className="font-semibold text-foreground">
+                          {goal.name}
+                        </p>
                         <p className="text-sm text-foreground-500">
-                          {isComplete ? "Completed for the day" : "Tap to mark complete"}
+                          {isComplete
+                            ? "Completed for the day"
+                            : "Tap to mark complete"}
                         </p>
                       </div>
                       <Chip
@@ -223,7 +243,11 @@ export const CategoryGoalDrawer = ({
                   }
 
                   return (
-                    <Tooltip content="Add note" color="foreground" key={goal.id}>
+                    <Tooltip
+                      content="Add note"
+                      color="foreground"
+                      key={goal.id}
+                    >
                       {button}
                     </Tooltip>
                   );
@@ -246,7 +270,11 @@ export const CategoryGoalDrawer = ({
               {completedCount}/{category?.goals.length ?? 0} completed
             </span>
           </div>
-          <Button variant="light" onPress={onClose} className="text-foreground-500">
+          <Button
+            variant="light"
+            onPress={onClose}
+            className="text-foreground-500"
+          >
             Close
           </Button>
         </DrawerFooter>

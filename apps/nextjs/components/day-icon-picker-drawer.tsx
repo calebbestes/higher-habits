@@ -161,7 +161,7 @@ export const CUSTOM_DAY_ICON_OPTIONS = [
 }>;
 
 export type CustomDayIconFrequency =
-  typeof CUSTOM_DAY_ICON_OPTIONS[number]["frequency"];
+  (typeof CUSTOM_DAY_ICON_OPTIONS)[number]["frequency"];
 
 const CUSTOM_DAY_ICON_FREQUENCY_LABELS: Record<CustomDayIconFrequency, string> =
   {
@@ -198,7 +198,9 @@ export const DayIconPickerDrawer = ({
   );
   const slotKey = rawDateKey ? `${rawDateKey}_${slotIndex}` : "";
 
-  const savedSelection = slotKey ? selectedIconsByDate[slotKey] ?? null : null;
+  const savedSelection = slotKey
+    ? (selectedIconsByDate[slotKey] ?? null)
+    : null;
   const selectedIconKey = savedSelection?.iconKey ?? null;
   const monthKey = iconPickerDate ? getMonthKey(iconPickerDate) : "";
   const daysInMonth = iconPickerDate
@@ -222,7 +224,8 @@ export const DayIconPickerDrawer = ({
       periodicGoals.flatMap((goal) => {
         const option = CUSTOM_DAY_ICON_OPTIONS.find(
           (candidate) =>
-            candidate.icon === goal.iconKey && !hiddenGoalKeys?.has(candidate.key),
+            candidate.icon === goal.iconKey &&
+            !hiddenGoalKeys?.has(candidate.key),
         );
 
         if (!option) {
@@ -486,7 +489,9 @@ export const DayIconPickerDrawer = ({
               </CardBody>
             </Card>
 
-            {periodicGoalOptions.some(({ goal }) => goal.priority !== "high") ? (
+            {periodicGoalOptions.some(
+              ({ goal }) => goal.priority !== "high",
+            ) ? (
               <div>
                 <button
                   type="button"

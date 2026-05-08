@@ -277,7 +277,7 @@ export const SalesOutreachDrawer = ({
   const dayChecklist = useMemo(
     () =>
       dateKey
-        ? checklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST
+        ? (checklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST)
         : EMPTY_SALES_CHECKLIST,
     [checklistsByDate, dateKey],
   );
@@ -288,7 +288,7 @@ export const SalesOutreachDrawer = ({
   );
 
   const daySales = useMemo(
-    () => (dateKey ? salesByDate[dateKey] ?? [] : []),
+    () => (dateKey ? (salesByDate[dateKey] ?? []) : []),
     [dateKey, salesByDate],
   );
 
@@ -511,7 +511,9 @@ export const SalesOutreachDrawer = ({
                   className="border border-divider bg-content1/90"
                 >
                   <CardBody className="gap-3 p-3 sm:p-4">
-                    {SALES_CHECKLIST_ITEMS.filter((item) => !hiddenGoalKeys?.has(item.key)).map((item) => {
+                    {SALES_CHECKLIST_ITEMS.filter(
+                      (item) => !hiddenGoalKeys?.has(item.key),
+                    ).map((item) => {
                       const isComplete = dayChecklist[item.key];
                       return (
                         <button
