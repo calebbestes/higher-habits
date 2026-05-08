@@ -1,10 +1,19 @@
-import { categories, goalLogs, goals, getDb } from "@habit/db";
+import { categories, getDb, goalLogs, goals } from "@habit/db";
 import { and, asc, eq, gte, isNull, lt, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import { getMonthDateRange } from "@/lib/habit-state";
+
+function getMonthDateRange(month: string) {
+  const [year, mon] = month.split("-").map(Number);
+  const start = new Date(year, mon - 1, 1);
+  const end = new Date(year, mon, 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return { startDateKey: fmt(start), endDateKeyExclusive: fmt(end) };
+}
 
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,11 +50,16 @@ export async function GET(request: Request) {
     const db = getDatabase();
 
     if (!db) {
-      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
     }
 
     const url = new URL(request.url);
-    const { month } = monthQuerySchema.parse({ month: url.searchParams.get("month") });
+    const { month } = monthQuerySchema.parse({
+      month: url.searchParams.get("month"),
+    });
     const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
     const periodicFields = {
@@ -58,65 +72,65 @@ export async function GET(request: Request) {
       frequencyGoal: goals.frequencyGoal,
     };
 
-    const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] = await Promise.all([
-      db
-        .select()
-        .from(categories)
-        .where(eq(categories.userId, user.id))
-        .orderBy(asc(categories.name)),
-      db
-        .select()
-        .from(goals)
-        .where(
-          and(
-            eq(goals.userId, user.id),
-            eq(goals.period, "daily"),
-            eq(goals.hidden, false),
+    const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] =
+      await Promise.all([
+        db
+          .select()
+          .from(categories)
+          .where(eq(categories.userId, user.id))
+          .orderBy(asc(categories.name)),
+        db
+          .select()
+          .from(goals)
+          .where(
+            and(
+              eq(goals.userId, user.id),
+              eq(goals.period, "daily"),
+              eq(goals.hidden, false),
+            ),
+          )
+          .orderBy(asc(goals.priority), asc(goals.name)),
+        db
+          .select(periodicFields)
+          .from(goals)
+          .where(
+            and(
+              eq(goals.userId, user.id),
+              or(ne(goals.period, "daily"), isNull(goals.period)),
+              eq(goals.hidden, false),
+            ),
+          )
+          .orderBy(asc(goals.priority), asc(goals.name)),
+        db
+          .select(periodicFields)
+          .from(goals)
+          .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
+          .orderBy(asc(goals.priority), asc(goals.name)),
+        db
+          .select({
+            goalId: goalLogs.goalId,
+            date: goalLogs.date,
+            status: goalLogs.status,
+            notes: goalLogs.notes,
+          })
+          .from(goalLogs)
+          .where(
+            and(
+              eq(goalLogs.userId, user.id),
+              gte(goalLogs.date, startDateKey),
+              lt(goalLogs.date, endDateKeyExclusive),
+              eq(goalLogs.status, "complete"),
+            ),
           ),
-        )
-        .orderBy(asc(goals.priority), asc(goals.name)),
-      db
-        .select(periodicFields)
-        .from(goals)
-        .where(
-          and(
-            eq(goals.userId, user.id),
-            or(ne(goals.period, "daily"), isNull(goals.period)),
-            eq(goals.hidden, false),
-          ),
-        )
-        .orderBy(asc(goals.priority), asc(goals.name)),
-      db
-        .select(periodicFields)
-        .from(goals)
-        .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
-        .orderBy(asc(goals.priority), asc(goals.name)),
-      db
-        .select({
-          goalId: goalLogs.goalId,
-          date: goalLogs.date,
-          status: goalLogs.status,
-          notes: goalLogs.notes,
-        })
-        .from(goalLogs)
-        .where(
-          and(
-            eq(goalLogs.userId, user.id),
-            gte(goalLogs.date, startDateKey),
-            lt(goalLogs.date, endDateKeyExclusive),
-            eq(goalLogs.status, "complete"),
-          ),
-        ),
-    ]);
+      ]);
 
-    const goalsByCategoryId = dailyGoals.reduce<Record<string, typeof dailyGoals>>(
-      (acc, goal) => {
-        if (!acc[goal.categoryId]) acc[goal.categoryId] = [];
-        acc[goal.categoryId].push(goal);
-        return acc;
-      },
-      {},
-    );
+    const goalsByCategoryId = dailyGoals.reduce<
+      Record<string, typeof dailyGoals>
+    >((acc, goal) => {
+      if (!acc[goal.categoryId]) acc[goal.categoryId] = [];
+      acc[goal.categoryId].push(goal);
+      return acc;
+    }, {});
 
     const categoriesWithGoals = cats
       .map((cat) => ({
@@ -168,7 +182,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -178,7 +195,10 @@ export async function POST(request: Request) {
     const db = getDatabase();
 
     if (!db) {
-      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
     }
 
     const data = bodySchema.parse(await request.json());
@@ -216,7 +236,11 @@ export async function POST(request: Request) {
           })
           .onConflictDoUpdate({
             target: [goalLogs.goalId, goalLogs.date],
-            set: { status: data.status, updatedAt: new Date(), userId: user.id },
+            set: {
+              status: data.status,
+              updatedAt: new Date(),
+              userId: user.id,
+            },
           });
       }
 
@@ -255,6 +279,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }

@@ -65,7 +65,7 @@ export const PRAYER_CHECKLIST_ITEMS = [
   },
 ] as const;
 
-export type PrayerChecklistKey = typeof PRAYER_CHECKLIST_ITEMS[number]["key"];
+export type PrayerChecklistKey = (typeof PRAYER_CHECKLIST_ITEMS)[number]["key"];
 
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
@@ -98,7 +98,7 @@ export const PrayerChecklistDrawer = ({
   const dayChecklist = useMemo(
     () =>
       dateKey
-        ? checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST
+        ? (checklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST)
         : EMPTY_PRAYER_CHECKLIST,
     [checklistsByDate, dateKey],
   );
@@ -256,7 +256,11 @@ export const PrayerChecklistDrawer = ({
           >
             Reset day
           </Button>
-          <Button variant="light" onPress={onClose} className="text-foreground-500">
+          <Button
+            variant="light"
+            onPress={onClose}
+            className="text-foreground-500"
+          >
             Close
           </Button>
         </DrawerFooter>

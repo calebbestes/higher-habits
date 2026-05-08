@@ -59,7 +59,9 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const fetchGoalLogsSnapshot = (monthKey: string): Promise<GoalLogsSnapshot> =>
+export const fetchGoalLogsSnapshot = (
+  monthKey: string,
+): Promise<GoalLogsSnapshot> =>
   fetch(`${ENDPOINT}?month=${monthKey}`, { cache: "no-store" }).then((r) =>
     parseResponse<GoalLogsSnapshot>(r),
   );
@@ -75,7 +77,10 @@ export const setGoalLog = (
     body: JSON.stringify({ type: "setLog", goalId, dateKey, status }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
-export const setGoalHidden = (goalId: string, hidden: boolean): Promise<{ ok: true }> =>
+export const setGoalHidden = (
+  goalId: string,
+  hidden: boolean,
+): Promise<{ ok: true }> =>
   fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -1,4 +1,4 @@
-import { categories, goals, getDb } from "@habit/db";
+import { categories, getDb, goals } from "@habit/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -82,7 +82,10 @@ export async function GET(request: Request) {
     const db = getDatabase();
 
     if (!db) {
-      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
     }
 
     const rows = await db
@@ -90,7 +93,10 @@ export async function GET(request: Request) {
       .from(goals)
       .leftJoin(
         categories,
-        and(eq(goals.categoryId, categories.id), eq(categories.userId, user.id)),
+        and(
+          eq(goals.categoryId, categories.id),
+          eq(categories.userId, user.id),
+        ),
       )
       .where(eq(goals.userId, user.id))
       .orderBy(asc(goals.name));
@@ -109,7 +115,10 @@ export async function GET(request: Request) {
       return authErrorResponse;
     }
 
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -119,14 +128,20 @@ export async function POST(request: Request) {
     const db = getDatabase();
 
     if (!db) {
-      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
     }
 
     const body = await request.json();
     const parsed = bodySchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+      return NextResponse.json(
+        { error: parsed.error.message },
+        { status: 400 },
+      );
     }
 
     const data = parsed.data;
@@ -148,11 +163,19 @@ export async function POST(request: Request) {
       const [category] = await db
         .select({ id: categories.id })
         .from(categories)
-        .where(and(eq(categories.id, data.categoryId), eq(categories.userId, user.id)))
+        .where(
+          and(
+            eq(categories.id, data.categoryId),
+            eq(categories.userId, user.id),
+          ),
+        )
         .limit(1);
 
       if (!category) {
-        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        return NextResponse.json(
+          { error: "Category not found" },
+          { status: 404 },
+        );
       }
 
       const [row] = await db
@@ -171,11 +194,19 @@ export async function POST(request: Request) {
       const [category] = await db
         .select({ id: categories.id })
         .from(categories)
-        .where(and(eq(categories.id, data.categoryId), eq(categories.userId, user.id)))
+        .where(
+          and(
+            eq(categories.id, data.categoryId),
+            eq(categories.userId, user.id),
+          ),
+        )
         .limit(1);
 
       if (!category) {
-        return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        return NextResponse.json(
+          { error: "Category not found" },
+          { status: 404 },
+        );
       }
 
       const [updated] = await db
@@ -203,6 +234,9 @@ export async function POST(request: Request) {
       return authErrorResponse;
     }
 
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }

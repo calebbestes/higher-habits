@@ -162,7 +162,10 @@ function IconPicker({
           isLoading ? (
             <Spinner size="sm" className="shrink-0" />
           ) : value ? (
-            <Icon icon={value} className="h-4 w-4 shrink-0 text-foreground-500" />
+            <Icon
+              icon={value}
+              className="h-4 w-4 shrink-0 text-foreground-500"
+            />
           ) : undefined
         }
         description="Any Iconify icon name"
@@ -245,13 +248,13 @@ function GoalFormModal({
             priority: goal.priority,
             iconKey: goal.iconKey,
             hidden: goal.hidden,
-        }
+          }
         : EMPTY_FORM,
     );
     setIsAddingCategory(false);
     setNewCategoryName("");
     setNewCategoryIcon("");
-  }, [goal, isOpen]);
+  }, [goal]);
 
   const handleCreateCategory = async () => {
     try {
@@ -381,7 +384,9 @@ function GoalFormModal({
                 <Button
                   size="sm"
                   variant="flat"
-                  startContent={<Icon icon="fa7-solid:plus" className="h-3 w-3" />}
+                  startContent={
+                    <Icon icon="fa7-solid:plus" className="h-3 w-3" />
+                  }
                   onPress={() => setIsAddingCategory(true)}
                 >
                   Create category
@@ -393,7 +398,9 @@ function GoalFormModal({
               label="Priority"
               placeholder="Select priority"
               isRequired
-              selectedKeys={form.priority ? new Set([form.priority]) : new Set()}
+              selectedKeys={
+                form.priority ? new Set([form.priority]) : new Set()
+              }
               onSelectionChange={(keys) =>
                 setForm((p) => ({
                   ...p,
@@ -432,7 +439,9 @@ function GoalFormModal({
               placeholder="e.g. 3"
               type="number"
               min={1}
-              value={form.frequencyGoal != null ? String(form.frequencyGoal) : ""}
+              value={
+                form.frequencyGoal != null ? String(form.frequencyGoal) : ""
+              }
               onValueChange={(v) =>
                 setForm((p) => ({
                   ...p,
@@ -584,7 +593,11 @@ function DeleteModal({
 export function GoalsTable() {
   const queryClient = useQueryClient();
 
-  const { data = [], isLoading, refetch } = useQuery({
+  const {
+    data = [],
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ["goals"],
     queryFn: fetchGoals,
   });
@@ -1054,9 +1067,7 @@ export function GoalsTable() {
                   startContent={
                     <Icon
                       icon={
-                        row.hidden
-                          ? "fa7-solid:eye"
-                          : "fa7-solid:eye-slash"
+                        row.hidden ? "fa7-solid:eye" : "fa7-solid:eye-slash"
                       }
                       className="h-3.5 w-3.5"
                     />
@@ -1072,10 +1083,7 @@ export function GoalsTable() {
                   className="text-danger"
                   color="danger"
                   startContent={
-                    <Icon
-                      icon="fa7-solid:trash-can"
-                      className="h-3.5 w-3.5"
-                    />
+                    <Icon icon="fa7-solid:trash-can" className="h-3.5 w-3.5" />
                   }
                   onPress={() => {
                     setPendingDeleteGoal(row);

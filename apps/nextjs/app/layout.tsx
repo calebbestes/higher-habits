@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Providers } from "./providers";
 import { SidebarLayout } from "@/components/sidebar-layout";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Habit Tracker",

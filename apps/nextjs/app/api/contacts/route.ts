@@ -7,22 +7,31 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const contactFields = {
   name: z.string().min(1),
-  company: z.string().default(""),
+  organization: z.string().default(""),
   phone: z.string().default(""),
   email: z.string().default(""),
-  category: z.string().default(""),
-  team: z.string().default(""),
-  status: z.string().default(""),
+  contactCategoryId: z.string().uuid().nullable().default(null),
+  contactStatusId: z.string().uuid().nullable().default(null),
   priority: z.string().default(""),
-  lastResponse: z.string().nullable().default(null),
+  nextContactDate: z.string().nullable().default(null),
   lastContacted: z.string().nullable().default(null),
   notes: z.string().default(""),
 };
 
 const createSchema = z.object({ type: z.literal("create"), ...contactFields });
-const updateSchema = z.object({ type: z.literal("update"), id: z.string().uuid(), ...contactFields });
-const deleteSchema = z.object({ type: z.literal("delete"), id: z.string().uuid() });
-const deleteManySchema = z.object({ type: z.literal("deleteMany"), ids: z.array(z.string().uuid()).min(1) });
+const updateSchema = z.object({
+  type: z.literal("update"),
+  id: z.string().uuid(),
+  ...contactFields,
+});
+const deleteSchema = z.object({
+  type: z.literal("delete"),
+  id: z.string().uuid(),
+});
+const deleteManySchema = z.object({
+  type: z.literal("deleteMany"),
+  ids: z.array(z.string().uuid()).min(1),
+});
 
 const bodySchema = z.discriminatedUnion("type", [
   createSchema,
@@ -41,7 +50,11 @@ export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
     const db = getDatabase();
-    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    if (!db)
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
     const rows = await db
       .select()
       .from(contacts)
@@ -51,7 +64,10 @@ export async function GET(request: Request) {
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -60,30 +76,42 @@ export async function POST(request: Request) {
     const user = await requireRequestUser(request);
     const body = await request.json();
     const parsed = bodySchema.safeParse(body);
-    if (!parsed.success) return NextResponse.json({ error: parsed.error.message }, { status: 400 });
+    if (!parsed.success)
+      return NextResponse.json(
+        { error: parsed.error.message },
+        { status: 400 },
+      );
 
     const db = getDatabase();
-    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    if (!db)
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
 
     const data = parsed.data;
 
-    const contactValues = (d: typeof createSchema._type | typeof updateSchema._type) => ({
+    const contactValues = (
+      d: typeof createSchema._type | typeof updateSchema._type,
+    ) => ({
       userId: user.id,
       name: d.name,
-      company: d.company,
+      organization: d.organization,
       phone: d.phone,
       email: d.email,
-      category: d.category,
-      team: d.team,
-      status: d.status,
+      contactCategoryId: d.contactCategoryId ?? null,
+      contactStatusId: d.contactStatusId ?? null,
       priority: d.priority,
-      lastResponse: d.lastResponse ?? null,
+      nextContactDate: d.nextContactDate ?? null,
       lastContacted: d.lastContacted ?? null,
       notes: d.notes,
     });
 
     if (data.type === "create") {
-      const [row] = await db.insert(contacts).values(contactValues(data)).returning();
+      const [row] = await db
+        .insert(contacts)
+        .values(contactValues(data))
+        .returning();
       return NextResponse.json(row);
     }
 
@@ -93,7 +121,8 @@ export async function POST(request: Request) {
         .set({ ...contactValues(data), updatedAt: new Date() })
         .where(and(eq(contacts.id, data.id), eq(contacts.userId, user.id)))
         .returning();
-      if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      if (!row)
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
       return NextResponse.json(row);
     }
 
@@ -115,6 +144,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }
