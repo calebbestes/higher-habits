@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
 
-import { ContactsTable } from "@/components/contacts-table";
+import { ContactsTableClient } from "@/components/contacts-table-client";
 import { requireUser } from "@/lib/auth";
 
 export default async function ContactsPage() {
   await requireUser();
-  return <ContactsTable />;
+  return <ContactsTableClient />;
 }

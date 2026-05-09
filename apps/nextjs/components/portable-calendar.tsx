@@ -3,9 +3,16 @@
 import { fetchCalendarBootstrap } from "@/lib/calendar-bootstrap-client";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
 import {
+  DEFAULT_CALENDAR_SETTINGS,
+  type CalendarSettingsData,
+  fetchCalendarSettings,
+  saveCalendarSettings,
+} from "@/lib/calendar-settings-client";
+import {
   type CategoryWithGoals,
   EMPTY_GOAL_LOGS_SNAPSHOT,
   type GoalLogsSnapshot,
+  type PeriodicGoalInfo,
   fetchGoalLogsSnapshot,
   setGoalLog,
   setGoalLogNote,
@@ -30,7 +37,6 @@ import {
 } from "@/lib/habit-state";
 import {
   createSalesActivity,
-  fetchHabitMonthSnapshot,
   persistCustomDayIcon,
   persistDayHabit,
   persistDrawerNote,
@@ -53,6 +59,8 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Select,
+  SelectItem,
   Tab,
   Table,
   TableBody,
@@ -70,10 +78,7 @@ import { Icon } from "@iconify/react";
 import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { CategoryGoalDrawer } from "./category-goal-drawer";
-import {
-  CUSTOM_DAY_ICON_OPTIONS,
-  DayIconPickerDrawer,
-} from "./day-icon-picker-drawer";
+import { DayIconPickerDrawer } from "./day-icon-picker-drawer";
 import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
 import { RichTextEditor } from "./rich-text-editor";
 import { SALES_CHECKLIST_ITEMS } from "./sales-outreach-drawer";
@@ -618,6 +623,8 @@ const MonthView = ({
   onWeightChecklistsByDateChange,
   onSalesChecklistsByDateChange,
   onGoalLogsSnapshotChange,
+  monthlyGoalSlots = 3,
+  visibleCategoryIds = [],
 }: {
   currentDate: Date;
   selectedDate: Date;
@@ -638,6 +645,8 @@ const MonthView = ({
     data: Record<string, SalesChecklistState>,
   ) => void;
   onGoalLogsSnapshotChange?: (snapshot: GoalLogsSnapshot) => void;
+  monthlyGoalSlots?: number;
+  visibleCategoryIds?: string[];
 }) => {
   const [selectedDayForOverflow, setSelectedDayForOverflow] =
     useState<Date | null>(null);
@@ -689,7 +698,6 @@ const MonthView = ({
   const [weightDrawerDate, setWeightDrawerDate] = useState<Date | null>(null);
   const [salesDrawerDate, setSalesDrawerDate] = useState<Date | null>(null);
   const [iconPickerDate, setIconPickerDate] = useState<Date | null>(null);
-  const [iconPickerSlot, setIconPickerSlot] = useState<number>(0);
   const weeks = useMemo(() => buildMonthWeeks(currentDate), [currentDate]);
   const currentMonthKey = useMemo(
     () => getMonthKey(currentDate),
@@ -711,110 +719,14 @@ const MonthView = ({
 
     const loadMonthSnapshot = async () => {
       try {
-        const [snapshot, prevSnapshot, goalsSnap, prevGoalsSnap] =
-          await Promise.all([
-            fetchHabitMonthSnapshot(currentMonthKey),
-            fetchHabitMonthSnapshot(prevMonthKey),
-            fetchGoalLogsSnapshot(currentMonthKey),
-            fetchGoalLogsSnapshot(prevMonthKey),
-          ]);
+        const [goalsSnap, prevGoalsSnap] = await Promise.all([
+          fetchGoalLogsSnapshot(currentMonthKey),
+          fetchGoalLogsSnapshot(prevMonthKey),
+        ]);
 
         if (cancelled) {
           return;
         }
-
-        setActiveHabitIcons((previous) => {
-          const next = new Set(
-            [...previous].filter(
-              (key) =>
-                !key.startsWith(`${currentMonthKey}-`) &&
-                !key.startsWith(`${prevMonthKey}-`),
-            ),
-          );
-
-          for (const habit of [
-            ...snapshot.dayHabits,
-            ...prevSnapshot.dayHabits,
-          ]) {
-            if (habit.isActive) {
-              next.add(getHabitStateKey(habit.dateKey, habit.habitKey));
-            }
-          }
-
-          return next;
-        });
-
-        setPrayerChecklistsByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.prayerChecklistsByDate,
-          ...snapshot.prayerChecklistsByDate,
-        }));
-
-        setCustomDayIconsByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.customDayIconsByDate,
-          ...snapshot.customDayIconsByDate,
-        }));
-
-        setWeightChecklistsByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.weightChecklistsByDate,
-          ...snapshot.weightChecklistsByDate,
-        }));
-
-        setDrawerNotesByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.drawerNotesByDate,
-          ...snapshot.drawerNotesByDate,
-        }));
-
-        setSalesChecklistsByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.salesChecklistsByDate,
-          ...snapshot.salesChecklistsByDate,
-        }));
-
-        setSalesByDate((previous) => ({
-          ...Object.fromEntries(
-            Object.entries(previous).filter(
-              ([dateKey]) =>
-                !dateKey.startsWith(currentMonthKey) &&
-                !dateKey.startsWith(prevMonthKey),
-            ),
-          ),
-          ...prevSnapshot.salesByDate,
-          ...snapshot.salesByDate,
-        }));
 
         setGoalLogsSnapshot((previous) => ({
           categories: goalsSnap.categories,
@@ -853,11 +765,11 @@ const MonthView = ({
         }
 
         addToast({
-          title: "Could not load habit data",
+          title: "Could not load goal data",
           description:
             error instanceof Error
               ? error.message
-              : "We couldn't load this month's saved habits.",
+              : "We couldn't load this month's goal data.",
           color: "warning",
         });
       }
@@ -984,9 +896,10 @@ const MonthView = ({
     return completedCount / PRAYER_CHECKLIST_ITEMS.length;
   };
 
-  const handleOpenIconPicker = (date: Date, slotIndex: number) => {
+  const handleOpenMonthlyGoalPicker = (date: Date) => {
     setIconPickerDate(startOfDay(date));
-    setIconPickerSlot(slotIndex);
+    setActiveDrawerCategoryId(null);
+    setActiveDrawerDate(null);
     setPrayerDrawerDate(null);
     setWeightDrawerDate(null);
     setSalesDrawerDate(null);
@@ -1145,86 +1058,29 @@ const MonthView = ({
   const getDrawerNotes = (dateKey: string) =>
     drawerNotesByDate[dateKey] ?? EMPTY_DAY_DRAWER_NOTES;
 
-  const getCustomDayIcon = (date: Date, slotIndex: number) => {
-    const dateKey = toDateKey(date);
-    const slotKey = `${dateKey}_${slotIndex}`;
-    const selection = customDayIconsByDate[slotKey] ?? null;
-
-    if (!selection) {
-      return null;
-    }
-
-    const option = CUSTOM_DAY_ICON_OPTIONS.find(
-      (candidate) => candidate.key === selection.iconKey,
-    );
-
-    if (!option) {
-      return null;
-    }
-
-    return {
-      option,
-      status: selection.status,
-    };
-  };
-
-  const getCustomDayIconProgress = (date: Date, iconKey: CustomDayIconKey) => {
-    const monthKey = getMonthKey(date);
-    const option = CUSTOM_DAY_ICON_OPTIONS.find(
-      (candidate) => candidate.key === iconKey,
-    );
-
-    if (!option) {
-      return 0;
-    }
-
-    const completedCount = Object.entries(customDayIconsByDate).reduce(
-      (count, [entryDateKey, selection]) => {
-        if (
-          entryDateKey.startsWith(monthKey) &&
-          selection?.iconKey === iconKey &&
-          selection.status === "complete"
-        ) {
-          return count + 1;
-        }
-
-        return count;
-      },
-      0,
-    );
-
-    const targetCount =
-      option.frequency === "monthly"
-        ? 1
-        : option.frequency === "biweekly"
-          ? 2
-          : option.frequency === "weekly"
-            ? 4
-            : new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-
-    return Math.min(completedCount / targetCount, 1);
-  };
-
   const handleToggleGoalLog = (goalId: string, dateKey: string) => {
     const key = `${goalId}_${dateKey}`;
-    const currentlyComplete =
-      goalLogsSnapshot.logsByGoalDate[key] === "complete";
+    const currentStatus = goalLogsSnapshot.logsByGoalDate[key];
+    // null → planned → complete → null
+    const nextStatus =
+      currentStatus === "complete"
+        ? null
+        : currentStatus === "planned"
+          ? "complete"
+          : "planned";
+    const prevStatus = currentStatus ?? null;
 
     setGoalLogsSnapshot((prev) => {
       const next = { ...prev, logsByGoalDate: { ...prev.logsByGoalDate } };
-      if (currentlyComplete) delete next.logsByGoalDate[key];
-      else next.logsByGoalDate[key] = "complete";
+      if (nextStatus) next.logsByGoalDate[key] = nextStatus;
+      else delete next.logsByGoalDate[key];
       return next;
     });
 
-    void setGoalLog(
-      goalId,
-      dateKey,
-      currentlyComplete ? null : "complete",
-    ).catch((error) => {
+    void setGoalLog(goalId, dateKey, nextStatus).catch((error) => {
       setGoalLogsSnapshot((prev) => {
         const next = { ...prev, logsByGoalDate: { ...prev.logsByGoalDate } };
-        if (currentlyComplete) next.logsByGoalDate[key] = "complete";
+        if (prevStatus) next.logsByGoalDate[key] = prevStatus;
         else delete next.logsByGoalDate[key];
         return next;
       });
@@ -1320,9 +1176,27 @@ const MonthView = ({
                       </span>
                     </div>
 
-                    <div className="mb-1 grid grid-cols-2 grid-rows-3 gap-1">
+                    <div
+                      className="mb-1 grid grid-cols-2 gap-1"
+                      style={{
+                        gridTemplateRows: `repeat(${Math.max(
+                          goalLogsSnapshot.categories.filter(
+                            (c) =>
+                              c.goals.length > 0 &&
+                              (visibleCategoryIds.length === 0 ||
+                                visibleCategoryIds.includes(c.id)),
+                          ).length,
+                          monthlyGoalSlots,
+                        )}, 2.75rem)`,
+                      }}
+                    >
                       {goalLogsSnapshot.categories
-                        .slice(0, 3)
+                        .filter(
+                          (c) =>
+                            c.goals.length > 0 &&
+                            (visibleCategoryIds.length === 0 ||
+                              visibleCategoryIds.includes(c.id)),
+                        )
                         .map((cat, catIdx) => {
                           const cellDateKey = toDateKey(date);
                           const completedCount = cat.goals.filter(
@@ -1382,66 +1256,60 @@ const MonthView = ({
                           );
                         })}
 
-                      {([0, 1, 2] as const).map((slotIdx) => {
-                        const selectedCustomIcon = getCustomDayIcon(
-                          date,
-                          slotIdx,
-                        );
-                        const isThisSlotOpen = iconPickerDate
-                          ? isSameDay(iconPickerDate, date) &&
-                            iconPickerSlot === slotIdx
-                          : false;
-
-                        const gridClass =
-                          slotIdx === 0
-                            ? "col-start-2 row-start-1"
-                            : slotIdx === 1
-                              ? "col-start-2 row-start-2"
-                              : "col-start-2 row-start-3";
-
-                        return (
-                          <button
-                            type="button"
-                            key={`custom-${slotIdx}-${toDateKey(date)}`}
-                            title="Monthly goal"
-                            aria-label="Monthly goal"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleOpenIconPicker(date, slotIdx);
-                            }}
-                            className={cn(
-                              "inline-flex h-10 w-10 items-center justify-center rounded-xl border text-[9px] transition-all",
-                              gridClass,
-                              selectedCustomIcon?.status === "complete"
-                                ? "border-default-300 bg-content1 text-foreground opacity-100"
-                                : selectedCustomIcon?.status === "planned"
-                                  ? "border-default-300/70 bg-content1/70 text-foreground-500 opacity-70"
-                                  : isThisSlotOpen
-                                    ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
+                      {(() => {
+                        const cellDateKey = toDateKey(date);
+                        const loggedForDay = goalLogsSnapshot.periodicGoals
+                          .map((g) => ({
+                            ...g,
+                            status:
+                              goalLogsSnapshot.logsByGoalDate[
+                                `${g.id}_${cellDateKey}`
+                              ],
+                          }))
+                          .filter((g) => g.status === "complete" || g.status === "planned");
+                        const ROW_STARTS = [
+                          "row-start-1",
+                          "row-start-2",
+                          "row-start-3",
+                          "row-start-4",
+                          "row-start-5",
+                        ];
+                        return Array.from(
+                          { length: monthlyGoalSlots },
+                          (_, i) => i,
+                        ).map((slotIdx) => {
+                          const goalForSlot = loggedForDay[slotIdx];
+                          const isComplete = goalForSlot?.status === "complete";
+                          const isPlanned = goalForSlot?.status === "planned";
+                          const gridClass = `col-start-2 ${ROW_STARTS[slotIdx]}`;
+                          return (
+                            <button
+                              type="button"
+                              key={`periodic-${slotIdx}-${cellDateKey}`}
+                              title={goalForSlot?.name ?? "Monthly goal"}
+                              aria-label={goalForSlot?.name ?? "Monthly goal"}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleOpenMonthlyGoalPicker(date);
+                              }}
+                              className={cn(
+                                "inline-flex h-10 w-10 items-center justify-center rounded-xl border transition-all",
+                                gridClass,
+                                isComplete
+                                  ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
+                                  : isPlanned
+                                    ? "border-default-300 bg-content2 text-foreground-400"
                                     : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
-                            )}
-                          >
-                            {selectedCustomIcon?.status === "complete" ? (
-                              <ProgressFillIcon
-                                icon={selectedCustomIcon.option.icon}
-                                progress={getCustomDayIconProgress(
-                                  date,
-                                  selectedCustomIcon.option.key,
-                                )}
-                                className="h-6 w-6"
-                                fillClassName="text-foreground"
-                              />
-                            ) : (
+                              )}
+                            >
                               <Icon
-                                icon={
-                                  selectedCustomIcon?.option.icon ?? "mdi:plus"
-                                }
+                                icon={goalForSlot?.iconKey ?? "mdi:plus"}
                                 className="h-6 w-6"
                               />
-                            )}
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
 
                     <div className="space-y-1">
@@ -1554,28 +1422,10 @@ const MonthView = ({
 
       <DayIconPickerDrawer
         iconPickerDate={iconPickerDate}
-        slotIndex={iconPickerSlot}
-        selectedIconsByDate={customDayIconsByDate}
+        categories={goalLogsSnapshot.categories}
         periodicGoals={goalLogsSnapshot.periodicGoals}
-        hiddenGoalKeys={hiddenGoalKeys}
-        notes={
-          iconPickerDate
-            ? (getDrawerNotes(toDateKey(iconPickerDate))[
-                `custom_${iconPickerSlot}` as
-                  | "custom_0"
-                  | "custom_1"
-                  | "custom_2"
-              ] ?? null)
-            : null
-        }
-        onIconChange={handleCustomDayIconChange}
-        onNotesChange={(dateKey, nextNotes) =>
-          handleDrawerNoteChange(
-            dateKey,
-            `custom_${iconPickerSlot}` as "custom_0" | "custom_1" | "custom_2",
-            nextNotes,
-          )
-        }
+        logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
+        onToggleGoal={handleToggleGoalLog}
         onClose={() => {
           setIconPickerDate(null);
         }}
@@ -1735,26 +1585,21 @@ const DayView = ({
   entries,
   onSelectEntry,
   goalLogsCategories = [],
+  periodicGoals = [],
   logsByGoalDate = {},
   notesByGoalDate = {},
   onToggleGoalLog,
   onSaveGoalNote,
-  customIconSlots,
-  onToggleCustomIconSlot,
 }: {
   currentDate: Date;
   entries: NormalizedCalendarEntry[];
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
   goalLogsCategories?: CategoryWithGoals[];
-  logsByGoalDate?: Record<string, "complete">;
+  periodicGoals?: PeriodicGoalInfo[];
+  logsByGoalDate?: Record<string, "complete" | "planned">;
   notesByGoalDate?: Record<string, string>;
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
   onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
-  customIconSlots?: Array<{
-    slotKey: string;
-    selection: CustomDayIconSelection;
-  }>;
-  onToggleCustomIconSlot?: (slotKey: string) => void;
 }) => {
   const [showCompleted, setShowCompleted] = useState(false);
   const [revealedPriorityByCategory, setRevealedPriorityByCategory] = useState<
@@ -1990,93 +1835,113 @@ const DayView = ({
               },
             )}
 
-            {pendingItems.length === 0 && completedItems.length > 0 && (
-              <div className="flex flex-col items-center justify-center gap-2 py-8">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-500/15 text-teal-500">
-                  <Icon icon="mdi:check-all" className="h-7 w-7" />
-                </div>
-                <p className="text-sm font-semibold text-foreground">
-                  All done!
-                </p>
-                <p className="text-xs text-foreground-500">
-                  All goals completed for today.
-                </p>
-              </div>
-            )}
-
-            {pendingItems.length === 0 && completedItems.length === 0 && (
-              <div className="flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-8 text-sm text-foreground-500">
-                No active goals configured.
-              </div>
-            )}
-
-            {completedItems.length > 0 && (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowCompleted((c) => !c)}
-                  className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
-                >
-                  <Icon
-                    icon={
-                      showCompleted
-                        ? "fa7-solid:chevron-down"
-                        : "fa7-solid:chevron-right"
-                    }
-                    className="h-3 w-3"
-                  />
-                  Show completed ({completedItems.length})
-                </button>
-                {showCompleted && (
-                  <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(48px,1fr))] gap-2">
-                    {completedItems.map((item) =>
-                      renderIconButton(item, "small"),
-                    )}
+            {(() => {
+              const plannedMonthly = periodicGoals.filter(
+                (g) =>
+                  logsByGoalDate[`${g.id}_${currentDateKey}`] === "planned",
+              );
+              if (plannedMonthly.length === 0) return null;
+              return (
+                <div>
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-foreground-400" />
+                    <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+                      Planned Monthly Goals
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+                    {plannedMonthly.map((goal) => (
+                      <Tooltip
+                        key={goal.id}
+                        content={goal.name}
+                        color="foreground"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onToggleGoalLog?.(goal.id, currentDateKey)
+                          }
+                          className="relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-default-200 bg-content2 p-3 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground"
+                        >
+                          <Icon
+                            icon={goal.iconKey || "mdi:circle"}
+                            className="h-7 w-7"
+                          />
+                        </button>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const completedPeriodicGoals = periodicGoals.filter(
+                (g) =>
+                  logsByGoalDate[`${g.id}_${currentDateKey}`] === "complete",
+              );
+              const totalCompleted =
+                completedItems.length + completedPeriodicGoals.length;
+
+              if (totalCompleted === 0 && pendingItems.length === 0) {
+                return (
+                  <div className="flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-8 text-sm text-foreground-500">
+                    No active goals configured.
+                  </div>
+                );
+              }
+
+              if (totalCompleted === 0) return null;
+
+              return (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleted((c) => !c)}
+                    className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
+                  >
+                    <Icon
+                      icon={
+                        showCompleted
+                          ? "fa7-solid:chevron-down"
+                          : "fa7-solid:chevron-right"
+                      }
+                      className="h-3 w-3"
+                    />
+                    Show completed ({totalCompleted})
+                  </button>
+                  {showCompleted && (
+                    <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(48px,1fr))] gap-2">
+                      {completedItems.map((item) =>
+                        renderIconButton(item, "small"),
+                      )}
+                      {completedPeriodicGoals.map((goal) => (
+                        <Tooltip
+                          key={goal.id}
+                          content={goal.name}
+                          color="foreground"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onToggleGoalLog?.(goal.id, currentDateKey)
+                            }
+                            className="relative flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all"
+                          >
+                            <Icon
+                              icon={goal.iconKey || "mdi:circle"}
+                              className="h-6 w-6"
+                            />
+                          </button>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
-
-        {customIconSlots && customIconSlots.length > 0 && (
-          <div className="bg-content1 border-divider rounded-3xl border p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-foreground-400" />
-              <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
-                Monthly Goals
-              </p>
-            </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
-              {customIconSlots.map(({ slotKey, selection }) => {
-                const opt = CUSTOM_DAY_ICON_OPTIONS.find(
-                  (o) => o.key === selection.iconKey,
-                );
-                if (!opt) return null;
-                const isComplete = selection.status === "complete";
-                return (
-                  <Tooltip content={opt.label} color="foreground" key={slotKey}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleCustomIconSlot?.(slotKey)}
-                      className={cn(
-                        "flex flex-col items-center justify-center rounded-2xl border p-3 transition-all",
-                        isComplete
-                          ? "border-transparent bg-foreground text-background shadow-md"
-                          : "border-default-200 bg-content2 text-foreground-400 hover:border-transparent hover:bg-foreground/10 hover:text-foreground",
-                      )}
-                    >
-                      <Icon
-                        icon={isComplete ? "mdi:check-bold" : opt.icon}
-                        className="h-6 w-6"
-                      />
-                    </button>
-                  </Tooltip>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <div className="bg-content1 border-divider rounded-3xl border p-5">
           {dayEntries.length > 0 ? (
@@ -2371,8 +2236,28 @@ export const PortableCalendar = ({
       initialCalendarData?.currentGoalLogsSnapshot ?? EMPTY_GOAL_LOGS_SNAPSHOT,
   );
   const [prevMonthGoalLogsByDate, setPrevMonthGoalLogsByDate] = useState<
-    Record<string, "complete">
+    Record<string, "complete" | "planned">
   >(() => initialCalendarData?.prevGoalLogsByDate ?? {});
+
+  const [calSettings, setCalSettings] = useState<CalendarSettingsData>(
+    DEFAULT_CALENDAR_SETTINGS,
+  );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [draftSettings, setDraftSettings] =
+    useState<CalendarSettingsData>(DEFAULT_CALENDAR_SETTINGS);
+
+  useEffect(() => {
+    fetchCalendarSettings()
+      .then((s) => setCalSettings(s))
+      .catch(() => {});
+  }, []);
+
+  const handleSaveSettings = async () => {
+    await saveCalendarSettings(draftSettings).catch(() => {});
+    setCalSettings(draftSettings);
+    setIsSettingsOpen(false);
+  };
+
   const currentMonthKey = useMemo(
     () => getMonthKey(currentDate),
     [currentDate],
@@ -2426,44 +2311,37 @@ export const PortableCalendar = ({
 
   const goalMetrics = useMemo(() => {
     const monthKey = getMonthKey(currentDate);
-    // Map iconify paths to CUSTOM_DAY_ICON_OPTIONS string keys for completion tracking
-    const iconToCustomKey = new Map<string, string>(
-      CUSTOM_DAY_ICON_OPTIONS.map((o) => [o.icon, o.key]),
-    );
-
     return goalLogsSnapshot.periodicGoals
       .map((pg) => {
-        const customKey = iconToCustomKey.get(pg.iconKey) ?? null;
         const targetCount = pg.frequencyGoal ?? 1;
-        let completedCount = 0;
-        let plannedCount = 0;
-        if (customKey) {
-          for (const [dateKey, sel] of Object.entries(monthViewIconsByDate)) {
-            if (dateKey.startsWith(monthKey) && sel?.iconKey === customKey) {
-              if (sel.status === "complete") completedCount++;
-              else if (sel.status === "planned") plannedCount++;
-            }
-          }
-        }
+        const completedCount = Object.keys(
+          goalLogsSnapshot.logsByGoalDate,
+        ).filter((key) => key.startsWith(`${pg.id}_${monthKey}`)).length;
         const completedFraction = Math.min(completedCount / targetCount, 1);
-        const plannedFraction = Math.min(
-          plannedCount / targetCount,
-          1 - completedFraction,
-        );
         return {
           pg,
           completedCount,
-          plannedCount,
+          plannedCount: 0,
           targetCount,
           completedFraction,
-          plannedFraction,
+          plannedFraction: 0,
           ratio: completedCount / targetCount,
         };
       })
       .sort((a, b) =>
         a.ratio !== b.ratio ? b.ratio - a.ratio : a.targetCount - b.targetCount,
       );
-  }, [monthViewIconsByDate, currentDate, goalLogsSnapshot.periodicGoals]);
+  }, [currentDate, goalLogsSnapshot]);
+
+  const filteredDailyCategories = useMemo(() => {
+    const withDailyGoals = goalLogsSnapshot.categories.filter(
+      (c) => c.goals.length > 0,
+    );
+    if (calSettings.visibleCategoryIds.length === 0) return withDailyGoals;
+    return withDailyGoals.filter((c) =>
+      calSettings.visibleCategoryIds.includes(c.id),
+    );
+  }, [goalLogsSnapshot.categories, calSettings.visibleCategoryIds]);
 
   const displayedGoalMetrics = useMemo(
     () =>
@@ -2479,7 +2357,7 @@ export const PortableCalendar = ({
       d.setDate(d.getDate() - (9 - i));
       return toDateKey(d);
     });
-    const allLogs: Record<string, "complete"> = {
+    const allLogs: Record<string, "complete" | "planned"> = {
       ...prevMonthGoalLogsByDate,
       ...goalLogsSnapshot.logsByGoalDate,
     };
@@ -3210,16 +3088,19 @@ export const PortableCalendar = ({
                     <ChevronRightIcon />
                   </Button>
 
-                  {allowCreate ? (
-                    <Button
-                      size="sm"
-                      variant="flat"
-                      startContent={<PlusIcon />}
-                      onPress={() => openCreateModal()}
-                    >
-                      Add Entry
-                    </Button>
-                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    startContent={
+                      <Icon icon="mdi:cog-outline" className="h-4 w-4" />
+                    }
+                    onPress={() => {
+                      setDraftSettings(calSettings);
+                      setIsSettingsOpen(true);
+                    }}
+                  >
+                    Calendar Settings
+                  </Button>
                 </div>
               </CardHeader>
 
@@ -3235,6 +3116,8 @@ export const PortableCalendar = ({
                       hiddenGoalKeys={hiddenGoalKeys}
                       onCustomDayIconsByDateChange={setMonthViewIconsByDate}
                       onGoalLogsSnapshotChange={setGoalLogsSnapshot}
+                      monthlyGoalSlots={calSettings.monthlyGoalSlots}
+                      visibleCategoryIds={calSettings.visibleCategoryIds}
                     />
                   ) : view === "week" ? (
                     <WeekView
@@ -3250,7 +3133,8 @@ export const PortableCalendar = ({
                       currentDate={currentDate}
                       entries={visibleEntries}
                       onSelectEntry={handleSelectEntry}
-                      goalLogsCategories={goalLogsSnapshot.categories}
+                      goalLogsCategories={filteredDailyCategories}
+                      periodicGoals={goalLogsSnapshot.periodicGoals}
                       logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
                       notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
                       onToggleGoalLog={handleDayViewToggleGoalLog}
@@ -3274,6 +3158,60 @@ export const PortableCalendar = ({
           onSubmit={handleCreateEntry}
         />
       ) : null}
+
+      <Modal
+        isOpen={isSettingsOpen}
+        onOpenChange={(open) => setIsSettingsOpen(open)}
+        size="md"
+        backdrop="blur"
+      >
+        <ModalContent>
+          <ModalHeader>Calendar Settings</ModalHeader>
+          <ModalBody className="gap-5 pb-2">
+            <Select
+              label="Daily goal categories"
+              placeholder="All categories"
+              selectionMode="multiple"
+              selectedKeys={new Set(draftSettings.visibleCategoryIds)}
+              onSelectionChange={(keys) =>
+                setDraftSettings((s) => ({
+                  ...s,
+                  visibleCategoryIds: [...keys] as string[],
+                }))
+              }
+              description="Only selected categories appear in the calendar. Leave empty to show all."
+            >
+              {goalLogsSnapshot.categories
+                .filter((c) => c.goals.length > 0)
+                .map((c) => (
+                  <SelectItem key={c.id}>{c.name}</SelectItem>
+                ))}
+            </Select>
+
+            <Select
+              label="Monthly goal slots per day"
+              selectedKeys={new Set([String(draftSettings.monthlyGoalSlots)])}
+              onSelectionChange={(keys) => {
+                const val = Number([...keys][0]);
+                if (!Number.isNaN(val))
+                  setDraftSettings((s) => ({ ...s, monthlyGoalSlots: val }));
+              }}
+            >
+              {([1, 2, 3, 4, 5] as const).map((n) => (
+                <SelectItem key={String(n)}>{String(n)}</SelectItem>
+              ))}
+            </Select>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="flat" onPress={() => setIsSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="primary" onPress={handleSaveSettings}>
+              Save
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 };
