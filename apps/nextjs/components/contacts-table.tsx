@@ -77,7 +77,7 @@ const COLUMNS = [
   { name: "Status", uid: "status", sortable: true },
   { name: "Priority", uid: "priority", sortable: true },
   { name: "Next Contact Date", uid: "nextContactDate", sortable: true },
-  { name: "Last Contacted", uid: "lastContacted", sortable: true },
+  { name: "Last Successful Contact", uid: "lastContacted", sortable: true },
   { name: "Notes", uid: "notes", sortable: false },
   { name: "", uid: "actions", sortable: false },
 ] as const;
@@ -468,7 +468,7 @@ function ContactFormModal({
               ))}
             </Select>
             <Input
-              label="Last Contacted"
+              label="Last Successful Contact"
               type="date"
               value={form.lastContacted ?? ""}
               onValueChange={(v) =>
