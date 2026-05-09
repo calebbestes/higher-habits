@@ -41,7 +41,7 @@ export type GoalLogsSnapshot = {
   periodicGoals: PeriodicGoalInfo[];
   hiddenGoals: HiddenGoalInfo[];
   /** key: `${goalId}_${dateKey}` */
-  logsByGoalDate: Record<string, "complete">;
+  logsByGoalDate: Record<string, "complete" | "planned">;
   /** key: `${goalId}_${dateKey}`, only non-empty notes */
   notesByGoalDate: Record<string, string>;
 };
@@ -69,7 +69,7 @@ export const fetchGoalLogsSnapshot = (
 export const setGoalLog = (
   goalId: string,
   dateKey: string,
-  status: "complete" | null,
+  status: "complete" | "planned" | null,
 ): Promise<{ ok: true }> =>
   fetch(ENDPOINT, {
     method: "POST",

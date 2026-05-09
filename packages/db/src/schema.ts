@@ -10,10 +10,11 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
 export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
-export const LOG_STATUSES = ["complete", "incomplete"] as const;
+export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
@@ -262,3 +263,21 @@ export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
+
+export const calendarSettings = pgTable("calendar_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  visibleCategoryIds: text("visible_category_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  monthlyGoalSlots: integer("monthly_goal_slots").notNull().default(3),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type CalendarSettings = typeof calendarSettings.$inferSelect;

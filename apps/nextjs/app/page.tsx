@@ -7,5 +7,5 @@ import { getServerSession } from "@/lib/auth";
 export default async function HomePage() {
   const session = await getServerSession();
 
-  redirect(session ? "/contacts" : "/login");
+  redirect(session ? "/calendar" : "/login");
 }

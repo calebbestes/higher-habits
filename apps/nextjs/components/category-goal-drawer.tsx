@@ -21,7 +21,7 @@ type Props = {
   isOpen: boolean;
   date: Date | null;
   category: CategoryWithGoals | null;
-  logsByGoalDate: Record<string, "complete">;
+  logsByGoalDate: Record<string, "complete" | "planned">;
   onToggle: (goalId: string, dateKey: string) => void;
   onClose: () => void;
 };

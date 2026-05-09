@@ -1,174 +1,20 @@
 "use client";
 
-import type { PeriodicGoalInfo } from "@/lib/goal-logs-client";
+import type {
+  CategoryWithGoals,
+  PeriodicGoalInfo,
+} from "@/lib/goal-logs-client";
+import { toDateKey } from "@/lib/habit-state";
 import {
-  type CustomDayIconKey,
-  type CustomDayIconSelection,
-  getMonthKey,
-  toDateKey,
-} from "@/lib/habit-state";
-import {
-  Button,
-  Card,
-  CardBody,
+  Accordion,
+  AccordionItem,
   Drawer,
   DrawerBody,
   DrawerContent,
-  DrawerFooter,
   DrawerHeader,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import { useEffect, useMemo, useState } from "react";
-import { DrawerNotesCard } from "./drawer-notes-card";
-
-type DayIconPickerDrawerProps = {
-  iconPickerDate: Date | null;
-  slotIndex: number;
-  selectedIconsByDate: Record<string, CustomDayIconSelection | null>;
-  periodicGoals?: PeriodicGoalInfo[];
-  notes: string | null;
-  hiddenGoalKeys?: Set<string>;
-  onIconChange: (
-    slotKey: string,
-    nextIcon: CustomDayIconSelection | null,
-  ) => void;
-  onNotesChange: (
-    dateKey: string,
-    nextNotes: string | null,
-  ) => Promise<void> | void;
-  onClose: () => void;
-};
-
-export const CUSTOM_DAY_ICON_OPTIONS = [
-  {
-    key: "tent",
-    label: "Camp monthly",
-    icon: "mdi:tent",
-    description: "Camp monthly",
-    frequency: "monthly",
-  },
-  {
-    key: "heart",
-    label: "Date weekly",
-    icon: "mdi:heart-outline",
-    description: "Date weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "party",
-    label: "Host party weekly",
-    icon: "mdi:party-popper",
-    description: "Host party weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "lunch",
-    label: "Lunch with new friend weekly",
-    icon: "mdi:silverware-fork-knife",
-    description: "Lunch with new friend weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "phone",
-    label: "Call family member weekly",
-    icon: "mdi:phone-outline",
-    description: "Call family member weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "financialPlanning",
-    label: "Financial Planning",
-    icon: "mdi:chart-line",
-    description: "Financial planning monthly",
-    frequency: "monthly",
-  },
-  {
-    key: "firstAid",
-    label: "Volunteer service weekly",
-    icon: "mdi:handshake-outline",
-    description: "Volunteer service weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "temple",
-    label: "Temple weekly",
-    icon: "mdi:temple-hindu",
-    description: "Temple weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "book",
-    label: "Finish a book monthly",
-    icon: "mdi:book-open-page-variant",
-    description: "Finish a book monthly",
-    frequency: "monthly",
-  },
-  {
-    key: "group",
-    label: "Host come follow me weekly",
-    icon: "mdi:account-group-outline",
-    description: "Host come follow me weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "climb",
-    label: "Climb biweekly",
-    icon: "mdi:image-filter-hdr",
-    description: "Climb biweekly",
-    frequency: "biweekly",
-  },
-  {
-    key: "tennis",
-    label: "Tennis biweekly",
-    icon: "mdi:tennis-ball",
-    description: "Tennis biweekly",
-    frequency: "biweekly",
-  },
-  {
-    key: "cook",
-    label: "Cook weekly",
-    icon: "mdi:chef-hat",
-    description: "Cook weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "piano",
-    label: "Piano weekly",
-    icon: "mdi:piano",
-    description: "Piano weekly",
-    frequency: "weekly",
-  },
-  {
-    key: "ministering",
-    label: "Ministering visit monthly",
-    icon: "mdi:home-heart",
-    description: "Ministering visit monthly",
-    frequency: "monthly",
-  },
-  {
-    key: "czechCall",
-    label: "Call Czech friend monthly",
-    icon: "mdi:earth",
-    description: "Call Czech friend monthly",
-    frequency: "monthly",
-  },
-] as const satisfies ReadonlyArray<{
-  key: CustomDayIconKey;
-  label: string;
-  icon: string;
-  description: string;
-  frequency: "daily" | "weekly" | "biweekly" | "monthly";
-}>;
-
-export type CustomDayIconFrequency =
-  (typeof CUSTOM_DAY_ICON_OPTIONS)[number]["frequency"];
-
-const CUSTOM_DAY_ICON_FREQUENCY_LABELS: Record<CustomDayIconFrequency, string> =
-  {
-    weekly: "Weekly goal",
-    biweekly: "Biweekly goal",
-    monthly: "Monthly goal",
-  };
+import { useMemo } from "react";
 
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
@@ -181,217 +27,79 @@ const formatDayLabel = (date: Date) =>
     year: "numeric",
   }).format(date);
 
+type Props = {
+  iconPickerDate: Date | null;
+  categories: CategoryWithGoals[];
+  periodicGoals: PeriodicGoalInfo[];
+  logsByGoalDate: Record<string, "complete" | "planned">;
+  onToggleGoal: (goalId: string, dateKey: string) => void;
+  onClose: () => void;
+};
+
 export const DayIconPickerDrawer = ({
   iconPickerDate,
-  slotIndex,
-  selectedIconsByDate,
-  periodicGoals = [],
-  notes,
-  hiddenGoalKeys,
-  onIconChange,
-  onNotesChange,
+  categories,
+  periodicGoals,
+  logsByGoalDate,
+  onToggleGoal,
   onClose,
-}: DayIconPickerDrawerProps) => {
-  const rawDateKey = useMemo(
+}: Props) => {
+  const dateKey = useMemo(
     () => (iconPickerDate ? toDateKey(iconPickerDate) : ""),
     [iconPickerDate],
   );
-  const slotKey = rawDateKey ? `${rawDateKey}_${slotIndex}` : "";
 
-  const savedSelection = slotKey
-    ? (selectedIconsByDate[slotKey] ?? null)
-    : null;
-  const selectedIconKey = savedSelection?.iconKey ?? null;
-  const monthKey = iconPickerDate ? getMonthKey(iconPickerDate) : "";
-  const daysInMonth = iconPickerDate
-    ? new Date(
-        iconPickerDate.getFullYear(),
-        iconPickerDate.getMonth() + 1,
-        0,
-      ).getDate()
-    : 30;
-  const [pendingIconKey, setPendingIconKey] = useState<CustomDayIconKey | null>(
-    null,
-  );
-  const [showLowerPriorityGoals, setShowLowerPriorityGoals] = useState(false);
+  const grouped = useMemo(() => {
+    const categoryMap = new Map(categories.map((c) => [c.id, c]));
+    const groups = new Map<
+      string,
+      { name: string; icon: string; goals: PeriodicGoalInfo[] }
+    >();
 
-  useEffect(() => {
-    setPendingIconKey(selectedIconKey);
-  }, [selectedIconKey]);
-
-  const periodicGoalOptions = useMemo(
-    () =>
-      periodicGoals.flatMap((goal) => {
-        const option = CUSTOM_DAY_ICON_OPTIONS.find(
-          (candidate) =>
-            candidate.icon === goal.iconKey &&
-            !hiddenGoalKeys?.has(candidate.key),
-        );
-
-        if (!option) {
-          return [];
-        }
-
-        return [
-          {
-            goal,
-            option,
-          },
-        ];
-      }),
-    [periodicGoals, hiddenGoalKeys],
-  );
-
-  const lowerPriorityOptionKeys = useMemo(
-    () =>
-      new Set<CustomDayIconKey>(
-        periodicGoalOptions
-          .filter(({ goal }) => goal.priority !== "high")
-          .map(({ option }) => option.key),
-      ),
-    [periodicGoalOptions],
-  );
-
-  useEffect(() => {
-    setShowLowerPriorityGoals(
-      selectedIconKey != null && lowerPriorityOptionKeys.has(selectedIconKey),
-    );
-  }, [lowerPriorityOptionKeys, selectedIconKey]);
-
-  const visibleOptions = useMemo(
-    () =>
-      periodicGoalOptions.filter(
-        ({ goal }) => showLowerPriorityGoals || goal.priority === "high",
-      ),
-    [periodicGoalOptions, showLowerPriorityGoals],
-  );
-
-  const selectedIcon = CUSTOM_DAY_ICON_OPTIONS.find(
-    (option) => option.key === pendingIconKey,
-  );
-
-  const getMonthlyTargetCount = (frequency: CustomDayIconFrequency) => {
-    switch (frequency) {
-      case "monthly":
-        return 1;
-      case "biweekly":
-        return 2;
-      case "weekly":
-        return 4;
-      default:
-        return daysInMonth;
-    }
-  };
-
-  const getMonthlyProgress = (
-    iconKey: CustomDayIconKey,
-    frequency: CustomDayIconFrequency,
-  ) => {
-    let completedCount = 0;
-    let plannedCount = 0;
-
-    for (const [entryDateKey, selection] of Object.entries(
-      selectedIconsByDate,
-    )) {
-      if (entryDateKey.startsWith(monthKey) && selection?.iconKey === iconKey) {
-        if (selection.status === "complete") completedCount++;
-        else if (selection.status === "planned") plannedCount++;
+    for (const goal of periodicGoals) {
+      const cat = categoryMap.get(goal.categoryId);
+      const key = cat?.id ?? "__other__";
+      if (!groups.has(key)) {
+        groups.set(key, {
+          name: cat?.name ?? "Other",
+          icon: cat?.icon ?? "mdi:star-outline",
+          goals: [],
+        });
       }
+      const entry = groups.get(key);
+      if (entry) entry.goals.push(goal);
     }
 
-    const targetCount = getMonthlyTargetCount(frequency);
-    const completedFraction = Math.min(completedCount / targetCount, 1);
-    const plannedFraction = Math.min(
-      plannedCount / targetCount,
-      1 - completedFraction,
-    );
-
-    return {
-      completedCount,
-      plannedCount,
-      targetCount,
-      completedFraction,
-      plannedFraction,
-    };
-  };
-
-  const handleSelectIcon = (iconKey: CustomDayIconKey) => {
-    setPendingIconKey(iconKey);
-  };
-
-  const handleClearIcon = () => {
-    if (slotKey) {
-      onIconChange(slotKey, null);
-    }
-    setPendingIconKey(null);
-    onClose();
-  };
-
-  const handleClose = () => {
-    onClose();
-  };
-
-  const isSavedSelectionPlanned =
-    Boolean(pendingIconKey) &&
-    savedSelection?.iconKey === pendingIconKey &&
-    savedSelection.status === "planned";
-
-  const isSavedSelectionComplete =
-    Boolean(pendingIconKey) &&
-    savedSelection?.iconKey === pendingIconKey &&
-    savedSelection.status === "complete";
-
-  const primaryActionLabel =
-    isSavedSelectionPlanned || isSavedSelectionComplete
-      ? "Completed"
-      : "Planned";
-
-  const handlePrimaryAction = () => {
-    if (!slotKey || !pendingIconKey) {
-      return;
-    }
-
-    onIconChange(slotKey, {
-      iconKey: pendingIconKey,
-      status:
-        isSavedSelectionPlanned || isSavedSelectionComplete
-          ? "complete"
-          : "planned",
-    });
-    onClose();
-  };
+    return [...groups.values()];
+  }, [categories, periodicGoals]);
 
   return (
     <Drawer
       isOpen={Boolean(iconPickerDate)}
       onOpenChange={(open) => {
-        if (!open) {
-          handleClose();
-        }
+        if (!open) onClose();
       }}
       placement="right"
       backdrop="blur"
       scrollBehavior="inside"
       classNames={{
-        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-divider bg-transparent sm:w-2/3 sm:max-w-[80rem]",
+        base: "m-0 h-dvh w-full max-w-full rounded-none border-l border-divider sm:w-2/3",
         backdrop: "bg-slate-950/45 backdrop-blur-[3px]",
         header: "p-0",
         body: "p-0",
-        footer:
-          "border-t border-divider bg-content1/88 px-4 py-4 backdrop-blur sm:px-6",
         closeButton:
-          "right-4 top-4 z-20 rounded-full border border-content1/70 bg-content1/85 text-foreground-600 shadow-sm transition hover:bg-content1 sm:right-5 sm:top-5",
+          "right-4 top-4 z-20 rounded-full border border-content1/70 bg-content1/85 text-foreground-600 shadow-sm transition hover:bg-content1",
       }}
     >
-      <DrawerContent className="h-full overflow-hidden bg-content1 shadow-2xl">
-        <DrawerHeader className="border-b border-divider bg-content1/85 px-4 py-5 backdrop-blur sm:px-6">
-          <div className="pr-12">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-emerald-500 text-white shadow-lg shadow-sky-500/20">
-                <Icon icon="mdi:shape-plus" className="h-5 w-5" />
+      <DrawerContent className="h-full bg-content1 shadow-2xl">
+        <DrawerHeader className="border-b border-divider bg-content1/85 px-5 py-5 backdrop-blur">
+          <div className="pr-10">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-500 text-white shadow-lg shadow-sky-500/20">
+                <Icon icon="mdi:calendar-check" className="h-5 w-5" />
               </div>
-              <div className="min-w-0">
-                <p className="mt-2 text-lg font-semibold text-foreground">
+              <div>
+                <p className="text-base font-semibold text-foreground">
                   Monthly Goals
                 </p>
                 <p className="text-sm text-foreground-500">
@@ -402,145 +110,115 @@ export const DayIconPickerDrawer = ({
           </div>
         </DrawerHeader>
 
-        <DrawerBody className="">
-          <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
-            <DrawerNotesCard
-              value={notes}
-              onSave={(nextNotes) => onNotesChange(rawDateKey, nextNotes)}
-              placeholder="Add notes, context, or specifics for this custom goal on this day..."
-            />
-
-            <Card
-              shadow="none"
-              className="border border-divider bg-content1/90"
+        <DrawerBody>
+          {periodicGoals.length === 0 ? (
+            <p className="py-10 text-center text-sm text-foreground-400">
+              No monthly goals configured.
+              <br />
+              Add them on the Goals page.
+            </p>
+          ) : (
+            <Accordion
+              selectionMode="multiple"
+              defaultExpandedKeys={grouped.map((_, i) => String(i))}
+              className="px-0"
+              itemClasses={{
+                base: "border-b border-divider last:border-b-0",
+                heading: "px-5 py-1",
+                title: "text-sm font-semibold text-foreground",
+                content: "px-4 pb-4 pt-0",
+                trigger: "py-4",
+              }}
             >
-              <CardBody className="grid gap-3 p-3 sm:grid-cols-2 sm:p-4">
-                {visibleOptions.map(({ goal, option }) => {
-                  const isSelected = option.key === pendingIconKey;
-                  const {
-                    completedCount,
-                    targetCount,
-                    completedFraction,
-                    plannedFraction,
-                  } = getMonthlyProgress(option.key, option.frequency);
-
-                  return (
-                    <button
-                      type="button"
-                      key={option.key}
-                      onClick={() => handleSelectIcon(option.key)}
-                      className={cn(
-                        "flex items-start gap-3 rounded-[22px] border p-4 text-left transition-all",
-                        isSelected
-                          ? "border-sky-300 bg-sky-50 shadow-sm"
-                          : "border-divider bg-content2/80 hover:border-sky-200 hover:bg-sky-50/50",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border",
-                          isSelected
-                            ? "border-sky-200 bg-sky-500 text-white"
-                            : "border-default-300 bg-content1 text-foreground-500",
+              {grouped.map((group, i) => {
+                const doneCount = group.goals.filter(
+                  (g) => logsByGoalDate[`${g.id}_${dateKey}`] === "complete",
+                ).length;
+                return (
+                  <AccordionItem
+                    key={String(i)}
+                    title={
+                      <div className="flex items-center gap-2">
+                        <Icon
+                          icon={group.icon || "mdi:star-outline"}
+                          className="h-4 w-4 text-foreground-500"
+                        />
+                        <span>{group.name}</span>
+                        {doneCount > 0 && (
+                          <span className="ml-auto rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-600">
+                            {doneCount}/{group.goals.length}
+                          </span>
                         )}
-                      >
-                        <Icon icon={option.icon} className="h-6 w-6" />
                       </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground">
-                          {goal.name}
-                        </p>
-                        <p className="text-sm text-foreground-500">
-                          {CUSTOM_DAY_ICON_FREQUENCY_LABELS[option.frequency]}
-                        </p>
-                        <div className="mt-3 space-y-1.5">
-                          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground-500">
-                            <span>Monthly progress</span>
-                            <span>
-                              {completedCount}/{targetCount}
-                            </span>
-                          </div>
-                          <div className="flex h-2 overflow-hidden rounded-full bg-slate-200/80">
+                    }
+                  >
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {group.goals.map((goal) => {
+                        const status = logsByGoalDate[`${goal.id}_${dateKey}`];
+                        const isDone = status === "complete";
+                        const isPlanned = status === "planned";
+                        return (
+                          <button
+                            type="button"
+                            key={goal.id}
+                            onClick={() => onToggleGoal(goal.id, dateKey)}
+                            className={cn(
+                              "flex items-center gap-3 rounded-2xl border p-3 text-left transition-all",
+                              isDone
+                                ? "border-emerald-400/40 bg-emerald-500/10"
+                                : isPlanned
+                                  ? "border-amber-400/40 bg-amber-500/10"
+                                  : "border-divider bg-content2/60 hover:border-default-300 hover:bg-content2",
+                            )}
+                          >
                             <div
                               className={cn(
-                                "h-full transition-[width]",
-                                isSelected ? "bg-sky-500" : "bg-slate-400",
+                                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all",
+                                isDone
+                                  ? "border-emerald-400/50 bg-emerald-500 text-white"
+                                  : isPlanned
+                                    ? "border-amber-400/50 bg-amber-500/20 text-amber-500"
+                                    : "border-default-300 bg-content1 text-foreground-500",
                               )}
-                              style={{ width: `${completedFraction * 100}%` }}
-                            />
+                            >
+                              <Icon
+                                icon={goal.iconKey || "mdi:star-outline"}
+                                className="h-5 w-5"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground">
+                                {goal.name}
+                              </p>
+                              <p className="text-xs capitalize text-foreground-400">
+                                {goal.period ?? "periodic"} goal
+                              </p>
+                            </div>
                             <div
-                              className="h-full transition-[width]"
-                              style={{
-                                width: `${plannedFraction * 100}%`,
-                                backgroundImage: `repeating-linear-gradient(45deg, ${
-                                  isSelected ? "#0ea5e9" : "#94a3b8"
-                                } 0px, ${
-                                  isSelected ? "#0ea5e9" : "#94a3b8"
-                                } 3px, transparent 3px, transparent 7px)`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </CardBody>
-            </Card>
-
-            {periodicGoalOptions.some(
-              ({ goal }) => goal.priority !== "high",
-            ) ? (
-              <div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowLowerPriorityGoals((previous) => !previous)
-                  }
-                  className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
-                >
-                  <Icon
-                    icon={
-                      showLowerPriorityGoals
-                        ? "fa7-solid:chevron-down"
-                        : "fa7-solid:chevron-right"
-                    }
-                    className="h-3 w-3"
-                  />
-                  {showLowerPriorityGoals
-                    ? "Hide lower priority goals"
-                    : "Show lower priority goals"}
-                </button>
-              </div>
-            ) : null}
-          </div>
+                              className={cn(
+                                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all",
+                                isDone
+                                  ? "border-emerald-500 bg-emerald-500 text-white"
+                                  : isPlanned
+                                    ? "border-amber-400 bg-amber-400/20 text-amber-500"
+                                    : "border-default-300 text-transparent",
+                              )}
+                            >
+                              <Icon
+                                icon={isPlanned ? "mdi:clock-outline" : "mdi:check"}
+                                className="h-3.5 w-3.5"
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          )}
         </DrawerBody>
-
-        <DrawerFooter className="flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Button
-            variant="flat"
-            onPress={handleClearIcon}
-            className="border border-divider bg-content1 text-foreground-600"
-          >
-            Clear icon
-          </Button>
-          <Button
-            variant="light"
-            onPress={handleClose}
-            className="text-foreground-500"
-          >
-            Close
-          </Button>
-          <Button
-            color="primary"
-            onPress={handlePrimaryAction}
-            isDisabled={!pendingIconKey}
-            className="bg-slate-950 text-white shadow-lg shadow-slate-950/10"
-          >
-            {primaryActionLabel}
-          </Button>
-        </DrawerFooter>
       </DrawerContent>
     </Drawer>
   );

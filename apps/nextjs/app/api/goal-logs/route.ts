@@ -27,7 +27,7 @@ const bodySchema = z.discriminatedUnion("type", [
     type: z.literal("setLog"),
     goalId: z.string().uuid(),
     dateKey: z.string().regex(DATE_KEY_REGEX),
-    status: z.enum(["complete", "incomplete"]).nullable(),
+    status: z.enum(["complete", "incomplete", "planned"]).nullable(),
   }),
   z.object({
     type: z.literal("setHidden"),
@@ -119,7 +119,7 @@ export async function GET(request: Request) {
               eq(goalLogs.userId, user.id),
               gte(goalLogs.date, startDateKey),
               lt(goalLogs.date, endDateKeyExclusive),
-              eq(goalLogs.status, "complete"),
+              or(eq(goalLogs.status, "complete"), eq(goalLogs.status, "planned")),
             ),
           ),
       ]);
@@ -132,21 +132,19 @@ export async function GET(request: Request) {
       return acc;
     }, {});
 
-    const categoriesWithGoals = cats
-      .map((cat) => ({
-        id: cat.id,
-        name: cat.name,
-        icon: cat.icon,
-        goals: (goalsByCategoryId[cat.id] ?? []).map((g) => ({
-          id: g.id,
-          name: g.name,
-          iconKey: g.iconKey,
-          categoryId: g.categoryId,
-          priority: g.priority as "high" | "medium" | "low",
-          hidden: g.hidden,
-        })),
-      }))
-      .filter((cat) => cat.goals.length > 0);
+    const categoriesWithGoals = cats.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      icon: cat.icon,
+      goals: (goalsByCategoryId[cat.id] ?? []).map((g) => ({
+        id: g.id,
+        name: g.name,
+        iconKey: g.iconKey,
+        categoryId: g.categoryId,
+        priority: g.priority as "high" | "medium" | "low",
+        hidden: g.hidden,
+      })),
+    }));
 
     const mapPeriodic = (g: (typeof periodicGoals)[number]) => ({
       id: g.id,
