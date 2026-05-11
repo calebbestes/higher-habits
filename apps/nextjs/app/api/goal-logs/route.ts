@@ -119,7 +119,10 @@ export async function GET(request: Request) {
               eq(goalLogs.userId, user.id),
               gte(goalLogs.date, startDateKey),
               lt(goalLogs.date, endDateKeyExclusive),
-              or(eq(goalLogs.status, "complete"), eq(goalLogs.status, "planned")),
+              or(
+                eq(goalLogs.status, "complete"),
+                eq(goalLogs.status, "planned"),
+              ),
             ),
           ),
       ]);

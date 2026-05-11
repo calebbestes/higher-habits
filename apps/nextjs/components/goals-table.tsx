@@ -238,6 +238,8 @@ function GoalFormModal({
   const [newCategoryIcon, setNewCategoryIcon] = useState("");
 
   useEffect(() => {
+    if (!isOpen) return;
+
     setForm(
       goal
         ? {
@@ -254,7 +256,7 @@ function GoalFormModal({
     setIsAddingCategory(false);
     setNewCategoryName("");
     setNewCategoryIcon("");
-  }, [goal]);
+  }, [isOpen, goal]);
 
   const handleCreateCategory = async () => {
     try {
@@ -493,7 +495,7 @@ function CategoryFormModal({
   const [icon, setIcon] = useState("");
 
   useEffect(() => {
-    if (!isOpen) {
+    if (isOpen) {
       setName("");
       setIcon("");
     }

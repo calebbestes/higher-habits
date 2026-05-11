@@ -19,6 +19,7 @@ import { authClient } from "@/lib/auth-client";
 const NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
   { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
+  { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
   { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
   { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
 ] as const;
