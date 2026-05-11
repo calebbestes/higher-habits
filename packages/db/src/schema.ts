@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -10,7 +11,6 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
 export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
@@ -159,6 +159,30 @@ export const contacts = pgTable(
   ],
 );
 
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    importance: text("importance").default("").notNull(),
+    dueDate: date("due_date", { mode: "string" }),
+    completedAt: date("completed_at", { mode: "string" }),
+    timeRequired: text("time_required").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("tasks_user_id_idx").on(table.userId),
+    index("tasks_due_date_idx").on(table.dueDate),
+    index("tasks_completed_at_idx").on(table.completedAt),
+    index("tasks_created_at_idx").on(table.createdAt),
+  ],
+);
+
 export const categories = pgTable(
   "categories",
   {
@@ -254,6 +278,8 @@ export type ContactStatus = typeof contactStatuses.$inferSelect;
 export type NewContactStatus = typeof contactStatuses.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
 export type GoalPriority = (typeof GOAL_PRIORITIES)[number];
 export type LogStatus = (typeof LOG_STATUSES)[number];

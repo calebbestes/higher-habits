@@ -3,8 +3,8 @@
 import { fetchCalendarBootstrap } from "@/lib/calendar-bootstrap-client";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
 import {
-  DEFAULT_CALENDAR_SETTINGS,
   type CalendarSettingsData,
+  DEFAULT_CALENDAR_SETTINGS,
   fetchCalendarSettings,
   saveCalendarSettings,
 } from "@/lib/calendar-settings-client";
@@ -44,6 +44,16 @@ import {
   persistSalesChecklist,
   persistWeightChecklist,
 } from "@/lib/habit-state-client";
+import {
+  type Task,
+  fetchTasks,
+  getTaskImportanceScore,
+  getTaskPriorityLevel,
+  getTaskUrgency,
+  getTaskUrgencyScore,
+  todayDateKey,
+  updateTask,
+} from "@/lib/tasks-client";
 import {
   Button,
   Card,
@@ -249,6 +259,54 @@ const isSameMonth = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
 const isToday = (date: Date) => isSameDay(date, new Date());
+
+const taskToInput = (task: Task) => ({
+  name: task.name,
+  importance: task.importance,
+  dueDate: task.dueDate,
+  completedAt: task.completedAt,
+  timeRequired: task.timeRequired,
+});
+
+const compareTasksByPriority = (a: Task, b: Task, today: string) => {
+  const priorityCompare =
+    getTaskPriorityLevel(b, today) - getTaskPriorityLevel(a, today);
+
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
+
+  const importanceCompare =
+    getTaskImportanceScore(b.importance) - getTaskImportanceScore(a.importance);
+
+  if (importanceCompare !== 0) {
+    return importanceCompare;
+  }
+
+  const urgencyCompare =
+    getTaskUrgencyScore(getTaskUrgency(b, today)) -
+    getTaskUrgencyScore(getTaskUrgency(a, today));
+
+  if (urgencyCompare !== 0) {
+    return urgencyCompare;
+  }
+
+  const aDueDate = a.dueDate ?? "9999-99-99";
+  const bDueDate = b.dueDate ?? "9999-99-99";
+  const dueDateCompare = aDueDate < bDueDate ? -1 : aDueDate > bDueDate ? 1 : 0;
+
+  if (dueDateCompare !== 0) {
+    return dueDateCompare;
+  }
+
+  const createdCompare = b.createdAt.localeCompare(a.createdAt);
+
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+
+  return a.name.localeCompare(b.name);
+};
 
 const withAlpha = (color: string, alphaHex: string) =>
   HEX_COLOR_REGEX.test(color) ? `${color}${alphaHex}` : color;
@@ -1266,7 +1324,10 @@ const MonthView = ({
                                 `${g.id}_${cellDateKey}`
                               ],
                           }))
-                          .filter((g) => g.status === "complete" || g.status === "planned");
+                          .filter(
+                            (g) =>
+                              g.status === "complete" || g.status === "planned",
+                          );
                         const ROW_STARTS = [
                           "row-start-1",
                           "row-start-2",
@@ -2238,18 +2299,59 @@ export const PortableCalendar = ({
   const [prevMonthGoalLogsByDate, setPrevMonthGoalLogsByDate] = useState<
     Record<string, "complete" | "planned">
   >(() => initialCalendarData?.prevGoalLogsByDate ?? {});
+  const [sidebarTasks, setSidebarTasks] = useState<Task[]>([]);
+  const [isLoadingSidebarTasks, setIsLoadingSidebarTasks] = useState(true);
+  const [updatingSidebarTaskIds, setUpdatingSidebarTaskIds] = useState<
+    Set<string>
+  >(new Set());
+  const taskCompletionDateKey = useMemo(() => todayDateKey(), []);
 
   const [calSettings, setCalSettings] = useState<CalendarSettingsData>(
     DEFAULT_CALENDAR_SETTINGS,
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [draftSettings, setDraftSettings] =
-    useState<CalendarSettingsData>(DEFAULT_CALENDAR_SETTINGS);
+  const [draftSettings, setDraftSettings] = useState<CalendarSettingsData>(
+    DEFAULT_CALENDAR_SETTINGS,
+  );
 
   useEffect(() => {
     fetchCalendarSettings()
       .then((s) => setCalSettings(s))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setIsLoadingSidebarTasks(true);
+
+    fetchTasks()
+      .then((tasks) => {
+        if (!cancelled) {
+          setSidebarTasks(tasks);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          addToast({
+            title: "Could not load tasks",
+            description:
+              error instanceof Error
+                ? error.message
+                : "We couldn't load your task list.",
+            color: "warning",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingSidebarTasks(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSaveSettings = async () => {
@@ -2411,6 +2513,66 @@ export const PortableCalendar = ({
         items.findIndex((candidate) => candidate.id === item.id) === index,
     );
   }, [goalLogsSnapshot.categories, goalLogsSnapshot.periodicGoals]);
+
+  const topSidebarTasks = useMemo(() => {
+    const topTasks = [...sidebarTasks]
+      .sort((a, b) => compareTasksByPriority(a, b, taskCompletionDateKey))
+      .slice(0, 5);
+
+    return topTasks.sort((a, b) => {
+      const aComplete = a.completedAt === taskCompletionDateKey ? 1 : 0;
+      const bComplete = b.completedAt === taskCompletionDateKey ? 1 : 0;
+
+      if (aComplete !== bComplete) {
+        return aComplete - bComplete;
+      }
+
+      return compareTasksByPriority(a, b, taskCompletionDateKey);
+    });
+  }, [sidebarTasks, taskCompletionDateKey]);
+
+  const handleCompleteSidebarTask = (task: Task) => {
+    if (task.completedAt === taskCompletionDateKey) {
+      return;
+    }
+
+    const previousTask = task;
+    const nextTask: Task = {
+      ...task,
+      completedAt: taskCompletionDateKey,
+    };
+
+    setSidebarTasks((previous) =>
+      previous.map((item) => (item.id === task.id ? nextTask : item)),
+    );
+    setUpdatingSidebarTaskIds((previous) => new Set(previous).add(task.id));
+
+    void updateTask(task.id, taskToInput(nextTask))
+      .then((savedTask) => {
+        setSidebarTasks((previous) =>
+          previous.map((item) => (item.id === savedTask.id ? savedTask : item)),
+        );
+      })
+      .catch((error) => {
+        setSidebarTasks((previous) =>
+          previous.map((item) =>
+            item.id === previousTask.id ? previousTask : item,
+          ),
+        );
+        addToast({
+          title: "Could not complete task",
+          description: error instanceof Error ? error.message : undefined,
+          color: "danger",
+        });
+      })
+      .finally(() => {
+        setUpdatingSidebarTaskIds((previous) => {
+          const next = new Set(previous);
+          next.delete(task.id);
+          return next;
+        });
+      });
+  };
 
   const handleDayViewToggleGoalLog = (goalId: string, dateKey: string) => {
     const key = `${goalId}_${dateKey}`;
@@ -2844,6 +3006,90 @@ export const PortableCalendar = ({
                         )}
                       </div>
                     )}
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="flex w-full items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                        Top Tasks
+                      </span>
+                      <span className="ml-auto rounded-full bg-default-100 px-2 py-0.5 text-[9px] font-semibold text-foreground-400">
+                        {topSidebarTasks.length}/5
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-1.5">
+                      {isLoadingSidebarTasks ? (
+                        <div className="flex items-center gap-2 rounded-xl border border-default-200/50 bg-content1/40 px-2.5 py-2 text-[11px] text-foreground-400">
+                          <Icon
+                            icon="mdi:loading"
+                            className="h-3.5 w-3.5 animate-spin"
+                          />
+                          Loading tasks
+                        </div>
+                      ) : topSidebarTasks.length > 0 ? (
+                        topSidebarTasks.map((task) => {
+                          const isComplete =
+                            task.completedAt === taskCompletionDateKey;
+                          const isUpdating = updatingSidebarTaskIds.has(
+                            task.id,
+                          );
+
+                          return (
+                            <button
+                              type="button"
+                              key={task.id}
+                              onClick={() => handleCompleteSidebarTask(task)}
+                              aria-label={`Complete ${task.name}`}
+                              className={cn(
+                                "group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
+                                isComplete
+                                  ? "border-default-200/40 bg-default-100/40 text-foreground-400"
+                                  : "border-default-200/60 bg-content1/50 hover:border-default-300 hover:bg-default-100/70",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                                  isComplete
+                                    ? "border-success-500/60 bg-success-500/15 text-success-600"
+                                    : "border-foreground-400/60 text-transparent group-hover:border-success-500/70",
+                                )}
+                              >
+                                <Icon
+                                  icon={
+                                    isUpdating ? "mdi:loading" : "mdi:check"
+                                  }
+                                  className={cn(
+                                    "h-3 w-3",
+                                    isUpdating &&
+                                      "animate-spin text-foreground-400",
+                                  )}
+                                />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span
+                                  className={cn(
+                                    "block truncate text-[11px] font-medium",
+                                    isComplete && "line-through",
+                                  )}
+                                >
+                                  {task.name}
+                                </span>
+                                {task.timeRequired && (
+                                  <span className="block truncate text-[9px] text-foreground-400">
+                                    {task.timeRequired}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-default-200/70 px-2.5 py-2 text-[11px] text-foreground-400">
+                          No active tasks yet.
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-3">

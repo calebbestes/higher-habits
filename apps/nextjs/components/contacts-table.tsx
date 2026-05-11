@@ -47,7 +47,7 @@ import {
 import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -370,9 +370,11 @@ function ContactFormModal({
 }) {
   const [form, setForm] = useState<ContactInput>(contact ?? EMPTY_FORM);
 
-  useMemo(() => {
-    setForm(contact ?? EMPTY_FORM);
-  }, [contact]);
+  useEffect(() => {
+    if (isOpen) {
+      setForm(contact ?? EMPTY_FORM);
+    }
+  }, [isOpen, contact]);
 
   const set = (field: keyof ContactInput) => (v: string) =>
     setForm((prev) => ({ ...prev, [field]: v }));
@@ -524,6 +526,12 @@ function AddCategoryModal({
   isSaving: boolean;
 }) {
   const [name, setName] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setName("");
+    }
+  }, [isOpen]);
 
   const handleClose = () => {
     setName("");

@@ -16,12 +16,41 @@ import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
-const NAV_ITEMS = [
-  { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
-  { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
-  { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
-  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
+const NAV_SECTIONS = [
+  {
+    key: "habits",
+    label: "My Habits",
+    icon: "fa7-solid:seedling",
+    items: [
+      { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
+      { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
+      { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
+      { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
+    ],
+  },
+  {
+    key: "tables",
+    label: "My Tables",
+    icon: "fa7-solid:table-list",
+    items: [
+      { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
+    ],
+  },
+  {
+    key: "friends",
+    label: "My Friends",
+    icon: "fa7-solid:user-group",
+    items: [],
+  },
 ] as const;
+
+type NavSectionKey = (typeof NAV_SECTIONS)[number]["key"];
+
+const DEFAULT_OPEN_SECTIONS: Record<NavSectionKey, boolean> = {
+  friends: true,
+  habits: true,
+  tables: true,
+};
 
 function isNavActive(href: string, pathname: string): boolean {
   if (href === "/calendar")
@@ -36,6 +65,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
+  const [openSections, setOpenSections] = useState(DEFAULT_OPEN_SECTIONS);
   const isAuthPage = pathname === "/login" || pathname === "/sign-up";
 
   useEffect(() => {
@@ -79,53 +109,104 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         {/* Sidebar.Header */}
         <div
           className={cn(
-            "flex h-14 shrink-0 items-center border-b border-divider",
-            isCollapsed ? "lg:justify-center lg:px-0" : "gap-3 px-4",
-            "px-4",
+            "flex h-24 shrink-0 items-center justify-center border-b border-divider px-4",
+            isCollapsed ? "lg:justify-center lg:px-0" : "px-4",
           )}
         >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-            <Icon icon="mdi:dumbbell" className="h-4 w-4" />
-          </div>
-          <span
+          <img
+            src={isDark ? "/abi_logo_dark.png" : "/abi_logo.png"}
+            alt="ABI"
             className={cn(
-              "truncate text-sm font-semibold",
-              isCollapsed && "lg:hidden",
+              "h-auto w-full object-contain",
+              isCollapsed ? "max-w-10" : "max-w-36",
             )}
-          >
-            Higher Habits
-          </span>
+          />
         </div>
 
         {/* Sidebar.Content */}
         <nav className="flex-1 overflow-y-auto py-3">
-          <ul className="space-y-0.5 px-2">
-            {NAV_ITEMS.map((item) => {
-              const isCurrent = isNavActive(item.href, pathname);
+          <div className="space-y-2 px-2">
+            {NAV_SECTIONS.map((section) => {
+              const isOpen = openSections[section.key];
+
               return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => setIsMobileOpen(false)}
-                    title={isCollapsed ? item.label : undefined}
-                    aria-current={isCurrent ? "page" : undefined}
+                <section key={section.key} className="space-y-1">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    title={isCollapsed ? section.label : undefined}
+                    onClick={() =>
+                      setOpenSections((current) => ({
+                        ...current,
+                        [section.key]: !current[section.key],
+                      }))
+                    }
                     className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-foreground-700 transition-colors hover:bg-default-100 hover:text-foreground",
                       isCollapsed && "lg:justify-center lg:px-0",
-                      isCurrent
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
                     )}
                   >
-                    <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
-                    <span className={cn(isCollapsed && "lg:hidden")}>
-                      {item.label}
+                    <Icon icon={section.icon} className="h-4 w-4 shrink-0" />
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-left",
+                        isCollapsed && "lg:hidden",
+                      )}
+                    >
+                      {section.label}
                     </span>
-                  </Link>
-                </li>
+                    <Icon
+                      icon="fa7-solid:chevron-down"
+                      className={cn(
+                        "h-3 w-3 shrink-0 text-foreground-400 transition-transform",
+                        !isOpen && "-rotate-90",
+                        isCollapsed && "lg:hidden",
+                      )}
+                    />
+                  </button>
+
+                  {isOpen && section.items.length > 0 && (
+                    <ul
+                      className={cn(
+                        "ml-8 space-y-1 border-l border-divider pl-3",
+                        isCollapsed && "lg:ml-0 lg:border-l-0 lg:pl-0",
+                      )}
+                    >
+                      {section.items.map((item) => {
+                        const isCurrent = isNavActive(item.href, pathname);
+
+                        return (
+                          <li key={item.href}>
+                            <Link
+                              href={item.href}
+                              onClick={() => setIsMobileOpen(false)}
+                              title={isCollapsed ? item.label : undefined}
+                              aria-current={isCurrent ? "page" : undefined}
+                              className={cn(
+                                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                                isCollapsed && "lg:justify-center lg:px-0",
+                                isCurrent
+                                  ? "bg-primary text-primary-foreground shadow-sm"
+                                  : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
+                              )}
+                            >
+                              <Icon
+                                icon={item.icon}
+                                className="h-4 w-4 shrink-0"
+                              />
+                              <span className={cn(isCollapsed && "lg:hidden")}>
+                                {item.label}
+                              </span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
               );
             })}
-          </ul>
+          </div>
         </nav>
 
         {/* Sidebar.Footer */}
