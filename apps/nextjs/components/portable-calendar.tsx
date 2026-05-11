@@ -217,22 +217,6 @@ const ROW_START = ["row-start-1", "row-start-2", "row-start-3"] as const;
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
 
-function formatTaskPriorityLevel(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function taskPriorityLevelStyle(value: number): string {
-  if (value >= 2.5) {
-    return "bg-rose-500/15 text-rose-500";
-  }
-
-  if (value >= 1.5) {
-    return "bg-amber-500/15 text-amber-500";
-  }
-
-  return "bg-default-200 text-foreground-500";
-}
-
 const toDate = (value?: Date | string | number) => {
   if (!value) return new Date();
   if (value instanceof Date) return new Date(value);
@@ -3097,33 +3081,6 @@ export const PortableCalendar = ({
                                   </span>
                                 )}
                               </span>
-                              <span
-                                className={cn(
-                                  "shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide",
-                                  taskPriorityLevelStyle(
-                                    getTaskPriorityLevel(
-                                      task,
-                                      taskCompletionDateKey,
-                                    ),
-                                  ),
-                                )}
-                              >
-                                P
-                                {formatTaskPriorityLevel(
-                                  getTaskPriorityLevel(
-                                    task,
-                                    taskCompletionDateKey,
-                                  ),
-                                )}
-                              </span>
-                              {task.importance && (
-                                <span
-                                  className="shrink-0 text-[8px] font-bold uppercase tracking-wide text-foreground-400"
-                                  title={`${task.importance} importance`}
-                                >
-                                  {task.importance.slice(0, 1)}
-                                </span>
-                              )}
                             </button>
                           );
                         })
