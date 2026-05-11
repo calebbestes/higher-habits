@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
+const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 const contactFields = {
   name: z.string().min(1),
   organization: z.string().default(""),
@@ -13,8 +15,9 @@ const contactFields = {
   contactCategoryId: z.string().uuid().nullable().default(null),
   contactStatusId: z.string().uuid().nullable().default(null),
   priority: z.string().default(""),
-  nextContactDate: z.string().nullable().default(null),
-  lastContacted: z.string().nullable().default(null),
+  nextContactDate: dateKeySchema.nullable().default(null),
+  lastContactAttempt: dateKeySchema.nullable().default(null),
+  lastContacted: dateKeySchema.nullable().default(null),
   notes: z.string().default(""),
 };
 
@@ -45,6 +48,33 @@ const getDatabase = () => {
   if (!db) return null;
   return db;
 };
+
+function mountainTodayDateKey(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Denver",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function resolveLastContactAttempt(
+  lastContactAttempt: string | null,
+  lastContacted: string | null,
+  fallback: string,
+) {
+  const attempt = lastContactAttempt ?? fallback;
+
+  if (lastContacted && lastContacted > attempt) {
+    return lastContacted;
+  }
+
+  return attempt;
+}
 
 export async function GET(request: Request) {
   try {
@@ -93,6 +123,7 @@ export async function POST(request: Request) {
 
     const contactValues = (
       d: typeof createSchema._type | typeof updateSchema._type,
+      lastContactAttempt: string,
     ) => ({
       userId: user.id,
       name: d.name,
@@ -103,22 +134,44 @@ export async function POST(request: Request) {
       contactStatusId: d.contactStatusId ?? null,
       priority: d.priority,
       nextContactDate: d.nextContactDate ?? null,
+      lastContactAttempt,
       lastContacted: d.lastContacted ?? null,
       notes: d.notes,
     });
 
     if (data.type === "create") {
+      const lastContactAttempt = resolveLastContactAttempt(
+        data.lastContactAttempt,
+        data.lastContacted,
+        mountainTodayDateKey(),
+      );
       const [row] = await db
         .insert(contacts)
-        .values(contactValues(data))
+        .values(contactValues(data, lastContactAttempt))
         .returning();
       return NextResponse.json(row);
     }
 
     if (data.type === "update") {
+      const [existing] = await db
+        .select({ lastContactAttempt: contacts.lastContactAttempt })
+        .from(contacts)
+        .where(and(eq(contacts.id, data.id), eq(contacts.userId, user.id)));
+
+      if (!existing)
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+      const lastContactAttempt = resolveLastContactAttempt(
+        data.lastContactAttempt,
+        data.lastContacted,
+        existing.lastContactAttempt,
+      );
       const [row] = await db
         .update(contacts)
-        .set({ ...contactValues(data), updatedAt: new Date() })
+        .set({
+          ...contactValues(data, lastContactAttempt),
+          updatedAt: new Date(),
+        })
         .where(and(eq(contacts.id, data.id), eq(contacts.userId, user.id)))
         .returning();
       if (!row)

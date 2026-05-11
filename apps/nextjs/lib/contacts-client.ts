@@ -24,6 +24,7 @@ export type Contact = {
   contactStatusId: string | null;
   priority: string;
   nextContactDate: string | null;
+  lastContactAttempt: string;
   lastContacted: string | null;
   notes: string;
   createdAt: string;
@@ -39,6 +40,7 @@ export type ContactInput = {
   contactStatusId: string | null;
   priority: string;
   nextContactDate: string | null;
+  lastContactAttempt: string | null;
   lastContacted: string | null;
   notes: string;
 };
@@ -50,6 +52,16 @@ async function parseResponse<T>(res: Response): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+export const todayDateKey = localDateKey;
 
 export const fetchContactCategories = (): Promise<ContactCategory[]> =>
   fetch(CATEGORIES_ENDPOINT, { cache: "no-store" }).then((r) =>

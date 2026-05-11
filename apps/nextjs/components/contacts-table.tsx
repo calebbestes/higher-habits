@@ -11,6 +11,7 @@ import {
   fetchContactCategories,
   fetchContactStatuses,
   fetchContacts,
+  todayDateKey,
   updateContact,
 } from "@/lib/contacts-client";
 import {
@@ -51,7 +52,7 @@ import { useEffect, useMemo, useState } from "react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type ViewMode = "table" | "category";
+type ViewMode = "table" | "category" | "lastAttempt";
 
 type SortDescriptor = {
   column: string;
@@ -60,7 +61,7 @@ type SortDescriptor = {
 
 type GroupRow = {
   id: string;
-  kind: "category-group";
+  kind: "category-group" | "last-attempt-group";
   groupName: string;
   itemCount: number;
   children: Contact[];
@@ -77,6 +78,7 @@ const COLUMNS = [
   { name: "Status", uid: "status", sortable: true },
   { name: "Priority", uid: "priority", sortable: true },
   { name: "Next Contact Date", uid: "nextContactDate", sortable: true },
+  { name: "Last Contact Attempt", uid: "lastContactAttempt", sortable: true },
   { name: "Last Successful Contact", uid: "lastContacted", sortable: true },
   { name: "Notes", uid: "notes", sortable: false },
   { name: "", uid: "actions", sortable: false },
@@ -88,6 +90,7 @@ const INITIAL_VISIBLE_COLUMNS: Set<ColumnUid> = new Set([
   "name",
   "priority",
   "nextContactDate",
+  "lastContactAttempt",
   "lastContacted",
   "notes",
   "actions",
@@ -147,18 +150,49 @@ const PRIORITY_COLORS: Record<string, string> = {
   Low: "bg-default-200 text-foreground-500",
 };
 
-const EMPTY_FORM: ContactInput = {
-  name: "",
-  organization: "",
-  phone: "",
-  email: "",
-  contactCategoryId: null,
-  contactStatusId: null,
-  priority: "",
-  nextContactDate: null,
-  lastContacted: null,
-  notes: "",
-};
+function emptyContactForm(): ContactInput {
+  return {
+    name: "",
+    organization: "",
+    phone: "",
+    email: "",
+    contactCategoryId: null,
+    contactStatusId: null,
+    priority: "",
+    nextContactDate: null,
+    lastContactAttempt: todayDateKey(),
+    lastContacted: null,
+    notes: "",
+  };
+}
+
+function resolveLastContactAttempt(
+  lastContactAttempt: string | null,
+  lastContacted: string | null,
+) {
+  if (
+    lastContacted &&
+    (!lastContactAttempt || lastContacted > lastContactAttempt)
+  ) {
+    return lastContacted;
+  }
+
+  return lastContactAttempt;
+}
+
+function formatDateKeyLabel(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -368,11 +402,13 @@ function ContactFormModal({
   onSave: (input: ContactInput) => void;
   isSaving: boolean;
 }) {
-  const [form, setForm] = useState<ContactInput>(contact ?? EMPTY_FORM);
+  const [form, setForm] = useState<ContactInput>(
+    () => contact ?? emptyContactForm(),
+  );
 
   useEffect(() => {
     if (isOpen) {
-      setForm(contact ?? EMPTY_FORM);
+      setForm(contact ?? emptyContactForm());
     }
   }, [isOpen, contact]);
 
@@ -470,11 +506,38 @@ function ContactFormModal({
               ))}
             </Select>
             <Input
+              label="Last Contact Attempt"
+              type="date"
+              value={form.lastContactAttempt ?? ""}
+              min={form.lastContacted ?? undefined}
+              onValueChange={(v) =>
+                setForm((prev) => ({
+                  ...prev,
+                  lastContactAttempt: resolveLastContactAttempt(
+                    v || null,
+                    prev.lastContacted,
+                  ),
+                }))
+              }
+              isRequired
+            />
+            <Input
               label="Last Successful Contact"
               type="date"
               value={form.lastContacted ?? ""}
               onValueChange={(v) =>
-                setForm((prev) => ({ ...prev, lastContacted: v || null }))
+                setForm((prev) => {
+                  const lastContacted = v || null;
+
+                  return {
+                    ...prev,
+                    lastContacted,
+                    lastContactAttempt: resolveLastContactAttempt(
+                      prev.lastContactAttempt,
+                      lastContacted,
+                    ),
+                  };
+                })
               }
             />
             <Input
@@ -500,7 +563,7 @@ function ContactFormModal({
           </Button>
           <Button
             color="primary"
-            isDisabled={!form.name.trim()}
+            isDisabled={!form.name.trim() || !form.lastContactAttempt}
             isLoading={isSaving}
             onPress={() => onSave(form)}
           >
@@ -721,6 +784,14 @@ export function ContactsTable() {
   ) => {
     const contact = data.find((c) => c.id === id);
     if (!contact) return;
+
+    const lastContacted =
+      field === "lastContacted" ? value : contact.lastContacted;
+    const lastContactAttempt = resolveLastContactAttempt(
+      field === "lastContactAttempt" ? value : contact.lastContactAttempt,
+      lastContacted,
+    );
+
     inlineUpdateMutation.mutate({
       id,
       input: {
@@ -735,6 +806,7 @@ export function ContactsTable() {
         lastContacted: contact.lastContacted,
         notes: contact.notes,
         [field]: value,
+        lastContactAttempt,
       },
     });
   };
@@ -743,6 +815,9 @@ export function ContactsTable() {
   const [filterValue, setFilterValue] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    new Set(),
+  );
+  const [expandedAttemptDates, setExpandedAttemptDates] = useState<Set<string>>(
     new Set(),
   );
   const [expandedCompanyKeys, setExpandedCompanyKeys] = useState<Set<string>>(
@@ -909,6 +984,29 @@ export function ContactsTable() {
         }),
       );
   }, [sortedItems, categories]);
+
+  const lastAttemptGroups = useMemo(() => {
+    const grouped = new Map<string, Contact[]>();
+
+    for (const c of sortedItems) {
+      const key = c.lastContactAttempt;
+      if (!grouped.has(key)) grouped.set(key, []);
+      const bucket = grouped.get(key);
+      if (bucket) bucket.push(c);
+    }
+
+    return [...grouped.entries()]
+      .sort(([a], [b]) => (a === b ? 0 : a > b ? -1 : 1))
+      .map(
+        ([groupName, children]): GroupRow => ({
+          id: `last-attempt-${groupName}`,
+          kind: "last-attempt-group",
+          groupName,
+          itemCount: children.length,
+          children,
+        }),
+      );
+  }, [sortedItems]);
 
   // Header columns
   const headerColumns = useMemo(
@@ -1147,6 +1245,23 @@ export function ContactsTable() {
             className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
           />
         );
+      case "lastContactAttempt":
+        return (
+          <input
+            type="date"
+            value={row.lastContactAttempt}
+            min={row.lastContacted ?? undefined}
+            onChange={(e) =>
+              handleInlineUpdate(
+                row.id,
+                "lastContactAttempt",
+                e.target.value || null,
+              )
+            }
+            onClick={(e) => e.stopPropagation()}
+            className="cursor-pointer bg-transparent text-sm text-foreground-600 outline-none [color-scheme:inherit] hover:text-foreground"
+          />
+        );
       case "lastContacted":
         return (
           <input
@@ -1252,6 +1367,65 @@ export function ContactsTable() {
     }
   };
 
+  const renderFolderContactRow = (contact: Contact, indent: string) => (
+    <div
+      key={contact.id}
+      className={cn(
+        "flex items-center gap-2 border-t border-divider py-3 pr-4 hover:bg-default-50",
+        indent,
+      )}
+    >
+      {categoryDataCols.map((col) => (
+        <div
+          key={col.uid}
+          className={cn("min-w-0", col.uid === "name" ? "flex-2" : "flex-1")}
+        >
+          {renderCell(contact, col.uid)}
+        </div>
+      ))}
+      <div className="w-10 shrink-0">
+        <Dropdown>
+          <DropdownTrigger>
+            <Button isIconOnly size="sm" variant="light">
+              <Icon
+                icon="fa7-solid:ellipsis-vertical"
+                className="h-3.5 w-3.5"
+              />
+            </Button>
+          </DropdownTrigger>
+          <DropdownMenu aria-label="Actions">
+            <DropdownItem
+              key="edit"
+              startContent={
+                <Icon icon="fa7-solid:pen" className="h-3.5 w-3.5" />
+              }
+              onPress={() => {
+                setEditingContact(contact);
+                setFormOpen(true);
+              }}
+            >
+              Edit
+            </DropdownItem>
+            <DropdownItem
+              key="delete"
+              className="text-danger"
+              color="danger"
+              startContent={
+                <Icon icon="fa7-solid:trash-can" className="h-3.5 w-3.5" />
+              }
+              onPress={() => {
+                setPendingDeleteContact(contact);
+                setDeleteOpen(true);
+              }}
+            >
+              Delete
+            </DropdownItem>
+          </DropdownMenu>
+        </Dropdown>
+      </div>
+    </div>
+  );
+
   // All company keys that exist across all groups
   const allCompanyKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -1271,6 +1445,12 @@ export function ContactsTable() {
   const allExpanded =
     expandedCategories.size >= groupedItems.length &&
     expandedCompanyKeys.size >= allCompanyKeys.size;
+
+  const allAttemptDatesExpanded =
+    lastAttemptGroups.length > 0 &&
+    lastAttemptGroups.every((group) =>
+      expandedAttemptDates.has(group.groupName),
+    );
 
   const viewTabs = (
     <Tabs
@@ -1297,10 +1477,19 @@ export function ContactsTable() {
           </span>
         }
       />
+      <Tab
+        key="lastAttempt"
+        title={
+          <span className="flex items-center gap-2">
+            <Icon icon="fa7-solid:calendar-day" className="h-3.5 w-3.5" />
+            Last Attempt
+          </span>
+        }
+      />
     </Tabs>
   );
 
-  const categoryActionSlot =
+  const folderActionSlot =
     viewMode === "category" ? (
       <Button
         variant="flat"
@@ -1325,6 +1514,32 @@ export function ContactsTable() {
       >
         {allExpanded ? "Collapse all" : "Expand all"}
       </Button>
+    ) : viewMode === "lastAttempt" ? (
+      <Button
+        variant="flat"
+        size="sm"
+        startContent={
+          <Icon
+            icon={
+              allAttemptDatesExpanded
+                ? "fa7-solid:angles-up"
+                : "fa7-solid:angles-down"
+            }
+            className="h-3.5 w-3.5"
+          />
+        }
+        onPress={() => {
+          if (allAttemptDatesExpanded) {
+            setExpandedAttemptDates(new Set());
+          } else {
+            setExpandedAttemptDates(
+              new Set(lastAttemptGroups.map((g) => g.groupName)),
+            );
+          }
+        }}
+      >
+        {allAttemptDatesExpanded ? "Collapse all" : "Expand all"}
+      </Button>
     ) : undefined;
 
   return (
@@ -1345,7 +1560,7 @@ export function ContactsTable() {
       {/* Tabs row */}
       <div className="flex items-center justify-between">
         {viewTabs}
-        {categoryActionSlot}
+        {folderActionSlot}
       </div>
 
       <TopContent
@@ -1583,91 +1798,96 @@ export function ContactsTable() {
 
                         {/* Contact rows */}
                         {isCoExpanded &&
-                          (() => {
-                            const contactRow = (
-                              contact: Contact,
-                              indent: string,
-                            ) => (
-                              <div
-                                key={contact.id}
-                                className={cn(
-                                  "flex items-center gap-2 border-t border-divider py-3 pr-4 hover:bg-default-50",
-                                  indent,
-                                )}
-                              >
-                                {categoryDataCols.map((col) => (
-                                  <div
-                                    key={col.uid}
-                                    className={cn(
-                                      "min-w-0",
-                                      col.uid === "name" ? "flex-2" : "flex-1",
-                                    )}
-                                  >
-                                    {renderCell(contact, col.uid)}
-                                  </div>
-                                ))}
-                                <div className="w-10 shrink-0">
-                                  <Dropdown>
-                                    <DropdownTrigger>
-                                      <Button
-                                        isIconOnly
-                                        size="sm"
-                                        variant="light"
-                                      >
-                                        <Icon
-                                          icon="fa7-solid:ellipsis-vertical"
-                                          className="h-3.5 w-3.5"
-                                        />
-                                      </Button>
-                                    </DropdownTrigger>
-                                    <DropdownMenu aria-label="Actions">
-                                      <DropdownItem
-                                        key="edit"
-                                        startContent={
-                                          <Icon
-                                            icon="fa7-solid:pen"
-                                            className="h-3.5 w-3.5"
-                                          />
-                                        }
-                                        onPress={() => {
-                                          setEditingContact(contact);
-                                          setFormOpen(true);
-                                        }}
-                                      >
-                                        Edit
-                                      </DropdownItem>
-                                      <DropdownItem
-                                        key="delete"
-                                        className="text-danger"
-                                        color="danger"
-                                        startContent={
-                                          <Icon
-                                            icon="fa7-solid:trash-can"
-                                            className="h-3.5 w-3.5"
-                                          />
-                                        }
-                                        onPress={() => {
-                                          setPendingDeleteContact(contact);
-                                          setDeleteOpen(true);
-                                        }}
-                                      >
-                                        Delete
-                                      </DropdownItem>
-                                    </DropdownMenu>
-                                  </Dropdown>
-                                </div>
-                              </div>
-                            );
-
-                            return (
-                              <div className="border-t border-divider">
-                                {contacts.map((c) => contactRow(c, "pl-10"))}
-                              </div>
-                            );
-                          })()}
+                          contacts.map((c) =>
+                            renderFolderContactRow(c, "pl-10"),
+                          )}
                       </div>
                     );
                   })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Last attempt date view */}
+      {viewMode === "lastAttempt" && (
+        <div className="flex flex-col gap-3">
+          {isLoading && (
+            <div className="flex justify-center py-12">
+              <Spinner />
+            </div>
+          )}
+          {!isLoading && lastAttemptGroups.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-default-200 py-12 text-center text-sm text-foreground-400">
+              No contacts yet.
+            </div>
+          )}
+          {!isLoading && lastAttemptGroups.length > 0 && (
+            <div className="flex items-center gap-2 rounded-xl bg-default-100 px-4 py-2">
+              {categoryDataCols.map((col) => (
+                <div
+                  key={col.uid}
+                  className={cn(
+                    "text-xs font-semibold uppercase tracking-wider text-foreground-500",
+                    col.uid === "name" ? "flex-2" : "flex-1",
+                  )}
+                >
+                  {col.name}
+                </div>
+              ))}
+              <div className="w-10 shrink-0" />
+            </div>
+          )}
+          {lastAttemptGroups.map((group) => {
+            const isDateExpanded = expandedAttemptDates.has(group.groupName);
+
+            return (
+              <div
+                key={group.id}
+                className="overflow-hidden rounded-2xl border border-divider bg-content1"
+              >
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-3 transition-colors hover:bg-default-50"
+                  onClick={() =>
+                    setExpandedAttemptDates((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.groupName))
+                        next.delete(group.groupName);
+                      else next.add(group.groupName);
+                      return next;
+                    })
+                  }
+                >
+                  <Icon
+                    icon={
+                      isDateExpanded
+                        ? "fa7-solid:folder-open"
+                        : "fa7-solid:folder"
+                    }
+                    className="h-4 w-4 text-foreground-400"
+                  />
+                  <span className="font-semibold">
+                    {formatDateKeyLabel(group.groupName)}
+                  </span>
+                  <Chip size="sm" variant="flat" className="ml-1">
+                    {group.itemCount}
+                  </Chip>
+                  <Icon
+                    icon={
+                      isDateExpanded
+                        ? "fa7-solid:chevron-up"
+                        : "fa7-solid:chevron-down"
+                    }
+                    className="ml-auto h-3 w-3 text-foreground-400"
+                  />
+                </button>
+
+                {isDateExpanded &&
+                  group.children.map((contact) =>
+                    renderFolderContactRow(contact, "pl-10"),
+                  )}
               </div>
             );
           })}

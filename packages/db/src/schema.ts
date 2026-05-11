@@ -142,6 +142,9 @@ export const contacts = pgTable(
     ),
     priority: text("priority").default("").notNull(),
     nextContactDate: date("next_contact_date", { mode: "string" }),
+    lastContactAttempt: date("last_contact_attempt", { mode: "string" })
+      .default(sql`CURRENT_DATE`)
+      .notNull(),
     lastContacted: date("last_contacted", { mode: "string" }),
     notes: text("notes").default("").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
