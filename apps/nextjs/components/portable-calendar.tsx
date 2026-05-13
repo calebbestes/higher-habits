@@ -1234,144 +1234,141 @@ const MonthView = ({
                       </span>
                     </div>
 
-                    <div
-                      className="mb-1 grid grid-cols-2 gap-1"
-                      style={{
-                        gridTemplateRows: `repeat(${Math.max(
-                          goalLogsSnapshot.categories.filter(
-                            (c) =>
-                              c.goals.length > 0 &&
-                              (visibleCategoryIds.length === 0 ||
-                                visibleCategoryIds.includes(c.id)),
-                          ).length,
-                          monthlyGoalSlots,
-                        )}, 2.75rem)`,
-                      }}
-                    >
-                      {goalLogsSnapshot.categories
+                    {(() => {
+                      const cellDateKey = toDateKey(date);
+                      const categories = goalLogsSnapshot.categories.filter(
+                        (c) =>
+                          c.goals.length > 0 &&
+                          (visibleCategoryIds.length === 0 ||
+                            visibleCategoryIds.includes(c.id)),
+                      );
+                      if (categories.length === 0) return null;
+                      const anyProgress = categories.some((c) =>
+                        c.goals.some(
+                          (g) =>
+                            goalLogsSnapshot.logsByGoalDate[
+                              `${g.id}_${cellDateKey}`
+                            ] === "complete",
+                        ),
+                      );
+                      const svgSize = 52;
+                      const center = svgSize / 2;
+                      const strokeWidth = 3.5;
+                      const gap = 2.5;
+                      const step = strokeWidth + gap;
+                      const outerR = center - 2 - strokeWidth / 2;
+                      const loggedForDay = goalLogsSnapshot.periodicGoals
+                        .map((g) => ({
+                          ...g,
+                          status:
+                            goalLogsSnapshot.logsByGoalDate[
+                              `${g.id}_${cellDateKey}`
+                            ],
+                        }))
                         .filter(
-                          (c) =>
-                            c.goals.length > 0 &&
-                            (visibleCategoryIds.length === 0 ||
-                              visibleCategoryIds.includes(c.id)),
-                        )
-                        .map((cat, catIdx) => {
-                          const cellDateKey = toDateKey(date);
-                          const completedCount = cat.goals.filter(
-                            (g) =>
-                              goalLogsSnapshot.logsByGoalDate[
-                                `${g.id}_${cellDateKey}`
-                              ] === "complete",
-                          ).length;
-                          const progress =
-                            cat.goals.length > 0
-                              ? completedCount / cat.goals.length
-                              : 0;
-                          const drawerOpen =
-                            activeDrawerCategoryId === cat.id &&
-                            activeDrawerDate != null &&
-                            isSameDay(activeDrawerDate, date);
-                          const isActive = progress > 0 || drawerOpen;
-                          const cfg =
-                            CATEGORY_FILL_CONFIG[cat.name] ??
-                            DEFAULT_CATEGORY_FILL;
-
-                          return (
-                            <button
-                              type="button"
-                              key={cat.id}
-                              title={cat.name}
-                              aria-label={cat.name}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                if (drawerOpen) {
-                                  setActiveDrawerCategoryId(null);
-                                  setActiveDrawerDate(null);
-                                } else {
-                                  setActiveDrawerCategoryId(cat.id);
-                                  setActiveDrawerDate(startOfDay(date));
-                                  setPrayerDrawerDate(null);
-                                  setWeightDrawerDate(null);
-                                  setSalesDrawerDate(null);
-                                  setIconPickerDate(null);
-                                }
-                              }}
-                              className={cn(
-                                "col-start-1 inline-flex h-10 w-10 items-center justify-center rounded-xl border text-[9px] transition-all",
-                                ROW_START[catIdx],
-                                isActive
-                                  ? "border-default-300 bg-content1 text-foreground-700 opacity-100"
-                                  : "border-default-200/40 bg-content1/40 text-foreground-300 opacity-30",
-                              )}
+                          (g) =>
+                            g.status === "complete" || g.status === "planned",
+                        );
+                      return (
+                        <div className="mb-1 flex flex-col gap-2">
+                          {anyProgress && <div className="flex justify-center">
+                            <svg
+                              width={svgSize}
+                              height={svgSize}
+                              viewBox={`0 0 ${svgSize} ${svgSize}`}
+                              role="img"
                             >
-                              <ProgressFillIcon
-                                icon={cat.icon || "mdi:circle"}
-                                progress={progress}
-                                className="h-6 w-6"
-                                fillClassName={cfg.fill}
-                              />
-                            </button>
-                          );
-                        })}
-
-                      {(() => {
-                        const cellDateKey = toDateKey(date);
-                        const loggedForDay = goalLogsSnapshot.periodicGoals
-                          .map((g) => ({
-                            ...g,
-                            status:
-                              goalLogsSnapshot.logsByGoalDate[
-                                `${g.id}_${cellDateKey}`
-                              ],
-                          }))
-                          .filter(
-                            (g) =>
-                              g.status === "complete" || g.status === "planned",
-                          );
-                        const ROW_STARTS = [
-                          "row-start-1",
-                          "row-start-2",
-                          "row-start-3",
-                          "row-start-4",
-                          "row-start-5",
-                        ];
-                        return Array.from(
-                          { length: monthlyGoalSlots },
-                          (_, i) => i,
-                        ).map((slotIdx) => {
-                          const goalForSlot = loggedForDay[slotIdx];
-                          const isComplete = goalForSlot?.status === "complete";
-                          const isPlanned = goalForSlot?.status === "planned";
-                          const gridClass = `col-start-2 ${ROW_STARTS[slotIdx]}`;
-                          return (
-                            <button
-                              type="button"
-                              key={`periodic-${slotIdx}-${cellDateKey}`}
-                              title={goalForSlot?.name ?? "Monthly goal"}
-                              aria-label={goalForSlot?.name ?? "Monthly goal"}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleOpenMonthlyGoalPicker(date);
-                              }}
-                              className={cn(
-                                "inline-flex h-10 w-10 items-center justify-center rounded-xl border transition-all",
-                                gridClass,
-                                isComplete
-                                  ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
-                                  : isPlanned
-                                    ? "border-default-300 bg-content2 text-foreground-400"
-                                    : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
-                              )}
-                            >
-                              <Icon
-                                icon={goalForSlot?.iconKey ?? "mdi:plus"}
-                                className="h-6 w-6"
-                              />
-                            </button>
-                          );
-                        });
-                      })()}
-                    </div>
+                              <title>Day progress</title>
+                              {categories.map((cat, i) => {
+                                const completedCount = cat.goals.filter(
+                                  (g) =>
+                                    goalLogsSnapshot.logsByGoalDate[
+                                      `${g.id}_${cellDateKey}`
+                                    ] === "complete",
+                                ).length;
+                                const progress =
+                                  cat.goals.length > 0
+                                    ? completedCount / cat.goals.length
+                                    : 0;
+                                const cfg =
+                                  DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
+                                  DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+                                const r = outerR - i * step;
+                                const circ = 2 * Math.PI * r;
+                                const offset = circ * (1 - progress);
+                                return (
+                                  <g key={cat.id}>
+                                    <circle
+                                      cx={center}
+                                      cy={center}
+                                      r={r}
+                                      fill="none"
+                                      stroke={cfg.color}
+                                      strokeOpacity={0.15}
+                                      strokeWidth={strokeWidth}
+                                    />
+                                    <circle
+                                      cx={center}
+                                      cy={center}
+                                      r={r}
+                                      fill="none"
+                                      stroke={cfg.color}
+                                      strokeWidth={strokeWidth}
+                                      strokeLinecap="round"
+                                      strokeDasharray={circ}
+                                      strokeDashoffset={offset}
+                                      style={{
+                                        transform: "rotate(-90deg)",
+                                        transformOrigin: `${center}px ${center}px`,
+                                      }}
+                                    />
+                                  </g>
+                                );
+                              })}
+                            </svg>
+                          </div>}
+                          <div className="flex justify-center gap-1">
+                            {Array.from(
+                              { length: Math.min(loggedForDay.length + 1, monthlyGoalSlots) },
+                              (_, i) => i,
+                            ).map((slotIdx) => {
+                              const goalForSlot = loggedForDay[slotIdx];
+                              const isComplete =
+                                goalForSlot?.status === "complete";
+                              const isPlanned =
+                                goalForSlot?.status === "planned";
+                              return (
+                                <button
+                                  type="button"
+                                  key={`periodic-${slotIdx}-${cellDateKey}`}
+                                  title={goalForSlot?.name ?? "Monthly goal"}
+                                  aria-label={
+                                    goalForSlot?.name ?? "Monthly goal"
+                                  }
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenMonthlyGoalPicker(date);
+                                  }}
+                                  className={cn(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-all",
+                                    isComplete
+                                      ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
+                                      : isPlanned
+                                        ? "border-default-300 bg-content2 text-foreground-400"
+                                        : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
+                                  )}
+                                >
+                                  <Icon
+                                    icon={goalForSlot?.iconKey ?? "mdi:plus"}
+                                    className="h-5 w-5"
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div className="space-y-1">
                       {visibleEntries.map((entry) => (
@@ -1577,6 +1574,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: string;
     hoverText: string;
     dot: string;
+    inactiveBorder: string;
+    iconColor: string;
+    color: string;
   }
 > = {
   // Lowercase keys for legacy DayView, uppercase for DB-driven categories
@@ -1587,6 +1587,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-teal-500/10",
     hoverText: "hover:text-teal-500",
     dot: "bg-teal-500",
+    inactiveBorder: "border-teal-500/40",
+    iconColor: "text-teal-500",
+    color: "#14b8a6",
   },
   physical: {
     label: "Physical",
@@ -1595,6 +1598,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-[#F59E0C]/10",
     hoverText: "hover:text-[#F59E0C]",
     dot: "bg-[#F59E0C]",
+    inactiveBorder: "border-[#F59E0C]/40",
+    iconColor: "text-[#F59E0C]",
+    color: "#F59E0C",
   },
   work: {
     label: "Work",
@@ -1603,6 +1609,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-purple-500/10",
     hoverText: "hover:text-purple-500",
     dot: "bg-purple-500",
+    inactiveBorder: "border-purple-500/40",
+    iconColor: "text-purple-500",
+    color: "#a855f7",
   },
   Spiritual: {
     label: "Spiritual",
@@ -1611,6 +1620,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-teal-500/10",
     hoverText: "hover:text-teal-500",
     dot: "bg-teal-500",
+    inactiveBorder: "border-teal-500/40",
+    iconColor: "text-teal-500",
+    color: "#14b8a6",
   },
   Physical: {
     label: "Physical",
@@ -1619,6 +1631,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-[#F59E0C]/10",
     hoverText: "hover:text-[#F59E0C]",
     dot: "bg-[#F59E0C]",
+    inactiveBorder: "border-[#F59E0C]/40",
+    iconColor: "text-[#F59E0C]",
+    color: "#F59E0C",
   },
   Work: {
     label: "Work",
@@ -1627,6 +1642,9 @@ const DAY_VIEW_CATEGORY_CONFIG: Record<
     hoverBg: "hover:bg-purple-500/10",
     hoverText: "hover:text-purple-500",
     dot: "bg-purple-500",
+    inactiveBorder: "border-purple-500/40",
+    iconColor: "text-purple-500",
+    color: "#a855f7",
   },
 };
 const DEFAULT_DAY_VIEW_CATEGORY_CONFIG = {
@@ -1636,10 +1654,19 @@ const DEFAULT_DAY_VIEW_CATEGORY_CONFIG = {
   hoverBg: "hover:bg-foreground/10",
   hoverText: "hover:text-foreground",
   dot: "bg-foreground-400",
+  inactiveBorder: "border-foreground/40",
+  iconColor: "text-foreground",
+  color: "#888888",
 };
 const GOAL_PRIORITY_STAGES = ["high", "medium", "low"] as const;
 
 type GoalPriorityStage = (typeof GOAL_PRIORITY_STAGES)[number];
+
+const PRIORITY_POINTS: Record<GoalPriorityStage, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
 
 const DayView = ({
   currentDate,
@@ -1663,9 +1690,7 @@ const DayView = ({
   onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
 }) => {
   const [showCompleted, setShowCompleted] = useState(false);
-  const [revealedPriorityByCategory, setRevealedPriorityByCategory] = useState<
-    Record<string, GoalPriorityStage>
-  >({});
+
   const currentDateKey = toDateKey(currentDate);
 
   const [noteModalGoal, setNoteModalGoal] = useState<{
@@ -1724,60 +1749,42 @@ const DayView = ({
   const pendingItems = allGoalItems.filter((item) => !item.completed);
   const completedItems = allGoalItems.filter((item) => item.completed);
 
-  const categorySections = useMemo(
+  const dayScore = useMemo(() => {
+    const earned = allGoalItems
+      .filter((item) => item.completed)
+      .reduce((sum, item) => sum + PRIORITY_POINTS[item.priority], 0);
+    const max = allGoalItems.reduce(
+      (sum, item) => sum + PRIORITY_POINTS[item.priority],
+      0,
+    );
+    const byCategory = goalLogsCategories
+      .map((cat) => {
+        const items = allGoalItems.filter((i) => i.category === cat.id);
+        const catEarned = items
+          .filter((i) => i.completed)
+          .reduce((s, i) => s + PRIORITY_POINTS[i.priority], 0);
+        const catMax = items.reduce(
+          (s, i) => s + PRIORITY_POINTS[i.priority],
+          0,
+        );
+        const config =
+          DAY_VIEW_CATEGORY_CONFIG[cat.name] ?? DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+        return { category: cat, config, earned: catEarned, max: catMax };
+      })
+      .filter((c) => c.max > 0);
+    return { earned, max, byCategory };
+  }, [allGoalItems, goalLogsCategories]);
+
+  const prioritySections = useMemo(
     () =>
-      goalLogsCategories.flatMap((category) => {
+      GOAL_PRIORITY_STAGES.flatMap((priority) => {
         const items = allGoalItems.filter(
-          (item) => item.category === category.id,
+          (item) => item.priority === priority && !item.completed,
         );
-        const availablePriorities = GOAL_PRIORITY_STAGES.filter((priority) =>
-          items.some((item) => item.priority === priority),
-        );
-        const defaultPriority = availablePriorities[0];
-
-        if (!defaultPriority) {
-          return [];
-        }
-
-        const requestedPriority = revealedPriorityByCategory[category.id];
-        const currentPriority =
-          requestedPriority && availablePriorities.includes(requestedPriority)
-            ? requestedPriority
-            : defaultPriority;
-        const currentPriorityIndex =
-          availablePriorities.indexOf(currentPriority);
-        const currentStageItems = items.filter(
-          (item) => item.priority === currentPriority,
-        );
-        const visibleItems = currentStageItems.filter(
-          (item) => !item.completed,
-        );
-        const nextPriority =
-          currentPriorityIndex >= 0
-            ? (availablePriorities[currentPriorityIndex + 1] ?? null)
-            : null;
-        const showNextGoals =
-          currentStageItems.length > 0 &&
-          visibleItems.length === 0 &&
-          nextPriority != null;
-
-        if (visibleItems.length === 0 && !showNextGoals) {
-          return [];
-        }
-
-        return [
-          {
-            category,
-            config:
-              DAY_VIEW_CATEGORY_CONFIG[category.name] ??
-              DEFAULT_DAY_VIEW_CATEGORY_CONFIG,
-            visibleItems,
-            nextPriority,
-            showNextGoals,
-          },
-        ];
+        if (items.length === 0) return [];
+        return [{ priority, items }];
       }),
-    [allGoalItems, goalLogsCategories, revealedPriorityByCategory],
+    [allGoalItems],
   );
 
   const renderIconButton = (
@@ -1812,11 +1819,11 @@ const DayView = ({
             size === "normal" ? "gap-2 p-3" : "gap-1.5 p-2",
             item.completed
               ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
-              : `border-default-200 bg-content2 text-foreground-400 ${cfg.hoverBg} ${cfg.hoverText} hover:border-transparent`,
+              : `${cfg.inactiveBorder} bg-content2 ${cfg.iconColor} ${cfg.hoverBg} hover:border-transparent`,
           )}
         >
           <Icon
-            icon={item.completed ? "mdi:check-bold" : item.icon}
+            icon={item.icon}
             className={size === "normal" ? "h-6 w-6" : "h-5 w-5"}
           />
           {item.completed && item.note && (
@@ -1853,48 +1860,22 @@ const DayView = ({
 
         <div className="bg-content1 border-divider min-h-0 flex-1 overflow-y-auto rounded-3xl border p-5">
           <div className="flex flex-col gap-5">
-            {categorySections.map(
-              ({
-                category,
-                config,
-                visibleItems,
-                nextPriority,
-                showNextGoals,
-              }) => {
-                return (
-                  <div key={category.id}>
-                    <div className="mb-3 flex items-center gap-2">
-                      <span
-                        className={cn("h-2 w-2 rounded-full", config.dot)}
-                      />
-                      <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
-                        {config.label || category.name}
-                      </p>
-                    </div>
-                    {visibleItems.length > 0 ? (
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
-                        {visibleItems.map((item) => renderIconButton(item))}
-                      </div>
-                    ) : null}
-                    {showNextGoals ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!nextPriority) return;
-                          setRevealedPriorityByCategory((previous) => ({
-                            ...previous,
-                            [category.id]: nextPriority,
-                          }));
-                        }}
-                        className="mt-3 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-700"
-                      >
-                        Show next goals
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              },
-            )}
+            {prioritySections.map(({ priority, items }) => (
+              <div key={priority}>
+                <div className="mb-3 flex items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+                    {priority === "high"
+                      ? "High Priority"
+                      : priority === "medium"
+                        ? "Medium Priority"
+                        : "Low Priority"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+                  {items.map((item) => renderIconButton(item))}
+                </div>
+              </div>
+            ))}
 
             {(() => {
               const plannedMonthly = periodicGoals.filter(
@@ -1998,6 +1979,74 @@ const DayView = ({
                       ))}
                     </div>
                   )}
+                </div>
+              );
+            })()}
+
+            {dayScore.max > 0 && (() => {
+              const svgSize = 120;
+              const center = svgSize / 2;
+              const strokeWidth = 8;
+              const gap = 5;
+              const step = strokeWidth + gap;
+              const outerR = center - 2 - strokeWidth / 2;
+              return (
+                <div className="flex justify-center pt-2">
+                  <div className="relative">
+                    <svg
+                      width={svgSize}
+                      height={svgSize}
+                      viewBox={`0 0 ${svgSize} ${svgSize}`}
+                      role="img"
+                    >
+                      <title>Day score progress</title>
+                      {dayScore.byCategory.map(
+                        ({ category, config, earned, max }, i) => {
+                          const r = outerR - i * step;
+                          const circ = 2 * Math.PI * r;
+                          const offset =
+                            max > 0 ? circ * (1 - earned / max) : circ;
+                          return (
+                            <g key={category.id}>
+                              <circle
+                                cx={center}
+                                cy={center}
+                                r={r}
+                                fill="none"
+                                stroke={config.color}
+                                strokeOpacity={0.15}
+                                strokeWidth={strokeWidth}
+                              />
+                              <circle
+                                cx={center}
+                                cy={center}
+                                r={r}
+                                fill="none"
+                                stroke={config.color}
+                                strokeWidth={strokeWidth}
+                                strokeLinecap="round"
+                                strokeDasharray={circ}
+                                strokeDashoffset={offset}
+                                className="transition-all duration-500"
+                                style={{
+                                  transform: "rotate(-90deg)",
+                                  transformOrigin: `${center}px ${center}px`,
+                                }}
+                              />
+                            </g>
+                          );
+                        },
+                      )}
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-xl font-bold leading-none">
+                        {dayScore.earned}
+                      </span>
+                      <span className="text-[9px] uppercase tracking-wider text-foreground-400">
+                        pts
+                      </span>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
