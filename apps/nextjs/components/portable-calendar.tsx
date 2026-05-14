@@ -1775,6 +1775,83 @@ const DayView = ({
     return { earned, max, byCategory };
   }, [allGoalItems, goalLogsCategories]);
 
+  const renderDayScoreRings = (variant: "compact" | "full" = "full") => {
+    if (dayScore.max === 0) return null;
+
+    const isCompact = variant === "compact";
+    const svgSize = isCompact ? 68 : 120;
+    const center = svgSize / 2;
+    const strokeWidth = isCompact ? 5 : 8;
+    const gap = isCompact ? 3 : 5;
+    const step = strokeWidth + gap;
+    const outerR = center - 2 - strokeWidth / 2;
+
+    return (
+      <div className="relative shrink-0">
+        <svg
+          width={svgSize}
+          height={svgSize}
+          viewBox={`0 0 ${svgSize} ${svgSize}`}
+          role="img"
+        >
+          <title>Day score progress</title>
+          {dayScore.byCategory.map(({ category, config, earned, max }, i) => {
+            const r = Math.max(2, outerR - i * step);
+            const circ = 2 * Math.PI * r;
+            const offset = max > 0 ? circ * (1 - earned / max) : circ;
+            return (
+              <g key={category.id}>
+                <circle
+                  cx={center}
+                  cy={center}
+                  r={r}
+                  fill="none"
+                  stroke={config.color}
+                  strokeOpacity={0.15}
+                  strokeWidth={strokeWidth}
+                />
+                <circle
+                  cx={center}
+                  cy={center}
+                  r={r}
+                  fill="none"
+                  stroke={config.color}
+                  strokeWidth={strokeWidth}
+                  strokeLinecap="round"
+                  strokeDasharray={circ}
+                  strokeDashoffset={offset}
+                  className="transition-all duration-500"
+                  style={{
+                    transform: "rotate(-90deg)",
+                    transformOrigin: `${center}px ${center}px`,
+                  }}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span
+            className={cn(
+              "font-bold leading-none",
+              isCompact ? "text-base" : "text-xl",
+            )}
+          >
+            {dayScore.earned}
+          </span>
+          <span
+            className={cn(
+              "uppercase tracking-wider text-foreground-400",
+              isCompact ? "text-[8px]" : "text-[9px]",
+            )}
+          >
+            pts
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   const prioritySections = useMemo(
     () =>
       GOAL_PRIORITY_STAGES.flatMap((priority) => {
@@ -1816,7 +1893,9 @@ const DayView = ({
           onClick={handleClick}
           className={cn(
             "relative flex flex-col items-center justify-center rounded-2xl border transition-all",
-            size === "normal" ? "gap-2 p-3" : "gap-1.5 p-2",
+            size === "normal"
+              ? "h-12 w-12 shrink-0 gap-1.5 p-2 sm:aspect-square sm:h-auto sm:w-full sm:shrink sm:gap-2 sm:p-3"
+              : "h-10 w-10 shrink-0 gap-1 p-2 sm:aspect-square sm:h-auto sm:w-full sm:gap-1.5",
             item.completed
               ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
               : `${cfg.inactiveBorder} bg-content2 ${cfg.iconColor} ${cfg.hoverBg} hover:border-transparent`,
@@ -1824,7 +1903,7 @@ const DayView = ({
         >
           <Icon
             icon={item.icon}
-            className={size === "normal" ? "h-6 w-6" : "h-5 w-5"}
+            className={size === "normal" ? "h-5 w-5 sm:h-6 sm:w-6" : "h-5 w-5"}
           />
           {item.completed && item.note && (
             <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/70" />
@@ -1851,19 +1930,24 @@ const DayView = ({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <div className="bg-content1 border-divider rounded-3xl border p-5">
-          <h2 className="mt-1 text-2xl font-semibold">
-            {formatDayLabel(currentDate)}
-          </h2>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4">
+        <div className="bg-content1 border-divider rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold sm:mt-1 sm:text-2xl">
+              {formatDayLabel(currentDate)}
+            </h2>
+            {dayScore.max > 0 ? (
+              <div className="sm:hidden">{renderDayScoreRings("compact")}</div>
+            ) : null}
+          </div>
         </div>
 
-        <div className="bg-content1 border-divider min-h-0 flex-1 overflow-y-auto rounded-3xl border p-5">
-          <div className="flex flex-col gap-5">
+        <div className="bg-content1 border-divider min-h-0 flex-1 overflow-y-auto rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
+          <div className="flex flex-col gap-3 sm:gap-5">
             {prioritySections.map(({ priority, items }) => (
               <div key={priority}>
-                <div className="mb-3 flex items-center gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+                <div className="mb-2 flex items-center gap-2 sm:mb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
                     {priority === "high"
                       ? "High Priority"
                       : priority === "medium"
@@ -1871,7 +1955,7 @@ const DayView = ({
                         : "Low Priority"}
                   </p>
                 </div>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+                <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:grid sm:grid-cols-[repeat(auto-fill,minmax(60px,1fr))] sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
                   {items.map((item) => renderIconButton(item))}
                 </div>
               </div>
@@ -1885,13 +1969,13 @@ const DayView = ({
               if (plannedMonthly.length === 0) return null;
               return (
                 <div>
-                  <div className="mb-3 flex items-center gap-2">
+                  <div className="mb-2 flex items-center gap-2 sm:mb-3">
                     <span className="h-2 w-2 rounded-full bg-foreground-400" />
-                    <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
                       Planned Monthly Goals
                     </p>
                   </div>
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(60px,1fr))] gap-3">
+                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:grid sm:grid-cols-[repeat(auto-fill,minmax(60px,1fr))] sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
                     {plannedMonthly.map((goal) => (
                       <Tooltip
                         key={goal.id}
@@ -1903,11 +1987,11 @@ const DayView = ({
                           onClick={() =>
                             onToggleGoalLog?.(goal.id, currentDateKey)
                           }
-                          className="relative flex flex-col items-center justify-center gap-2 rounded-2xl border border-default-200 bg-content2 p-3 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground"
+                          className="relative flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-default-200 bg-content2 p-2 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground sm:aspect-square sm:h-auto sm:w-full sm:shrink sm:gap-2 sm:p-3"
                         >
                           <Icon
                             icon={goal.iconKey || "mdi:circle"}
-                            className="h-7 w-7"
+                            className="h-5 w-5 sm:h-7 sm:w-7"
                           />
                         </button>
                       </Tooltip>
@@ -1953,7 +2037,7 @@ const DayView = ({
                     Show completed ({totalCompleted})
                   </button>
                   {showCompleted && (
-                    <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(48px,1fr))] gap-2">
+                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:grid sm:grid-cols-[repeat(auto-fill,minmax(48px,1fr))] sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
                       {completedItems.map((item) =>
                         renderIconButton(item, "small"),
                       )}
@@ -1968,11 +2052,11 @@ const DayView = ({
                             onClick={() =>
                               onToggleGoalLog?.(goal.id, currentDateKey)
                             }
-                            className="relative flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all"
+                            className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all sm:aspect-square sm:h-auto sm:w-full sm:gap-1.5"
                           >
                             <Icon
                               icon={goal.iconKey || "mdi:circle"}
-                              className="h-6 w-6"
+                              className="h-5 w-5 sm:h-6 sm:w-6"
                             />
                           </button>
                         </Tooltip>
@@ -1983,78 +2067,16 @@ const DayView = ({
               );
             })()}
 
-            {dayScore.max > 0 && (() => {
-              const svgSize = 120;
-              const center = svgSize / 2;
-              const strokeWidth = 8;
-              const gap = 5;
-              const step = strokeWidth + gap;
-              const outerR = center - 2 - strokeWidth / 2;
-              return (
-                <div className="flex justify-center pt-2">
-                  <div className="relative">
-                    <svg
-                      width={svgSize}
-                      height={svgSize}
-                      viewBox={`0 0 ${svgSize} ${svgSize}`}
-                      role="img"
-                    >
-                      <title>Day score progress</title>
-                      {dayScore.byCategory.map(
-                        ({ category, config, earned, max }, i) => {
-                          const r = outerR - i * step;
-                          const circ = 2 * Math.PI * r;
-                          const offset =
-                            max > 0 ? circ * (1 - earned / max) : circ;
-                          return (
-                            <g key={category.id}>
-                              <circle
-                                cx={center}
-                                cy={center}
-                                r={r}
-                                fill="none"
-                                stroke={config.color}
-                                strokeOpacity={0.15}
-                                strokeWidth={strokeWidth}
-                              />
-                              <circle
-                                cx={center}
-                                cy={center}
-                                r={r}
-                                fill="none"
-                                stroke={config.color}
-                                strokeWidth={strokeWidth}
-                                strokeLinecap="round"
-                                strokeDasharray={circ}
-                                strokeDashoffset={offset}
-                                className="transition-all duration-500"
-                                style={{
-                                  transform: "rotate(-90deg)",
-                                  transformOrigin: `${center}px ${center}px`,
-                                }}
-                              />
-                            </g>
-                          );
-                        },
-                      )}
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-xl font-bold leading-none">
-                        {dayScore.earned}
-                      </span>
-                      <span className="text-[9px] uppercase tracking-wider text-foreground-400">
-                        pts
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+            {dayScore.max > 0 ? (
+              <div className="hidden justify-center pt-2 sm:flex">
+                {renderDayScoreRings()}
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="bg-content1 border-divider rounded-3xl border p-5">
-          {dayEntries.length > 0 ? (
+        {dayEntries.length > 0 ? (
+          <div className="bg-content1 border-divider rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
             <div className="space-y-3">
               {dayEntries.map((entry) => (
                 <button
@@ -2099,12 +2121,8 @@ const DayView = ({
                 </button>
               ))}
             </div>
-          ) : (
-            <div className="text-foreground-500 flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-6 text-sm">
-              No entries on this day.
-            </div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <Modal
@@ -2564,20 +2582,10 @@ export const PortableCalendar = ({
   }, [goalLogsSnapshot.categories, goalLogsSnapshot.periodicGoals]);
 
   const topSidebarTasks = useMemo(() => {
-    const topTasks = [...sidebarTasks]
+    return sidebarTasks
+      .filter((task) => task.completedAt === null)
       .sort((a, b) => compareTasksByPriority(a, b, taskCompletionDateKey))
       .slice(0, 5);
-
-    return topTasks.sort((a, b) => {
-      const aComplete = a.completedAt === taskCompletionDateKey ? 1 : 0;
-      const bComplete = b.completedAt === taskCompletionDateKey ? 1 : 0;
-
-      if (aComplete !== bComplete) {
-        return aComplete - bComplete;
-      }
-
-      return compareTasksByPriority(a, b, taskCompletionDateKey);
-    });
   }, [sidebarTasks, taskCompletionDateKey]);
 
   const handleCompleteSidebarTask = (task: Task) => {
@@ -2951,7 +2959,7 @@ export const PortableCalendar = ({
               className={cn(
                 "border-divider bg-content1/70 flex w-full flex-col border-b transition-all duration-200 lg:shrink-0 lg:border-r lg:border-b-0",
                 isSidebarCollapsed
-                  ? "items-center p-2 lg:w-14"
+                  ? "items-center p-1.5 lg:w-14 lg:p-2"
                   : "p-3 lg:w-[250px]",
               )}
             >
@@ -2968,7 +2976,7 @@ export const PortableCalendar = ({
                     <ChevronRightIcon />
                   </Button>
 
-                  <div className="mt-4 flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto" />
+                  <div className="mt-4 hidden min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto lg:flex" />
                 </>
               ) : (
                 <>
@@ -3262,7 +3270,7 @@ export const PortableCalendar = ({
             </aside>
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-content1/40">
-              <CardHeader className="flex flex-col items-start justify-between gap-3 border-b border-default-200 px-3 py-3 sm:flex-row sm:items-center sm:px-4">
+              <CardHeader className="flex flex-col items-start justify-between gap-2 border-b border-default-200 px-3 py-2 sm:flex-row sm:items-center sm:gap-3 sm:px-4 sm:py-3">
                 <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
                   <Tabs
                     radius="md"
@@ -3279,7 +3287,7 @@ export const PortableCalendar = ({
                     <Tab key="month" title="Month" />
                   </Tabs>
 
-                  <p className="text-foreground-500 text-xs">
+                  <p className="hidden text-foreground-500 text-xs sm:block">
                     {titleForView(view, currentDate)}
                   </p>
                 </div>
@@ -3306,12 +3314,12 @@ export const PortableCalendar = ({
                             <CloseIcon />
                           </Button>
                         }
-                        className="w-52"
+                        className="w-40 sm:w-52"
                         autoFocus
                       />
 
                       {searchQuery.length > 0 ? (
-                        <div className="bg-content1 shadow-medium rounded-2xl border-divider absolute top-full right-0 z-50 mt-2 w-80 border p-2">
+                        <div className="bg-content1 shadow-medium rounded-2xl border-divider absolute top-full left-0 z-50 mt-2 w-[calc(100vw-3rem)] border p-2 sm:right-0 sm:left-auto sm:w-80">
                           {filteredEntries.length > 0 ? (
                             <div className="space-y-1">
                               {filteredEntries.slice(0, 8).map((entry) => (
@@ -3386,20 +3394,22 @@ export const PortableCalendar = ({
                   <Button
                     size="sm"
                     variant="flat"
+                    className="min-w-9 px-0 sm:px-3"
                     startContent={
                       <Icon icon="mdi:cog-outline" className="h-4 w-4" />
                     }
+                    title="Calendar Settings"
                     onPress={() => {
                       setDraftSettings(calSettings);
                       setIsSettingsOpen(true);
                     }}
                   >
-                    Calendar Settings
+                    <span className="hidden sm:inline">Calendar Settings</span>
                   </Button>
                 </div>
               </CardHeader>
 
-              <CardBody className="min-h-0 flex-1 p-3 sm:p-4">
+              <CardBody className="min-h-0 flex-1 p-2 sm:p-4">
                 <div className="flex min-h-0 flex-1 flex-col">
                   {view === "month" ? (
                     <MonthView
