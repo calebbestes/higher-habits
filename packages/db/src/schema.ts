@@ -15,10 +15,22 @@ import {
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
 export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
 export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
+export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
+export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
+export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
 export const logStatusEnum = pgEnum("log_status", LOG_STATUSES);
+export const friendStatusEnum = pgEnum("friend_status", FRIEND_STATUSES);
+export const friendMessageTypeEnum = pgEnum(
+  "friend_message_type",
+  FRIEND_MESSAGE_TYPES,
+);
+export const friendGoalScopeEnum = pgEnum(
+  "friend_goal_scope",
+  FRIEND_GOAL_SCOPES,
+);
 
 export const users = pgTable(
   "user",
@@ -162,6 +174,26 @@ export const contacts = pgTable(
   ],
 );
 
+export const friends = pgTable(
+  "friends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId1: text("user_id_1")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    userId2: text("user_id_2")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: friendStatusEnum("status").default("requested").notNull(),
+  },
+  (table) => [
+    index("friends_user_id_1_idx").on(table.userId1),
+    index("friends_user_id_2_idx").on(table.userId2),
+    index("friends_status_idx").on(table.status),
+    unique("friends_user_id_1_user_id_2_uidx").on(table.userId1, table.userId2),
+  ],
+);
+
 export const tasks = pgTable(
   "tasks",
   {
@@ -281,6 +313,9 @@ export type ContactStatus = typeof contactStatuses.$inferSelect;
 export type NewContactStatus = typeof contactStatuses.$inferInsert;
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
+export type Friend = typeof friends.$inferSelect;
+export type NewFriend = typeof friends.$inferInsert;
+export type FriendStatus = (typeof FRIEND_STATUSES)[number];
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
@@ -292,6 +327,39 @@ export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
+
+export const friendMessages = pgTable(
+  "friend_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    friendshipId: uuid("friendship_id")
+      .notNull()
+      .references(() => friends.id, { onDelete: "cascade" }),
+    senderId: text("sender_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: friendMessageTypeEnum("type").notNull(),
+    body: text("body").notNull(),
+    streakDays: integer("streak_days"),
+    streakPercent: integer("streak_percent"),
+    goalScope: friendGoalScopeEnum("goal_scope"),
+    goalId: uuid("goal_id").references(() => goals.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("friend_messages_friendship_id_idx").on(table.friendshipId),
+    index("friend_messages_sender_id_idx").on(table.senderId),
+    index("friend_messages_recipient_id_idx").on(table.recipientId),
+  ],
+);
 
 export const calendarSettings = pgTable("calendar_settings", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -310,3 +378,7 @@ export const calendarSettings = pgTable("calendar_settings", {
 });
 
 export type CalendarSettings = typeof calendarSettings.$inferSelect;
+export type FriendMessage = typeof friendMessages.$inferSelect;
+export type NewFriendMessage = typeof friendMessages.$inferInsert;
+export type FriendMessageType = (typeof FRIEND_MESSAGE_TYPES)[number];
+export type FriendGoalScope = (typeof FRIEND_GOAL_SCOPES)[number];
