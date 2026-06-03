@@ -19,7 +19,6 @@ import {
 } from "@/lib/goal-logs-client";
 import {
   type CalendarHabitKey,
-  type CustomDayIconKey,
   type CustomDayIconSelection,
   type DayDrawerNotes,
   type DrawerNoteKey,
@@ -91,7 +90,6 @@ import { CategoryGoalDrawer } from "./category-goal-drawer";
 import { DayIconPickerDrawer } from "./day-icon-picker-drawer";
 import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
 import { RichTextEditor } from "./rich-text-editor";
-import { SALES_CHECKLIST_ITEMS } from "./sales-outreach-drawer";
 import { WEIGHT_CHECKLIST_ITEMS } from "./weight-checklist-drawer";
 
 type CalendarView = "month" | "week" | "day";
@@ -212,6 +210,18 @@ const DEFAULT_CATEGORY_FILL = {
   label: "text-foreground-500",
 };
 
+const COMPLETE_SHARE_TILE = "🟩";
+const EMPTY_SHARE_TILE = "⬜";
+const MOBILE_SIDEBAR_MEDIA_QUERY = "(max-width: 1023px)";
+
+type DailyGoalMetric = {
+  category: CategoryWithGoals;
+  goals: Array<{
+    goal: CategoryWithGoals["goals"][number];
+    days: Array<{ dateKey: string; done: boolean }>;
+  }>;
+};
+
 const ROW_START = ["row-start-1", "row-start-2", "row-start-3"] as const;
 
 const cn = (...values: Array<string | false | null | undefined>) =>
@@ -328,6 +338,121 @@ const formatDayLabel = (date: Date) =>
     day: "numeric",
     year: "numeric",
   }).format(date);
+
+const formatShareTitleDate = (date: Date) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+
+const dateFromDateKey = (dateKey: string) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatShareDateKey = (dateKey: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(dateFromDateKey(dateKey));
+
+const buildHabitShareText = ({
+  title,
+  currentDate,
+  dailyGoalMetrics,
+}: {
+  title: string;
+  currentDate: Date;
+  dailyGoalMetrics: DailyGoalMetric[];
+}) => {
+  const currentDateKey = toDateKey(currentDate);
+  const rows = dailyGoalMetrics.flatMap(({ category, goals }) =>
+    goals.map(({ goal, days }) => ({
+      categoryName: category.name,
+      goalName: goal.name,
+      cells: days
+        .map(({ done }) => (done ? COMPLETE_SHARE_TILE : EMPTY_SHARE_TILE))
+        .join(""),
+      completedToday:
+        days.find((day) => day.dateKey === currentDateKey)?.done ?? false,
+    })),
+  );
+
+  if (rows.length === 0) {
+    return "";
+  }
+
+  const firstDays = dailyGoalMetrics[0]?.goals[0]?.days ?? [];
+  const firstDateKey = firstDays[0]?.dateKey;
+  const lastDateKey = firstDays.at(-1)?.dateKey;
+  const rangeLabel =
+    firstDateKey && lastDateKey
+      ? `Last ${firstDays.length} days (${formatShareDateKey(
+          firstDateKey,
+        )} - ${formatShareDateKey(lastDateKey)})`
+      : "Last 10 days";
+  const completedToday = rows.filter((row) => row.completedToday).length;
+  const lines = [
+    `${title} ${formatShareTitleDate(currentDate)} ${completedToday}/${rows.length}`,
+    rangeLabel,
+    "",
+  ];
+  let previousCategoryName: string | null = null;
+
+  for (const row of rows) {
+    if (row.categoryName !== previousCategoryName) {
+      if (previousCategoryName !== null) {
+        lines.push("");
+      }
+      lines.push(row.categoryName);
+      previousCategoryName = row.categoryName;
+    }
+
+    lines.push(`${row.cells} ${row.goalName}`);
+  }
+
+  return lines.join("\n");
+};
+
+const buildDailyGoalMetricsForDate = ({
+  currentDate,
+  categories,
+  logsByGoalDate,
+}: {
+  currentDate: Date;
+  categories: CategoryWithGoals[];
+  logsByGoalDate: Record<string, "complete" | "planned">;
+}): DailyGoalMetric[] => {
+  const last10Days = Array.from({ length: 10 }, (_, i) => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() - (9 - i));
+    return toDateKey(d);
+  });
+
+  return categories.map((cat) => ({
+    category: cat,
+    goals: cat.goals.map((goal) => ({
+      goal,
+      days: last10Days.map((dateKey) => ({
+        dateKey,
+        done: logsByGoalDate[`${goal.id}_${dateKey}`] === "complete",
+      })),
+    })),
+  }));
+};
+
+const filterDailyGoalMetricsByPriority = (
+  dailyGoalMetrics: DailyGoalMetric[],
+  includeLowerPriority: boolean,
+) =>
+  dailyGoalMetrics
+    .map(({ category, goals }) => ({
+      category,
+      goals: goals.filter(
+        ({ goal }) => includeLowerPriority || goal.priority === "high",
+      ),
+    }))
+    .filter(({ goals }) => goals.length > 0);
 
 const getHabitStateKey = (dateKey: string, habitKey: CalendarHabitKey) =>
   `${dateKey}::${habitKey}`;
@@ -681,6 +806,7 @@ const MonthView = ({
   onWeightChecklistsByDateChange,
   onSalesChecklistsByDateChange,
   onGoalLogsSnapshotChange,
+  onShareHabitResults,
   monthlyGoalSlots = 3,
   visibleCategoryIds = [],
 }: {
@@ -703,6 +829,7 @@ const MonthView = ({
     data: Record<string, SalesChecklistState>,
   ) => void;
   onGoalLogsSnapshotChange?: (snapshot: GoalLogsSnapshot) => void;
+  onShareHabitResults?: (date: Date) => void;
   monthlyGoalSlots?: number;
   visibleCategoryIds?: string[];
 }) => {
@@ -1271,65 +1398,101 @@ const MonthView = ({
                         );
                       return (
                         <div className="mb-1 flex flex-col gap-2">
-                          {anyProgress && <div className="flex justify-center">
-                            <svg
-                              width={svgSize}
-                              height={svgSize}
-                              viewBox={`0 0 ${svgSize} ${svgSize}`}
-                              role="img"
-                            >
-                              <title>Day progress</title>
-                              {categories.map((cat, i) => {
-                                const completedCount = cat.goals.filter(
-                                  (g) =>
-                                    goalLogsSnapshot.logsByGoalDate[
-                                      `${g.id}_${cellDateKey}`
-                                    ] === "complete",
-                                ).length;
-                                const progress =
-                                  cat.goals.length > 0
-                                    ? completedCount / cat.goals.length
-                                    : 0;
-                                const cfg =
-                                  DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
-                                  DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
-                                const r = outerR - i * step;
-                                const circ = 2 * Math.PI * r;
-                                const offset = circ * (1 - progress);
-                                return (
-                                  <g key={cat.id}>
-                                    <circle
-                                      cx={center}
-                                      cy={center}
-                                      r={r}
-                                      fill="none"
-                                      stroke={cfg.color}
-                                      strokeOpacity={0.15}
-                                      strokeWidth={strokeWidth}
-                                    />
-                                    <circle
-                                      cx={center}
-                                      cy={center}
-                                      r={r}
-                                      fill="none"
-                                      stroke={cfg.color}
-                                      strokeWidth={strokeWidth}
-                                      strokeLinecap="round"
-                                      strokeDasharray={circ}
-                                      strokeDashoffset={offset}
-                                      style={{
-                                        transform: "rotate(-90deg)",
-                                        transformOrigin: `${center}px ${center}px`,
-                                      }}
-                                    />
-                                  </g>
-                                );
-                              })}
-                            </svg>
-                          </div>}
+                          {anyProgress && (
+                            <div className="flex justify-center">
+                              <div className="group relative inline-flex">
+                                <svg
+                                  width={svgSize}
+                                  height={svgSize}
+                                  viewBox={`0 0 ${svgSize} ${svgSize}`}
+                                  role="img"
+                                >
+                                  <title>Day progress</title>
+                                  {categories.map((cat, i) => {
+                                    const completedCount = cat.goals.filter(
+                                      (g) =>
+                                        goalLogsSnapshot.logsByGoalDate[
+                                          `${g.id}_${cellDateKey}`
+                                        ] === "complete",
+                                    ).length;
+                                    const progress =
+                                      cat.goals.length > 0
+                                        ? completedCount / cat.goals.length
+                                        : 0;
+                                    const cfg =
+                                      DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
+                                      DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+                                    const r = outerR - i * step;
+                                    const circ = 2 * Math.PI * r;
+                                    const offset = circ * (1 - progress);
+                                    return (
+                                      <g key={cat.id}>
+                                        <circle
+                                          cx={center}
+                                          cy={center}
+                                          r={r}
+                                          fill="none"
+                                          stroke={cfg.color}
+                                          strokeOpacity={0.15}
+                                          strokeWidth={strokeWidth}
+                                        />
+                                        <circle
+                                          cx={center}
+                                          cy={center}
+                                          r={r}
+                                          fill="none"
+                                          stroke={cfg.color}
+                                          strokeWidth={strokeWidth}
+                                          strokeLinecap="round"
+                                          strokeDasharray={circ}
+                                          strokeDashoffset={offset}
+                                          style={{
+                                            transform: "rotate(-90deg)",
+                                            transformOrigin: `${center}px ${center}px`,
+                                          }}
+                                        />
+                                      </g>
+                                    );
+                                  })}
+                                </svg>
+                                {onShareHabitResults ? (
+                                  <Tooltip
+                                    content="Share habit results"
+                                    placement="top"
+                                    size="sm"
+                                    color="foreground"
+                                  >
+                                    <Button
+                                      isIconOnly
+                                      size="sm"
+                                      variant="flat"
+                                      radius="full"
+                                      aria-label="Share habit results"
+                                      title="Share habit results"
+                                      className="absolute -top-2 -right-2 z-10 h-7 w-7 min-w-7 bg-content1/90 text-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onPress={() => onShareHabitResults(date)}
+                                    >
+                                      <Icon
+                                        icon="mdi:share-variant-outline"
+                                        className="h-3.5 w-3.5"
+                                      />
+                                    </Button>
+                                  </Tooltip>
+                                ) : null}
+                              </div>
+                            </div>
+                          )}
                           <div className="flex justify-center gap-1">
                             {Array.from(
-                              { length: Math.min(loggedForDay.length + 1, monthlyGoalSlots) },
+                              {
+                                length: Math.min(
+                                  loggedForDay.length + 1,
+                                  monthlyGoalSlots,
+                                ),
+                              },
                               (_, i) => i,
                             ).map((slotIdx) => {
                               const goalForSlot = loggedForDay[slotIdx];
@@ -1678,6 +1841,7 @@ const DayView = ({
   notesByGoalDate = {},
   onToggleGoalLog,
   onSaveGoalNote,
+  onShareHabitResults,
 }: {
   currentDate: Date;
   entries: NormalizedCalendarEntry[];
@@ -1688,6 +1852,7 @@ const DayView = ({
   notesByGoalDate?: Record<string, string>;
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
   onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
+  onShareHabitResults?: () => void;
 }) => {
   const [showCompleted, setShowCompleted] = useState(false);
 
@@ -1768,7 +1933,8 @@ const DayView = ({
           0,
         );
         const config =
-          DAY_VIEW_CATEGORY_CONFIG[cat.name] ?? DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+          DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
+          DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
         return { category: cat, config, earned: catEarned, max: catMax };
       })
       .filter((c) => c.max > 0);
@@ -1787,7 +1953,7 @@ const DayView = ({
     const outerR = center - 2 - strokeWidth / 2;
 
     return (
-      <div className="relative shrink-0">
+      <div className="group relative shrink-0">
         <svg
           width={svgSize}
           height={svgSize}
@@ -1848,6 +2014,35 @@ const DayView = ({
             pts
           </span>
         </div>
+        {onShareHabitResults ? (
+          <Tooltip
+            content="Share habit results"
+            placement="top"
+            size="sm"
+            color="foreground"
+          >
+            <Button
+              isIconOnly
+              size="sm"
+              variant="flat"
+              radius="full"
+              aria-label="Share habit results"
+              title="Share habit results"
+              className={cn(
+                "absolute z-10 bg-content1/90 text-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
+                isCompact
+                  ? "-top-1.5 -right-1.5 h-7 w-7 min-w-7"
+                  : "-top-2 -right-2 h-9 w-9 min-w-9",
+              )}
+              onPress={onShareHabitResults}
+            >
+              <Icon
+                icon="mdi:share-variant-outline"
+                className={isCompact ? "h-3.5 w-3.5" : "h-4 w-4"}
+              />
+            </Button>
+          </Tooltip>
+        ) : null}
       </div>
     );
   };
@@ -1872,30 +2067,20 @@ const DayView = ({
       DAY_VIEW_CATEGORY_CONFIG[item.categoryName] ??
       DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
     const tooltipLabel = item.completed
-      ? item.note
-        ? "Edit note"
-        : "Add note"
+      ? `Mark ${item.label} incomplete`
       : item.label;
-    const handleClick = item.completed
-      ? () => {
-          setNoteModalGoal({
-            key: item.key,
-            label: item.label,
-            note: item.note,
-          });
-          setNoteEditorValue(item.note);
-        }
-      : item.onToggle;
     return (
       <Tooltip content={tooltipLabel} color="foreground" key={item.key}>
         <button
           type="button"
-          onClick={handleClick}
+          aria-label={tooltipLabel}
+          title={tooltipLabel}
+          onClick={item.onToggle}
           className={cn(
-            "relative flex flex-col items-center justify-center rounded-2xl border transition-all",
+            "relative flex shrink-0 flex-col items-center justify-center rounded-2xl border transition-all",
             size === "normal"
-              ? "h-12 w-12 shrink-0 gap-1.5 p-2 sm:aspect-square sm:h-auto sm:w-full sm:shrink sm:gap-2 sm:p-3"
-              : "h-10 w-10 shrink-0 gap-1 p-2 sm:aspect-square sm:h-auto sm:w-full sm:gap-1.5",
+              ? "h-12 w-12 gap-1.5 p-2 sm:h-24 sm:w-24 sm:gap-2 sm:p-4"
+              : "h-10 w-10 gap-1 p-2 sm:h-20 sm:w-20 sm:gap-1.5 sm:p-3",
             item.completed
               ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
               : `${cfg.inactiveBorder} bg-content2 ${cfg.iconColor} ${cfg.hoverBg} hover:border-transparent`,
@@ -1903,7 +2088,11 @@ const DayView = ({
         >
           <Icon
             icon={item.icon}
-            className={size === "normal" ? "h-5 w-5 sm:h-6 sm:w-6" : "h-5 w-5"}
+            className={
+              size === "normal"
+                ? "h-5 w-5 sm:h-8 sm:w-8 lg:h-10 lg:w-10"
+                : "h-5 w-5 sm:h-7 sm:w-7"
+            }
           />
           {item.completed && item.note && (
             <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/70" />
@@ -1912,6 +2101,33 @@ const DayView = ({
       </Tooltip>
     );
   };
+
+  const openGoalNote = (item: GoalItem) => {
+    setNoteModalGoal({
+      key: item.key,
+      label: item.label,
+      note: item.note,
+    });
+    setNoteEditorValue(item.note);
+  };
+
+  const renderCompletedGoalItem = (item: GoalItem) => (
+    <div
+      key={item.key}
+      className="flex shrink-0 flex-col items-center gap-1.5 sm:w-20"
+    >
+      {renderIconButton(item, "small")}
+      <Button
+        size="sm"
+        variant={item.note ? "flat" : "light"}
+        radius="full"
+        className="h-7 min-w-0 px-2 text-[11px] font-medium sm:w-full"
+        onPress={() => openGoalNote(item)}
+      >
+        {item.note ? "Show note" : "Add note"}
+      </Button>
+    </div>
+  );
 
   const handleSaveNote = async () => {
     if (!noteModalGoal) return;
@@ -1930,118 +2146,59 @@ const DayView = ({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 sm:gap-4">
-        <div className="bg-content1 border-divider rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
-          <div className="flex items-center justify-between gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:gap-4">
+        <div className="px-1 sm:px-0">
+          <div className="flex items-start justify-between gap-4">
             <h2 className="text-xl font-semibold sm:mt-1 sm:text-2xl">
               {formatDayLabel(currentDate)}
             </h2>
             {dayScore.max > 0 ? (
-              <div className="sm:hidden">{renderDayScoreRings("compact")}</div>
+              <div className="shrink-0">
+                <div className="sm:hidden">
+                  {renderDayScoreRings("compact")}
+                </div>
+                <div className="hidden sm:block">{renderDayScoreRings()}</div>
+              </div>
             ) : null}
           </div>
         </div>
 
-        <div className="bg-content1 border-divider min-h-0 flex-1 overflow-y-auto rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
-          <div className="flex flex-col gap-3 sm:gap-5">
-            {prioritySections.map(({ priority, items }) => (
-              <div key={priority}>
-                <div className="mb-2 flex items-center gap-2 sm:mb-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
-                    {priority === "high"
-                      ? "High Priority"
-                      : priority === "medium"
-                        ? "Medium Priority"
-                        : "Low Priority"}
-                  </p>
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:grid sm:grid-cols-[repeat(auto-fill,minmax(60px,1fr))] sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
-                  {items.map((item) => renderIconButton(item))}
-                </div>
-              </div>
-            ))}
-
-            {(() => {
-              const plannedMonthly = periodicGoals.filter(
-                (g) =>
-                  logsByGoalDate[`${g.id}_${currentDateKey}`] === "planned",
-              );
-              if (plannedMonthly.length === 0) return null;
-              return (
-                <div>
+        <div className="shrink-0 px-1 sm:px-0">
+          <div className="grid gap-4">
+            <div className="flex flex-col gap-3 sm:gap-5">
+              {prioritySections.map(({ priority, items }) => (
+                <div key={priority}>
                   <div className="mb-2 flex items-center gap-2 sm:mb-3">
-                    <span className="h-2 w-2 rounded-full bg-foreground-400" />
                     <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
-                      Planned Monthly Goals
+                      {priority === "high"
+                        ? "High Priority"
+                        : priority === "medium"
+                          ? "Medium Priority"
+                          : "Low Priority"}
                     </p>
                   </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:grid sm:grid-cols-[repeat(auto-fill,minmax(60px,1fr))] sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
-                    {plannedMonthly.map((goal) => (
-                      <Tooltip
-                        key={goal.id}
-                        content={goal.name}
-                        color="foreground"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onToggleGoalLog?.(goal.id, currentDateKey)
-                          }
-                          className="relative flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-default-200 bg-content2 p-2 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground sm:aspect-square sm:h-auto sm:w-full sm:shrink sm:gap-2 sm:p-3"
-                        >
-                          <Icon
-                            icon={goal.iconKey || "mdi:circle"}
-                            className="h-5 w-5 sm:h-7 sm:w-7"
-                          />
-                        </button>
-                      </Tooltip>
-                    ))}
+                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
+                    {items.map((item) => renderIconButton(item))}
                   </div>
                 </div>
-              );
-            })()}
+              ))}
 
-            {(() => {
-              const completedPeriodicGoals = periodicGoals.filter(
-                (g) =>
-                  logsByGoalDate[`${g.id}_${currentDateKey}`] === "complete",
-              );
-              const totalCompleted =
-                completedItems.length + completedPeriodicGoals.length;
-
-              if (totalCompleted === 0 && pendingItems.length === 0) {
-                return (
-                  <div className="flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-8 text-sm text-foreground-500">
-                    No active goals configured.
-                  </div>
+              {(() => {
+                const plannedMonthly = periodicGoals.filter(
+                  (g) =>
+                    logsByGoalDate[`${g.id}_${currentDateKey}`] === "planned",
                 );
-              }
-
-              if (totalCompleted === 0) return null;
-
-              return (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowCompleted((c) => !c)}
-                    className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
-                  >
-                    <Icon
-                      icon={
-                        showCompleted
-                          ? "fa7-solid:chevron-down"
-                          : "fa7-solid:chevron-right"
-                      }
-                      className="h-3 w-3"
-                    />
-                    Show completed ({totalCompleted})
-                  </button>
-                  {showCompleted && (
-                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:grid sm:grid-cols-[repeat(auto-fill,minmax(48px,1fr))] sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
-                      {completedItems.map((item) =>
-                        renderIconButton(item, "small"),
-                      )}
-                      {completedPeriodicGoals.map((goal) => (
+                if (plannedMonthly.length === 0) return null;
+                return (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2 sm:mb-3">
+                      <span className="h-2 w-2 rounded-full bg-foreground-400" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
+                        Planned Monthly Goals
+                      </p>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
+                      {plannedMonthly.map((goal) => (
                         <Tooltip
                           key={goal.id}
                           content={goal.name}
@@ -2052,31 +2209,91 @@ const DayView = ({
                             onClick={() =>
                               onToggleGoalLog?.(goal.id, currentDateKey)
                             }
-                            className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all sm:aspect-square sm:h-auto sm:w-full sm:gap-1.5"
+                            className="relative flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-default-200 bg-content2 p-2 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground sm:h-24 sm:w-24 sm:gap-2 sm:p-4"
                           >
                             <Icon
                               icon={goal.iconKey || "mdi:circle"}
-                              className="h-5 w-5 sm:h-6 sm:w-6"
+                              className="h-5 w-5 sm:h-8 sm:w-8 lg:h-9 lg:w-9"
                             />
                           </button>
                         </Tooltip>
                       ))}
                     </div>
-                  )}
-                </div>
-              );
-            })()}
+                  </div>
+                );
+              })()}
 
-            {dayScore.max > 0 ? (
-              <div className="hidden justify-center pt-2 sm:flex">
-                {renderDayScoreRings()}
-              </div>
-            ) : null}
+              {(() => {
+                const completedPeriodicGoals = periodicGoals.filter(
+                  (g) =>
+                    logsByGoalDate[`${g.id}_${currentDateKey}`] === "complete",
+                );
+                const totalCompleted =
+                  completedItems.length + completedPeriodicGoals.length;
+
+                if (totalCompleted === 0 && pendingItems.length === 0) {
+                  return (
+                    <div className="flex items-center justify-center rounded-[20px] border border-dashed border-default-200 py-8 text-sm text-foreground-500">
+                      No active goals configured.
+                    </div>
+                  );
+                }
+
+                if (totalCompleted === 0) return null;
+
+                return (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCompleted((c) => !c)}
+                      className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
+                    >
+                      <Icon
+                        icon={
+                          showCompleted
+                            ? "fa7-solid:chevron-down"
+                            : "fa7-solid:chevron-right"
+                        }
+                        className="h-3 w-3"
+                      />
+                      Show completed ({totalCompleted})
+                    </button>
+                    {showCompleted && (
+                      <div className="mt-2 flex items-start gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
+                        {completedItems.map((item) =>
+                          renderCompletedGoalItem(item),
+                        )}
+                        {completedPeriodicGoals.map((goal) => (
+                          <Tooltip
+                            key={goal.id}
+                            content={goal.name}
+                            color="foreground"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onToggleGoalLog?.(goal.id, currentDateKey)
+                              }
+                              className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all sm:h-20 sm:w-20 sm:gap-1.5 sm:p-3"
+                            >
+                              <Icon
+                                icon={goal.iconKey || "mdi:circle"}
+                                className="h-5 w-5 sm:h-7 sm:w-7"
+                              />
+                            </button>
+                          </Tooltip>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         </div>
 
         {dayEntries.length > 0 ? (
-          <div className="bg-content1 border-divider rounded-[24px] border p-3 sm:rounded-3xl sm:p-5">
+          <div className="px-1 sm:px-0">
             <div className="space-y-3">
               {dayEntries.map((entry) => (
                 <button
@@ -2382,6 +2599,12 @@ export const PortableCalendar = ({
   );
 
   useEffect(() => {
+    setIsSidebarCollapsed(
+      window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY).matches,
+    );
+  }, []);
+
+  useEffect(() => {
     fetchCalendarSettings()
       .then((s) => setCalSettings(s))
       .catch(() => {});
@@ -2520,40 +2743,44 @@ export const PortableCalendar = ({
     [goalMetrics, showLowerPriorityGoals],
   );
 
-  const dailyGoalMetrics = useMemo(() => {
-    const last10Days = Array.from({ length: 10 }, (_, i) => {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() - (9 - i));
-      return toDateKey(d);
-    });
-    const allLogs: Record<string, "complete" | "planned"> = {
+  const allGoalLogsByDate = useMemo<Record<string, "complete" | "planned">>(
+    () => ({
       ...prevMonthGoalLogsByDate,
       ...goalLogsSnapshot.logsByGoalDate,
-    };
-    return goalLogsSnapshot.categories.map((cat) => ({
-      category: cat,
-      goals: cat.goals.map((goal) => ({
-        goal,
-        days: last10Days.map((dateKey) => ({
-          dateKey,
-          done: allLogs[`${goal.id}_${dateKey}`] === "complete",
-        })),
-      })),
-    }));
-  }, [currentDate, goalLogsSnapshot, prevMonthGoalLogsByDate]);
+    }),
+    [goalLogsSnapshot.logsByGoalDate, prevMonthGoalLogsByDate],
+  );
+
+  const dailyGoalMetrics = useMemo(() => {
+    return buildDailyGoalMetricsForDate({
+      currentDate,
+      categories: goalLogsSnapshot.categories,
+      logsByGoalDate: allGoalLogsByDate,
+    });
+  }, [allGoalLogsByDate, currentDate, goalLogsSnapshot.categories]);
 
   const displayedDailyGoalMetrics = useMemo(
     () =>
-      dailyGoalMetrics
-        .map(({ category, goals }) => ({
-          category,
-          goals: goals.filter(
-            ({ goal }) => showLowerPriorityGoals || goal.priority === "high",
-          ),
-        }))
-        .filter(({ goals }) => goals.length > 0),
+      filterDailyGoalMetricsByPriority(
+        dailyGoalMetrics,
+        showLowerPriorityGoals,
+      ),
     [dailyGoalMetrics, showLowerPriorityGoals],
   );
+
+  const buildHabitShareTextForDate = (date: Date) =>
+    buildHabitShareText({
+      title,
+      currentDate: date,
+      dailyGoalMetrics: filterDailyGoalMetricsByPriority(
+        buildDailyGoalMetricsForDate({
+          currentDate: date,
+          categories: filteredDailyCategories,
+          logsByGoalDate: allGoalLogsByDate,
+        }),
+        showLowerPriorityGoals,
+      ),
+    });
 
   const lowerPrioritySidebarGoals = useMemo(() => {
     const items = [
@@ -2587,6 +2814,62 @@ export const PortableCalendar = ({
       .sort((a, b) => compareTasksByPriority(a, b, taskCompletionDateKey))
       .slice(0, 5);
   }, [sidebarTasks, taskCompletionDateKey]);
+
+  const copyHabitShareText = async (habitShareText: string) => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard sharing is not available in this browser.");
+    }
+
+    await navigator.clipboard.writeText(habitShareText);
+    addToast({
+      title: "Copied share results",
+      description: "Paste the habit grid into a message to share it.",
+      color: "success",
+    });
+  };
+
+  const handleShareHabitResults = async (date = currentDate) => {
+    const habitShareText = buildHabitShareTextForDate(date);
+
+    if (!habitShareText) {
+      addToast({
+        title: "Nothing to share yet",
+        description:
+          "No visible daily goal history is available for this view.",
+        color: "warning",
+      });
+      return;
+    }
+
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({
+          title,
+          text: habitShareText,
+        });
+        return;
+      }
+
+      await copyHabitShareText(habitShareText);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+
+      try {
+        await copyHabitShareText(habitShareText);
+      } catch (clipboardError) {
+        addToast({
+          title: "Could not share results",
+          description:
+            clipboardError instanceof Error
+              ? clipboardError.message
+              : undefined,
+          color: "danger",
+        });
+      }
+    }
+  };
 
   const handleCompleteSidebarTask = (task: Task) => {
     if (task.completedAt === taskCompletionDateKey) {
@@ -2959,19 +3242,30 @@ export const PortableCalendar = ({
               className={cn(
                 "border-divider bg-content1/70 flex w-full flex-col border-b transition-all duration-200 lg:shrink-0 lg:border-r lg:border-b-0",
                 isSidebarCollapsed
-                  ? "items-center p-1.5 lg:w-14 lg:p-2"
+                  ? "items-end p-1.5 lg:w-14 lg:items-center lg:p-2"
                   : "p-3 lg:w-[250px]",
               )}
             >
               {isSidebarCollapsed ? (
                 <>
                   <Button
+                    size="sm"
+                    variant="light"
+                    onPress={() => setIsSidebarCollapsed(false)}
+                    title="Show Dashboard"
+                    className="h-8 px-2 font-medium text-foreground-500 lg:hidden"
+                    endContent={<ChevronRightIcon />}
+                  >
+                    Show Dashboard
+                  </Button>
+                  <Button
                     isIconOnly
                     size="sm"
                     variant="light"
                     onPress={() => setIsSidebarCollapsed(false)}
-                    title="Show sidebar"
-                    className="h-8 w-8"
+                    title="Show Dashboard"
+                    aria-label="Show Dashboard"
+                    className="hidden h-8 w-8 lg:inline-flex"
                   >
                     <ChevronRightIcon />
                   </Button>
@@ -3156,7 +3450,7 @@ export const PortableCalendar = ({
                       className="flex w-full items-center gap-1 text-left"
                     >
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                        {formatMonthYear(currentDate)} Daily Goals
+                        Daily Goals (Last 10 Days)
                       </span>
                       <Icon
                         icon={
@@ -3421,6 +3715,9 @@ export const PortableCalendar = ({
                       hiddenGoalKeys={hiddenGoalKeys}
                       onCustomDayIconsByDateChange={setMonthViewIconsByDate}
                       onGoalLogsSnapshotChange={setGoalLogsSnapshot}
+                      onShareHabitResults={(date) =>
+                        void handleShareHabitResults(date)
+                      }
                       monthlyGoalSlots={calSettings.monthlyGoalSlots}
                       visibleCategoryIds={calSettings.visibleCategoryIds}
                     />
@@ -3444,6 +3741,9 @@ export const PortableCalendar = ({
                       notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
                       onToggleGoalLog={handleDayViewToggleGoalLog}
                       onSaveGoalNote={handleDayViewSaveGoalNote}
+                      onShareHabitResults={() =>
+                        void handleShareHabitResults(currentDate)
+                      }
                     />
                   )}
                 </div>
