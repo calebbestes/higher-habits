@@ -40,8 +40,18 @@ const NAV_SECTIONS = [
     key: "friends",
     label: "My Friends",
     icon: "fa7-solid:user-group",
-    items: [],
+    items: [
+      { label: "Friends", icon: "fa7-solid:user-group", href: "/friends" },
+    ],
   },
+] as const;
+
+const MOBILE_NAV_ITEMS = [
+  { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
+  { label: "Friends", icon: "fa7-solid:user-group", href: "/friends" },
+  { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
+  { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
+  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
 ] as const;
 
 type NavSectionKey = (typeof NAV_SECTIONS)[number]["key"];
@@ -289,10 +299,37 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-auto">
+        <main className="flex min-h-0 flex-1 flex-col overflow-auto pb-20 lg:pb-0">
           {children}
         </main>
       </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-divider bg-content1/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-lg backdrop-blur lg:hidden">
+        <ul className="grid grid-cols-5 gap-1">
+          {MOBILE_NAV_ITEMS.map((item) => {
+            const isCurrent = isNavActive(item.href, pathname);
+
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={() => setIsMobileOpen(false)}
+                  aria-current={isCurrent ? "page" : undefined}
+                  className={cn(
+                    "flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
+                    isCurrent
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
+                  )}
+                >
+                  <Icon icon={item.icon} className="h-5 w-5 shrink-0" />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
       {/* ── Sign-out confirmation modal ──────────────────────────── */}
       <Modal
