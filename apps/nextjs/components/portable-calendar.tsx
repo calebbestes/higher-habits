@@ -131,6 +131,7 @@ type PortableCalendarProps = {
   initialView?: CalendarView;
   title?: string;
   allowCreate?: boolean;
+  initialDashboardOpen?: boolean;
   onDateSelect?: (date: Date) => void;
   onEntrySelect?: (entry: PortableCalendarEntry) => void;
   onEntriesChange?: (entries: PortableCalendarEntry[]) => void;
@@ -2548,6 +2549,7 @@ export const PortableCalendar = ({
   initialDate,
   initialCalendarData = null,
   initialView = "month",
+  initialDashboardOpen = false,
   title = "Habit Calendar",
   allowCreate = true,
   onDateSelect,
@@ -2600,9 +2602,11 @@ export const PortableCalendar = ({
 
   useEffect(() => {
     setIsSidebarCollapsed(
-      window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY).matches,
+      initialDashboardOpen
+        ? false
+        : window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY).matches,
     );
-  }, []);
+  }, [initialDashboardOpen]);
 
   useEffect(() => {
     fetchCalendarSettings()
@@ -3824,13 +3828,18 @@ export const PortableCalendar = ({
 export function MonthCalendar({
   initialDate,
   initialCalendarData,
-}: Pick<PortableCalendarProps, "initialDate" | "initialCalendarData">) {
+  initialDashboardOpen,
+}: Pick<
+  PortableCalendarProps,
+  "initialDate" | "initialCalendarData" | "initialDashboardOpen"
+>) {
   return (
     <PortableCalendar
       title="Habit Calendar"
       initialView="day"
       initialDate={initialDate}
       initialCalendarData={initialCalendarData}
+      initialDashboardOpen={initialDashboardOpen}
     />
   );
 }

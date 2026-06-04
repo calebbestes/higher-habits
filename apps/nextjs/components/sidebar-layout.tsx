@@ -7,6 +7,9 @@ import {
   ModalContent,
   ModalFooter,
   ModalHeader,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   cn,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
@@ -49,9 +52,17 @@ const NAV_SECTIONS = [
 const MOBILE_NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
   { label: "Friends", icon: "fa7-solid:user-group", href: "/friends" },
+  {
+    label: "Dashboard",
+    icon: "fa7-solid:gauge-high",
+    href: "/calendar?dashboard=1",
+  },
+  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
+] as const;
+
+const MOBILE_ADD_ITEMS = [
   { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
   { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
-  { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
 ] as const;
 
 type NavSectionKey = (typeof NAV_SECTIONS)[number]["key"];
@@ -76,6 +87,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
   const [openSections, setOpenSections] = useState(DEFAULT_OPEN_SECTIONS);
+  const [isMobileAddOpen, setIsMobileAddOpen] = useState(false);
   const isAuthPage = pathname === "/login" || pathname === "/sign-up";
 
   useEffect(() => {
@@ -306,7 +318,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-divider bg-content1/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-lg backdrop-blur lg:hidden">
         <ul className="grid grid-cols-5 gap-1">
-          {MOBILE_NAV_ITEMS.map((item) => {
+          {MOBILE_NAV_ITEMS.slice(0, 2).map((item) => {
             const isCurrent = isNavActive(item.href, pathname);
 
             return (
@@ -314,6 +326,74 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                 <Link
                   href={item.href}
                   onClick={() => setIsMobileOpen(false)}
+                  aria-current={isCurrent ? "page" : undefined}
+                  className={cn(
+                    "flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
+                    isCurrent
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
+                  )}
+                >
+                  <Icon icon={item.icon} className="h-5 w-5 shrink-0" />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li>
+            <Popover
+              isOpen={isMobileAddOpen}
+              onOpenChange={setIsMobileAddOpen}
+              placement="top"
+            >
+              <PopoverTrigger>
+                <button
+                  type="button"
+                  aria-label="Add"
+                  className={cn(
+                    "flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
+                    isMobileAddOpen
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
+                  )}
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                    <Icon icon="fa7-solid:plus" className="h-4 w-4" />
+                  </span>
+                  <span className="max-w-full truncate">Add</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-36 p-2">
+                <div className="grid gap-1">
+                  {MOBILE_ADD_ITEMS.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => {
+                        setIsMobileOpen(false);
+                        setIsMobileAddOpen(false);
+                      }}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-foreground-700 transition-colors hover:bg-default-100 hover:text-foreground"
+                    >
+                      <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </li>
+          {MOBILE_NAV_ITEMS.slice(2).map((item) => {
+            const isCurrent = isNavActive(item.href, pathname);
+
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={() => {
+                    setIsMobileOpen(false);
+                    setIsMobileAddOpen(false);
+                  }}
                   aria-current={isCurrent ? "page" : undefined}
                   className={cn(
                     "flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",

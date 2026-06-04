@@ -6,8 +6,21 @@ import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
 import { getMonthKey, toDateKey } from "@/lib/habit-state";
 
-export default async function CalendarPage() {
+type CalendarPageProps = {
+  searchParams?: Promise<{
+    dashboard?: string | string[];
+  }>;
+};
+
+export default async function CalendarPage({
+  searchParams,
+}: CalendarPageProps) {
   const user = await requireUser();
+  const resolvedSearchParams = await searchParams;
+  const dashboardParam = resolvedSearchParams?.dashboard;
+  const initialDashboardOpen = Array.isArray(dashboardParam)
+    ? dashboardParam.includes("1") || dashboardParam.includes("true")
+    : dashboardParam === "1" || dashboardParam === "true";
   const now = new Date();
   const initialDate = toDateKey(now);
 
@@ -25,6 +38,7 @@ export default async function CalendarPage() {
         <MonthCalendar
           initialDate={initialDate}
           initialCalendarData={initialCalendarData}
+          initialDashboardOpen={initialDashboardOpen}
         />
       </div>
     </div>
