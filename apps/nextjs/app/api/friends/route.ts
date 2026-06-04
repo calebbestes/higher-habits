@@ -1,12 +1,13 @@
 import {
   type GoalPriority,
+  friendMessages,
   friends,
   getDb,
   goalLogs,
   goals,
   users,
 } from "@habit/db";
-import { and, asc, desc, eq, gte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -22,6 +23,16 @@ const createFriendSchema = z.object({
 
 const getDatabase = () => getDb() ?? null;
 type FriendsDb = NonNullable<ReturnType<typeof getDatabase>>;
+
+type MessageHistoryRow = {
+  id: string;
+  friendshipId: string;
+  senderId: string;
+  recipientId: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+};
 
 const PRIORITY_POINTS: Record<GoalPriority, number> = {
   high: 3,
@@ -169,9 +180,46 @@ export async function GET(request: Request) {
       .where(or(eq(friends.userId1, user.id), eq(friends.userId2, user.id)))
       .orderBy(asc(users.name), asc(users.email));
 
+    const friendshipIds = rows.map((row) => row.id);
+    const messageRows =
+      friendshipIds.length > 0
+        ? await db
+            .select({
+              id: friendMessages.id,
+              friendshipId: friendMessages.friendshipId,
+              senderId: friendMessages.senderId,
+              recipientId: friendMessages.recipientId,
+              body: friendMessages.body,
+              createdAt: friendMessages.createdAt,
+              readAt: friendMessages.readAt,
+            })
+            .from(friendMessages)
+            .where(
+              and(
+                inArray(friendMessages.friendshipId, friendshipIds),
+                eq(friendMessages.type, "message"),
+              ),
+            )
+            .orderBy(asc(friendMessages.createdAt))
+        : [];
+
+    const messagesByFriendshipId = new Map<string, MessageHistoryRow[]>();
+
+    for (const message of messageRows) {
+      const messages = messagesByFriendshipId.get(message.friendshipId) ?? [];
+
+      messages.push({
+        ...message,
+        createdAt: message.createdAt.toISOString(),
+        readAt: message.readAt?.toISOString() ?? null,
+      });
+      messagesByFriendshipId.set(message.friendshipId, messages);
+    }
+
     const rowsWithActivity = await Promise.all(
       rows.map(async (row) => ({
         ...row,
+        messages: messagesByFriendshipId.get(row.id) ?? [],
         ...(row.status === "accepted"
           ? await getFriendActivitySummary(db, row.friendId)
           : {
@@ -282,6 +330,7 @@ export async function POST(request: Request) {
       lastActiveDate: null,
       performance7Day: null,
       goalOptions: [],
+      messages: [],
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
