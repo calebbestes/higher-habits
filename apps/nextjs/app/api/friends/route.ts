@@ -34,6 +34,15 @@ type MessageHistoryRow = {
   readAt: string | null;
 };
 
+type IncentiveHistoryRow = MessageHistoryRow & {
+  streakDays: number | null;
+  streakPercent: number | null;
+  goalScope: "all" | "shared" | "single" | "high" | null;
+  goalId: string | null;
+  goalName: string | null;
+  accepted: boolean | null;
+};
+
 const PRIORITY_POINTS: Record<GoalPriority, number> = {
   high: 3,
   medium: 2,
@@ -181,7 +190,7 @@ export async function GET(request: Request) {
       .orderBy(asc(users.name), asc(users.email));
 
     const friendshipIds = rows.map((row) => row.id);
-    const messageRows =
+    const friendMessageRows =
       friendshipIds.length > 0
         ? await db
             .select({
@@ -189,37 +198,65 @@ export async function GET(request: Request) {
               friendshipId: friendMessages.friendshipId,
               senderId: friendMessages.senderId,
               recipientId: friendMessages.recipientId,
+              type: friendMessages.type,
               body: friendMessages.body,
+              accepted: friendMessages.accepted,
+              streakDays: friendMessages.streakDays,
+              streakPercent: friendMessages.streakPercent,
+              goalScope: friendMessages.goalScope,
+              goalId: friendMessages.goalId,
+              goalName: goals.name,
               createdAt: friendMessages.createdAt,
               readAt: friendMessages.readAt,
             })
             .from(friendMessages)
-            .where(
-              and(
-                inArray(friendMessages.friendshipId, friendshipIds),
-                eq(friendMessages.type, "message"),
-              ),
-            )
+            .leftJoin(goals, eq(friendMessages.goalId, goals.id))
+            .where(inArray(friendMessages.friendshipId, friendshipIds))
             .orderBy(asc(friendMessages.createdAt))
         : [];
 
     const messagesByFriendshipId = new Map<string, MessageHistoryRow[]>();
+    const incentivesByFriendshipId = new Map<string, IncentiveHistoryRow[]>();
 
-    for (const message of messageRows) {
-      const messages = messagesByFriendshipId.get(message.friendshipId) ?? [];
-
-      messages.push({
-        ...message,
+    for (const message of friendMessageRows) {
+      const baseMessage = {
+        id: message.id,
+        friendshipId: message.friendshipId,
+        senderId: message.senderId,
+        recipientId: message.recipientId,
+        body: message.body,
         createdAt: message.createdAt.toISOString(),
         readAt: message.readAt?.toISOString() ?? null,
+      };
+
+      if (message.type === "message") {
+        const messages = messagesByFriendshipId.get(message.friendshipId) ?? [];
+
+        messages.push(baseMessage);
+        messagesByFriendshipId.set(message.friendshipId, messages);
+        continue;
+      }
+
+      const incentives =
+        incentivesByFriendshipId.get(message.friendshipId) ?? [];
+
+      incentives.push({
+        ...baseMessage,
+        streakDays: message.streakDays,
+        streakPercent: message.streakPercent,
+        goalScope: message.goalScope,
+        goalId: message.goalId,
+        goalName: message.goalName,
+        accepted: message.accepted,
       });
-      messagesByFriendshipId.set(message.friendshipId, messages);
+      incentivesByFriendshipId.set(message.friendshipId, incentives);
     }
 
     const rowsWithActivity = await Promise.all(
       rows.map(async (row) => ({
         ...row,
         messages: messagesByFriendshipId.get(row.id) ?? [],
+        incentives: incentivesByFriendshipId.get(row.id) ?? [],
         ...(row.status === "accepted"
           ? await getFriendActivitySummary(db, row.friendId)
           : {
@@ -331,6 +368,7 @@ export async function POST(request: Request) {
       performance7Day: null,
       goalOptions: [],
       messages: [],
+      incentives: [],
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
