@@ -14,40 +14,10 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
-
-const NAV_SECTIONS = [
-  {
-    key: "habits",
-    label: "My Habits",
-    icon: "fa7-solid:seedling",
-    items: [
-      { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
-      { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
-      { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
-      { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
-    ],
-  },
-  {
-    key: "tables",
-    label: "My Tables",
-    icon: "fa7-solid:table-list",
-    items: [
-      { label: "Contacts", icon: "fa7-solid:address-book", href: "/contacts" },
-    ],
-  },
-  {
-    key: "friends",
-    label: "My Friends",
-    icon: "fa7-solid:user-group",
-    items: [
-      { label: "Friends", icon: "fa7-solid:user-group", href: "/friends" },
-    ],
-  },
-] as const;
 
 const MOBILE_NAV_ITEMS = [
   { label: "Calendar", icon: "fa7-solid:calendar", href: "/calendar" },
@@ -65,30 +35,53 @@ const MOBILE_ADD_ITEMS = [
   { label: "Tasks", icon: "fa7-solid:list-check", href: "/tasks" },
 ] as const;
 
-type NavSectionKey = (typeof NAV_SECTIONS)[number]["key"];
+const CONTACTS_NAV_ITEM = {
+  label: "Contacts",
+  icon: "fa7-solid:address-book",
+  href: "/contacts",
+} as const;
 
-const DEFAULT_OPEN_SECTIONS: Record<NavSectionKey, boolean> = {
-  friends: true,
-  habits: true,
-  tables: true,
-};
+function isDashboardPath(pathname: string, dashboardParam: string | null) {
+  return (
+    pathname.startsWith("/calendar") &&
+    (dashboardParam === "1" || dashboardParam === "true")
+  );
+}
 
-function isNavActive(href: string, pathname: string): boolean {
-  if (href === "/calendar")
-    return pathname === "/" || pathname.startsWith("/calendar");
+function isNavActive(
+  href: string,
+  pathname: string,
+  dashboardParam: string | null,
+): boolean {
+  const isDashboard = isDashboardPath(pathname, dashboardParam);
+
+  if (href === "/calendar") {
+    return (
+      (pathname === "/" || pathname.startsWith("/calendar")) && !isDashboard
+    );
+  }
+
+  if (href === "/calendar?dashboard=1") {
+    return isDashboard;
+  }
+
   return pathname.startsWith(href);
 }
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const dashboardParam = searchParams.get("dashboard");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
-  const [openSections, setOpenSections] = useState(DEFAULT_OPEN_SECTIONS);
   const [isMobileAddOpen, setIsMobileAddOpen] = useState(false);
   const isAuthPage = pathname === "/login" || pathname === "/sign-up";
+  const isAddRoute = MOBILE_ADD_ITEMS.some((item) =>
+    isNavActive(item.href, pathname, dashboardParam),
+  );
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
@@ -147,88 +140,158 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
         {/* Sidebar.Content */}
         <nav className="flex-1 overflow-y-auto py-3">
-          <div className="space-y-2 px-2">
-            {NAV_SECTIONS.map((section) => {
-              const isOpen = openSections[section.key];
+          <ul className="space-y-1 px-2">
+            {MOBILE_NAV_ITEMS.slice(0, 2).map((item) => {
+              const isCurrent = isNavActive(
+                item.href,
+                pathname,
+                dashboardParam,
+              );
 
               return (
-                <section key={section.key} className="space-y-1">
-                  <button
-                    type="button"
-                    aria-expanded={isOpen}
-                    title={isCollapsed ? section.label : undefined}
-                    onClick={() =>
-                      setOpenSections((current) => ({
-                        ...current,
-                        [section.key]: !current[section.key],
-                      }))
-                    }
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => setIsMobileOpen(false)}
+                    title={isCollapsed ? item.label : undefined}
+                    aria-current={isCurrent ? "page" : undefined}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-foreground-700 transition-colors hover:bg-default-100 hover:text-foreground",
+                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
                       isCollapsed && "lg:justify-center lg:px-0",
+                      isCurrent
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
                     )}
                   >
-                    <Icon icon={section.icon} className="h-4 w-4 shrink-0" />
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 truncate text-left",
-                        isCollapsed && "lg:hidden",
-                      )}
-                    >
-                      {section.label}
+                    <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                    <span className={cn(isCollapsed && "lg:hidden")}>
+                      {item.label}
                     </span>
-                    <Icon
-                      icon="fa7-solid:chevron-down"
-                      className={cn(
-                        "h-3 w-3 shrink-0 text-foreground-400 transition-transform",
-                        !isOpen && "-rotate-90",
-                        isCollapsed && "lg:hidden",
-                      )}
-                    />
-                  </button>
-
-                  {isOpen && section.items.length > 0 && (
-                    <ul
-                      className={cn(
-                        "ml-8 space-y-1 border-l border-divider pl-3",
-                        isCollapsed && "lg:ml-0 lg:border-l-0 lg:pl-0",
-                      )}
-                    >
-                      {section.items.map((item) => {
-                        const isCurrent = isNavActive(item.href, pathname);
-
-                        return (
-                          <li key={item.href}>
-                            <Link
-                              href={item.href}
-                              onClick={() => setIsMobileOpen(false)}
-                              title={isCollapsed ? item.label : undefined}
-                              aria-current={isCurrent ? "page" : undefined}
-                              className={cn(
-                                "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-                                isCollapsed && "lg:justify-center lg:px-0",
-                                isCurrent
-                                  ? "bg-primary text-primary-foreground shadow-sm"
-                                  : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
-                              )}
-                            >
-                              <Icon
-                                icon={item.icon}
-                                className="h-4 w-4 shrink-0"
-                              />
-                              <span className={cn(isCollapsed && "lg:hidden")}>
-                                {item.label}
-                              </span>
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </section>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+
+            <li>
+              <Link
+                href={CONTACTS_NAV_ITEM.href}
+                onClick={() => setIsMobileOpen(false)}
+                title={isCollapsed ? CONTACTS_NAV_ITEM.label : undefined}
+                aria-current={
+                  isNavActive(CONTACTS_NAV_ITEM.href, pathname, dashboardParam)
+                    ? "page"
+                    : undefined
+                }
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                  isCollapsed && "lg:justify-center lg:px-0",
+                  isNavActive(CONTACTS_NAV_ITEM.href, pathname, dashboardParam)
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
+                )}
+              >
+                <Icon
+                  icon={CONTACTS_NAV_ITEM.icon}
+                  className="h-4 w-4 shrink-0"
+                />
+                <span className={cn(isCollapsed && "lg:hidden")}>
+                  {CONTACTS_NAV_ITEM.label}
+                </span>
+              </Link>
+            </li>
+
+            <li className="space-y-1">
+              <div
+                title={isCollapsed ? "Add" : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                  isCollapsed && "lg:justify-center lg:px-0",
+                  isAddRoute
+                    ? "bg-primary/10 text-primary"
+                    : "text-foreground-700",
+                )}
+              >
+                <Icon icon="fa7-solid:plus" className="h-4 w-4 shrink-0" />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    isCollapsed && "lg:hidden",
+                  )}
+                >
+                  Add
+                </span>
+              </div>
+
+              <ul
+                className={cn(
+                  "ml-8 space-y-1 border-l border-divider pl-3",
+                  isCollapsed && "lg:ml-0 lg:border-l-0 lg:pl-0",
+                )}
+              >
+                {MOBILE_ADD_ITEMS.map((item) => {
+                  const isCurrent = isNavActive(
+                    item.href,
+                    pathname,
+                    dashboardParam,
+                  );
+
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={() => setIsMobileOpen(false)}
+                        title={isCollapsed ? item.label : undefined}
+                        aria-current={isCurrent ? "page" : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                          isCollapsed && "lg:justify-center lg:px-0",
+                          isCurrent
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
+                        )}
+                      >
+                        <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                        <span className={cn(isCollapsed && "lg:hidden")}>
+                          {item.label}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+
+            {MOBILE_NAV_ITEMS.slice(2).map((item) => {
+              const isCurrent = isNavActive(
+                item.href,
+                pathname,
+                dashboardParam,
+              );
+
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => setIsMobileOpen(false)}
+                    title={isCollapsed ? item.label : undefined}
+                    aria-current={isCurrent ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                      isCollapsed && "lg:justify-center lg:px-0",
+                      isCurrent
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
+                    )}
+                  >
+                    <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                    <span className={cn(isCollapsed && "lg:hidden")}>
+                      {item.label}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         </nav>
 
         {/* Sidebar.Footer */}
@@ -297,20 +360,6 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
       {/* ── Main area ────────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile-only top strip */}
-        <div className="flex h-10 shrink-0 items-center border-b border-divider bg-content1/80 px-2 lg:hidden">
-          <Button
-            isIconOnly
-            variant="light"
-            size="sm"
-            onPress={() => setIsMobileOpen((o) => !o)}
-            aria-label="Open menu"
-            className="h-8 w-8"
-          >
-            <Icon icon="fa7-solid:bars" className="h-4 w-4" />
-          </Button>
-        </div>
-
         <main className="flex min-h-0 flex-1 flex-col overflow-auto pb-20 lg:pb-0">
           {children}
         </main>
@@ -319,7 +368,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-divider bg-content1/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-lg backdrop-blur lg:hidden">
         <ul className="grid grid-cols-5 gap-1">
           {MOBILE_NAV_ITEMS.slice(0, 2).map((item) => {
-            const isCurrent = isNavActive(item.href, pathname);
+            const isCurrent = isNavActive(item.href, pathname, dashboardParam);
 
             return (
               <li key={item.href}>
@@ -352,7 +401,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   aria-label="Add"
                   className={cn(
                     "flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
-                    isMobileAddOpen
+                    isMobileAddOpen || isAddRoute
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
                   )}
@@ -384,7 +433,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </Popover>
           </li>
           {MOBILE_NAV_ITEMS.slice(2).map((item) => {
-            const isCurrent = isNavActive(item.href, pathname);
+            const isCurrent = isNavActive(item.href, pathname, dashboardParam);
 
             return (
               <li key={item.href}>

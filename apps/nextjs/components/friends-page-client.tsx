@@ -31,6 +31,17 @@ type FriendMessageRow = {
   readAt: string | null;
 };
 
+type StreakGoalScope = "all" | "shared" | "single" | "high";
+
+type FriendIncentiveRow = FriendMessageRow & {
+  streakDays: number | null;
+  streakPercent: number | null;
+  goalScope: StreakGoalScope | null;
+  goalId: string | null;
+  goalName: string | null;
+  accepted: boolean | null;
+};
+
 type FriendRow = {
   id: string;
   userId1: string;
@@ -52,11 +63,11 @@ type FriendRow = {
     name: string;
   }>;
   messages: FriendMessageRow[];
+  incentives: FriendIncentiveRow[];
 };
 
 type FriendsSection = "messages" | "incentives" | "shared-goals" | "friends";
 type NudgeMode = "message" | "incentive";
-type StreakGoalScope = "all" | "shared" | "single" | "high";
 
 type SendMessagePayload =
   | { type: "message"; body: string }
@@ -77,6 +88,13 @@ const FRIENDS_SECTIONS: Array<{ key: FriendsSection; label: string }> = [
   { key: "shared-goals", label: "Shared Goals" },
   { key: "friends", label: "Friends" },
 ];
+
+const GOAL_SCOPE_LABELS: Record<StreakGoalScope, string> = {
+  all: "All goals",
+  shared: "Shared goal",
+  single: "Single goal",
+  high: "High priority goals",
+};
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json()) as unknown;
@@ -122,6 +140,16 @@ async function sendFriendMessage(
   });
 
   return parseJsonResponse<{ id: string }>(response);
+}
+
+async function acceptFriendIncentive(friendshipId: string, messageId: string) {
+  const response = await fetch(`/api/friends/${friendshipId}/messages`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId }),
+  });
+
+  return parseJsonResponse<{ id: string; accepted: boolean | null }>(response);
 }
 
 function firstSelection(keys: Selection) {
@@ -281,22 +309,22 @@ function MessagesSection({
   onIncentivize: (friend: FriendRow) => void;
 }) {
   return (
-    <section className="grid min-h-[34rem] flex-1 overflow-hidden rounded-2xl border border-divider bg-content1 md:grid-cols-[18rem_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-b border-divider md:border-b-0 md:border-r">
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-divider px-4">
+    <section className="flex min-h-[28rem] flex-1 flex-col overflow-hidden rounded-xl border border-divider bg-content1 sm:rounded-2xl md:grid md:min-h-[34rem] md:grid-cols-[18rem_minmax(0,1fr)]">
+      <aside className="shrink-0 border-b border-divider md:flex md:min-h-0 md:flex-col md:border-r md:border-b-0">
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-divider px-3 sm:h-14 sm:px-4">
           <h2 className="text-sm font-semibold">Messages</h2>
           <span className="rounded-full bg-default-100 px-2 py-1 text-xs font-semibold tabular-nums text-foreground-500">
             {acceptedFriends.length}
           </span>
         </div>
 
-        <div className="min-h-0 overflow-y-auto">
+        <div className="overflow-x-auto md:min-h-0 md:overflow-y-auto">
           {isLoading ? (
             <div className="flex h-36 items-center justify-center">
               <Spinner size="sm" />
             </div>
           ) : acceptedFriends.length > 0 ? (
-            <div className="divide-y divide-divider">
+            <div className="flex gap-2 p-2 md:block md:divide-y md:divide-divider md:p-0">
               {acceptedFriends.map((friend) => {
                 const isSelected = activeConversationId === friend.id;
                 const latestMessage = getLatestMessage(friend);
@@ -307,13 +335,14 @@ function MessagesSection({
                     type="button"
                     onClick={() => onSelectConversation(friend.id)}
                     className={cn(
-                      "flex w-full gap-3 px-4 py-3 text-left transition-colors",
+                      "flex w-40 shrink-0 gap-2 rounded-lg border border-divider px-2 py-2 text-left transition-colors md:w-full md:rounded-none md:border-0 md:px-4 md:py-3",
                       isSelected ? "bg-primary/10" : "hover:bg-default-100/70",
                     )}
                   >
                     <FriendAvatar
                       image={friend.friendImage}
                       name={friend.friendName}
+                      sizeClassName="h-8 w-8 md:h-10 md:w-10"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
@@ -321,12 +350,12 @@ function MessagesSection({
                           {friend.friendName}
                         </p>
                         {latestMessage ? (
-                          <span className="shrink-0 text-[11px] text-foreground-400">
+                          <span className="hidden shrink-0 text-[11px] text-foreground-400 md:inline">
                             {formatMessageTime(latestMessage.createdAt)}
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-1 truncate text-xs text-foreground-500">
+                      <p className="mt-0.5 truncate text-xs text-foreground-500 md:mt-1">
                         {latestMessage?.body ?? "No messages yet"}
                       </p>
                     </div>
@@ -342,10 +371,10 @@ function MessagesSection({
         </div>
       </aside>
 
-      <div className="flex min-h-[28rem] min-w-0 flex-col">
+      <div className="flex min-h-[22rem] min-w-0 flex-1 flex-col sm:min-h-[28rem]">
         {conversationFriend ? (
           <>
-            <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-divider px-4">
+            <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-divider px-3 sm:px-4">
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold">
                   {conversationFriend.friendName}
@@ -366,7 +395,7 @@ function MessagesSection({
               </Button>
             </header>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-4 sm:px-4">
               {conversationFriend.messages.length > 0 ? (
                 conversationFriend.messages.map((message) => {
                   const isFromFriend =
@@ -382,7 +411,7 @@ function MessagesSection({
                     >
                       <div
                         className={cn(
-                          "max-w-[82%] rounded-2xl px-3 py-2 text-sm leading-6 shadow-sm",
+                          "max-w-[88%] rounded-2xl px-3 py-2 text-sm leading-6 shadow-sm sm:max-w-[82%]",
                           isFromFriend
                             ? "rounded-tl-md bg-default-100 text-foreground"
                             : "rounded-tr-md bg-primary text-primary-foreground",
@@ -414,7 +443,7 @@ function MessagesSection({
 
             <form
               onSubmit={onSendConversationMessage}
-              className="flex shrink-0 gap-2 border-t border-divider p-3"
+              className="flex shrink-0 gap-2 border-t border-divider p-2 sm:p-3"
             >
               <Input
                 aria-label="Message"
@@ -444,10 +473,182 @@ function MessagesSection({
   );
 }
 
-function IncentivesSection() {
+type IncentiveCardItem = {
+  friend: FriendRow;
+  incentive: FriendIncentiveRow;
+};
+
+function getIncentiveGoalLabel(
+  friend: FriendRow,
+  incentive: FriendIncentiveRow,
+) {
+  if (!incentive.goalScope) {
+    return "Overall progress";
+  }
+
+  if (incentive.goalScope !== "single") {
+    return GOAL_SCOPE_LABELS[incentive.goalScope];
+  }
+
+  const goalName =
+    incentive.goalName ??
+    friend.goalOptions.find((goal) => goal.id === incentive.goalId)?.name;
+
+  return goalName ? `${goalName}` : GOAL_SCOPE_LABELS.single;
+}
+
+function IncentiveCard({
+  item,
+  direction,
+  isAccepting,
+  onAccept,
+}: {
+  item: IncentiveCardItem;
+  direction: "sent" | "received";
+  isAccepting: boolean;
+  onAccept: (friendshipId: string, messageId: string) => void;
+}) {
+  const { friend, incentive } = item;
+  const isReceived = direction === "received";
+  const isAccepted = incentive.accepted === true;
+  const goalLabel = getIncentiveGoalLabel(friend, incentive);
+
   return (
-    <section className="flex min-h-64 flex-1 items-center justify-center rounded-2xl border border-dashed border-divider bg-content1/40 p-8 text-center">
-      <h2 className="text-xl font-semibold">Incentives</h2>
+    <article className="grid gap-3 rounded-lg border border-divider bg-content1 p-3 shadow-sm sm:p-4">
+      <p className="whitespace-pre-wrap break-words text-sm leading-6">
+        {incentive.body}
+      </p>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {incentive.streakDays ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-default-100 px-2 py-1 text-xs font-semibold text-foreground-600">
+              <Icon icon="mdi:calendar-range-outline" className="h-3.5 w-3.5" />
+              {incentive.streakDays} days
+            </span>
+          ) : null}
+          {incentive.streakPercent ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-default-100 px-2 py-1 text-xs font-semibold text-foreground-600">
+              <Icon icon="mdi:target-arrow" className="h-3.5 w-3.5" />
+              {incentive.streakPercent}%
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-1 rounded-full bg-default-100 px-2 py-1 text-xs font-semibold text-foreground-600">
+            <Icon icon="mdi:bullseye-arrow" className="h-3.5 w-3.5" />
+            {goalLabel}
+          </span>
+        </div>
+
+        {isReceived ? (
+          <Button
+            size="sm"
+            color={isAccepted ? "default" : "primary"}
+            variant={isAccepted ? "flat" : "solid"}
+            className="w-full sm:w-auto"
+            isDisabled={isAccepted}
+            isLoading={isAccepting}
+            onPress={() => onAccept(friend.id, incentive.id)}
+          >
+            {isAccepted ? "Accepted" : "Accept?"}
+          </Button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function IncentiveColumn({
+  title,
+  items,
+  direction,
+  emptyLabel,
+  acceptingIncentiveId,
+  onAcceptIncentive,
+}: {
+  title: string;
+  items: IncentiveCardItem[];
+  direction: "sent" | "received";
+  emptyLabel: string;
+  acceptingIncentiveId: string | null;
+  onAcceptIncentive: (friendshipId: string, messageId: string) => void;
+}) {
+  return (
+    <section className="grid content-start gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">{title}</h2>
+        <span className="rounded-full bg-default-100 px-2 py-1 text-xs font-semibold tabular-nums text-foreground-500">
+          {items.length}
+        </span>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="grid gap-3">
+          {items.map((item) => (
+            <IncentiveCard
+              key={item.incentive.id}
+              item={item}
+              direction={direction}
+              isAccepting={acceptingIncentiveId === item.incentive.id}
+              onAccept={onAcceptIncentive}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-divider bg-content1/40 p-4 text-sm text-foreground-500">
+          {emptyLabel}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function IncentivesSection({
+  isLoading,
+  friends,
+  acceptingIncentiveId,
+  onAcceptIncentive,
+}: {
+  isLoading: boolean;
+  friends: FriendRow[];
+  acceptingIncentiveId: string | null;
+  onAcceptIncentive: (friendshipId: string, messageId: string) => void;
+}) {
+  if (isLoading) {
+    return (
+      <section className="flex min-h-64 flex-1 items-center justify-center">
+        <Spinner size="sm" />
+      </section>
+    );
+  }
+
+  const incentiveItems = friends.flatMap((friend) =>
+    (friend.incentives ?? []).map((incentive) => ({ friend, incentive })),
+  );
+  const sentIncentives = incentiveItems.filter(
+    ({ friend, incentive }) => incentive.senderId !== friend.friendId,
+  );
+  const receivedIncentives = incentiveItems.filter(
+    ({ friend, incentive }) => incentive.senderId === friend.friendId,
+  );
+
+  return (
+    <section className="grid gap-5 lg:grid-cols-2">
+      <IncentiveColumn
+        title="Sent"
+        items={sentIncentives}
+        direction="sent"
+        emptyLabel="No incentives sent yet"
+        acceptingIncentiveId={acceptingIncentiveId}
+        onAcceptIncentive={onAcceptIncentive}
+      />
+      <IncentiveColumn
+        title="Received"
+        items={receivedIncentives}
+        direction="received"
+        emptyLabel="No incentives received yet"
+        acceptingIncentiveId={acceptingIncentiveId}
+        onAcceptIncentive={onAcceptIncentive}
+      />
     </section>
   );
 }
@@ -475,13 +676,13 @@ function FriendGridCard({
   );
 
   return (
-    <article className="grid gap-4 rounded-lg border border-divider bg-content1 p-4 shadow-sm transition-colors hover:border-primary/40">
-      <div className="flex items-start justify-between gap-3">
+    <article className="grid gap-4 rounded-lg border border-divider bg-content1 p-3 shadow-sm transition-colors hover:border-primary/40 sm:p-4">
+      <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <FriendAvatar
             image={friend.friendImage}
             name={friend.friendName}
-            sizeClassName="h-14 w-14"
+            sizeClassName="h-12 w-12 sm:h-14 sm:w-14"
           />
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold">
@@ -493,7 +694,7 @@ function FriendGridCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 gap-1">
+        <div className="flex shrink-0 gap-1 sm:justify-end">
           <Tooltip content="Message" color="foreground">
             <Button
               isIconOnly
@@ -542,7 +743,9 @@ function FriendGridCard({
             </dd>
           </div>
         </dl>
-        <PerformanceRing percent={performance?.percent ?? 0} />
+        <div className="justify-self-start sm:justify-self-auto">
+          <PerformanceRing percent={performance?.percent ?? 0} />
+        </div>
       </div>
     </article>
   );
@@ -576,7 +779,7 @@ function FriendsGridSection({
   }
 
   return (
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <section className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
       {friends.map((friend) => (
         <FriendGridCard
           key={friend.id}
@@ -607,6 +810,9 @@ export function FriendsPageClient() {
   const [streakDays, setStreakDays] = useState("7");
   const [streakPercentRequired, setStreakPercentRequired] = useState("80");
   const [incentiveText, setIncentiveText] = useState("");
+  const [acceptingIncentiveId, setAcceptingIncentiveId] = useState<
+    string | null
+  >(null);
   const [email, setEmail] = useState("");
 
   const friendsQuery = useQuery({
@@ -663,6 +869,36 @@ export function FriendsPageClient() {
     },
   });
 
+  const acceptIncentiveMutation = useMutation({
+    mutationFn: ({
+      friendshipId,
+      messageId,
+    }: {
+      friendshipId: string;
+      messageId: string;
+    }) => acceptFriendIncentive(friendshipId, messageId),
+    onMutate: ({ messageId }) => {
+      setAcceptingIncentiveId(messageId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["friends"] });
+      addToast({
+        title: "Incentive accepted",
+        color: "success",
+      });
+    },
+    onError: (error) => {
+      addToast({
+        title: "Could not accept incentive",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    },
+    onSettled: () => {
+      setAcceptingIncentiveId(null);
+    },
+  });
+
   const friends = friendsQuery.data ?? [];
   const acceptedFriends = friends.filter(
     (friend) => friend.status === "accepted",
@@ -676,6 +912,10 @@ export function FriendsPageClient() {
   const handleAddFriend = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     addFriendMutation.mutate(email);
+  };
+
+  const handleAcceptIncentive = (friendshipId: string, messageId: string) => {
+    acceptIncentiveMutation.mutate({ friendshipId, messageId });
   };
 
   const openNudgeModal = (friend: FriendRow, mode: NudgeMode = "message") => {
@@ -758,16 +998,19 @@ export function FriendsPageClient() {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col gap-6 p-4 sm:p-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 px-3 py-4 sm:gap-6 sm:p-6">
+        <header className="grid gap-4 sm:flex sm:flex-wrap sm:items-start sm:justify-between">
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
               My Friends
             </p>
-            <h1 className="text-3xl font-bold tracking-normal">Friends</h1>
+            <h1 className="text-3xl font-bold tracking-normal sm:text-4xl">
+              Friends
+            </h1>
           </div>
           <Button
             color="primary"
+            className="w-full sm:w-auto"
             startContent={
               <Icon icon="fa7-solid:plus" className="h-3.5 w-3.5" />
             }
@@ -779,7 +1022,7 @@ export function FriendsPageClient() {
 
         <nav
           aria-label="Friends sections"
-          className="flex gap-2 overflow-x-auto border-b border-divider"
+          className="-mx-3 flex gap-2 overflow-x-auto border-b border-divider px-3 pb-2 sm:mx-0 sm:px-0"
         >
           {FRIENDS_SECTIONS.map((section) => {
             const isActive = activeSection === section.key;
@@ -791,16 +1034,13 @@ export function FriendsPageClient() {
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => setActiveSection(section.key)}
                 className={cn(
-                  "relative shrink-0 px-1 pb-3 text-sm font-semibold transition-colors",
+                  "relative shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition-colors",
                   isActive
-                    ? "text-foreground"
-                    : "text-foreground-500 hover:text-foreground",
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
                 )}
               >
                 {section.label}
-                {isActive ? (
-                  <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
-                ) : null}
               </button>
             );
           })}
@@ -821,7 +1061,14 @@ export function FriendsPageClient() {
           />
         ) : null}
 
-        {activeSection === "incentives" ? <IncentivesSection /> : null}
+        {activeSection === "incentives" ? (
+          <IncentivesSection
+            isLoading={friendsQuery.isLoading}
+            friends={acceptedFriends}
+            acceptingIncentiveId={acceptingIncentiveId}
+            onAcceptIncentive={handleAcceptIncentive}
+          />
+        ) : null}
 
         {activeSection === "shared-goals" ? <SharedGoalsSection /> : null}
 

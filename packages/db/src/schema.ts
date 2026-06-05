@@ -343,6 +343,7 @@ export const friendMessages = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     type: friendMessageTypeEnum("type").notNull(),
     body: text("body").notNull(),
+    accepted: boolean("accepted"),
     streakDays: integer("streak_days"),
     streakPercent: integer("streak_percent"),
     goalScope: friendGoalScopeEnum("goal_scope"),
