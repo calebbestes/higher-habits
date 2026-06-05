@@ -57,7 +57,6 @@ import {
   Button,
   Card,
   CardBody,
-  CardHeader,
   Chip,
   Input,
   Modal,
@@ -70,14 +69,12 @@ import {
   PopoverTrigger,
   Select,
   SelectItem,
-  Tab,
   Table,
   TableBody,
   TableCell,
   TableColumn,
   TableHeader,
   TableRow,
-  Tabs,
   Textarea,
   Tooltip,
   addToast,
@@ -132,6 +129,7 @@ type PortableCalendarProps = {
   title?: string;
   allowCreate?: boolean;
   initialDashboardOpen?: boolean;
+  dashboardMode?: "embedded" | "hidden" | "standalone";
   onDateSelect?: (date: Date) => void;
   onEntrySelect?: (entry: PortableCalendarEntry) => void;
   onEntriesChange?: (entries: PortableCalendarEntry[]) => void;
@@ -576,12 +574,6 @@ const buildMonthWeeks = (currentDate: Date) => {
   );
 };
 
-const titleForView = (view: CalendarView, currentDate: Date) => {
-  if (view === "day") return formatDayLabel(currentDate);
-  if (view === "week") return formatWeekRange(currentDate);
-  return formatMonthYear(currentDate);
-};
-
 const navigateDate = (date: Date, view: CalendarView, direction: number) => {
   if (view === "day") return addDays(date, direction);
   if (view === "week") return addWeeks(date, direction);
@@ -668,22 +660,6 @@ const SalesProgressIcon = ({
   />
 );
 
-const SearchIcon = () => (
-  <svg
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    role="img"
-    aria-label="Search"
-  >
-    <title>Search</title>
-    <circle cx="8.5" cy="8.5" r="5.5" />
-    <path d="m13 13 4 4" strokeLinecap="round" />
-  </svg>
-);
-
 const ChevronLeftIcon = () => (
   <svg
     viewBox="0 0 20 20"
@@ -711,21 +687,6 @@ const ChevronRightIcon = () => (
   >
     <title>Next</title>
     <path d="m7.5 4.5 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg
-    viewBox="0 0 20 20"
-    fill="none"
-    className="h-4 w-4"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    role="img"
-    aria-label="Close"
-  >
-    <title>Close</title>
-    <path d="m5 5 10 10M15 5 5 15" strokeLinecap="round" />
   </svg>
 );
 
@@ -1843,6 +1804,7 @@ const DayView = ({
   onToggleGoalLog,
   onSaveGoalNote,
   onShareHabitResults,
+  onNavigateDay,
 }: {
   currentDate: Date;
   entries: NormalizedCalendarEntry[];
@@ -1854,6 +1816,7 @@ const DayView = ({
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
   onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
   onShareHabitResults?: () => void;
+  onNavigateDay?: (direction: number) => void;
 }) => {
   const [showCompleted, setShowCompleted] = useState(false);
 
@@ -2150,9 +2113,35 @@ const DayView = ({
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:gap-4">
         <div className="px-1 sm:px-0">
           <div className="flex items-start justify-between gap-4">
-            <h2 className="text-xl font-semibold sm:mt-1 sm:text-2xl">
-              {formatDayLabel(currentDate)}
-            </h2>
+            <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <Button
+                isIconOnly
+                size="sm"
+                variant="light"
+                radius="md"
+                title="Previous day"
+                aria-label="Previous day"
+                className="h-8 w-8 shrink-0"
+                onPress={() => onNavigateDay?.(-1)}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <h2 className="min-w-0 truncate text-xl font-semibold sm:mt-1 sm:text-2xl">
+                {formatDayLabel(currentDate)}
+              </h2>
+              <Button
+                isIconOnly
+                size="sm"
+                variant="light"
+                radius="md"
+                title="Next day"
+                aria-label="Next day"
+                className="h-8 w-8 shrink-0"
+                onPress={() => onNavigateDay?.(1)}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </div>
             {dayScore.max > 0 ? (
               <div className="shrink-0">
                 <div className="sm:hidden">
@@ -2550,6 +2539,7 @@ export const PortableCalendar = ({
   initialCalendarData = null,
   initialView = "month",
   initialDashboardOpen = false,
+  dashboardMode = "embedded",
   title = "Habit Calendar",
   allowCreate = true,
   onDateSelect,
@@ -2563,10 +2553,8 @@ export const PortableCalendar = ({
   const [localEntries, setLocalEntries] = useState(entries);
   const [currentDate, setCurrentDate] = useState(resolvedInitialDate);
   const [selectedDate, setSelectedDate] = useState(resolvedInitialDate);
-  const [view, setView] = useState<CalendarView>(initialView);
+  const view = initialView;
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryIds, setSelectedCategoryIds] =
     useState<Set<string> | null>(null);
   const [monthViewIconsByDate, setMonthViewIconsByDate] = useState<
@@ -2591,6 +2579,9 @@ export const PortableCalendar = ({
     Set<string>
   >(new Set());
   const taskCompletionDateKey = useMemo(() => todayDateKey(), []);
+  const isDashboardStandalone = dashboardMode === "standalone";
+  const showDashboardPanel = dashboardMode !== "hidden";
+  const showCalendarPanel = dashboardMode !== "standalone";
 
   const [calSettings, setCalSettings] = useState<CalendarSettingsData>(
     DEFAULT_CALENDAR_SETTINGS,
@@ -2601,12 +2592,17 @@ export const PortableCalendar = ({
   );
 
   useEffect(() => {
+    if (dashboardMode !== "embedded") {
+      setIsSidebarCollapsed(false);
+      return;
+    }
+
     setIsSidebarCollapsed(
       initialDashboardOpen
         ? false
         : window.matchMedia(MOBILE_SIDEBAR_MEDIA_QUERY).matches,
     );
-  }, [initialDashboardOpen]);
+  }, [dashboardMode, initialDashboardOpen]);
 
   useEffect(() => {
     fetchCalendarSettings()
@@ -3050,18 +3046,6 @@ export const PortableCalendar = ({
     );
   }, [effectiveSelectedCategoryIds, normalizedEntries]);
 
-  const filteredEntries = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return [];
-
-    return visibleEntries.filter((entry) => {
-      const haystack = `${entry.title} ${entry.notes ?? ""} ${
-        entry.category.name
-      }`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [searchQuery, visibleEntries]);
-
   const existingCategories = useMemo(
     () =>
       categoryFilters.filter(
@@ -3242,517 +3226,392 @@ export const PortableCalendar = ({
       <div className="flex h-full w-full flex-col rounded-2xl border border-default-200 bg-default-100/80 p-1 shadow-sm">
         <Card className="mx-0 my-0 h-full min-h-0 w-full flex-1 overflow-hidden rounded-[18px] border-default-200 bg-default-50">
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <aside
-              className={cn(
-                "border-divider bg-content1/70 flex w-full flex-col border-b transition-all duration-200 lg:shrink-0 lg:border-r lg:border-b-0",
-                isSidebarCollapsed
-                  ? "items-end p-1.5 lg:w-14 lg:items-center lg:p-2"
-                  : "p-3 lg:w-[250px]",
-              )}
-            >
-              {isSidebarCollapsed ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    onPress={() => setIsSidebarCollapsed(false)}
-                    title="Show Dashboard"
-                    className="h-8 px-2 font-medium text-foreground-500 lg:hidden"
-                    endContent={<ChevronRightIcon />}
-                  >
-                    Show Dashboard
-                  </Button>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="light"
-                    onPress={() => setIsSidebarCollapsed(false)}
-                    title="Show Dashboard"
-                    aria-label="Show Dashboard"
-                    className="hidden h-8 w-8 lg:inline-flex"
-                  >
-                    <ChevronRightIcon />
-                  </Button>
-
-                  <div className="mt-4 hidden min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto lg:flex" />
-                </>
-              ) : (
-                <>
-                  <div className="flex items-start justify-end px-1 pt-1">
+            {showDashboardPanel ? (
+              <aside
+                className={cn(
+                  "border-divider bg-content1/70 flex w-full flex-col transition-all duration-200",
+                  isDashboardStandalone
+                    ? "min-h-0 flex-1 overflow-y-auto rounded-[14px] border p-4 sm:p-5"
+                    : cn(
+                        "border-b lg:shrink-0 lg:border-r lg:border-b-0",
+                        isSidebarCollapsed
+                          ? "items-end p-1.5 lg:w-14 lg:items-center lg:p-2"
+                          : "p-3 lg:w-[250px]",
+                      ),
+                )}
+              >
+                {isSidebarCollapsed && !isDashboardStandalone ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onPress={() => setIsSidebarCollapsed(false)}
+                      title="Show Dashboard"
+                      className="h-8 px-2 font-medium text-foreground-500 lg:hidden"
+                      endContent={<ChevronRightIcon />}
+                    >
+                      Show Dashboard
+                    </Button>
                     <Button
                       isIconOnly
                       size="sm"
                       variant="light"
-                      onPress={() => setIsSidebarCollapsed(true)}
-                      title="Hide sidebar"
+                      onPress={() => setIsSidebarCollapsed(false)}
+                      title="Show Dashboard"
+                      aria-label="Show Dashboard"
+                      className="hidden h-8 w-8 lg:inline-flex"
                     >
-                      <ChevronLeftIcon />
+                      <ChevronRightIcon />
                     </Button>
-                  </div>
 
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setGoalsCollapsed((v) => !v)}
-                      className="flex w-full items-center gap-1 text-left"
-                    >
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                        Monthly Goal Progress
-                      </span>
-                      <Icon
-                        icon={
-                          goalsCollapsed
-                            ? "mdi:chevron-right"
-                            : "mdi:chevron-down"
-                        }
-                        className="ml-auto h-3.5 w-3.5 text-foreground-400"
-                      />
-                    </button>
-                    {!goalsCollapsed && (
-                      <div className="mt-2 space-y-1.5">
-                        {displayedGoalMetrics.map(
-                          ({
-                            pg,
-                            completedCount,
-                            targetCount,
-                            completedFraction,
-                            plannedFraction,
-                          }) => (
-                            <div
-                              key={pg.id}
-                              className="flex items-center gap-2"
-                            >
-                              <Tooltip
-                                content={pg.name}
-                                placement="right"
-                                size="sm"
-                                color="foreground"
-                              >
-                                <span className="shrink-0">
-                                  <Icon
-                                    icon={pg.iconKey || "mdi:circle"}
-                                    className="h-4 w-4 text-foreground-500"
-                                  />
-                                </span>
-                              </Tooltip>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex h-2 overflow-hidden rounded-full bg-default-200">
-                                  <div
-                                    className="h-full bg-foreground transition-all"
-                                    style={{
-                                      width: `${completedFraction * 100}%`,
-                                    }}
-                                  />
-                                  <div
-                                    className="h-full transition-all"
-                                    style={{
-                                      width: `${plannedFraction * 100}%`,
-                                      backgroundImage:
-                                        "repeating-linear-gradient(45deg, hsl(var(--heroui-foreground)) 0px, hsl(var(--heroui-foreground)) 2px, transparent 2px, transparent 5px)",
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                              <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
-                                {completedCount}/{targetCount}
-                              </span>
-                            </div>
-                          ),
-                        )}
+                    <div className="mt-4 hidden min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto lg:flex" />
+                  </>
+                ) : (
+                  <>
+                    {!isDashboardStandalone ? (
+                      <div className="flex items-start justify-end px-1 pt-1">
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="light"
+                          onPress={() => setIsSidebarCollapsed(true)}
+                          title="Hide sidebar"
+                        >
+                          <ChevronLeftIcon />
+                        </Button>
                       </div>
-                    )}
-                  </div>
+                    ) : null}
 
-                  <div className="mt-3">
-                    <div className="flex w-full items-center gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                        Top Tasks
-                      </span>
-                      <span className="ml-auto rounded-full bg-default-100 px-2 py-0.5 text-[9px] font-semibold text-foreground-400">
-                        {topSidebarTasks.length}/5
-                      </span>
-                    </div>
-                    <div className="mt-2 space-y-1.5">
-                      {isLoadingSidebarTasks ? (
-                        <div className="flex items-center gap-2 rounded-xl border border-default-200/50 bg-content1/40 px-2.5 py-2 text-[11px] text-foreground-400">
-                          <Icon
-                            icon="mdi:loading"
-                            className="h-3.5 w-3.5 animate-spin"
-                          />
-                          Loading tasks
-                        </div>
-                      ) : topSidebarTasks.length > 0 ? (
-                        topSidebarTasks.map((task) => {
-                          const isComplete =
-                            task.completedAt === taskCompletionDateKey;
-                          const isUpdating = updatingSidebarTaskIds.has(
-                            task.id,
-                          );
-
-                          return (
-                            <button
-                              type="button"
-                              key={task.id}
-                              onClick={() => handleCompleteSidebarTask(task)}
-                              aria-label={`Complete ${task.name}`}
-                              className={cn(
-                                "group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
-                                isComplete
-                                  ? "border-default-200/40 bg-default-100/40 text-foreground-400"
-                                  : "border-default-200/60 bg-content1/50 hover:border-default-300 hover:bg-default-100/70",
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
-                                  isComplete
-                                    ? "border-success-500/60 bg-success-500/15 text-success-600"
-                                    : "border-foreground-400/60 text-transparent group-hover:border-success-500/70",
-                                )}
-                              >
-                                <Icon
-                                  icon={
-                                    isUpdating ? "mdi:loading" : "mdi:check"
-                                  }
-                                  className={cn(
-                                    "h-3 w-3",
-                                    isUpdating &&
-                                      "animate-spin text-foreground-400",
-                                  )}
-                                />
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span
-                                  className={cn(
-                                    "block truncate text-[11px] font-medium",
-                                    isComplete && "line-through",
-                                  )}
-                                >
-                                  {task.name}
-                                </span>
-                                {task.timeRequired && (
-                                  <span className="block truncate text-[9px] text-foreground-400">
-                                    {task.timeRequired}
-                                  </span>
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-default-200/70 px-2.5 py-2 text-[11px] text-foreground-400">
-                          No active tasks yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setDailyGoalsCollapsed((v) => !v)}
-                      className="flex w-full items-center gap-1 text-left"
-                    >
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                        Daily Goals (Last 10 Days)
-                      </span>
-                      <Icon
-                        icon={
-                          dailyGoalsCollapsed
-                            ? "mdi:chevron-right"
-                            : "mdi:chevron-down"
-                        }
-                        className="ml-auto h-3.5 w-3.5 text-foreground-400"
-                      />
-                    </button>
-                    {!dailyGoalsCollapsed && (
-                      <div className="mt-2 space-y-3">
-                        {displayedDailyGoalMetrics.map(
-                          ({ category, goals }) => {
-                            if (goals.length === 0) return null;
-                            const cfg =
-                              CATEGORY_FILL_CONFIG[category.name] ??
-                              DEFAULT_CATEGORY_FILL;
-                            return (
-                              <div key={category.id}>
-                                <p
-                                  className={`mb-1 text-[9px] font-bold uppercase tracking-widest ${cfg.label}`}
-                                >
-                                  {category.name}
-                                </p>
-                                <div className="space-y-1.5">
-                                  {goals.map(({ goal, days }) => (
-                                    <div
-                                      key={goal.id}
-                                      className="flex items-center gap-2"
-                                    >
-                                      <Tooltip
-                                        content={goal.name}
-                                        placement="right"
-                                        size="sm"
-                                        color="foreground"
-                                      >
-                                        <span className="shrink-0">
-                                          <Icon
-                                            icon={goal.iconKey || "mdi:circle"}
-                                            className="h-4 w-4 text-foreground-500"
-                                          />
-                                        </span>
-                                      </Tooltip>
-                                      <div className="flex min-w-0 flex-1 gap-0.5">
-                                        {days.map(({ dateKey, done }) => (
-                                          <div
-                                            key={dateKey}
-                                            className={`h-3 flex-1 rounded-[3px] ${done ? cfg.bar : "bg-default-200"}`}
-                                          />
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          },
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {lowerPrioritySidebarGoals.length > 0 && (
                     <div className="mt-3">
                       <button
                         type="button"
-                        onClick={() =>
-                          setShowLowerPriorityGoals((previous) => !previous)
-                        }
+                        onClick={() => setGoalsCollapsed((v) => !v)}
                         className="flex w-full items-center gap-1 text-left"
                       >
                         <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                          {showLowerPriorityGoals
-                            ? "Hide Lower Priority Goals"
-                            : "Show Lower Priority Goals"}
+                          Monthly Goal Progress
                         </span>
                         <Icon
                           icon={
-                            showLowerPriorityGoals
+                            goalsCollapsed
                               ? "mdi:chevron-right"
                               : "mdi:chevron-down"
                           }
                           className="ml-auto h-3.5 w-3.5 text-foreground-400"
                         />
                       </button>
-                      {!showLowerPriorityGoals && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {lowerPrioritySidebarGoals.map((goal) => (
-                            <Tooltip
-                              key={goal.id}
-                              content={goal.name}
-                              placement="right"
-                              size="sm"
-                              color="foreground"
-                            >
-                              <span>
-                                <Icon
-                                  icon={goal.iconKey}
-                                  className="h-4 w-4 text-foreground-400"
-                                />
-                              </span>
-                            </Tooltip>
-                          ))}
+                      {!goalsCollapsed && (
+                        <div className="mt-2 space-y-1.5">
+                          {displayedGoalMetrics.map(
+                            ({
+                              pg,
+                              completedCount,
+                              targetCount,
+                              completedFraction,
+                              plannedFraction,
+                            }) => (
+                              <div
+                                key={pg.id}
+                                className="flex items-center gap-2"
+                              >
+                                <Tooltip
+                                  content={pg.name}
+                                  placement="right"
+                                  size="sm"
+                                  color="foreground"
+                                >
+                                  <span className="shrink-0">
+                                    <Icon
+                                      icon={pg.iconKey || "mdi:circle"}
+                                      className="h-4 w-4 text-foreground-500"
+                                    />
+                                  </span>
+                                </Tooltip>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex h-2 overflow-hidden rounded-full bg-default-200">
+                                    <div
+                                      className="h-full bg-foreground transition-all"
+                                      style={{
+                                        width: `${completedFraction * 100}%`,
+                                      }}
+                                    />
+                                    <div
+                                      className="h-full transition-all"
+                                      style={{
+                                        width: `${plannedFraction * 100}%`,
+                                        backgroundImage:
+                                          "repeating-linear-gradient(45deg, hsl(var(--heroui-foreground)) 0px, hsl(var(--heroui-foreground)) 2px, transparent 2px, transparent 5px)",
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                <span className="shrink-0 text-[10px] tabular-nums text-foreground-400">
+                                  {completedCount}/{targetCount}
+                                </span>
+                              </div>
+                            ),
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
-                </>
-              )}
-            </aside>
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-content1/40">
-              <CardHeader className="flex flex-col items-start justify-between gap-2 border-b border-default-200 px-3 py-2 sm:flex-row sm:items-center sm:gap-3 sm:px-4 sm:py-3">
-                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-                  <Tabs
-                    radius="md"
-                    size="sm"
-                    selectedKey={view}
-                    onSelectionChange={(key) => setView(key as CalendarView)}
-                    classNames={{
-                      tabList: "bg-default-100/80 rounded-lg p-0.5",
-                      cursor: "rounded-md shadow-sm",
-                    }}
-                  >
-                    <Tab key="day" title="Day" />
-                    <Tab key="week" title="Week" />
-                    <Tab key="month" title="Month" />
-                  </Tabs>
+                    <div className="mt-3">
+                      <div className="flex w-full items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                          Top Tasks
+                        </span>
+                        <span className="ml-auto rounded-full bg-default-100 px-2 py-0.5 text-[9px] font-semibold text-foreground-400">
+                          {topSidebarTasks.length}/5
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1.5">
+                        {isLoadingSidebarTasks ? (
+                          <div className="flex items-center gap-2 rounded-xl border border-default-200/50 bg-content1/40 px-2.5 py-2 text-[11px] text-foreground-400">
+                            <Icon
+                              icon="mdi:loading"
+                              className="h-3.5 w-3.5 animate-spin"
+                            />
+                            Loading tasks
+                          </div>
+                        ) : topSidebarTasks.length > 0 ? (
+                          topSidebarTasks.map((task) => {
+                            const isComplete =
+                              task.completedAt === taskCompletionDateKey;
+                            const isUpdating = updatingSidebarTaskIds.has(
+                              task.id,
+                            );
 
-                  <p className="hidden text-foreground-500 text-xs sm:block">
-                    {titleForView(view, currentDate)}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {isSearchExpanded ? (
-                    <div className="relative">
-                      <Input
-                        size="sm"
-                        placeholder="Search entries..."
-                        value={searchQuery}
-                        onValueChange={setSearchQuery}
-                        startContent={<SearchIcon />}
-                        endContent={
-                          <Button
-                            isIconOnly
-                            size="sm"
-                            variant="light"
-                            onPress={() => {
-                              setIsSearchExpanded(false);
-                              setSearchQuery("");
-                            }}
-                          >
-                            <CloseIcon />
-                          </Button>
-                        }
-                        className="w-40 sm:w-52"
-                        autoFocus
-                      />
-
-                      {searchQuery.length > 0 ? (
-                        <div className="bg-content1 shadow-medium rounded-2xl border-divider absolute top-full left-0 z-50 mt-2 w-[calc(100vw-3rem)] border p-2 sm:right-0 sm:left-auto sm:w-80">
-                          {filteredEntries.length > 0 ? (
-                            <div className="space-y-1">
-                              {filteredEntries.slice(0, 8).map((entry) => (
-                                <button
-                                  type="button"
-                                  key={entry.id}
-                                  onClick={() => {
-                                    handleSelectEntry(entry);
-                                    setIsSearchExpanded(false);
-                                    setSearchQuery("");
-                                  }}
-                                  className="hover:bg-default-100 w-full rounded-xl p-2 text-left transition-colors"
+                            return (
+                              <button
+                                type="button"
+                                key={task.id}
+                                onClick={() => handleCompleteSidebarTask(task)}
+                                aria-label={`Complete ${task.name}`}
+                                className={cn(
+                                  "group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
+                                  isComplete
+                                    ? "border-default-200/40 bg-default-100/40 text-foreground-400"
+                                    : "border-default-200/60 bg-content1/50 hover:border-default-300 hover:bg-default-100/70",
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                                    isComplete
+                                      ? "border-success-500/60 bg-success-500/15 text-success-600"
+                                      : "border-foreground-400/60 text-transparent group-hover:border-success-500/70",
+                                  )}
                                 >
-                                  <CategoryPill
-                                    entry={entry}
-                                    onPress={() => handleSelectEntry(entry)}
-                                    compact
+                                  <Icon
+                                    icon={
+                                      isUpdating ? "mdi:loading" : "mdi:check"
+                                    }
+                                    className={cn(
+                                      "h-3 w-3",
+                                      isUpdating &&
+                                        "animate-spin text-foreground-400",
+                                    )}
                                   />
-                                </button>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-foreground-500 p-3 text-sm">
-                              No matching entries.
-                            </div>
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span
+                                    className={cn(
+                                      "block truncate text-[11px] font-medium",
+                                      isComplete && "line-through",
+                                    )}
+                                  >
+                                    {task.name}
+                                  </span>
+                                  {task.timeRequired && (
+                                    <span className="block truncate text-[9px] text-foreground-400">
+                                      {task.timeRequired}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-default-200/70 px-2.5 py-2 text-[11px] text-foreground-400">
+                            No active tasks yet.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setDailyGoalsCollapsed((v) => !v)}
+                        className="flex w-full items-center gap-1 text-left"
+                      >
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                          Daily Goals (Last 10 Days)
+                        </span>
+                        <Icon
+                          icon={
+                            dailyGoalsCollapsed
+                              ? "mdi:chevron-right"
+                              : "mdi:chevron-down"
+                          }
+                          className="ml-auto h-3.5 w-3.5 text-foreground-400"
+                        />
+                      </button>
+                      {!dailyGoalsCollapsed && (
+                        <div className="mt-2 space-y-3">
+                          {displayedDailyGoalMetrics.map(
+                            ({ category, goals }) => {
+                              if (goals.length === 0) return null;
+                              const cfg =
+                                CATEGORY_FILL_CONFIG[category.name] ??
+                                DEFAULT_CATEGORY_FILL;
+                              return (
+                                <div key={category.id}>
+                                  <p
+                                    className={`mb-1 text-[9px] font-bold uppercase tracking-widest ${cfg.label}`}
+                                  >
+                                    {category.name}
+                                  </p>
+                                  <div className="space-y-1.5">
+                                    {goals.map(({ goal, days }) => (
+                                      <div
+                                        key={goal.id}
+                                        className="flex items-center gap-2"
+                                      >
+                                        <Tooltip
+                                          content={goal.name}
+                                          placement="right"
+                                          size="sm"
+                                          color="foreground"
+                                        >
+                                          <span className="shrink-0">
+                                            <Icon
+                                              icon={
+                                                goal.iconKey || "mdi:circle"
+                                              }
+                                              className="h-4 w-4 text-foreground-500"
+                                            />
+                                          </span>
+                                        </Tooltip>
+                                        <div className="flex min-w-0 flex-1 gap-0.5">
+                                          {days.map(({ dateKey, done }) => (
+                                            <div
+                                              key={dateKey}
+                                              className={`h-3 flex-1 rounded-[3px] ${done ? cfg.bar : "bg-default-200"}`}
+                                            />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            },
                           )}
                         </div>
-                      ) : null}
+                      )}
                     </div>
-                  ) : (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="bordered"
-                      radius="md"
-                      onPress={() => setIsSearchExpanded(true)}
-                      title="Search entries"
-                    >
-                      <SearchIcon />
-                    </Button>
-                  )}
 
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="bordered"
-                    radius="md"
-                    onPress={() => navigate(-1)}
-                    title={`Previous ${view}`}
-                  >
-                    <ChevronLeftIcon />
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="primary"
-                    onPress={() => handleSelectDate(new Date())}
-                    title="Go to today"
-                  >
-                    Today
-                  </Button>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="bordered"
-                    radius="md"
-                    onPress={() => navigate(1)}
-                    title={`Next ${view}`}
-                  >
-                    <ChevronRightIcon />
-                  </Button>
+                    {lowerPrioritySidebarGoals.length > 0 && (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowLowerPriorityGoals((previous) => !previous)
+                          }
+                          className="flex w-full items-center gap-1 text-left"
+                        >
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
+                            {showLowerPriorityGoals
+                              ? "Hide Lower Priority Goals"
+                              : "Show Lower Priority Goals"}
+                          </span>
+                          <Icon
+                            icon={
+                              showLowerPriorityGoals
+                                ? "mdi:chevron-right"
+                                : "mdi:chevron-down"
+                            }
+                            className="ml-auto h-3.5 w-3.5 text-foreground-400"
+                          />
+                        </button>
+                        {!showLowerPriorityGoals && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {lowerPrioritySidebarGoals.map((goal) => (
+                              <Tooltip
+                                key={goal.id}
+                                content={goal.name}
+                                placement="right"
+                                size="sm"
+                                color="foreground"
+                              >
+                                <span>
+                                  <Icon
+                                    icon={goal.iconKey}
+                                    className="h-4 w-4 text-foreground-400"
+                                  />
+                                </span>
+                              </Tooltip>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </aside>
+            ) : null}
 
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    className="min-w-9 px-0 sm:px-3"
-                    startContent={
-                      <Icon icon="mdi:cog-outline" className="h-4 w-4" />
-                    }
-                    title="Calendar Settings"
-                    onPress={() => {
-                      setDraftSettings(calSettings);
-                      setIsSettingsOpen(true);
-                    }}
-                  >
-                    <span className="hidden sm:inline">Calendar Settings</span>
-                  </Button>
-                </div>
-              </CardHeader>
-
-              <CardBody className="min-h-0 flex-1 p-2 sm:p-4">
-                <div className="flex min-h-0 flex-1 flex-col">
-                  {view === "month" ? (
-                    <MonthView
-                      currentDate={currentDate}
-                      selectedDate={selectedDate}
-                      entries={visibleEntries}
-                      onSelectDate={handleSelectDate}
-                      onSelectEntry={handleSelectEntry}
-                      hiddenGoalKeys={hiddenGoalKeys}
-                      onCustomDayIconsByDateChange={setMonthViewIconsByDate}
-                      onGoalLogsSnapshotChange={setGoalLogsSnapshot}
-                      onShareHabitResults={(date) =>
-                        void handleShareHabitResults(date)
-                      }
-                      monthlyGoalSlots={calSettings.monthlyGoalSlots}
-                      visibleCategoryIds={calSettings.visibleCategoryIds}
-                    />
-                  ) : view === "week" ? (
-                    <WeekView
-                      currentDate={currentDate}
-                      selectedDate={selectedDate}
-                      entries={visibleEntries}
-                      onSelectDate={handleSelectDate}
-                      onSelectEntry={handleSelectEntry}
-                    />
-                  ) : (
-                    <DayView
-                      key={toDateKey(currentDate)}
-                      currentDate={currentDate}
-                      entries={visibleEntries}
-                      onSelectEntry={handleSelectEntry}
-                      goalLogsCategories={filteredDailyCategories}
-                      periodicGoals={goalLogsSnapshot.periodicGoals}
-                      logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
-                      notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
-                      onToggleGoalLog={handleDayViewToggleGoalLog}
-                      onSaveGoalNote={handleDayViewSaveGoalNote}
-                      onShareHabitResults={() =>
-                        void handleShareHabitResults(currentDate)
-                      }
-                    />
-                  )}
-                </div>
-              </CardBody>
-            </div>
+            {showCalendarPanel ? (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-content1/40">
+                <CardBody className="min-h-0 flex-1 p-2 sm:p-4">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {view === "month" ? (
+                      <MonthView
+                        currentDate={currentDate}
+                        selectedDate={selectedDate}
+                        entries={visibleEntries}
+                        onSelectDate={handleSelectDate}
+                        onSelectEntry={handleSelectEntry}
+                        hiddenGoalKeys={hiddenGoalKeys}
+                        onCustomDayIconsByDateChange={setMonthViewIconsByDate}
+                        onGoalLogsSnapshotChange={setGoalLogsSnapshot}
+                        onShareHabitResults={(date) =>
+                          void handleShareHabitResults(date)
+                        }
+                        monthlyGoalSlots={calSettings.monthlyGoalSlots}
+                        visibleCategoryIds={calSettings.visibleCategoryIds}
+                      />
+                    ) : view === "week" ? (
+                      <WeekView
+                        currentDate={currentDate}
+                        selectedDate={selectedDate}
+                        entries={visibleEntries}
+                        onSelectDate={handleSelectDate}
+                        onSelectEntry={handleSelectEntry}
+                      />
+                    ) : (
+                      <DayView
+                        key={toDateKey(currentDate)}
+                        currentDate={currentDate}
+                        entries={visibleEntries}
+                        onSelectEntry={handleSelectEntry}
+                        goalLogsCategories={filteredDailyCategories}
+                        periodicGoals={goalLogsSnapshot.periodicGoals}
+                        logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
+                        notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
+                        onToggleGoalLog={handleDayViewToggleGoalLog}
+                        onSaveGoalNote={handleDayViewSaveGoalNote}
+                        onShareHabitResults={() =>
+                          void handleShareHabitResults(currentDate)
+                        }
+                        onNavigateDay={(direction) => navigate(direction)}
+                      />
+                    )}
+                  </div>
+                </CardBody>
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -3828,18 +3687,34 @@ export const PortableCalendar = ({
 export function MonthCalendar({
   initialDate,
   initialCalendarData,
-  initialDashboardOpen,
+  initialView = "day",
 }: Pick<
   PortableCalendarProps,
-  "initialDate" | "initialCalendarData" | "initialDashboardOpen"
+  "initialDate" | "initialCalendarData" | "initialView"
 >) {
   return (
     <PortableCalendar
       title="Habit Calendar"
+      initialView={initialView}
+      initialDate={initialDate}
+      initialCalendarData={initialCalendarData}
+      dashboardMode="hidden"
+    />
+  );
+}
+
+export function Dashboard({
+  initialDate,
+  initialCalendarData,
+}: Pick<PortableCalendarProps, "initialDate" | "initialCalendarData">) {
+  return (
+    <PortableCalendar
+      title="Dashboard"
       initialView="day"
       initialDate={initialDate}
       initialCalendarData={initialCalendarData}
-      initialDashboardOpen={initialDashboardOpen}
+      allowCreate={false}
+      dashboardMode="standalone"
     />
   );
 }
