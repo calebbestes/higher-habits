@@ -249,16 +249,37 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "setNote") {
-      await db
-        .update(goalLogs)
-        .set({ notes: data.notes, updatedAt: new Date() })
-        .where(
-          and(
-            eq(goalLogs.goalId, data.goalId),
-            eq(goalLogs.date, data.dateKey),
-            eq(goalLogs.userId, user.id),
-          ),
-        );
+      if (data.notes.trim()) {
+        await db
+          .insert(goalLogs)
+          .values({
+            userId: user.id,
+            goalId: data.goalId,
+            date: data.dateKey,
+            status: "planned",
+            notes: data.notes,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [goalLogs.goalId, goalLogs.date],
+            set: {
+              notes: data.notes,
+              updatedAt: new Date(),
+              userId: user.id,
+            },
+          });
+      } else {
+        await db
+          .update(goalLogs)
+          .set({ notes: "", updatedAt: new Date() })
+          .where(
+            and(
+              eq(goalLogs.goalId, data.goalId),
+              eq(goalLogs.date, data.dateKey),
+              eq(goalLogs.userId, user.id),
+            ),
+          );
+      }
 
       return NextResponse.json({ ok: true });
     }
