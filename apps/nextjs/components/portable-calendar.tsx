@@ -9,6 +9,7 @@ import {
   saveCalendarSettings,
 } from "@/lib/calendar-settings-client";
 import {
+  type AcceptedGoalIncentive,
   type CategoryWithGoals,
   EMPTY_GOAL_LOGS_SNAPSHOT,
   type GoalLogsSnapshot,
@@ -879,6 +880,7 @@ const MonthView = ({
           categories: goalsSnap.categories,
           periodicGoals: goalsSnap.periodicGoals,
           hiddenGoals: goalsSnap.hiddenGoals,
+          acceptedGoalIncentives: goalsSnap.acceptedGoalIncentives,
           logsByGoalDate: {
             ...Object.fromEntries(
               Object.entries(previous.logsByGoalDate).filter(([key]) => {
@@ -1261,10 +1263,11 @@ const MonthView = ({
         removeWrapper
         shadow="none"
         classNames={{
-          base: "h-full overflow-hidden rounded-xl border border-default-300 bg-content1",
-          table: "table-fixed w-full",
-          th: "bg-default-100/80 text-foreground-500 text-center text-xs font-semibold py-2",
-          td: "align-top p-1 h-40",
+          base: "h-full min-h-0 overflow-hidden rounded-xl border border-default-300 bg-content1",
+          table: "h-full table-fixed w-full",
+          tr: "h-auto",
+          th: "bg-default-100/80 text-foreground-500 py-1.5 text-center text-[10px] font-semibold sm:py-2 sm:text-xs",
+          td: "relative h-auto align-top p-0",
         }}
       >
         <TableHeader>
@@ -1301,7 +1304,7 @@ const MonthView = ({
                   <TableCell
                     key={date.toISOString()}
                     className={cn(
-                      "relative cursor-pointer overflow-visible p-2 transition-colors hover:bg-default-100/50",
+                      "relative cursor-pointer overflow-hidden p-0 transition-colors hover:bg-default-100/50",
                       dayIndex < 6 && "border-r border-default-200",
                       weekIndex < weeks.length - 1 &&
                         "border-b border-default-200",
@@ -1310,274 +1313,302 @@ const MonthView = ({
                     )}
                     onClick={() => onSelectDate(date)}
                   >
-                    <div className="mb-0.5 flex justify-end">
-                      <span
-                        className={cn(
-                          "text-xs font-semibold",
-                          isOutside && "text-foreground-400",
-                          isToday(date) &&
-                            "bg-primary text-primary-foreground flex h-6 w-6 items-center justify-center rounded-full",
-                        )}
-                      >
-                        {date.getDate()}
-                      </span>
-                    </div>
-
-                    {(() => {
-                      const cellDateKey = toDateKey(date);
-                      const categories = goalLogsSnapshot.categories.filter(
-                        (c) =>
-                          c.goals.length > 0 &&
-                          (visibleCategoryIds.length === 0 ||
-                            visibleCategoryIds.includes(c.id)),
-                      );
-                      if (categories.length === 0) return null;
-                      const anyProgress = categories.some((c) =>
-                        c.goals.some(
-                          (g) =>
-                            goalLogsSnapshot.logsByGoalDate[
-                              `${g.id}_${cellDateKey}`
-                            ] === "complete",
-                        ),
-                      );
-                      const svgSize = 52;
-                      const center = svgSize / 2;
-                      const strokeWidth = 3.5;
-                      const gap = 2.5;
-                      const step = strokeWidth + gap;
-                      const outerR = center - 2 - strokeWidth / 2;
-                      const loggedForDay = goalLogsSnapshot.periodicGoals
-                        .map((g) => ({
-                          ...g,
-                          status:
-                            goalLogsSnapshot.logsByGoalDate[
-                              `${g.id}_${cellDateKey}`
-                            ],
-                        }))
-                        .filter(
-                          (g) =>
-                            g.status === "complete" || g.status === "planned",
+                    <div className="absolute inset-0 min-w-0 overflow-hidden p-0.5 sm:p-2">
+                      {(() => {
+                        const cellDateKey = toDateKey(date);
+                        const categories = goalLogsSnapshot.categories.filter(
+                          (c) =>
+                            c.goals.length > 0 &&
+                            (visibleCategoryIds.length === 0 ||
+                              visibleCategoryIds.includes(c.id)),
                         );
-                      return (
-                        <div className="mb-1 flex flex-col gap-2">
-                          {anyProgress && (
-                            <div className="flex justify-center">
-                              <div className="group relative inline-flex">
-                                <svg
-                                  width={svgSize}
-                                  height={svgSize}
-                                  viewBox={`0 0 ${svgSize} ${svgSize}`}
-                                  role="img"
-                                >
-                                  <title>Day progress</title>
-                                  {categories.map((cat, i) => {
-                                    const completedCount = cat.goals.filter(
-                                      (g) =>
-                                        goalLogsSnapshot.logsByGoalDate[
-                                          `${g.id}_${cellDateKey}`
-                                        ] === "complete",
-                                    ).length;
-                                    const progress =
-                                      cat.goals.length > 0
-                                        ? completedCount / cat.goals.length
-                                        : 0;
-                                    const cfg =
-                                      DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
-                                      DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
-                                    const r = outerR - i * step;
-                                    const circ = 2 * Math.PI * r;
-                                    const offset = circ * (1 - progress);
-                                    return (
-                                      <g key={cat.id}>
-                                        <circle
-                                          cx={center}
-                                          cy={center}
-                                          r={r}
-                                          fill="none"
-                                          stroke={cfg.color}
-                                          strokeOpacity={0.15}
-                                          strokeWidth={strokeWidth}
-                                        />
-                                        <circle
-                                          cx={center}
-                                          cy={center}
-                                          r={r}
-                                          fill="none"
-                                          stroke={cfg.color}
-                                          strokeWidth={strokeWidth}
-                                          strokeLinecap="round"
-                                          strokeDasharray={circ}
-                                          strokeDashoffset={offset}
-                                          style={{
-                                            transform: "rotate(-90deg)",
-                                            transformOrigin: `${center}px ${center}px`,
-                                          }}
-                                        />
-                                      </g>
-                                    );
-                                  })}
-                                </svg>
-                                {onShareHabitResults ? (
-                                  <Tooltip
-                                    content="Share habit results"
-                                    placement="top"
-                                    size="sm"
-                                    color="foreground"
+                        const anyProgress = categories.some((c) =>
+                          c.goals.some(
+                            (g) =>
+                              goalLogsSnapshot.logsByGoalDate[
+                                `${g.id}_${cellDateKey}`
+                              ] === "complete",
+                          ),
+                        );
+                        const svgSize = 42;
+                        const center = svgSize / 2;
+                        const strokeWidth = 3;
+                        const gap = 2;
+                        const step = strokeWidth + gap;
+                        const outerR = center - 2 - strokeWidth / 2;
+                        const loggedForDay = goalLogsSnapshot.periodicGoals
+                          .map((g) => ({
+                            ...g,
+                            status:
+                              goalLogsSnapshot.logsByGoalDate[
+                                `${g.id}_${cellDateKey}`
+                              ],
+                          }))
+                          .filter(
+                            (g) =>
+                              g.status === "complete" || g.status === "planned",
+                          );
+                        return (
+                          <div className="mb-1 min-w-0">
+                            <div className="mb-0.5 flex min-h-5 items-center gap-0.5 sm:mb-1 sm:min-h-6 sm:gap-1">
+                              {anyProgress ? (
+                                <div className="group relative inline-flex shrink-0">
+                                  <svg
+                                    width={svgSize}
+                                    height={svgSize}
+                                    viewBox={`0 0 ${svgSize} ${svgSize}`}
+                                    role="img"
+                                    className="h-[18px] w-[18px] sm:h-9 sm:w-9"
                                   >
-                                    <Button
-                                      isIconOnly
+                                    <title>Day progress</title>
+                                    {categories.map((cat, i) => {
+                                      const completedCount = cat.goals.filter(
+                                        (g) =>
+                                          goalLogsSnapshot.logsByGoalDate[
+                                            `${g.id}_${cellDateKey}`
+                                          ] === "complete",
+                                      ).length;
+                                      const progress =
+                                        cat.goals.length > 0
+                                          ? completedCount / cat.goals.length
+                                          : 0;
+                                      const cfg =
+                                        DAY_VIEW_CATEGORY_CONFIG[cat.name] ??
+                                        DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+                                      const r = outerR - i * step;
+                                      const circ = 2 * Math.PI * r;
+                                      const offset = circ * (1 - progress);
+                                      return (
+                                        <g key={cat.id}>
+                                          <circle
+                                            cx={center}
+                                            cy={center}
+                                            r={r}
+                                            fill="none"
+                                            stroke={cfg.color}
+                                            strokeOpacity={0.15}
+                                            strokeWidth={strokeWidth}
+                                          />
+                                          <circle
+                                            cx={center}
+                                            cy={center}
+                                            r={r}
+                                            fill="none"
+                                            stroke={cfg.color}
+                                            strokeWidth={strokeWidth}
+                                            strokeLinecap="round"
+                                            strokeDasharray={circ}
+                                            strokeDashoffset={offset}
+                                            style={{
+                                              transform: "rotate(-90deg)",
+                                              transformOrigin: `${center}px ${center}px`,
+                                            }}
+                                          />
+                                        </g>
+                                      );
+                                    })}
+                                  </svg>
+                                  {onShareHabitResults ? (
+                                    <Tooltip
+                                      content="Share habit results"
+                                      placement="top"
                                       size="sm"
-                                      variant="flat"
-                                      radius="full"
-                                      aria-label="Share habit results"
-                                      title="Share habit results"
-                                      className="absolute -top-2 -right-2 z-10 h-7 w-7 min-w-7 bg-content1/90 text-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-                                      onClick={(event) =>
-                                        event.stopPropagation()
+                                      color="foreground"
+                                    >
+                                      <Button
+                                        isIconOnly
+                                        size="sm"
+                                        variant="flat"
+                                        radius="full"
+                                        aria-label="Share habit results"
+                                        title="Share habit results"
+                                        className="absolute -top-2 -right-2 z-10 hidden h-7 w-7 min-w-7 bg-content1/90 text-foreground opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:inline-flex"
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onPress={() =>
+                                          onShareHabitResults(date)
+                                        }
+                                      >
+                                        <Icon
+                                          icon="mdi:share-variant-outline"
+                                          className="h-3.5 w-3.5"
+                                        />
+                                      </Button>
+                                    </Tooltip>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              <span
+                                className={cn(
+                                  "ml-auto flex h-4 min-w-4 items-center justify-center text-[9px] font-semibold tabular-nums sm:h-6 sm:min-w-6 sm:text-xs",
+                                  isOutside && "text-foreground-400",
+                                  isToday(date) &&
+                                    "bg-primary text-primary-foreground rounded-full",
+                                )}
+                              >
+                                {date.getDate()}
+                              </span>
+                            </div>
+
+                            {categories.length > 0 ? (
+                              <div className="grid min-w-0 grid-cols-2 gap-0.5 sm:flex sm:flex-wrap sm:justify-center sm:gap-1">
+                                {Array.from(
+                                  {
+                                    length: Math.min(
+                                      loggedForDay.length + 1,
+                                      monthlyGoalSlots,
+                                    ),
+                                  },
+                                  (_, i) => i,
+                                ).map((slotIdx) => {
+                                  const goalForSlot = loggedForDay[slotIdx];
+                                  const isComplete =
+                                    goalForSlot?.status === "complete";
+                                  const isPlanned =
+                                    goalForSlot?.status === "planned";
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={`periodic-${slotIdx}-${cellDateKey}`}
+                                      title={
+                                        goalForSlot?.name ?? "Monthly goal"
                                       }
-                                      onPress={() => onShareHabitResults(date)}
+                                      aria-label={
+                                        goalForSlot?.name ?? "Monthly goal"
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleOpenMonthlyGoalPicker(date);
+                                      }}
+                                      className={cn(
+                                        "inline-flex aspect-square w-full min-w-0 items-center justify-center rounded border transition-all sm:h-8 sm:w-8 sm:rounded-lg",
+                                        isComplete
+                                          ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
+                                          : isPlanned
+                                            ? "border-default-300 bg-content2 text-foreground-400"
+                                            : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
+                                      )}
                                     >
                                       <Icon
-                                        icon="mdi:share-variant-outline"
-                                        className="h-3.5 w-3.5"
+                                        icon={
+                                          goalForSlot?.iconKey ?? "mdi:plus"
+                                        }
+                                        className="h-3.5 w-3.5 sm:h-5 sm:w-5"
                                       />
-                                    </Button>
-                                  </Tooltip>
-                                ) : null}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            </div>
-                          )}
-                          <div className="flex justify-center gap-1">
-                            {Array.from(
-                              {
-                                length: Math.min(
-                                  loggedForDay.length + 1,
-                                  monthlyGoalSlots,
-                                ),
-                              },
-                              (_, i) => i,
-                            ).map((slotIdx) => {
-                              const goalForSlot = loggedForDay[slotIdx];
-                              const isComplete =
-                                goalForSlot?.status === "complete";
-                              const isPlanned =
-                                goalForSlot?.status === "planned";
-                              return (
-                                <button
-                                  type="button"
-                                  key={`periodic-${slotIdx}-${cellDateKey}`}
-                                  title={goalForSlot?.name ?? "Monthly goal"}
-                                  aria-label={
-                                    goalForSlot?.name ?? "Monthly goal"
-                                  }
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleOpenMonthlyGoalPicker(date);
-                                  }}
-                                  className={cn(
-                                    "inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-all",
-                                    isComplete
-                                      ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
-                                      : isPlanned
-                                        ? "border-default-300 bg-content2 text-foreground-400"
-                                        : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
-                                  )}
-                                >
-                                  <Icon
-                                    icon={goalForSlot?.iconKey ?? "mdi:plus"}
-                                    className="h-5 w-5"
-                                  />
-                                </button>
-                              );
-                            })}
+                            ) : null}
                           </div>
+                        );
+                      })()}
+
+                      {visibleEntries.length > 0 ? (
+                        <div
+                          className="mt-0.5 flex items-center gap-0.5 overflow-hidden sm:hidden"
+                          aria-label={`${dayEntries.length} calendar ${dayEntries.length === 1 ? "entry" : "entries"}`}
+                        >
+                          {visibleEntries.map((entry) => (
+                            <span
+                              key={`${entry.id}-${date.toISOString()}-dot`}
+                              className="h-1.5 w-1.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: entry.color }}
+                            />
+                          ))}
+                          {hiddenEntries.length > 0 ? (
+                            <span className="truncate text-[8px] leading-none text-foreground-400">
+                              +{hiddenEntries.length}
+                            </span>
+                          ) : null}
                         </div>
-                      );
-                    })()}
-
-                    <div className="space-y-1">
-                      {visibleEntries.map((entry) => (
-                        <Chip
-                          key={`${entry.id}-${date.toISOString()}`}
-                          size="sm"
-                          variant="flat"
-                          className="h-6 w-full max-w-full cursor-pointer justify-start border border-transparent text-xs transition-all hover:border-current"
-                          style={
-                            {
-                              backgroundColor: withAlpha(entry.color, "20"),
-                              color: entry.color,
-                            } as CSSProperties
-                          }
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSelectEntry(entry);
-                          }}
-                        >
-                          <span className="block min-w-0 truncate">
-                            {entry.title}
-                          </span>
-                        </Chip>
-                      ))}
-
-                      {hiddenEntries.length > 0 ? (
-                        <Popover
-                          placement="bottom"
-                          showArrow={false}
-                          isOpen={overflowOpen}
-                          onOpenChange={(open) => {
-                            setSelectedDayForOverflow(open ? date : null);
-                          }}
-                        >
-                          <PopoverTrigger>
-                            <button
-                              type="button"
-                              className="text-foreground-500 hover:bg-default-100 rounded-small w-full px-1 py-0.5 text-left text-xs font-medium transition-colors"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                              }}
-                            >
-                              +{hiddenEntries.length} more
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-72 p-3">
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold">
-                                {formatDayLabel(date)}
-                              </p>
-                              <div className="space-y-1">
-                                {hiddenEntries.map((entry) => (
-                                  <Chip
-                                    key={`${
-                                      entry.id
-                                    }-overflow-${date.toISOString()}`}
-                                    size="sm"
-                                    variant="flat"
-                                    className="h-6 w-full max-w-full cursor-pointer justify-start border border-transparent text-xs transition-all hover:border-current"
-                                    style={
-                                      {
-                                        backgroundColor: withAlpha(
-                                          entry.color,
-                                          "20",
-                                        ),
-                                        color: entry.color,
-                                      } as CSSProperties
-                                    }
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      onSelectEntry(entry);
-                                      setSelectedDayForOverflow(null);
-                                    }}
-                                  >
-                                    <span className="block min-w-0 truncate">
-                                      {entry.title}
-                                    </span>
-                                  </Chip>
-                                ))}
-                              </div>
-                            </div>
-                          </PopoverContent>
-                        </Popover>
                       ) : null}
+
+                      <div className="hidden space-y-1 sm:block">
+                        {visibleEntries.map((entry) => (
+                          <Chip
+                            key={`${entry.id}-${date.toISOString()}`}
+                            size="sm"
+                            variant="flat"
+                            className="h-6 w-full max-w-full cursor-pointer justify-start border border-transparent text-xs transition-all hover:border-current"
+                            style={
+                              {
+                                backgroundColor: withAlpha(entry.color, "20"),
+                                color: entry.color,
+                              } as CSSProperties
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelectEntry(entry);
+                            }}
+                          >
+                            <span className="block min-w-0 truncate">
+                              {entry.title}
+                            </span>
+                          </Chip>
+                        ))}
+
+                        {hiddenEntries.length > 0 ? (
+                          <Popover
+                            placement="bottom"
+                            showArrow={false}
+                            isOpen={overflowOpen}
+                            onOpenChange={(open) => {
+                              setSelectedDayForOverflow(open ? date : null);
+                            }}
+                          >
+                            <PopoverTrigger>
+                              <button
+                                type="button"
+                                className="text-foreground-500 hover:bg-default-100 rounded-small w-full px-1 py-0.5 text-left text-xs font-medium transition-colors"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                }}
+                              >
+                                +{hiddenEntries.length} more
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-72 p-3">
+                              <div className="space-y-2">
+                                <p className="text-sm font-semibold">
+                                  {formatDayLabel(date)}
+                                </p>
+                                <div className="space-y-1">
+                                  {hiddenEntries.map((entry) => (
+                                    <Chip
+                                      key={`${
+                                        entry.id
+                                      }-overflow-${date.toISOString()}`}
+                                      size="sm"
+                                      variant="flat"
+                                      className="h-6 w-full max-w-full cursor-pointer justify-start border border-transparent text-xs transition-all hover:border-current"
+                                      style={
+                                        {
+                                          backgroundColor: withAlpha(
+                                            entry.color,
+                                            "20",
+                                          ),
+                                          color: entry.color,
+                                        } as CSSProperties
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        onSelectEntry(entry);
+                                        setSelectedDayForOverflow(null);
+                                      }}
+                                    >
+                                      <span className="block min-w-0 truncate">
+                                        {entry.title}
+                                      </span>
+                                    </Chip>
+                                  ))}
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        ) : null}
+                      </div>
                     </div>
                   </TableCell>
                 );
@@ -1810,6 +1841,7 @@ const DayView = ({
   onSelectEntry,
   goalLogsCategories = [],
   periodicGoals = [],
+  acceptedGoalIncentives = [],
   logsByGoalDate = {},
   notesByGoalDate = {},
   onToggleGoalLog,
@@ -1822,6 +1854,7 @@ const DayView = ({
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
   goalLogsCategories?: CategoryWithGoals[];
   periodicGoals?: PeriodicGoalInfo[];
+  acceptedGoalIncentives?: AcceptedGoalIncentive[];
   logsByGoalDate?: Record<string, "complete" | "planned">;
   notesByGoalDate?: Record<string, string>;
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
@@ -1840,6 +1873,12 @@ const DayView = ({
     completed: boolean;
     period: string | null;
     isScheduled: boolean;
+    incentive:
+      | (AcceptedGoalIncentive & {
+          completedDays: number;
+          progress: number;
+        })
+      | null;
     note: string | null;
     onToggle: () => void;
   };
@@ -1881,6 +1920,42 @@ const DayView = ({
     [goalLogsCategories],
   );
 
+  const incentiveByGoalId = useMemo(() => {
+    const incentives = new Map<
+      string,
+      AcceptedGoalIncentive & {
+        completedDays: number;
+        progress: number;
+      }
+    >();
+    const selectedDay = startOfDay(currentDate);
+
+    for (const incentive of acceptedGoalIncentives) {
+      if (incentives.has(incentive.goalId)) continue;
+
+      const startDate = startOfDay(toDate(incentive.createdAt));
+      if (selectedDay < startDate) continue;
+
+      const completedDays = Array.from(
+        { length: incentive.streakDays },
+        (_, index) => addDays(startDate, index),
+      ).filter(
+        (date) =>
+          date <= selectedDay &&
+          logsByGoalDate[`${incentive.goalId}_${toDateKey(date)}`] ===
+            "complete",
+      ).length;
+
+      incentives.set(incentive.goalId, {
+        ...incentive,
+        completedDays,
+        progress: Math.min(completedDays / incentive.streakDays, 1),
+      });
+    }
+
+    return incentives;
+  }, [acceptedGoalIncentives, currentDate, logsByGoalDate]);
+
   const allGoalItems = useMemo<GoalItem[]>(() => {
     const dailyItems = goalLogsCategories.flatMap((cat) =>
       cat.goals.map((goal) => {
@@ -1896,6 +1971,7 @@ const DayView = ({
           completed: status === "complete",
           period: "daily",
           isScheduled: false,
+          incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         };
@@ -1919,6 +1995,7 @@ const DayView = ({
           completed: status === "complete",
           period: goal.period,
           isScheduled: true,
+          incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         },
@@ -1928,6 +2005,7 @@ const DayView = ({
     return [...scheduledItems, ...dailyItems];
   }, [
     categoryById,
+    incentiveByGoalId,
     goalLogsCategories,
     periodicGoals,
     logsByGoalDate,
@@ -2175,6 +2253,64 @@ const DayView = ({
     return <span className="mt-2 flex items-center gap-1.5">{badges}</span>;
   };
 
+  const renderIncentiveRing = (item: GoalItem) => {
+    if (!item.incentive) return null;
+
+    const size = 48;
+    const strokeWidth = 4;
+    const center = size / 2;
+    const radius = center - strokeWidth / 2;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference * (1 - item.incentive.progress);
+
+    return (
+      <span
+        title={`${item.incentive.body}: ${item.incentive.completedDays}/${item.incentive.streakDays} days at ${item.incentive.streakPercent}% required`}
+        className="relative flex h-14 w-14 shrink-0 items-center justify-center text-success-600"
+      >
+        <svg
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+          role="img"
+          aria-label={`${item.incentive.completedDays} of ${item.incentive.streakDays} incentive days complete`}
+        >
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeOpacity={0.16}
+            strokeWidth={strokeWidth}
+          />
+          <circle
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            strokeWidth={strokeWidth}
+            className="transition-all duration-500"
+            style={{
+              transform: "rotate(-90deg)",
+              transformOrigin: `${center}px ${center}px`,
+            }}
+          />
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Icon icon="mdi:gift-outline" className="h-5 w-5" />
+        </span>
+        <span className="absolute -bottom-0.5 left-1/2 flex h-5 min-w-8 -translate-x-1/2 items-center justify-center rounded-full border border-default-200 bg-content1 px-1.5 text-[9px] font-bold tabular-nums text-foreground shadow-sm">
+          {item.incentive.completedDays}/{item.incentive.streakDays}
+        </span>
+      </span>
+    );
+  };
+
   const renderGoalCard = (item: GoalItem) => {
     const cfg =
       DAY_VIEW_CATEGORY_CONFIG[item.categoryName] ??
@@ -2187,7 +2323,7 @@ const DayView = ({
         type="button"
         aria-label={`Open actions for ${item.label}`}
         onClick={() => openGoalActions(item)}
-        className="grid min-h-[78px] w-full grid-cols-[48px_1fr] items-center gap-3 rounded-[18px] border border-default-100 bg-content2/75 p-3 text-left transition-colors hover:bg-content2 sm:min-h-[92px] sm:grid-cols-[56px_1fr] sm:p-4"
+        className="grid min-h-[78px] w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-3 rounded-[18px] border border-default-100 bg-content2/75 p-3 text-left transition-colors hover:bg-content2 sm:min-h-[92px] sm:grid-cols-[56px_minmax(0,1fr)_auto] sm:p-4"
         style={{ borderColor: borderColor || undefined }}
       >
         <span
@@ -2205,6 +2341,7 @@ const DayView = ({
           </span>
           {renderGoalBadges(item)}
         </span>
+        {renderIncentiveRing(item)}
       </button>
     );
   };
@@ -3856,7 +3993,10 @@ export const PortableCalendar = ({
                         onSelectEntry={handleSelectEntry}
                         goalLogsCategories={filteredDailyCategories}
                         periodicGoals={goalLogsSnapshot.periodicGoals}
-                        logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
+                        acceptedGoalIncentives={
+                          goalLogsSnapshot.acceptedGoalIncentives
+                        }
+                        logsByGoalDate={allGoalLogsByDate}
                         notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
                         onToggleGoalLog={handleDayViewToggleGoalLog}
                         onSaveGoalNote={handleDayViewSaveGoalNote}

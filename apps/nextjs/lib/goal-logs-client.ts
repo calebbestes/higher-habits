@@ -36,10 +36,20 @@ export type HiddenGoalInfo = {
   frequencyGoal: number | null;
 };
 
+export type AcceptedGoalIncentive = {
+  id: string;
+  goalId: string;
+  body: string;
+  streakDays: number;
+  streakPercent: number;
+  createdAt: string;
+};
+
 export type GoalLogsSnapshot = {
   categories: CategoryWithGoals[];
   periodicGoals: PeriodicGoalInfo[];
   hiddenGoals: HiddenGoalInfo[];
+  acceptedGoalIncentives: AcceptedGoalIncentive[];
   /** key: `${goalId}_${dateKey}` */
   logsByGoalDate: Record<string, "complete" | "planned">;
   /** key: `${goalId}_${dateKey}`, only non-empty notes */
@@ -50,6 +60,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   categories: [],
   periodicGoals: [],
   hiddenGoals: [],
+  acceptedGoalIncentives: [],
   logsByGoalDate: {},
   notesByGoalDate: {},
 };

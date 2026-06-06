@@ -1,13 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { MonthCalendar } from "@/components/portable-calendar";
+import { TopTasksPage } from "@/components/top-tasks-page";
 import { requireUser } from "@/lib/auth";
 import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
 import { getMonthKey, toDateKey } from "@/lib/habit-state";
 import { notFound } from "next/navigation";
 
-const CALENDAR_VIEWS = ["day", "week", "month"] as const;
+const CALENDAR_VIEWS = ["day", "week", "month", "top-tasks"] as const;
 type CalendarView = (typeof CALENDAR_VIEWS)[number];
 
 type CalendarViewPageProps = {
@@ -30,6 +31,11 @@ export default async function CalendarViewPage({
   }
 
   const user = await requireUser();
+
+  if (view === "top-tasks") {
+    return <TopTasksPage />;
+  }
+
   const now = new Date();
   const initialDate = toDateKey(now);
 
@@ -42,7 +48,7 @@ export default async function CalendarViewPage({
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col overflow-hidden px-4 py-3">
+    <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col overflow-hidden p-1 sm:px-4 sm:py-3">
       <div className="min-h-0 flex-1 overflow-hidden">
         <MonthCalendar
           initialDate={initialDate}
