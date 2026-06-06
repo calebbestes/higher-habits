@@ -1793,6 +1793,17 @@ const PRIORITY_POINTS: Record<GoalPriorityStage, number> = {
   low: 1,
 };
 
+const PRIORITY_LABELS: Record<GoalPriorityStage, string> = {
+  high: "High Priority",
+  medium: "Medium Priority",
+  low: "Low Priority",
+};
+
+const PERIOD_BADGE_LABELS: Record<string, string> = {
+  weekly: "Weekly goal",
+  monthly: "Monthly goal",
+};
+
 const DayView = ({
   currentDate,
   entries,
@@ -1818,7 +1829,32 @@ const DayView = ({
   onShareHabitResults?: () => void;
   onNavigateDay?: (direction: number) => void;
 }) => {
+  type GoalItem = {
+    key: string;
+    label: string;
+    icon: string;
+    category: string;
+    categoryName: string;
+    categoryIcon: string;
+    priority: GoalPriorityStage;
+    completed: boolean;
+    period: string | null;
+    isScheduled: boolean;
+    note: string | null;
+    onToggle: () => void;
+  };
+
   const [showCompleted, setShowCompleted] = useState(false);
+  const [openPriorities, setOpenPriorities] = useState<
+    Record<GoalPriorityStage, boolean>
+  >({
+    high: true,
+    medium: false,
+    low: false,
+  });
+  const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(
+    null,
+  );
 
   const currentDateKey = toDateKey(currentDate);
 
@@ -1827,6 +1863,7 @@ const DayView = ({
     label: string;
     note: string | null;
   } | null>(null);
+  const [actionGoal, setActionGoal] = useState<GoalItem | null>(null);
   const [noteEditorValue, setNoteEditorValue] = useState<string | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
 
@@ -1838,42 +1875,66 @@ const DayView = ({
     [currentDate, entries],
   );
 
-  type GoalItem = {
-    key: string;
-    label: string;
-    icon: string;
-    category: string;
-    categoryName: string;
-    priority: GoalPriorityStage;
-    completed: boolean;
-    note: string | null;
-    onToggle: () => void;
-  };
-
-  const allGoalItems = useMemo<GoalItem[]>(
+  const categoryById = useMemo(
     () =>
-      goalLogsCategories.flatMap((cat) =>
-        cat.goals.map((goal) => ({
+      new Map(goalLogsCategories.map((category) => [category.id, category])),
+    [goalLogsCategories],
+  );
+
+  const allGoalItems = useMemo<GoalItem[]>(() => {
+    const dailyItems = goalLogsCategories.flatMap((cat) =>
+      cat.goals.map((goal) => {
+        const status = logsByGoalDate[`${goal.id}_${currentDateKey}`] ?? null;
+        return {
           key: goal.id,
           label: goal.name,
           icon: goal.iconKey || "mdi:circle",
           category: cat.id,
           categoryName: cat.name,
+          categoryIcon: cat.icon || "mdi:circle",
           priority: goal.priority,
-          completed:
-            logsByGoalDate[`${goal.id}_${currentDateKey}`] === "complete",
+          completed: status === "complete",
+          period: "daily",
+          isScheduled: false,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
-        })),
-      ),
-    [
-      goalLogsCategories,
-      logsByGoalDate,
-      notesByGoalDate,
-      currentDateKey,
-      onToggleGoalLog,
-    ],
-  );
+        };
+      }),
+    );
+
+    const scheduledItems = periodicGoals.flatMap((goal) => {
+      const status = logsByGoalDate[`${goal.id}_${currentDateKey}`] ?? null;
+      if (status !== "planned" && status !== "complete") return [];
+
+      const category = categoryById.get(goal.categoryId);
+      return [
+        {
+          key: goal.id,
+          label: goal.name,
+          icon: goal.iconKey || "mdi:circle",
+          category: goal.categoryId,
+          categoryName: category?.name ?? "Goals",
+          categoryIcon: category?.icon || "mdi:calendar-check-outline",
+          priority: goal.priority,
+          completed: status === "complete",
+          period: goal.period,
+          isScheduled: true,
+          note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
+          onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
+        },
+      ];
+    });
+
+    return [...scheduledItems, ...dailyItems];
+  }, [
+    categoryById,
+    goalLogsCategories,
+    periodicGoals,
+    logsByGoalDate,
+    notesByGoalDate,
+    currentDateKey,
+    onToggleGoalLog,
+  ]);
 
   const pendingItems = allGoalItems.filter((item) => !item.completed);
   const completedItems = allGoalItems.filter((item) => item.completed);
@@ -2011,58 +2072,205 @@ const DayView = ({
     );
   };
 
-  const prioritySections = useMemo(
-    () =>
-      GOAL_PRIORITY_STAGES.flatMap((priority) => {
-        const items = allGoalItems.filter(
-          (item) => item.priority === priority && !item.completed,
-        );
-        if (items.length === 0) return [];
-        return [{ priority, items }];
-      }),
-    [allGoalItems],
-  );
+  const prioritySections = useMemo(() => {
+    return GOAL_PRIORITY_STAGES.map((priority) => {
+      const groupsByCategory = new Map<
+        string,
+        {
+          key: string;
+          categoryId: string;
+          categoryName: string;
+          categoryIcon: string;
+          items: GoalItem[];
+        }
+      >();
 
-  const renderIconButton = (
-    item: GoalItem,
-    size: "normal" | "small" = "normal",
-  ) => {
+      for (const item of allGoalItems) {
+        if (item.priority !== priority || item.completed) continue;
+
+        const key = `${priority}:${item.category}`;
+        const existing = groupsByCategory.get(key);
+        if (existing) {
+          existing.items.push(item);
+          continue;
+        }
+        groupsByCategory.set(key, {
+          key,
+          categoryId: item.category,
+          categoryName: item.categoryName,
+          categoryIcon: item.categoryIcon,
+          items: [item],
+        });
+      }
+
+      const groups = Array.from(groupsByCategory.values())
+        .map((group) => ({
+          ...group,
+          items: [...group.items].sort((a, b) => {
+            const scheduledSort = Number(b.isScheduled) - Number(a.isScheduled);
+            if (scheduledSort !== 0) return scheduledSort;
+            return a.label.localeCompare(b.label);
+          }),
+        }))
+        .sort((a, b) => {
+          const scheduledSort =
+            Number(b.items.some((item) => item.isScheduled)) -
+            Number(a.items.some((item) => item.isScheduled));
+          if (scheduledSort !== 0) return scheduledSort;
+          return a.categoryName.localeCompare(b.categoryName);
+        });
+
+      return {
+        priority,
+        groups,
+        itemCount: groups.reduce((sum, group) => sum + group.items.length, 0),
+      };
+    }).filter((section) => section.itemCount > 0);
+  }, [allGoalItems]);
+
+  const openGoalActions = (item: GoalItem) => {
+    setActionGoal(item);
+  };
+
+  const togglePriority = (priority: GoalPriorityStage) => {
+    setOpenPriorities((previous) => ({
+      ...previous,
+      [priority]: !previous[priority],
+    }));
+  };
+
+  const toggleCategory = (categoryKey: string) => {
+    setExpandedCategoryKey((current) =>
+      current === categoryKey ? null : categoryKey,
+    );
+  };
+
+  const renderGoalBadges = (item: GoalItem) => {
+    const periodLabel =
+      item.period && PERIOD_BADGE_LABELS[item.period]
+        ? PERIOD_BADGE_LABELS[item.period]
+        : "Scheduled goal";
+    const badges = [
+      item.isScheduled ? (
+        <span
+          key="scheduled"
+          title={periodLabel}
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-default-100 text-foreground-500"
+        >
+          <Icon icon="mdi:calendar-outline" className="h-3.5 w-3.5" />
+        </span>
+      ) : null,
+      item.note ? (
+        <span
+          key="note"
+          title="Has note"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-default-100 text-foreground-500"
+        >
+          <Icon icon="mdi:note-text-outline" className="h-3.5 w-3.5" />
+        </span>
+      ) : null,
+    ].filter(Boolean);
+
+    if (badges.length === 0) return null;
+    return <span className="mt-2 flex items-center gap-1.5">{badges}</span>;
+  };
+
+  const renderGoalCard = (item: GoalItem) => {
     const cfg =
       DAY_VIEW_CATEGORY_CONFIG[item.categoryName] ??
       DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
-    const tooltipLabel = item.completed
-      ? `Mark ${item.label} incomplete`
-      : item.label;
+    const borderColor = item.isScheduled ? withAlpha(cfg.color, "66") : "";
+
     return (
-      <Tooltip content={tooltipLabel} color="foreground" key={item.key}>
+      <button
+        key={item.key}
+        type="button"
+        aria-label={`Open actions for ${item.label}`}
+        onClick={() => openGoalActions(item)}
+        className="grid min-h-[78px] w-full grid-cols-[48px_1fr] items-center gap-3 rounded-[18px] border border-default-100 bg-content2/75 p-3 text-left transition-colors hover:bg-content2 sm:min-h-[92px] sm:grid-cols-[56px_1fr] sm:p-4"
+        style={{ borderColor: borderColor || undefined }}
+      >
+        <span
+          className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-sm sm:h-14 sm:w-14"
+          style={{
+            backgroundColor: cfg.color,
+            boxShadow: `0 10px 24px ${withAlpha(cfg.color, "22")}`,
+          }}
+        >
+          <Icon icon={item.icon} className="h-6 w-6 sm:h-7 sm:w-7" />
+        </span>
+        <span className="min-w-0">
+          <span className="line-clamp-2 text-sm font-semibold leading-snug text-foreground sm:text-base">
+            {item.label}
+          </span>
+          {renderGoalBadges(item)}
+        </span>
+      </button>
+    );
+  };
+
+  const renderCategoryGroup = (group: {
+    key: string;
+    categoryId: string;
+    categoryName: string;
+    categoryIcon: string;
+    items: GoalItem[];
+  }) => {
+    const cfg =
+      DAY_VIEW_CATEGORY_CONFIG[group.categoryName] ??
+      DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+    const isExpanded = expandedCategoryKey === group.key;
+    const scheduledCount = group.items.filter(
+      (item) => item.isScheduled,
+    ).length;
+
+    return (
+      <div key={group.key} className="space-y-2">
         <button
           type="button"
-          aria-label={tooltipLabel}
-          title={tooltipLabel}
-          onClick={item.onToggle}
+          onClick={() => toggleCategory(group.key)}
+          aria-expanded={isExpanded}
           className={cn(
-            "relative flex shrink-0 flex-col items-center justify-center rounded-2xl border transition-all",
-            size === "normal"
-              ? "h-12 w-12 gap-1.5 p-2 sm:h-24 sm:w-24 sm:gap-2 sm:p-4"
-              : "h-10 w-10 gap-1 p-2 sm:h-20 sm:w-20 sm:gap-1.5 sm:p-3",
-            item.completed
-              ? `${cfg.activeBg} border-transparent text-white shadow-md ${cfg.activeShadow}`
-              : `${cfg.inactiveBorder} bg-content2 ${cfg.iconColor} ${cfg.hoverBg} hover:border-transparent`,
+            "flex w-full items-center gap-3 rounded-[18px] border bg-content1/70 px-3 py-3 text-left transition-colors hover:bg-content2",
+            isExpanded ? "border-default-300" : "border-default-100",
           )}
         >
+          <span
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl"
+            style={{
+              backgroundColor: withAlpha(cfg.color, "18"),
+              color: cfg.color,
+            }}
+          >
+            <Icon icon={group.categoryIcon} className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-foreground">
+              {group.categoryName}
+            </span>
+            <span className="block text-xs text-foreground-400">
+              {group.items.length} {group.items.length === 1 ? "goal" : "goals"}
+            </span>
+          </span>
+          {scheduledCount > 0 ? (
+            <span className="flex h-7 items-center gap-1 rounded-full bg-default-100 px-2 text-xs font-medium text-foreground-500">
+              <Icon icon="mdi:calendar-outline" className="h-3.5 w-3.5" />
+              {scheduledCount}
+            </span>
+          ) : null}
           <Icon
-            icon={item.icon}
-            className={
-              size === "normal"
-                ? "h-5 w-5 sm:h-8 sm:w-8 lg:h-10 lg:w-10"
-                : "h-5 w-5 sm:h-7 sm:w-7"
+            icon={
+              isExpanded ? "fa7-solid:chevron-down" : "fa7-solid:chevron-right"
             }
+            className="h-3 w-3 text-foreground-400"
           />
-          {item.completed && item.note && (
-            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/70" />
-          )}
         </button>
-      </Tooltip>
+        {isExpanded ? (
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {group.items.map((item) => renderGoalCard(item))}
+          </div>
+        ) : null}
+      </div>
     );
   };
 
@@ -2075,23 +2283,77 @@ const DayView = ({
     setNoteEditorValue(item.note);
   };
 
-  const renderCompletedGoalItem = (item: GoalItem) => (
-    <div
-      key={item.key}
-      className="flex shrink-0 flex-col items-center gap-1.5 sm:w-20"
-    >
-      {renderIconButton(item, "small")}
-      <Button
-        size="sm"
-        variant={item.note ? "flat" : "light"}
-        radius="full"
-        className="h-7 min-w-0 px-2 text-[11px] font-medium sm:w-full"
-        onPress={() => openGoalNote(item)}
-      >
-        {item.note ? "Show note" : "Add note"}
-      </Button>
-    </div>
-  );
+  const renderPrioritySection = ({
+    priority,
+    groups,
+    itemCount,
+  }: {
+    priority: GoalPriorityStage;
+    groups: Array<{
+      key: string;
+      categoryId: string;
+      categoryName: string;
+      categoryIcon: string;
+      items: GoalItem[];
+    }>;
+    itemCount: number;
+  }) => {
+    const isOpen = openPriorities[priority];
+
+    return (
+      <div key={priority} className="space-y-2">
+        <button
+          type="button"
+          onClick={() => togglePriority(priority)}
+          aria-expanded={isOpen}
+          className="flex w-full items-center gap-2 rounded-xl py-1.5 text-left text-[11px] font-semibold uppercase tracking-widest text-foreground-500 transition-colors hover:text-foreground sm:text-xs"
+        >
+          <Icon
+            icon={isOpen ? "fa7-solid:chevron-down" : "fa7-solid:chevron-right"}
+            className="h-3 w-3"
+          />
+          <span>{PRIORITY_LABELS[priority]}</span>
+          <span className="ml-auto rounded-full bg-default-100 px-2 py-0.5 text-[11px] tracking-normal text-foreground-500">
+            {itemCount}
+          </span>
+        </button>
+        {isOpen ? (
+          <div className="space-y-2">{groups.map(renderCategoryGroup)}</div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderCompletedGoalItem = (item: GoalItem) => {
+    const cfg =
+      DAY_VIEW_CATEGORY_CONFIG[item.categoryName] ??
+      DEFAULT_DAY_VIEW_CATEGORY_CONFIG;
+
+    return (
+      <Tooltip key={item.key} content={item.label} color="foreground">
+        <button
+          type="button"
+          aria-label={`Open actions for completed goal ${item.label}`}
+          onClick={() => openGoalActions(item)}
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-transparent text-white shadow-sm transition-transform hover:-translate-y-0.5 sm:h-14 sm:w-14"
+          style={{
+            backgroundColor: cfg.color,
+            boxShadow: `0 10px 24px ${withAlpha(cfg.color, "22")}`,
+          }}
+        >
+          <Icon icon={item.icon} className="h-5 w-5 sm:h-6 sm:w-6" />
+          {item.note ? (
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/75" />
+          ) : null}
+          {item.isScheduled ? (
+            <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-content1 text-foreground shadow-sm">
+              <Icon icon="mdi:calendar-outline" className="h-3 w-3" />
+            </span>
+          ) : null}
+        </button>
+      </Tooltip>
+    );
+  };
 
   const handleSaveNote = async () => {
     if (!noteModalGoal) return;
@@ -2156,70 +2418,10 @@ const DayView = ({
         <div className="shrink-0 px-1 sm:px-0">
           <div className="grid gap-4">
             <div className="flex flex-col gap-3 sm:gap-5">
-              {prioritySections.map(({ priority, items }) => (
-                <div key={priority}>
-                  <div className="mb-2 flex items-center gap-2 sm:mb-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
-                      {priority === "high"
-                        ? "High Priority"
-                        : priority === "medium"
-                          ? "Medium Priority"
-                          : "Low Priority"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
-                    {items.map((item) => renderIconButton(item))}
-                  </div>
-                </div>
-              ))}
+              {prioritySections.map(renderPrioritySection)}
 
               {(() => {
-                const plannedMonthly = periodicGoals.filter(
-                  (g) =>
-                    logsByGoalDate[`${g.id}_${currentDateKey}`] === "planned",
-                );
-                if (plannedMonthly.length === 0) return null;
-                return (
-                  <div>
-                    <div className="mb-2 flex items-center gap-2 sm:mb-3">
-                      <span className="h-2 w-2 rounded-full bg-foreground-400" />
-                      <p className="text-[11px] font-semibold uppercase tracking-widest text-foreground-500 sm:text-xs">
-                        Planned Monthly Goals
-                      </p>
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
-                      {plannedMonthly.map((goal) => (
-                        <Tooltip
-                          key={goal.id}
-                          content={goal.name}
-                          color="foreground"
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onToggleGoalLog?.(goal.id, currentDateKey)
-                            }
-                            className="relative flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-default-200 bg-content2 p-2 text-foreground-400 transition-all hover:border-transparent hover:bg-foreground/10 hover:text-foreground sm:h-24 sm:w-24 sm:gap-2 sm:p-4"
-                          >
-                            <Icon
-                              icon={goal.iconKey || "mdi:circle"}
-                              className="h-5 w-5 sm:h-8 sm:w-8 lg:h-9 lg:w-9"
-                            />
-                          </button>
-                        </Tooltip>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {(() => {
-                const completedPeriodicGoals = periodicGoals.filter(
-                  (g) =>
-                    logsByGoalDate[`${g.id}_${currentDateKey}`] === "complete",
-                );
-                const totalCompleted =
-                  completedItems.length + completedPeriodicGoals.length;
+                const totalCompleted = completedItems.length;
 
                 if (totalCompleted === 0 && pendingItems.length === 0) {
                   return (
@@ -2249,30 +2451,10 @@ const DayView = ({
                       Show completed ({totalCompleted})
                     </button>
                     {showCompleted && (
-                      <div className="mt-2 flex items-start gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:flex-wrap sm:gap-4 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
+                      <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
                         {completedItems.map((item) =>
                           renderCompletedGoalItem(item),
                         )}
-                        {completedPeriodicGoals.map((goal) => (
-                          <Tooltip
-                            key={goal.id}
-                            content={goal.name}
-                            color="foreground"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onToggleGoalLog?.(goal.id, currentDateKey)
-                              }
-                              className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl border border-transparent bg-foreground p-2 text-background shadow-md transition-all sm:h-20 sm:w-20 sm:gap-1.5 sm:p-3"
-                            >
-                              <Icon
-                                icon={goal.iconKey || "mdi:circle"}
-                                className="h-5 w-5 sm:h-7 sm:w-7"
-                              />
-                            </button>
-                          </Tooltip>
-                        ))}
                       </div>
                     )}
                   </div>
@@ -2333,6 +2515,98 @@ const DayView = ({
       </div>
 
       <Modal
+        isOpen={actionGoal != null}
+        onOpenChange={(open) => {
+          if (!open) setActionGoal(null);
+        }}
+        placement="bottom"
+        size="sm"
+        classNames={{
+          base: "mx-3 mb-3 rounded-[24px] sm:mx-auto sm:mb-0",
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1 pb-2">
+            <span className="line-clamp-2 text-base font-semibold leading-snug">
+              {actionGoal?.label}
+            </span>
+            {actionGoal?.isScheduled ? (
+              <span className="flex items-center gap-1 text-xs font-normal text-foreground-400">
+                <Icon icon="mdi:calendar-outline" className="h-3.5 w-3.5" />
+                {actionGoal.period && PERIOD_BADGE_LABELS[actionGoal.period]
+                  ? PERIOD_BADGE_LABELS[actionGoal.period]
+                  : "Scheduled goal"}
+              </span>
+            ) : null}
+          </ModalHeader>
+          <ModalBody className="gap-2 pb-4">
+            <Button
+              variant="flat"
+              radius="lg"
+              className="h-12 justify-start px-4 text-sm font-semibold"
+              startContent={
+                <Icon
+                  icon={
+                    actionGoal?.completed
+                      ? "mdi:undo-variant"
+                      : "mdi:check-circle-outline"
+                  }
+                  className="h-5 w-5"
+                />
+              }
+              onPress={() => {
+                actionGoal?.onToggle();
+                setActionGoal(null);
+              }}
+            >
+              {actionGoal?.completed ? "Mark incomplete" : "Mark complete"}
+            </Button>
+            <Button
+              variant="flat"
+              radius="lg"
+              className="h-12 justify-start px-4 text-sm font-semibold"
+              startContent={
+                <Icon icon="mdi:note-text-outline" className="h-5 w-5" />
+              }
+              onPress={() => {
+                const goal = actionGoal;
+                setActionGoal(null);
+                if (goal) openGoalNote(goal);
+              }}
+            >
+              {actionGoal?.note ? "Show note" : "Add note"}
+            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                isDisabled
+                variant="flat"
+                radius="lg"
+                title="Photo saving is not connected yet"
+                className="h-12 justify-start px-4 text-sm font-semibold"
+                startContent={
+                  <Icon icon="mdi:camera-outline" className="h-5 w-5" />
+                }
+              >
+                Take photo
+              </Button>
+              <Button
+                isDisabled
+                variant="flat"
+                radius="lg"
+                title="Photo saving is not connected yet"
+                className="h-12 justify-start px-4 text-sm font-semibold"
+                startContent={
+                  <Icon icon="mdi:image-outline" className="h-5 w-5" />
+                }
+              >
+                Add photo
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      <Modal
         isOpen={noteModalGoal != null}
         onOpenChange={(open) => {
           if (!open) setNoteModalGoal(null);
@@ -2356,38 +2630,22 @@ const DayView = ({
               placeholder="Write a note for this goal…"
             />
           </ModalBody>
-          <ModalFooter className="flex items-center justify-between">
+          <ModalFooter className="flex justify-end gap-2">
             <Button
               size="sm"
-              variant="light"
-              color="danger"
-              onPress={() => {
-                const item = allGoalItems.find(
-                  (i) => i.key === noteModalGoal?.key,
-                );
-                if (item) item.onToggle();
-                setNoteModalGoal(null);
-              }}
+              variant="flat"
+              onPress={() => setNoteModalGoal(null)}
             >
-              Mark incomplete
+              Cancel
             </Button>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="flat"
-                onPress={() => setNoteModalGoal(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                color="primary"
-                isLoading={isSavingNote}
-                onPress={() => void handleSaveNote()}
-              >
-                Save note
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              color="primary"
+              isLoading={isSavingNote}
+              onPress={() => void handleSaveNote()}
+            >
+              Save note
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
