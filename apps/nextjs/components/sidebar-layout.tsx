@@ -14,25 +14,32 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import {
+  FRIENDS_SECTIONS,
+  parseFriendsSection,
+} from "@/lib/friends-navigation";
 
 const CALENDAR_NAV_ITEM = {
-  label: "Calendar",
-  icon: "fa7-solid:calendar",
+  label: "Plan/Report",
+  icon: "mdi:clipboard-text-clock-outline",
   href: "/calendar/day",
 } as const;
 
 const CALENDAR_NAV_ITEMS = [
   { label: "Day", icon: "mdi:view-day-outline", href: "/calendar/day" },
-  { label: "Week", icon: "mdi:calendar-week", href: "/calendar/week" },
   { label: "Month", icon: "mdi:calendar-month", href: "/calendar/month" },
+  {
+    label: "Top Tasks",
+    icon: "mdi:format-list-checks",
+    href: "/calendar/top-tasks",
+  },
 ] as const;
 
 const MOBILE_NAV_ITEMS = [
-  { label: "Friends", icon: "fa7-solid:user-group", href: "/friends" },
   {
     label: "Dashboard",
     icon: "fa7-solid:gauge-high",
@@ -40,6 +47,12 @@ const MOBILE_NAV_ITEMS = [
   },
   { label: "Journal", icon: "fa7-solid:book-open", href: "/journal" },
 ] as const;
+
+const COLLAB_NAV_ITEM = {
+  label: "Collab",
+  icon: "fa7-solid:user-group",
+  href: "/friends",
+} as const;
 
 const MOBILE_ADD_ITEMS = [
   { label: "Goals", icon: "fa7-solid:bullseye", href: "/goals" },
@@ -63,14 +76,20 @@ function isNavActive(href: string, pathname: string): boolean {
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [openSignOut, setOpenSignOut] = useState(false);
   const [isMobileCalendarOpen, setIsMobileCalendarOpen] = useState(false);
+  const [isMobileFriendsOpen, setIsMobileFriendsOpen] = useState(false);
   const [isMobileAddOpen, setIsMobileAddOpen] = useState(false);
   const isAuthPage = pathname === "/login" || pathname === "/sign-up";
   const isCalendarRoute = isNavActive("/calendar", pathname);
+  const isFriendsRoute = isNavActive(COLLAB_NAV_ITEM.href, pathname);
+  const activeFriendsSection = parseFriendsSection(
+    searchParams.get("section") ?? undefined,
+  );
   const isAddRoute = MOBILE_ADD_ITEMS.some((item) =>
     isNavActive(item.href, pathname),
   );
@@ -154,7 +173,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     isCollapsed && "lg:hidden",
                   )}
                 >
-                  Calendar
+                  {CALENDAR_NAV_ITEM.label}
                 </span>
               </div>
 
@@ -193,32 +212,66 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               </ul>
             </li>
 
-            {MOBILE_NAV_ITEMS.slice(0, 1).map((item) => {
-              const isCurrent = isNavActive(item.href, pathname);
+            <li className="space-y-1">
+              <div
+                title={isCollapsed ? COLLAB_NAV_ITEM.label : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                  isCollapsed && "lg:justify-center lg:px-0",
+                  isFriendsRoute
+                    ? "bg-primary/10 text-primary"
+                    : "text-foreground-700",
+                )}
+              >
+                <Icon
+                  icon={COLLAB_NAV_ITEM.icon}
+                  className="h-4 w-4 shrink-0"
+                />
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    isCollapsed && "lg:hidden",
+                  )}
+                >
+                  Collab
+                </span>
+              </div>
 
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => setIsMobileOpen(false)}
-                    title={isCollapsed ? item.label : undefined}
-                    aria-current={isCurrent ? "page" : undefined}
-                    className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-                      isCollapsed && "lg:justify-center lg:px-0",
-                      isCurrent
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
-                    )}
-                  >
-                    <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
-                    <span className={cn(isCollapsed && "lg:hidden")}>
-                      {item.label}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
+              <ul
+                className={cn(
+                  "ml-8 space-y-1 border-l border-divider pl-3",
+                  isCollapsed && "lg:ml-0 lg:border-l-0 lg:pl-0",
+                )}
+              >
+                {FRIENDS_SECTIONS.map((item) => {
+                  const isCurrent =
+                    isFriendsRoute && activeFriendsSection === item.key;
+
+                  return (
+                    <li key={item.key}>
+                      <Link
+                        href={item.href}
+                        onClick={() => setIsMobileOpen(false)}
+                        title={isCollapsed ? item.label : undefined}
+                        aria-current={isCurrent ? "page" : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                          isCollapsed && "lg:justify-center lg:px-0",
+                          isCurrent
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-foreground-600 hover:bg-default-100 hover:text-foreground",
+                        )}
+                      >
+                        <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                        <span className={cn(isCollapsed && "lg:hidden")}>
+                          {item.label}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
 
             <li>
               <Link
@@ -305,7 +358,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               </ul>
             </li>
 
-            {MOBILE_NAV_ITEMS.slice(1).map((item) => {
+            {MOBILE_NAV_ITEMS.map((item) => {
               const isCurrent = isNavActive(item.href, pathname);
 
               return (
@@ -412,14 +465,17 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               isOpen={isMobileCalendarOpen}
               onOpenChange={(open) => {
                 setIsMobileCalendarOpen(open);
-                if (open) setIsMobileAddOpen(false);
+                if (open) {
+                  setIsMobileFriendsOpen(false);
+                  setIsMobileAddOpen(false);
+                }
               }}
               placement="top"
             >
               <PopoverTrigger>
                 <button
                   type="button"
-                  aria-label="Calendar"
+                  aria-label={CALENDAR_NAV_ITEM.label}
                   className={cn(
                     "flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
                     isMobileCalendarOpen || isCalendarRoute
@@ -431,7 +487,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     icon={CALENDAR_NAV_ITEM.icon}
                     className="h-5 w-5 shrink-0"
                   />
-                  <span className="max-w-full truncate">Calendar</span>
+                  <span className="max-w-full truncate">
+                    {CALENDAR_NAV_ITEM.label}
+                  </span>
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-40 p-2">
@@ -443,6 +501,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       onClick={() => {
                         setIsMobileOpen(false);
                         setIsMobileCalendarOpen(false);
+                        setIsMobileFriendsOpen(false);
                       }}
                       className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-foreground-700 transition-colors hover:bg-default-100 hover:text-foreground"
                     >
@@ -455,38 +514,72 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </Popover>
           </li>
 
-          {MOBILE_NAV_ITEMS.slice(0, 1).map((item) => {
-            const isCurrent = isNavActive(item.href, pathname);
-
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  onClick={() => {
-                    setIsMobileOpen(false);
-                    setIsMobileCalendarOpen(false);
-                    setIsMobileAddOpen(false);
-                  }}
-                  aria-current={isCurrent ? "page" : undefined}
+          <li>
+            <Popover
+              isOpen={isMobileFriendsOpen}
+              onOpenChange={(open) => {
+                setIsMobileFriendsOpen(open);
+                if (open) {
+                  setIsMobileCalendarOpen(false);
+                  setIsMobileAddOpen(false);
+                }
+              }}
+              placement="top"
+            >
+              <PopoverTrigger>
+                <button
+                  type="button"
+                  aria-label="Collab"
                   className={cn(
-                    "flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
-                    isCurrent
+                    "flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl text-[0.7rem] font-semibold leading-none transition-colors",
+                    isMobileFriendsOpen || isFriendsRoute
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
                   )}
                 >
-                  <Icon icon={item.icon} className="h-5 w-5 shrink-0" />
-                  <span className="max-w-full truncate">{item.label}</span>
-                </Link>
-              </li>
-            );
-          })}
+                  <Icon
+                    icon={COLLAB_NAV_ITEM.icon}
+                    className="h-5 w-5 shrink-0"
+                  />
+                  <span className="max-w-full truncate">Collab</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-44 p-2">
+                <div className="grid gap-1">
+                  {FRIENDS_SECTIONS.map((item) => (
+                    <Link
+                      key={item.key}
+                      href={item.href}
+                      onClick={() => {
+                        setIsMobileOpen(false);
+                        setIsMobileCalendarOpen(false);
+                        setIsMobileFriendsOpen(false);
+                        setIsMobileAddOpen(false);
+                      }}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+                        isFriendsRoute && activeFriendsSection === item.key
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground-700 hover:bg-default-100 hover:text-foreground",
+                      )}
+                    >
+                      <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </li>
           <li>
             <Popover
               isOpen={isMobileAddOpen}
               onOpenChange={(open) => {
                 setIsMobileAddOpen(open);
-                if (open) setIsMobileCalendarOpen(false);
+                if (open) {
+                  setIsMobileCalendarOpen(false);
+                  setIsMobileFriendsOpen(false);
+                }
               }}
               placement="top"
             >
@@ -517,6 +610,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                         setIsMobileOpen(false);
                         setIsMobileAddOpen(false);
                         setIsMobileCalendarOpen(false);
+                        setIsMobileFriendsOpen(false);
                       }}
                       className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-foreground-700 transition-colors hover:bg-default-100 hover:text-foreground"
                     >
@@ -528,7 +622,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
               </PopoverContent>
             </Popover>
           </li>
-          {MOBILE_NAV_ITEMS.slice(1).map((item) => {
+          {MOBILE_NAV_ITEMS.map((item) => {
             const isCurrent = isNavActive(item.href, pathname);
 
             return (
@@ -539,6 +633,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     setIsMobileOpen(false);
                     setIsMobileAddOpen(false);
                     setIsMobileCalendarOpen(false);
+                    setIsMobileFriendsOpen(false);
                   }}
                   aria-current={isCurrent ? "page" : undefined}
                   className={cn(

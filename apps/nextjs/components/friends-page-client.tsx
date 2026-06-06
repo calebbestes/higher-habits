@@ -19,7 +19,10 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+
+import type { FriendsSection } from "@/lib/friends-navigation";
 
 type FriendMessageRow = {
   id: string;
@@ -40,6 +43,11 @@ type FriendIncentiveRow = FriendMessageRow & {
   goalId: string | null;
   goalName: string | null;
   accepted: boolean | null;
+  progress: {
+    qualifyingDays: number;
+    requiredDays: number;
+    percent: number;
+  } | null;
 };
 
 type FriendRow = {
@@ -66,8 +74,8 @@ type FriendRow = {
   incentives: FriendIncentiveRow[];
 };
 
-type FriendsSection = "messages" | "incentives" | "shared-goals" | "friends";
 type NudgeMode = "message" | "incentive";
+type CollabPickerMode = "conversation" | "incentive";
 
 type SendMessagePayload =
   | { type: "message"; body: string }
@@ -82,18 +90,46 @@ type SendMessagePayload =
 
 const FRIENDS_ENDPOINT = "/api/friends";
 
-const FRIENDS_SECTIONS: Array<{ key: FriendsSection; label: string }> = [
-  { key: "messages", label: "Messages" },
-  { key: "incentives", label: "Incentives" },
-  { key: "shared-goals", label: "Shared Goals" },
-  { key: "friends", label: "Friends" },
-];
-
 const GOAL_SCOPE_LABELS: Record<StreakGoalScope, string> = {
   all: "All goals",
   shared: "Shared goal",
   single: "Single goal",
   high: "High priority goals",
+};
+
+const SECTION_HEADERS: Record<
+  FriendsSection,
+  {
+    eyebrow: string;
+    title: string;
+    actionLabel: string;
+    actionIcon: string;
+  }
+> = {
+  messages: {
+    eyebrow: "Collaboration",
+    title: "Messages",
+    actionLabel: "New Conversation",
+    actionIcon: "mdi:message-plus-outline",
+  },
+  incentives: {
+    eyebrow: "Collaboration",
+    title: "Incentives",
+    actionLabel: "New Incentive",
+    actionIcon: "mdi:gift-outline",
+  },
+  "shared-goals": {
+    eyebrow: "Collaboration",
+    title: "Shared Goals",
+    actionLabel: "New Shared Goal",
+    actionIcon: "mdi:account-multiple-plus-outline",
+  },
+  friends: {
+    eyebrow: "My Friends",
+    title: "Friends",
+    actionLabel: "Add Friend",
+    actionIcon: "fa7-solid:plus",
+  },
 };
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -519,6 +555,36 @@ function IncentiveCard({
         {incentive.body}
       </p>
 
+      {isAccepted && incentive.progress ? (
+        <div className="grid gap-2 rounded-md bg-default-50 px-3 py-2.5">
+          <div className="flex items-center gap-2 text-xs font-semibold text-foreground-600">
+            <Icon
+              icon="mdi:gift-outline"
+              className="h-4 w-4 text-success-600"
+            />
+            <span>Incentive progress</span>
+            <span className="ml-auto tabular-nums text-foreground-500">
+              {incentive.progress.qualifyingDays}/
+              {incentive.progress.requiredDays} days
+            </span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label={`${incentive.progress.qualifyingDays} of ${incentive.progress.requiredDays} incentive days complete`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={incentive.progress.percent}
+            tabIndex={0}
+            className="h-1.5 overflow-hidden rounded-full bg-default-200"
+          >
+            <div
+              className="h-full rounded-full bg-success-500 transition-[width] duration-500"
+              style={{ width: `${incentive.progress.percent}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-wrap gap-2">
           {incentive.streakDays ? (
@@ -792,15 +858,20 @@ function FriendsGridSection({
   );
 }
 
-export function FriendsPageClient() {
+export function FriendsPageClient({
+  activeSection,
+}: {
+  activeSection: FriendsSection;
+}) {
+  const router = useRouter();
   const queryClient = useQueryClient();
-  const [activeSection, setActiveSection] =
-    useState<FriendsSection>("messages");
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
   >(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [collabPickerMode, setCollabPickerMode] =
+    useState<CollabPickerMode | null>(null);
   const [nudgeFriend, setNudgeFriend] = useState<FriendRow | null>(null);
   const [nudgeMode, setNudgeMode] = useState<NudgeMode>("message");
   const [encouragingMessage, setEncouragingMessage] = useState("");
@@ -908,6 +979,7 @@ export function FriendsPageClient() {
     acceptedFriends[0] ??
     null;
   const activeConversationId = conversationFriend?.id ?? null;
+  const sectionHeader = SECTION_HEADERS[activeSection];
 
   const handleAddFriend = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -916,6 +988,49 @@ export function FriendsPageClient() {
 
   const handleAcceptIncentive = (friendshipId: string, messageId: string) => {
     acceptIncentiveMutation.mutate({ friendshipId, messageId });
+  };
+
+  const handleSectionAction = () => {
+    if (activeSection === "friends") {
+      setIsAddModalOpen(true);
+      return;
+    }
+
+    if (activeSection === "shared-goals") {
+      addToast({
+        title: "Shared goal creation is coming next",
+        color: "default",
+      });
+      return;
+    }
+
+    if (acceptedFriends.length === 0) {
+      addToast({
+        title: "Add a friend first",
+        description: "You need an accepted friend to start collaborating.",
+        color: "warning",
+      });
+      return;
+    }
+
+    setCollabPickerMode(
+      activeSection === "messages" ? "conversation" : "incentive",
+    );
+  };
+
+  const handleCollabFriendSelect = (friend: FriendRow) => {
+    const mode = collabPickerMode;
+    setCollabPickerMode(null);
+
+    if (mode === "conversation") {
+      setSelectedConversationId(friend.id);
+      router.push("/friends?section=messages");
+      return;
+    }
+
+    if (mode === "incentive") {
+      openNudgeModal(friend, "incentive");
+    }
   };
 
   const openNudgeModal = (friend: FriendRow, mode: NudgeMode = "message") => {
@@ -1002,49 +1117,23 @@ export function FriendsPageClient() {
         <header className="grid gap-4 sm:flex sm:flex-wrap sm:items-start sm:justify-between">
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
-              My Friends
+              {sectionHeader.eyebrow}
             </p>
             <h1 className="text-3xl font-bold tracking-normal sm:text-4xl">
-              Friends
+              {sectionHeader.title}
             </h1>
           </div>
           <Button
             color="primary"
             className="w-full sm:w-auto"
             startContent={
-              <Icon icon="fa7-solid:plus" className="h-3.5 w-3.5" />
+              <Icon icon={sectionHeader.actionIcon} className="h-3.5 w-3.5" />
             }
-            onPress={() => setIsAddModalOpen(true)}
+            onPress={handleSectionAction}
           >
-            Add Friend
+            {sectionHeader.actionLabel}
           </Button>
         </header>
-
-        <nav
-          aria-label="Friends sections"
-          className="-mx-3 flex gap-2 overflow-x-auto border-b border-divider px-3 pb-2 sm:mx-0 sm:px-0"
-        >
-          {FRIENDS_SECTIONS.map((section) => {
-            const isActive = activeSection === section.key;
-
-            return (
-              <button
-                key={section.key}
-                type="button"
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => setActiveSection(section.key)}
-                className={cn(
-                  "relative shrink-0 rounded-full px-3 py-2 text-sm font-semibold transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground-500 hover:bg-default-100 hover:text-foreground",
-                )}
-              >
-                {section.label}
-              </button>
-            );
-          })}
-        </nav>
 
         {activeSection === "messages" ? (
           <MessagesSection
@@ -1078,12 +1167,51 @@ export function FriendsPageClient() {
             friends={acceptedFriends}
             onMessage={(friend) => {
               setSelectedConversationId(friend.id);
-              setActiveSection("messages");
+              router.push("/friends?section=messages");
             }}
             onIncentivize={(friend) => openNudgeModal(friend, "incentive")}
           />
         ) : null}
       </div>
+
+      <Modal
+        isOpen={collabPickerMode !== null}
+        onOpenChange={(open) => {
+          if (!open) setCollabPickerMode(null);
+        }}
+        size="sm"
+      >
+        <ModalContent>
+          <ModalHeader>
+            {collabPickerMode === "conversation"
+              ? "New Conversation"
+              : "New Incentive"}
+          </ModalHeader>
+          <ModalBody className="gap-2 pb-5">
+            <p className="pb-1 text-sm text-foreground-500">Choose a friend</p>
+            {acceptedFriends.map((friend) => (
+              <button
+                key={friend.id}
+                type="button"
+                onClick={() => handleCollabFriendSelect(friend)}
+                className="flex w-full items-center gap-3 rounded-lg border border-divider bg-content1 px-3 py-3 text-left transition-colors hover:bg-default-100"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-default-100 text-sm font-semibold text-foreground-600">
+                  {friend.friendName.charAt(0).toUpperCase()}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">
+                    {friend.friendName}
+                  </span>
+                  <span className="block truncate text-xs text-foreground-400">
+                    {friend.friendEmail}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
 
       <Modal
         isOpen={isAddModalOpen}

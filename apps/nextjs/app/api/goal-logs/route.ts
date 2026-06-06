@@ -1,5 +1,16 @@
-import { categories, getDb, goalLogs, goals } from "@habit/db";
-import { and, asc, eq, gte, isNull, lt, ne, or } from "drizzle-orm";
+import { categories, friendMessages, getDb, goalLogs, goals } from "@habit/db";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+} from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -72,60 +83,85 @@ export async function GET(request: Request) {
       frequencyGoal: goals.frequencyGoal,
     };
 
-    const [cats, dailyGoals, periodicGoals, hiddenGoals, logs] =
-      await Promise.all([
-        db
-          .select()
-          .from(categories)
-          .where(eq(categories.userId, user.id))
-          .orderBy(asc(categories.name)),
-        db
-          .select()
-          .from(goals)
-          .where(
-            and(
-              eq(goals.userId, user.id),
-              eq(goals.period, "daily"),
-              eq(goals.hidden, false),
-            ),
-          )
-          .orderBy(asc(goals.priority), asc(goals.name)),
-        db
-          .select(periodicFields)
-          .from(goals)
-          .where(
-            and(
-              eq(goals.userId, user.id),
-              or(ne(goals.period, "daily"), isNull(goals.period)),
-              eq(goals.hidden, false),
-            ),
-          )
-          .orderBy(asc(goals.priority), asc(goals.name)),
-        db
-          .select(periodicFields)
-          .from(goals)
-          .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
-          .orderBy(asc(goals.priority), asc(goals.name)),
-        db
-          .select({
-            goalId: goalLogs.goalId,
-            date: goalLogs.date,
-            status: goalLogs.status,
-            notes: goalLogs.notes,
-          })
-          .from(goalLogs)
-          .where(
-            and(
-              eq(goalLogs.userId, user.id),
-              gte(goalLogs.date, startDateKey),
-              lt(goalLogs.date, endDateKeyExclusive),
-              or(
-                eq(goalLogs.status, "complete"),
-                eq(goalLogs.status, "planned"),
-              ),
-            ),
+    const [
+      cats,
+      dailyGoals,
+      periodicGoals,
+      hiddenGoals,
+      logs,
+      acceptedGoalIncentives,
+    ] = await Promise.all([
+      db
+        .select()
+        .from(categories)
+        .where(eq(categories.userId, user.id))
+        .orderBy(asc(categories.name)),
+      db
+        .select()
+        .from(goals)
+        .where(
+          and(
+            eq(goals.userId, user.id),
+            eq(goals.period, "daily"),
+            eq(goals.hidden, false),
           ),
-      ]);
+        )
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select(periodicFields)
+        .from(goals)
+        .where(
+          and(
+            eq(goals.userId, user.id),
+            or(ne(goals.period, "daily"), isNull(goals.period)),
+            eq(goals.hidden, false),
+          ),
+        )
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select(periodicFields)
+        .from(goals)
+        .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
+        .orderBy(asc(goals.priority), asc(goals.name)),
+      db
+        .select({
+          goalId: goalLogs.goalId,
+          date: goalLogs.date,
+          status: goalLogs.status,
+          notes: goalLogs.notes,
+        })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.userId, user.id),
+            gte(goalLogs.date, startDateKey),
+            lt(goalLogs.date, endDateKeyExclusive),
+            or(eq(goalLogs.status, "complete"), eq(goalLogs.status, "planned")),
+          ),
+        ),
+      db
+        .select({
+          id: friendMessages.id,
+          goalId: friendMessages.goalId,
+          body: friendMessages.body,
+          streakDays: friendMessages.streakDays,
+          streakPercent: friendMessages.streakPercent,
+          createdAt: friendMessages.createdAt,
+        })
+        .from(friendMessages)
+        .where(
+          and(
+            eq(friendMessages.recipientId, user.id),
+            eq(friendMessages.type, "incentive"),
+            eq(friendMessages.accepted, true),
+            eq(friendMessages.goalScope, "single"),
+            isNotNull(friendMessages.goalId),
+            isNotNull(friendMessages.streakDays),
+            isNotNull(friendMessages.streakPercent),
+          ),
+        )
+        .orderBy(desc(friendMessages.createdAt)),
+    ]);
 
     const goalsByCategoryId = dailyGoals.reduce<
       Record<string, typeof dailyGoals>
@@ -163,6 +199,14 @@ export async function GET(request: Request) {
       categories: categoriesWithGoals,
       periodicGoals: periodicGoals.map(mapPeriodic),
       hiddenGoals: hiddenGoals.map(mapPeriodic),
+      acceptedGoalIncentives: acceptedGoalIncentives.map((incentive) => ({
+        id: incentive.id,
+        goalId: incentive.goalId as string,
+        body: incentive.body,
+        streakDays: incentive.streakDays as number,
+        streakPercent: incentive.streakPercent as number,
+        createdAt: incentive.createdAt.toISOString(),
+      })),
       logsByGoalDate: Object.fromEntries(
         logs.map((log) => [`${log.goalId}_${log.date}`, log.status]),
       ),

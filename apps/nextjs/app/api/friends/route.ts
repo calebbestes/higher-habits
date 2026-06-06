@@ -41,6 +41,11 @@ type IncentiveHistoryRow = MessageHistoryRow & {
   goalId: string | null;
   goalName: string | null;
   accepted: boolean | null;
+  progress: {
+    qualifyingDays: number;
+    requiredDays: number;
+    percent: number;
+  } | null;
 };
 
 const PRIORITY_POINTS: Record<GoalPriority, number> = {
@@ -68,6 +73,123 @@ function getRecentDateKeys(dayCount: number) {
     date.setDate(date.getDate() - (dayCount - 1 - index));
     return mountainDateKey(date);
   });
+}
+
+function getIncentiveDateKeys(createdAt: Date, dayCount: number) {
+  const todayKey = mountainDateKey();
+  return Array.from({ length: dayCount }, (_, index) => {
+    const date = new Date(createdAt);
+    date.setDate(date.getDate() + index);
+    return mountainDateKey(date);
+  }).filter((dateKey) => dateKey <= todayKey);
+}
+
+async function getIncentiveProgress(
+  db: FriendsDb,
+  incentive: {
+    recipientId: string;
+    accepted: boolean | null;
+    streakDays: number | null;
+    streakPercent: number | null;
+    goalScope: "all" | "shared" | "single" | "high" | null;
+    goalId: string | null;
+    createdAt: Date;
+  },
+) {
+  if (
+    incentive.accepted !== true ||
+    !incentive.streakDays ||
+    !incentive.streakPercent ||
+    !incentive.goalScope ||
+    incentive.goalScope === "shared"
+  ) {
+    return null;
+  }
+
+  const requiredDays = incentive.streakDays;
+  const requiredPercent = incentive.streakPercent;
+  const dateKeys = getIncentiveDateKeys(incentive.createdAt, requiredDays);
+  const startDateKey = dateKeys[0];
+  if (!startDateKey) {
+    return {
+      qualifyingDays: 0,
+      requiredDays,
+      percent: 0,
+    };
+  }
+
+  const applicableGoals = await db
+    .select({
+      id: goals.id,
+      priority: goals.priority,
+    })
+    .from(goals)
+    .where(
+      and(
+        eq(goals.userId, incentive.recipientId),
+        eq(goals.period, "daily"),
+        eq(goals.hidden, false),
+      ),
+    );
+
+  const scopedGoals = applicableGoals.filter((goal) => {
+    if (incentive.goalScope === "single") {
+      return goal.id === incentive.goalId;
+    }
+    if (incentive.goalScope === "high") {
+      return goal.priority === "high";
+    }
+    return incentive.goalScope === "all";
+  });
+  const goalPoints = new Map(
+    scopedGoals.map((goal) => [goal.id, PRIORITY_POINTS[goal.priority]]),
+  );
+  const possiblePoints = scopedGoals.reduce(
+    (total, goal) => total + PRIORITY_POINTS[goal.priority],
+    0,
+  );
+  const completedLogs =
+    scopedGoals.length > 0
+      ? await db
+          .select({
+            goalId: goalLogs.goalId,
+            date: goalLogs.date,
+          })
+          .from(goalLogs)
+          .where(
+            and(
+              eq(goalLogs.userId, incentive.recipientId),
+              eq(goalLogs.status, "complete"),
+              gte(goalLogs.date, startDateKey),
+            ),
+          )
+      : [];
+  const earnedPointsByDate = new Map<string, number>();
+
+  for (const log of completedLogs) {
+    const points = goalPoints.get(log.goalId);
+    if (!points || !dateKeys.includes(log.date)) continue;
+    earnedPointsByDate.set(
+      log.date,
+      (earnedPointsByDate.get(log.date) ?? 0) + points,
+    );
+  }
+
+  const qualifyingDays =
+    possiblePoints > 0
+      ? dateKeys.filter((dateKey) => {
+          const earnedPoints = earnedPointsByDate.get(dateKey) ?? 0;
+          return (
+            Math.round((earnedPoints / possiblePoints) * 100) >= requiredPercent
+          );
+        }).length
+      : 0;
+
+  return {
+    qualifyingDays,
+    requiredDays,
+    percent: Math.min(100, Math.round((qualifyingDays / requiredDays) * 100)),
+  };
 }
 
 async function getFriendActivitySummary(db: FriendsDb, friendId: string) {
@@ -217,6 +339,19 @@ export async function GET(request: Request) {
 
     const messagesByFriendshipId = new Map<string, MessageHistoryRow[]>();
     const incentivesByFriendshipId = new Map<string, IncentiveHistoryRow[]>();
+    const incentiveProgressById = new Map<
+      string,
+      IncentiveHistoryRow["progress"]
+    >(
+      await Promise.all(
+        friendMessageRows
+          .filter((message) => message.type === "incentive")
+          .map(
+            async (message) =>
+              [message.id, await getIncentiveProgress(db, message)] as const,
+          ),
+      ),
+    );
 
     for (const message of friendMessageRows) {
       const baseMessage = {
@@ -248,6 +383,7 @@ export async function GET(request: Request) {
         goalId: message.goalId,
         goalName: message.goalName,
         accepted: message.accepted,
+        progress: incentiveProgressById.get(message.id) ?? null,
       });
       incentivesByFriendshipId.set(message.friendshipId, incentives);
     }
