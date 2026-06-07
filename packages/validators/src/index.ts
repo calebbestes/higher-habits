@@ -5,6 +5,8 @@ export const envSchema = z.object({
   POSTGRES_URL: z.string().url().optional().or(z.literal("")),
   BETTER_AUTH_SECRET: z.string().min(1).optional(),
   BETTER_AUTH_URL: z.string().url().optional(),
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SECRET_KEY: z.string().min(1).optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

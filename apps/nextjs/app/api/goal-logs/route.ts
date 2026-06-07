@@ -1,4 +1,11 @@
-import { categories, friendMessages, getDb, goalLogs, goals } from "@habit/db";
+import {
+  categories,
+  friendMessages,
+  getDb,
+  goalLogPhotos,
+  goalLogs,
+  goals,
+} from "@habit/db";
 import {
   and,
   asc,
@@ -89,6 +96,7 @@ export async function GET(request: Request) {
       periodicGoals,
       hiddenGoals,
       logs,
+      photos,
       acceptedGoalIncentives,
     ] = await Promise.all([
       db
@@ -136,7 +144,21 @@ export async function GET(request: Request) {
             eq(goalLogs.userId, user.id),
             gte(goalLogs.date, startDateKey),
             lt(goalLogs.date, endDateKeyExclusive),
-            or(eq(goalLogs.status, "complete"), eq(goalLogs.status, "planned")),
+          ),
+        ),
+      db
+        .select({
+          goalId: goalLogs.goalId,
+          date: goalLogs.date,
+          photoId: goalLogPhotos.id,
+        })
+        .from(goalLogPhotos)
+        .innerJoin(goalLogs, eq(goalLogPhotos.goalLogId, goalLogs.id))
+        .where(
+          and(
+            eq(goalLogPhotos.userId, user.id),
+            gte(goalLogs.date, startDateKey),
+            lt(goalLogs.date, endDateKeyExclusive),
           ),
         ),
       db
@@ -208,12 +230,24 @@ export async function GET(request: Request) {
         createdAt: incentive.createdAt.toISOString(),
       })),
       logsByGoalDate: Object.fromEntries(
-        logs.map((log) => [`${log.goalId}_${log.date}`, log.status]),
+        logs
+          .filter(
+            (log) => log.status === "complete" || log.status === "planned",
+          )
+          .map((log) => [`${log.goalId}_${log.date}`, log.status]),
       ),
       notesByGoalDate: Object.fromEntries(
         logs
           .filter((log) => log.notes?.trim())
           .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
+      ),
+      photoCountsByGoalDate: photos.reduce<Record<string, number>>(
+        (counts, photo) => {
+          const key = `${photo.goalId}_${photo.date}`;
+          counts[key] = (counts[key] ?? 0) + 1;
+          return counts;
+        },
+        {},
       ),
     });
   } catch (error) {
@@ -261,7 +295,11 @@ export async function POST(request: Request) {
     if (data.type === "setLog") {
       if (!data.status) {
         await db
-          .delete(goalLogs)
+          .update(goalLogs)
+          .set({
+            status: "incomplete",
+            updatedAt: new Date(),
+          })
           .where(
             and(
               eq(goalLogs.goalId, data.goalId),

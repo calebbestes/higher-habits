@@ -1,6 +1,13 @@
 import "server-only";
 
-import { categories, friendMessages, getDb, goalLogs, goals } from "@habit/db";
+import {
+  categories,
+  friendMessages,
+  getDb,
+  goalLogPhotos,
+  goalLogs,
+  goals,
+} from "@habit/db";
 import {
   and,
   asc,
@@ -65,6 +72,7 @@ const getGoalLogsSnapshotForMonth = async (
     periodicGoals,
     hiddenGoals,
     logs,
+    photos,
     acceptedGoalIncentives,
   ] = await Promise.all([
     db
@@ -112,6 +120,21 @@ const getGoalLogsSnapshotForMonth = async (
           gte(goalLogs.date, startDateKey),
           lt(goalLogs.date, endDateKeyExclusive),
           eq(goalLogs.status, "complete"),
+        ),
+      ),
+    db
+      .select({
+        goalId: goalLogs.goalId,
+        date: goalLogs.date,
+        photoId: goalLogPhotos.id,
+      })
+      .from(goalLogPhotos)
+      .innerJoin(goalLogs, eq(goalLogPhotos.goalLogId, goalLogs.id))
+      .where(
+        and(
+          eq(goalLogPhotos.userId, userId),
+          gte(goalLogs.date, startDateKey),
+          lt(goalLogs.date, endDateKeyExclusive),
         ),
       ),
     db
@@ -188,6 +211,14 @@ const getGoalLogsSnapshotForMonth = async (
       logs.map((log) => [`${log.goalId}_${log.date}`, "complete" as const]),
     ),
     notesByGoalDate: {},
+    photoCountsByGoalDate: photos.reduce<Record<string, number>>(
+      (counts, photo) => {
+        const key = `${photo.goalId}_${photo.date}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    ),
   };
 };
 
