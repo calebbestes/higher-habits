@@ -79,7 +79,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const [openSignOut, setOpenSignOut] = useState(false);
   const [isMobileCalendarOpen, setIsMobileCalendarOpen] = useState(false);
   const [isMobileFriendsOpen, setIsMobileFriendsOpen] = useState(false);

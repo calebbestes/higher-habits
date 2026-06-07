@@ -37,39 +37,40 @@ const CATEGORY_STYLE: Record<
   }
 > = {
   Spiritual: {
-    gradient: "from-teal-500 via-cyan-500 to-emerald-500",
-    shadow: "shadow-teal-500/20",
+    gradient: "from-[#2C5352] via-[#516162] to-[#A0D5D5]",
+    shadow: "shadow-[#2C5352]/20",
     activeItem:
-      "border-teal-200 bg-teal-50/80 dark:bg-teal-950/40 dark:border-teal-800",
-    checkboxActive: "border-teal-200 bg-teal-500 text-white",
+      "border-[#A0D5D5] bg-[#A0D5D5]/20 dark:border-[#A0D5D5]/50 dark:bg-[#2C5352]/40",
+    checkboxActive: "border-[#2C5352] bg-[#2C5352] text-white",
     hoverBorder:
-      "hover:border-teal-200 hover:bg-teal-50/50 dark:hover:bg-teal-950/30",
+      "hover:border-[#A0D5D5] hover:bg-[#A0D5D5]/15 dark:hover:bg-[#2C5352]/30",
   },
   Physical: {
-    gradient: "from-amber-400 via-orange-400 to-yellow-400",
-    shadow: "shadow-amber-400/20",
+    gradient: "from-[#9D7474] via-[#516162] to-[#2C5352]",
+    shadow: "shadow-[#9D7474]/20",
     activeItem:
-      "border-amber-200 bg-amber-50/80 dark:bg-amber-950/40 dark:border-amber-800",
-    checkboxActive: "border-amber-200 bg-amber-500 text-white",
+      "border-[#F3B7B9] bg-[#F3B7B9]/20 dark:border-[#F3B7B9]/50 dark:bg-[#9D7474]/30",
+    checkboxActive: "border-[#9D7474] bg-[#9D7474] text-white",
     hoverBorder:
-      "hover:border-amber-200 hover:bg-amber-50/50 dark:hover:bg-amber-950/30",
+      "hover:border-[#F3B7B9] hover:bg-[#F3B7B9]/15 dark:hover:bg-[#9D7474]/25",
   },
   Work: {
-    gradient: "from-purple-500 via-violet-500 to-indigo-500",
-    shadow: "shadow-purple-500/20",
+    gradient: "from-[#516162] via-[#9D7474] to-[#2C5352]",
+    shadow: "shadow-[#516162]/20",
     activeItem:
-      "border-purple-200 bg-purple-50/80 dark:bg-purple-950/40 dark:border-purple-800",
-    checkboxActive: "border-purple-200 bg-purple-500 text-white",
+      "border-[#516162]/40 bg-[#516162]/10 dark:border-[#A0D5D5]/30 dark:bg-[#516162]/30",
+    checkboxActive: "border-[#516162] bg-[#516162] text-white",
     hoverBorder:
-      "hover:border-purple-200 hover:bg-purple-50/50 dark:hover:bg-purple-950/30",
+      "hover:border-[#516162]/40 hover:bg-[#516162]/10 dark:hover:bg-[#516162]/25",
   },
 };
 
 const DEFAULT_STYLE: (typeof CATEGORY_STYLE)[string] = {
-  gradient: "from-foreground-300 via-foreground-400 to-foreground-500",
-  shadow: "",
-  activeItem: "border-emerald-200 bg-emerald-50/80 dark:bg-emerald-950/40",
-  checkboxActive: "border-emerald-200 bg-emerald-500 text-white",
+  gradient: "from-[#516162] via-[#9D7474] to-[#2C5352]",
+  shadow: "shadow-[#516162]/20",
+  activeItem:
+    "border-[#A0D5D5] bg-[#A0D5D5]/20 dark:border-[#A0D5D5]/50 dark:bg-[#516162]/30",
+  checkboxActive: "border-[#2C5352] bg-[#2C5352] text-white",
   hoverBorder: "hover:border-default-300 hover:bg-default-100/50",
 };
 
@@ -229,7 +230,7 @@ export const CategoryGoalDrawer = ({
                         className={cn(
                           "shrink-0 border",
                           isComplete
-                            ? "border-emerald-200 bg-content1 text-emerald-700"
+                            ? "border-[#A0D5D5] bg-[#A0D5D5]/20 text-[#2C5352]"
                             : "border-default-300 bg-content1 text-foreground-500",
                         )}
                       >

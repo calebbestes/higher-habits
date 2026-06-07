@@ -2,3 +2,29 @@
 @import "@habit/tailwind-config/styles.css";
 @plugin "./hero.ts";
 @source "../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}";
+
+.auth-page-background {
+  background: radial-gradient(
+      circle at 15% 10%,
+      rgb(160 213 213 / 55%),
+      transparent 34rem
+    ),
+    radial-gradient(
+      circle at 85% 85%,
+      rgb(243 183 185 / 40%),
+      transparent 32rem
+    ), #fff;
+}
+
+.dark .auth-page-background {
+  background: radial-gradient(
+      circle at 15% 10%,
+      rgb(160 213 213 / 18%),
+      transparent 34rem
+    ),
+    radial-gradient(
+      circle at 85% 85%,
+      rgb(157 116 116 / 20%),
+      transparent 32rem
+    ), #172827;
+}
