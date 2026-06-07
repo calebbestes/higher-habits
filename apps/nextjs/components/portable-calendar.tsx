@@ -141,18 +141,18 @@ type DraftEntry = {
   categoryColor: string;
 };
 
-const DEFAULT_ENTRY_COLOR = "#f59e9e";
+const DEFAULT_ENTRY_COLOR = "#F3B7B9";
 const UNCATEGORIZED_CATEGORY: PortableCalendarCategory = {
   id: "__uncategorized__",
   name: "Uncategorized",
-  color: "#94a3b8",
+  color: "#516162",
 };
 
 const CORE_CATEGORIES: PortableCalendarCategory[] = [
-  { id: "spiritual", name: "Spiritual", color: "#8b5cf6" },
-  { id: "physical", name: "Physical", color: "#22c55e" },
-  { id: "social", name: "Social", color: "#3b82f6" },
-  { id: "financial-career", name: "Financial/Career", color: "#f59e0b" },
+  { id: "spiritual", name: "Spiritual", color: "#2C5352" },
+  { id: "physical", name: "Physical", color: "#9D7474" },
+  { id: "social", name: "Social", color: "#A0D5D5" },
+  { id: "financial-career", name: "Financial/Career", color: "#F3B7B9" },
 ];
 
 const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
@@ -185,19 +185,34 @@ const CATEGORY_FILL_CONFIG: Record<
   { fill: string; bar: string; label: string }
 > = {
   Spiritual: {
-    fill: "text-teal-600",
-    bar: "bg-teal-500",
-    label: "text-teal-600",
+    fill: "text-[#2C5352]",
+    bar: "bg-[#2C5352]",
+    label: "text-[#2C5352]",
   },
   Physical: {
-    fill: "text-[#F59E0C]",
-    bar: "bg-[#F59E0C]",
-    label: "text-[#F59E0C]",
+    fill: "text-[#9D7474]",
+    bar: "bg-[#9D7474]",
+    label: "text-[#9D7474]",
   },
   Work: {
-    fill: "text-purple-600",
-    bar: "bg-purple-600",
-    label: "text-purple-600",
+    fill: "text-[#516162]",
+    bar: "bg-[#516162]",
+    label: "text-[#516162]",
+  },
+  Social: {
+    fill: "text-[#A0D5D5]",
+    bar: "bg-[#A0D5D5]",
+    label: "text-[#516162]",
+  },
+  "Hobbies/Social": {
+    fill: "text-[#A0D5D5]",
+    bar: "bg-[#A0D5D5]",
+    label: "text-[#516162]",
+  },
+  "Financial/Career": {
+    fill: "text-[#F3B7B9]",
+    bar: "bg-[#F3B7B9]",
+    label: "text-[#9D7474]",
   },
 };
 const DEFAULT_CATEGORY_FILL = {
@@ -268,6 +283,11 @@ const isToday = (date: Date) => isSameDay(date, new Date());
 
 const withAlpha = (color: string, alphaHex: string) =>
   HEX_COLOR_REGEX.test(color) ? `${color}${alphaHex}` : color;
+
+const getReadableAccentColor = (color: string) =>
+  color.toUpperCase() === "#A0D5D5" || color.toUpperCase() === "#F3B7B9"
+    ? "#2C5352"
+    : color;
 
 const slugify = (value: string) =>
   value
@@ -557,7 +577,7 @@ const ProgressFillIcon = ({
           icon={icon}
           className={cn(
             "absolute inset-0 h-full w-full",
-            fillClassName ?? "text-teal-600",
+            fillClassName ?? "text-[#2C5352]",
           )}
         />
       </span>
@@ -590,7 +610,7 @@ const WeightProgressIcon = ({
     icon="mdi:dumbbell"
     progress={progress}
     className={className}
-    fillClassName="text-[#F59E0C]"
+    fillClassName="text-[#9D7474]"
   />
 );
 
@@ -605,7 +625,7 @@ const SalesProgressIcon = ({
     icon="mdi:currency-usd"
     progress={progress}
     className={className}
-    fillClassName="text-purple-600"
+    fillClassName="text-[#516162]"
   />
 );
 
@@ -687,7 +707,7 @@ const CategoryPill = ({
         "min-w-0 flex-1 truncate font-medium",
         compact ? "text-[11px]" : "text-xs",
       )}
-      style={{ color: entry.color }}
+      style={{ color: getReadableAccentColor(entry.color) }}
     >
       {entry.title}
     </span>
@@ -696,7 +716,7 @@ const CategoryPill = ({
         "shrink-0 font-medium opacity-70",
         compact ? "text-[10px]" : "text-[11px]",
       )}
-      style={{ color: entry.color }}
+      style={{ color: getReadableAccentColor(entry.color) }}
     >
       {formatEntryTiming(entry) === "All day"
         ? "All day"
@@ -1445,7 +1465,7 @@ const MonthView = ({
                                       className={cn(
                                         "inline-flex aspect-square w-full min-w-0 items-center justify-center rounded border transition-all sm:h-8 sm:w-8 sm:rounded-lg",
                                         isComplete
-                                          ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-600"
+                                          ? "border-[#A0D5D5] bg-[#A0D5D5]/35 text-[#2C5352]"
                                           : isPlanned
                                             ? "border-default-300 bg-content2 text-foreground-400"
                                             : "border-dashed border-default-200/70 bg-content1/40 text-foreground-300 opacity-90",
@@ -1496,7 +1516,7 @@ const MonthView = ({
                             style={
                               {
                                 backgroundColor: withAlpha(entry.color, "20"),
-                                color: entry.color,
+                                color: getReadableAccentColor(entry.color),
                               } as CSSProperties
                             }
                             onClick={(event) => {
@@ -1550,7 +1570,9 @@ const MonthView = ({
                                             entry.color,
                                             "20",
                                           ),
-                                          color: entry.color,
+                                          color: getReadableAccentColor(
+                                            entry.color,
+                                          ),
                                         } as CSSProperties
                                       }
                                       onClick={(event) => {
@@ -1685,95 +1707,59 @@ const WeekView = ({
 const DAY_VIEW_CATEGORY_CONFIG: Record<
   string,
   {
-    label: string;
-    activeBg: string;
-    activeShadow: string;
-    hoverBg: string;
-    hoverText: string;
-    dot: string;
-    inactiveBorder: string;
-    iconColor: string;
     color: string;
+    foregroundColor: string;
   }
 > = {
   // Lowercase keys for legacy DayView, uppercase for DB-driven categories
   spiritual: {
-    label: "Spiritual",
-    activeBg: "bg-teal-500",
-    activeShadow: "shadow-teal-500/30",
-    hoverBg: "hover:bg-teal-500/10",
-    hoverText: "hover:text-teal-500",
-    dot: "bg-teal-500",
-    inactiveBorder: "border-teal-500/40",
-    iconColor: "text-teal-500",
-    color: "#14b8a6",
+    color: "#2C5352",
+    foregroundColor: "#FFFFFF",
   },
   physical: {
-    label: "Physical",
-    activeBg: "bg-[#F59E0C]",
-    activeShadow: "shadow-[#F59E0C]/30",
-    hoverBg: "hover:bg-[#F59E0C]/10",
-    hoverText: "hover:text-[#F59E0C]",
-    dot: "bg-[#F59E0C]",
-    inactiveBorder: "border-[#F59E0C]/40",
-    iconColor: "text-[#F59E0C]",
-    color: "#F59E0C",
+    color: "#9D7474",
+    foregroundColor: "#FFFFFF",
   },
   work: {
-    label: "Work",
-    activeBg: "bg-purple-500",
-    activeShadow: "shadow-purple-500/30",
-    hoverBg: "hover:bg-purple-500/10",
-    hoverText: "hover:text-purple-500",
-    dot: "bg-purple-500",
-    inactiveBorder: "border-purple-500/40",
-    iconColor: "text-purple-500",
-    color: "#a855f7",
+    color: "#516162",
+    foregroundColor: "#FFFFFF",
+  },
+  social: {
+    color: "#A0D5D5",
+    foregroundColor: "#2C5352",
+  },
+  "financial-career": {
+    color: "#F3B7B9",
+    foregroundColor: "#2C5352",
   },
   Spiritual: {
-    label: "Spiritual",
-    activeBg: "bg-teal-500",
-    activeShadow: "shadow-teal-500/30",
-    hoverBg: "hover:bg-teal-500/10",
-    hoverText: "hover:text-teal-500",
-    dot: "bg-teal-500",
-    inactiveBorder: "border-teal-500/40",
-    iconColor: "text-teal-500",
-    color: "#14b8a6",
+    color: "#2C5352",
+    foregroundColor: "#FFFFFF",
   },
   Physical: {
-    label: "Physical",
-    activeBg: "bg-[#F59E0C]",
-    activeShadow: "shadow-[#F59E0C]/30",
-    hoverBg: "hover:bg-[#F59E0C]/10",
-    hoverText: "hover:text-[#F59E0C]",
-    dot: "bg-[#F59E0C]",
-    inactiveBorder: "border-[#F59E0C]/40",
-    iconColor: "text-[#F59E0C]",
-    color: "#F59E0C",
+    color: "#9D7474",
+    foregroundColor: "#FFFFFF",
   },
   Work: {
-    label: "Work",
-    activeBg: "bg-purple-500",
-    activeShadow: "shadow-purple-500/30",
-    hoverBg: "hover:bg-purple-500/10",
-    hoverText: "hover:text-purple-500",
-    dot: "bg-purple-500",
-    inactiveBorder: "border-purple-500/40",
-    iconColor: "text-purple-500",
-    color: "#a855f7",
+    color: "#516162",
+    foregroundColor: "#FFFFFF",
+  },
+  Social: {
+    color: "#A0D5D5",
+    foregroundColor: "#2C5352",
+  },
+  "Hobbies/Social": {
+    color: "#A0D5D5",
+    foregroundColor: "#2C5352",
+  },
+  "Financial/Career": {
+    color: "#F3B7B9",
+    foregroundColor: "#2C5352",
   },
 };
 const DEFAULT_DAY_VIEW_CATEGORY_CONFIG = {
-  label: "",
-  activeBg: "bg-foreground",
-  activeShadow: "shadow-foreground/30",
-  hoverBg: "hover:bg-foreground/10",
-  hoverText: "hover:text-foreground",
-  dot: "bg-foreground-400",
-  inactiveBorder: "border-foreground/40",
-  iconColor: "text-foreground",
-  color: "#888888",
+  color: "#516162",
+  foregroundColor: "#FFFFFF",
 };
 const GOAL_PRIORITY_STAGES = ["high", "medium", "low"] as const;
 
@@ -2389,9 +2375,10 @@ const DayView = ({
         style={{ borderColor: borderColor || undefined }}
       >
         <span
-          className="flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-sm sm:h-14 sm:w-14"
+          className="flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm sm:h-14 sm:w-14"
           style={{
             backgroundColor: cfg.color,
+            color: cfg.foregroundColor,
             boxShadow: `0 10px 24px ${withAlpha(cfg.color, "22")}`,
           }}
         >
@@ -2534,9 +2521,10 @@ const DayView = ({
           type="button"
           aria-label={`Open actions for completed goal ${item.label}`}
           onClick={() => openGoalActions(item)}
-          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-transparent text-white shadow-sm transition-transform hover:-translate-y-0.5 sm:h-14 sm:w-14"
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-transparent shadow-sm transition-transform hover:-translate-y-0.5 sm:h-14 sm:w-14"
           style={{
             backgroundColor: cfg.color,
+            color: cfg.foregroundColor,
             boxShadow: `0 10px 24px ${withAlpha(cfg.color, "22")}`,
           }}
         >
@@ -2698,7 +2686,7 @@ const DayView = ({
                         style={
                           {
                             backgroundColor: withAlpha(entry.color, "18"),
-                            color: entry.color,
+                            color: getReadableAccentColor(entry.color),
                           } as CSSProperties
                         }
                       >
@@ -2726,10 +2714,10 @@ const DayView = ({
             setGoalPhotos([]);
           }
         }}
-        placement="bottom"
+        placement="center"
         size="sm"
         classNames={{
-          base: "mx-3 mb-3 rounded-[24px] sm:mx-auto sm:mb-0",
+          base: "mx-3 rounded-[24px] sm:mx-auto",
         }}
       >
         <ModalContent>

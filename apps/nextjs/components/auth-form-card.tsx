@@ -51,7 +51,7 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
   };
 
   return (
-    <Card className="w-full max-w-md border border-divider/60 bg-content1/90 shadow-2xl shadow-black/20">
+    <Card className="w-full max-w-md border border-divider bg-content1/95 shadow-xl shadow-primary/10">
       <CardHeader className="flex flex-col items-start gap-1 px-6 pt-6">
         <p className="text-2xl font-semibold text-foreground">
           {isSignUp ? "Create your account" : "Welcome back"}

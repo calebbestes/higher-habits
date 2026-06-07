@@ -61,22 +61,25 @@ const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 const PERIOD_COLORS: Record<string, string> = {
-  daily: "bg-blue-500/15 text-blue-600",
-  weekly: "bg-teal-500/15 text-teal-600",
-  monthly: "bg-amber-500/15 text-amber-600",
+  daily: "bg-[#A0D5D5]/35 text-[#2C5352]",
+  weekly: "bg-[#F3B7B9]/45 text-[#9D7474]",
+  monthly: "bg-[#9D7474]/15 text-[#9D7474]",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  Spiritual: "bg-purple-500/15 text-purple-600",
-  Physical: "bg-teal-500/15 text-teal-600",
-  Work: "bg-indigo-500/15 text-indigo-600",
-  Custom: "bg-default-200 text-foreground-500",
+  Spiritual: "bg-[#A0D5D5]/35 text-[#2C5352]",
+  Physical: "bg-[#F3B7B9]/50 text-[#9D7474]",
+  Work: "bg-[#2C5352]/10 text-[#2C5352]",
+  Social: "bg-[#A0D5D5]/35 text-[#2C5352]",
+  "Hobbies/Social": "bg-[#516162]/10 text-[#516162]",
+  "Financial/Career": "bg-[#F3B7B9]/45 text-[#9D7474]",
+  Custom: "bg-[#516162]/10 text-[#516162]",
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  high: "bg-rose-500/15 text-rose-600",
-  medium: "bg-amber-500/15 text-amber-600",
-  low: "bg-default-200 text-foreground-500",
+  high: "bg-[#F3B7B9]/55 text-[#9D7474]",
+  medium: "bg-[#A0D5D5]/35 text-[#2C5352]",
+  low: "bg-[#516162]/10 text-[#516162]",
 };
 
 const EMPTY_FORM: GoalInput = {

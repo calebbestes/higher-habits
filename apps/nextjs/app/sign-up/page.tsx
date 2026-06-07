@@ -13,7 +13,7 @@ export default async function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(74,222,128,0.18),_transparent_40%),linear-gradient(180deg,_rgba(10,12,16,1),_rgba(17,24,39,1))] px-4 py-10">
+    <div className="auth-page-background flex min-h-dvh items-center justify-center px-4 py-10">
       <AuthFormCard mode="sign-up" />
     </div>
   );
