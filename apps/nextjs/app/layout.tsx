@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import { SidebarLayout } from "@/components/sidebar-layout";
 import { Providers } from "./providers";
@@ -15,7 +16,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased">
         <Providers>
-          <SidebarLayout>{children}</SidebarLayout>
+          <Suspense fallback={<div className="min-h-dvh bg-background" />}>
+            <SidebarLayout>{children}</SidebarLayout>
+          </Suspense>
         </Providers>
       </body>
     </html>

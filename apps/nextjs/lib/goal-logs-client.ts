@@ -54,6 +54,8 @@ export type GoalLogsSnapshot = {
   logsByGoalDate: Record<string, "complete" | "planned">;
   /** key: `${goalId}_${dateKey}`, only non-empty notes */
   notesByGoalDate: Record<string, string>;
+  /** key: `${goalId}_${dateKey}`, only logs with photos */
+  photoCountsByGoalDate: Record<string, number>;
 };
 
 export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
@@ -63,6 +65,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   acceptedGoalIncentives: [],
   logsByGoalDate: {},
   notesByGoalDate: {},
+  photoCountsByGoalDate: {},
 };
 
 async function parseResponse<T>(res: Response): Promise<T> {

@@ -299,6 +299,29 @@ export const goalLogs = pgTable(
   ],
 );
 
+export const goalLogPhotos = pgTable(
+  "goal_log_photos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalLogId: uuid("goal_log_id")
+      .notNull()
+      .references(() => goalLogs.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storagePath: text("storage_path").notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_log_photos_goal_log_id_idx").on(table.goalLogId),
+    index("goal_log_photos_user_id_idx").on(table.userId),
+    unique("goal_log_photos_storage_path_uidx").on(table.storagePath),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
@@ -327,6 +350,8 @@ export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
+export type GoalLogPhoto = typeof goalLogPhotos.$inferSelect;
+export type NewGoalLogPhoto = typeof goalLogPhotos.$inferInsert;
 
 export const friendMessages = pgTable(
   "friend_messages",

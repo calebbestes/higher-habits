@@ -19,6 +19,12 @@ import {
   setGoalLogNote,
 } from "@/lib/goal-logs-client";
 import {
+  type GoalPhoto,
+  deleteGoalPhoto,
+  fetchGoalPhotos,
+  uploadGoalPhoto,
+} from "@/lib/goal-photos-client";
+import {
   type CalendarHabitKey,
   type CustomDayIconSelection,
   type DayDrawerNotes,
@@ -44,16 +50,6 @@ import {
   persistSalesChecklist,
   persistWeightChecklist,
 } from "@/lib/habit-state-client";
-import {
-  type Task,
-  fetchTasks,
-  getTaskImportanceScore,
-  getTaskPriorityLevel,
-  getTaskUrgency,
-  getTaskUrgencyScore,
-  todayDateKey,
-  updateTask,
-} from "@/lib/tasks-client";
 import {
   Button,
   Card,
@@ -82,8 +78,8 @@ import {
   useDisclosure,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
-import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ChangeEvent, FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CategoryGoalDrawer } from "./category-goal-drawer";
 import { DayIconPickerDrawer } from "./day-icon-picker-drawer";
 import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
@@ -269,54 +265,6 @@ const isSameMonth = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
 const isToday = (date: Date) => isSameDay(date, new Date());
-
-const taskToInput = (task: Task) => ({
-  name: task.name,
-  importance: task.importance,
-  dueDate: task.dueDate,
-  completedAt: task.completedAt,
-  timeRequired: task.timeRequired,
-});
-
-const compareTasksByPriority = (a: Task, b: Task, today: string) => {
-  const priorityCompare =
-    getTaskPriorityLevel(b, today) - getTaskPriorityLevel(a, today);
-
-  if (priorityCompare !== 0) {
-    return priorityCompare;
-  }
-
-  const importanceCompare =
-    getTaskImportanceScore(b.importance) - getTaskImportanceScore(a.importance);
-
-  if (importanceCompare !== 0) {
-    return importanceCompare;
-  }
-
-  const urgencyCompare =
-    getTaskUrgencyScore(getTaskUrgency(b, today)) -
-    getTaskUrgencyScore(getTaskUrgency(a, today));
-
-  if (urgencyCompare !== 0) {
-    return urgencyCompare;
-  }
-
-  const aDueDate = a.dueDate ?? "9999-99-99";
-  const bDueDate = b.dueDate ?? "9999-99-99";
-  const dueDateCompare = aDueDate < bDueDate ? -1 : aDueDate > bDueDate ? 1 : 0;
-
-  if (dueDateCompare !== 0) {
-    return dueDateCompare;
-  }
-
-  const createdCompare = b.createdAt.localeCompare(a.createdAt);
-
-  if (createdCompare !== 0) {
-    return createdCompare;
-  }
-
-  return a.name.localeCompare(b.name);
-};
 
 const withAlpha = (color: string, alphaHex: string) =>
   HEX_COLOR_REGEX.test(color) ? `${color}${alphaHex}` : color;
@@ -906,6 +854,19 @@ const MonthView = ({
             ),
             ...(prevGoalsSnap.notesByGoalDate ?? {}),
             ...(goalsSnap.notesByGoalDate ?? {}),
+          },
+          photoCountsByGoalDate: {
+            ...Object.fromEntries(
+              Object.entries(previous.photoCountsByGoalDate).filter(([key]) => {
+                const dateKey = key.slice(-10);
+                return (
+                  !dateKey.startsWith(currentMonthKey) &&
+                  !dateKey.startsWith(prevMonthKey)
+                );
+              }),
+            ),
+            ...(prevGoalsSnap.photoCountsByGoalDate ?? {}),
+            ...(goalsSnap.photoCountsByGoalDate ?? {}),
           },
         }));
       } catch (error) {
@@ -1844,8 +1805,10 @@ const DayView = ({
   acceptedGoalIncentives = [],
   logsByGoalDate = {},
   notesByGoalDate = {},
+  photoCountsByGoalDate = {},
   onToggleGoalLog,
   onSaveGoalNote,
+  onGoalPhotoCountChange,
   onShareHabitResults,
   onNavigateDay,
 }: {
@@ -1857,8 +1820,14 @@ const DayView = ({
   acceptedGoalIncentives?: AcceptedGoalIncentive[];
   logsByGoalDate?: Record<string, "complete" | "planned">;
   notesByGoalDate?: Record<string, string>;
+  photoCountsByGoalDate?: Record<string, number>;
   onToggleGoalLog?: (goalId: string, dateKey: string) => void;
   onSaveGoalNote?: (goalId: string, dateKey: string, notes: string) => void;
+  onGoalPhotoCountChange?: (
+    goalId: string,
+    dateKey: string,
+    count: number,
+  ) => void;
   onShareHabitResults?: () => void;
   onNavigateDay?: (direction: number) => void;
 }) => {
@@ -1880,6 +1849,7 @@ const DayView = ({
         })
       | null;
     note: string | null;
+    photoCount: number;
     onToggle: () => void;
   };
 
@@ -1905,6 +1875,14 @@ const DayView = ({
   const [actionGoal, setActionGoal] = useState<GoalItem | null>(null);
   const [noteEditorValue, setNoteEditorValue] = useState<string | null>(null);
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [goalPhotos, setGoalPhotos] = useState<GoalPhoto[]>([]);
+  const [isLoadingGoalPhotos, setIsLoadingGoalPhotos] = useState(false);
+  const [isUploadingGoalPhoto, setIsUploadingGoalPhoto] = useState(false);
+  const [deletingGoalPhotoIds, setDeletingGoalPhotoIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
 
   const dayEntries = useMemo(
     () =>
@@ -1973,6 +1951,8 @@ const DayView = ({
           isScheduled: false,
           incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
+          photoCount:
+            photoCountsByGoalDate[`${goal.id}_${currentDateKey}`] ?? 0,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         };
       }),
@@ -1997,6 +1977,8 @@ const DayView = ({
           isScheduled: true,
           incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
+          photoCount:
+            photoCountsByGoalDate[`${goal.id}_${currentDateKey}`] ?? 0,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         },
       ];
@@ -2010,6 +1992,7 @@ const DayView = ({
     periodicGoals,
     logsByGoalDate,
     notesByGoalDate,
+    photoCountsByGoalDate,
     currentDateKey,
     onToggleGoalLog,
   ]);
@@ -2208,6 +2191,75 @@ const DayView = ({
 
   const openGoalActions = (item: GoalItem) => {
     setActionGoal(item);
+    setGoalPhotos([]);
+    setIsLoadingGoalPhotos(true);
+    void fetchGoalPhotos(item.key, currentDateKey)
+      .then((photos) => {
+        setGoalPhotos(photos);
+        onGoalPhotoCountChange?.(item.key, currentDateKey, photos.length);
+      })
+      .catch((error) => {
+        addToast({
+          title: "Could not load photos",
+          description: error instanceof Error ? error.message : undefined,
+          color: "danger",
+        });
+      })
+      .finally(() => setIsLoadingGoalPhotos(false));
+  };
+
+  const handleGoalPhotoSelected = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+
+    if (!file || !actionGoal) return;
+
+    setIsUploadingGoalPhoto(true);
+    try {
+      const photo = await uploadGoalPhoto(actionGoal.key, currentDateKey, file);
+      setGoalPhotos((previous) => {
+        const next = [photo, ...previous];
+        onGoalPhotoCountChange?.(actionGoal.key, currentDateKey, next.length);
+        return next;
+      });
+      addToast({ title: "Photo added", color: "success" });
+    } catch (error) {
+      addToast({
+        title: "Could not add photo",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    } finally {
+      setIsUploadingGoalPhoto(false);
+    }
+  };
+
+  const handleDeleteGoalPhoto = async (photoId: string) => {
+    if (!actionGoal) return;
+
+    setDeletingGoalPhotoIds((previous) => new Set(previous).add(photoId));
+    try {
+      await deleteGoalPhoto(photoId);
+      setGoalPhotos((previous) => {
+        const next = previous.filter((photo) => photo.id !== photoId);
+        onGoalPhotoCountChange?.(actionGoal.key, currentDateKey, next.length);
+        return next;
+      });
+    } catch (error) {
+      addToast({
+        title: "Could not delete photo",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    } finally {
+      setDeletingGoalPhotoIds((previous) => {
+        const next = new Set(previous);
+        next.delete(photoId);
+        return next;
+      });
+    }
   };
 
   const togglePriority = (priority: GoalPriorityStage) => {
@@ -2245,6 +2297,16 @@ const DayView = ({
           className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-default-100 text-foreground-500"
         >
           <Icon icon="mdi:note-text-outline" className="h-3.5 w-3.5" />
+        </span>
+      ) : null,
+      item.photoCount > 0 ? (
+        <span
+          key="photos"
+          title={`${item.photoCount} ${item.photoCount === 1 ? "photo" : "photos"}`}
+          className="inline-flex h-6 items-center gap-1 rounded-full bg-default-100 px-1.5 text-foreground-500"
+        >
+          <Icon icon="mdi:image-outline" className="h-3.5 w-3.5" />
+          <span className="text-[10px] font-semibold">{item.photoCount}</span>
         </span>
       ) : null,
     ].filter(Boolean);
@@ -2482,6 +2544,11 @@ const DayView = ({
           {item.note ? (
             <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-white/75" />
           ) : null}
+          {item.photoCount > 0 ? (
+            <span className="absolute -bottom-1 -left-1 flex h-5 w-5 items-center justify-center rounded-full bg-content1 text-foreground shadow-sm">
+              <Icon icon="mdi:image-outline" className="h-3 w-3" />
+            </span>
+          ) : null}
           {item.isScheduled ? (
             <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-content1 text-foreground shadow-sm">
               <Icon icon="mdi:calendar-outline" className="h-3 w-3" />
@@ -2654,7 +2721,10 @@ const DayView = ({
       <Modal
         isOpen={actionGoal != null}
         onOpenChange={(open) => {
-          if (!open) setActionGoal(null);
+          if (!open) {
+            setActionGoal(null);
+            setGoalPhotos([]);
+          }
         }}
         placement="bottom"
         size="sm"
@@ -2715,30 +2785,87 @@ const DayView = ({
             </Button>
             <div className="grid grid-cols-2 gap-2">
               <Button
-                isDisabled
+                isDisabled={isUploadingGoalPhoto}
+                isLoading={isUploadingGoalPhoto}
                 variant="flat"
                 radius="lg"
-                title="Photo saving is not connected yet"
                 className="h-12 justify-start px-4 text-sm font-semibold"
                 startContent={
                   <Icon icon="mdi:camera-outline" className="h-5 w-5" />
                 }
+                onPress={() => cameraInputRef.current?.click()}
               >
                 Take photo
               </Button>
               <Button
-                isDisabled
+                isDisabled={isUploadingGoalPhoto}
+                isLoading={isUploadingGoalPhoto}
                 variant="flat"
                 radius="lg"
-                title="Photo saving is not connected yet"
                 className="h-12 justify-start px-4 text-sm font-semibold"
                 startContent={
                   <Icon icon="mdi:image-outline" className="h-5 w-5" />
                 }
+                onPress={() => libraryInputRef.current?.click()}
               >
                 Add photo
               </Button>
             </div>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              className="hidden"
+              onChange={(event) => void handleGoalPhotoSelected(event)}
+            />
+            <input
+              ref={libraryInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(event) => void handleGoalPhotoSelected(event)}
+            />
+            {isLoadingGoalPhotos ? (
+              <div className="flex h-20 items-center justify-center text-foreground-400">
+                <Icon icon="mdi:loading" className="h-5 w-5 animate-spin" />
+              </div>
+            ) : goalPhotos.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {goalPhotos.map((photo) => (
+                  <div
+                    key={photo.id}
+                    className="group relative aspect-square overflow-hidden rounded-xl bg-default-100"
+                  >
+                    <img
+                      src={photo.url}
+                      alt={`Goal evidence from ${new Date(photo.createdAt).toLocaleDateString()}`}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Delete photo"
+                      disabled={deletingGoalPhotoIds.has(photo.id)}
+                      onClick={() => void handleDeleteGoalPhoto(photo.id)}
+                      className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white transition-colors hover:bg-danger disabled:opacity-50"
+                    >
+                      <Icon
+                        icon={
+                          deletingGoalPhotoIds.has(photo.id)
+                            ? "mdi:loading"
+                            : "mdi:trash-can-outline"
+                        }
+                        className={`h-4 w-4 ${
+                          deletingGoalPhotoIds.has(photo.id)
+                            ? "animate-spin"
+                            : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </ModalBody>
         </ModalContent>
       </Modal>
@@ -2968,12 +3095,6 @@ export const PortableCalendar = ({
   const [prevMonthGoalLogsByDate, setPrevMonthGoalLogsByDate] = useState<
     Record<string, "complete" | "planned">
   >(() => initialCalendarData?.prevGoalLogsByDate ?? {});
-  const [sidebarTasks, setSidebarTasks] = useState<Task[]>([]);
-  const [isLoadingSidebarTasks, setIsLoadingSidebarTasks] = useState(true);
-  const [updatingSidebarTaskIds, setUpdatingSidebarTaskIds] = useState<
-    Set<string>
-  >(new Set());
-  const taskCompletionDateKey = useMemo(() => todayDateKey(), []);
   const isDashboardStandalone = dashboardMode === "standalone";
   const showDashboardPanel = dashboardMode !== "hidden";
   const showCalendarPanel = dashboardMode !== "standalone";
@@ -3003,40 +3124,6 @@ export const PortableCalendar = ({
     fetchCalendarSettings()
       .then((s) => setCalSettings(s))
       .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    setIsLoadingSidebarTasks(true);
-
-    fetchTasks()
-      .then((tasks) => {
-        if (!cancelled) {
-          setSidebarTasks(tasks);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          addToast({
-            title: "Could not load tasks",
-            description:
-              error instanceof Error
-                ? error.message
-                : "We couldn't load your task list.",
-            color: "warning",
-          });
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingSidebarTasks(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const handleSaveSettings = async () => {
@@ -3203,13 +3290,6 @@ export const PortableCalendar = ({
     );
   }, [goalLogsSnapshot.categories, goalLogsSnapshot.periodicGoals]);
 
-  const topSidebarTasks = useMemo(() => {
-    return sidebarTasks
-      .filter((task) => task.completedAt === null)
-      .sort((a, b) => compareTasksByPriority(a, b, taskCompletionDateKey))
-      .slice(0, 5);
-  }, [sidebarTasks, taskCompletionDateKey]);
-
   const copyHabitShareText = async (habitShareText: string) => {
     if (!navigator.clipboard?.writeText) {
       throw new Error("Clipboard sharing is not available in this browser.");
@@ -3266,49 +3346,6 @@ export const PortableCalendar = ({
     }
   };
 
-  const handleCompleteSidebarTask = (task: Task) => {
-    if (task.completedAt === taskCompletionDateKey) {
-      return;
-    }
-
-    const previousTask = task;
-    const nextTask: Task = {
-      ...task,
-      completedAt: taskCompletionDateKey,
-    };
-
-    setSidebarTasks((previous) =>
-      previous.map((item) => (item.id === task.id ? nextTask : item)),
-    );
-    setUpdatingSidebarTaskIds((previous) => new Set(previous).add(task.id));
-
-    void updateTask(task.id, taskToInput(nextTask))
-      .then((savedTask) => {
-        setSidebarTasks((previous) =>
-          previous.map((item) => (item.id === savedTask.id ? savedTask : item)),
-        );
-      })
-      .catch((error) => {
-        setSidebarTasks((previous) =>
-          previous.map((item) =>
-            item.id === previousTask.id ? previousTask : item,
-          ),
-        );
-        addToast({
-          title: "Could not complete task",
-          description: error instanceof Error ? error.message : undefined,
-          color: "danger",
-        });
-      })
-      .finally(() => {
-        setUpdatingSidebarTaskIds((previous) => {
-          const next = new Set(previous);
-          next.delete(task.id);
-          return next;
-        });
-      });
-  };
-
   const handleDayViewToggleGoalLog = (goalId: string, dateKey: string) => {
     const key = `${goalId}_${dateKey}`;
     const currentlyComplete =
@@ -3362,6 +3399,25 @@ export const PortableCalendar = ({
       }));
       addToast({ title: "Could not save note", color: "danger" });
     }
+  };
+
+  const handleDayViewGoalPhotoCountChange = (
+    goalId: string,
+    dateKey: string,
+    count: number,
+  ) => {
+    const key = `${goalId}_${dateKey}`;
+    setGoalLogsSnapshot((snapshot) => {
+      const photoCountsByGoalDate = { ...snapshot.photoCountsByGoalDate };
+
+      if (count > 0) {
+        photoCountsByGoalDate[key] = count;
+      } else {
+        delete photoCountsByGoalDate[key];
+      }
+
+      return { ...snapshot, photoCountsByGoalDate };
+    });
   };
 
   const { isOpen, onOpen, onOpenChange, onClose } = useDisclosure();
@@ -3751,90 +3807,6 @@ export const PortableCalendar = ({
                     </div>
 
                     <div className="mt-3">
-                      <div className="flex w-full items-center gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground-400">
-                          Top Tasks
-                        </span>
-                        <span className="ml-auto rounded-full bg-default-100 px-2 py-0.5 text-[9px] font-semibold text-foreground-400">
-                          {topSidebarTasks.length}/5
-                        </span>
-                      </div>
-                      <div className="mt-2 space-y-1.5">
-                        {isLoadingSidebarTasks ? (
-                          <div className="flex items-center gap-2 rounded-xl border border-default-200/50 bg-content1/40 px-2.5 py-2 text-[11px] text-foreground-400">
-                            <Icon
-                              icon="mdi:loading"
-                              className="h-3.5 w-3.5 animate-spin"
-                            />
-                            Loading tasks
-                          </div>
-                        ) : topSidebarTasks.length > 0 ? (
-                          topSidebarTasks.map((task) => {
-                            const isComplete =
-                              task.completedAt === taskCompletionDateKey;
-                            const isUpdating = updatingSidebarTaskIds.has(
-                              task.id,
-                            );
-
-                            return (
-                              <button
-                                type="button"
-                                key={task.id}
-                                onClick={() => handleCompleteSidebarTask(task)}
-                                aria-label={`Complete ${task.name}`}
-                                className={cn(
-                                  "group flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all",
-                                  isComplete
-                                    ? "border-default-200/40 bg-default-100/40 text-foreground-400"
-                                    : "border-default-200/60 bg-content1/50 hover:border-default-300 hover:bg-default-100/70",
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
-                                    isComplete
-                                      ? "border-success-500/60 bg-success-500/15 text-success-600"
-                                      : "border-foreground-400/60 text-transparent group-hover:border-success-500/70",
-                                  )}
-                                >
-                                  <Icon
-                                    icon={
-                                      isUpdating ? "mdi:loading" : "mdi:check"
-                                    }
-                                    className={cn(
-                                      "h-3 w-3",
-                                      isUpdating &&
-                                        "animate-spin text-foreground-400",
-                                    )}
-                                  />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span
-                                    className={cn(
-                                      "block truncate text-[11px] font-medium",
-                                      isComplete && "line-through",
-                                    )}
-                                  >
-                                    {task.name}
-                                  </span>
-                                  {task.timeRequired && (
-                                    <span className="block truncate text-[9px] text-foreground-400">
-                                      {task.timeRequired}
-                                    </span>
-                                  )}
-                                </span>
-                              </button>
-                            );
-                          })
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-default-200/70 px-2.5 py-2 text-[11px] text-foreground-400">
-                            No active tasks yet.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
                       <button
                         type="button"
                         onClick={() => setDailyGoalsCollapsed((v) => !v)}
@@ -3998,8 +3970,14 @@ export const PortableCalendar = ({
                         }
                         logsByGoalDate={allGoalLogsByDate}
                         notesByGoalDate={goalLogsSnapshot.notesByGoalDate}
+                        photoCountsByGoalDate={
+                          goalLogsSnapshot.photoCountsByGoalDate
+                        }
                         onToggleGoalLog={handleDayViewToggleGoalLog}
                         onSaveGoalNote={handleDayViewSaveGoalNote}
+                        onGoalPhotoCountChange={
+                          handleDayViewGoalPhotoCountChange
+                        }
                         onShareHabitResults={() =>
                           void handleShareHabitResults(currentDate)
                         }
