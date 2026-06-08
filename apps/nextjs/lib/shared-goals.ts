@@ -54,6 +54,7 @@ export type SharedGoalParticipantSnapshot = {
   userImage: string | null;
   personalGoalId: string | null;
   personalGoalName: string | null;
+  personalGoalAutoCreated: boolean;
   status: "invited" | "accepted" | "declined" | "left";
   joinedAt: string | null;
   leftAt: string | null;
@@ -145,6 +146,7 @@ export async function getSharedGoalSnapshots(
         userName: users.name,
         userImage: users.image,
         personalGoalId: sharedGoalParticipants.personalGoalId,
+        personalGoalAutoCreated: sharedGoalParticipants.personalGoalAutoCreated,
         personalGoalName: goals.name,
         status: sharedGoalParticipants.status,
         joinedAt: sharedGoalParticipants.joinedAt,
@@ -219,6 +221,7 @@ export async function getSharedGoalSnapshots(
           userImage: participant.userImage,
           personalGoalId: participant.personalGoalId,
           personalGoalName: participant.personalGoalName,
+          personalGoalAutoCreated: participant.personalGoalAutoCreated,
           status: participant.status,
           joinedAt: participant.joinedAt?.toISOString() ?? null,
           leftAt: participant.leftAt?.toISOString() ?? null,

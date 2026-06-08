@@ -1,4 +1,5 @@
 import {
+  categories,
   friends,
   getDb,
   goals,
@@ -15,12 +16,13 @@ import { getSharedGoalSnapshots } from "@/lib/shared-goals";
 const participantActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("accept"),
-    personalGoalId: z.string().uuid(),
+    personalGoalId: z.string().uuid().nullable().default(null),
   }),
   z.object({ action: z.literal("decline") }),
   z.object({
     action: z.literal("relink"),
-    personalGoalId: z.string().uuid(),
+    personalGoalId: z.string().uuid().nullable().default(null),
+    deletePreviousAutoCreated: z.boolean().default(false),
   }),
 ]);
 const inviteSchema = z.object({
@@ -119,6 +121,7 @@ export async function POST(
         set: {
           status: "invited",
           personalGoalId: null,
+          personalGoalAutoCreated: false,
           joinedAt: null,
           leftAt: null,
           updatedAt: new Date(),
@@ -159,8 +162,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid action." }, { status: 400 });
     }
 
-    let personalGoalId: string | null = null;
-    if (parsed.data.action === "accept" || parsed.data.action === "relink") {
+    if (
+      (parsed.data.action === "accept" || parsed.data.action === "relink") &&
+      parsed.data.personalGoalId
+    ) {
       const [personalGoal] = await db
         .select({ id: goals.id })
         .from(goals)
@@ -177,34 +182,153 @@ export async function PATCH(
           { status: 404 },
         );
       }
-      personalGoalId = personalGoal.id;
     }
 
-    const [updated] = await db
-      .update(sharedGoalParticipants)
-      .set(
-        parsed.data.action === "decline"
-          ? {
-              status: "declined",
-              personalGoalId: null,
-              joinedAt: null,
-              updatedAt: new Date(),
-            }
-          : {
-              status: "accepted",
-              personalGoalId,
-              joinedAt: new Date(),
-              leftAt: null,
-              updatedAt: new Date(),
-            },
-      )
-      .where(
-        and(
-          eq(sharedGoalParticipants.sharedGoalId, sharedGoalId),
-          eq(sharedGoalParticipants.userId, user.id),
-        ),
-      )
-      .returning({ id: sharedGoalParticipants.id });
+    const updated = await db.transaction(async (tx) => {
+      const [existingParticipant] = await tx
+        .select({
+          id: sharedGoalParticipants.id,
+          personalGoalId: sharedGoalParticipants.personalGoalId,
+          personalGoalAutoCreated:
+            sharedGoalParticipants.personalGoalAutoCreated,
+        })
+        .from(sharedGoalParticipants)
+        .where(
+          and(
+            eq(sharedGoalParticipants.sharedGoalId, sharedGoalId),
+            eq(sharedGoalParticipants.userId, user.id),
+          ),
+        )
+        .limit(1);
+
+      if (!existingParticipant) return null;
+
+      let personalGoalId =
+        parsed.data.action === "decline" ? null : parsed.data.personalGoalId;
+      let personalGoalAutoCreated = false;
+
+      if (parsed.data.action !== "decline" && !personalGoalId) {
+        const [sharedGoal] = await tx
+          .select({
+            name: sharedGoals.name,
+            mode: sharedGoals.mode,
+          })
+          .from(sharedGoals)
+          .where(eq(sharedGoals.id, sharedGoalId))
+          .limit(1);
+
+        if (!sharedGoal) return null;
+
+        const [existingCategory] = await tx
+          .select({ id: categories.id })
+          .from(categories)
+          .where(
+            and(
+              eq(categories.userId, user.id),
+              eq(categories.name, "Shared Goals"),
+            ),
+          )
+          .limit(1);
+        const categoryId =
+          existingCategory?.id ??
+          (
+            await tx
+              .insert(categories)
+              .values({
+                userId: user.id,
+                name: "Shared Goals",
+                icon: "mdi:account-group-outline",
+              })
+              .returning({ id: categories.id })
+          )[0]?.id;
+
+        if (!categoryId) throw new Error("Shared goal category insert failed.");
+
+        const existingNames = await tx
+          .select({ name: goals.name })
+          .from(goals)
+          .where(
+            and(eq(goals.userId, user.id), eq(goals.categoryId, categoryId)),
+          );
+        const usedNames = new Set(existingNames.map((goal) => goal.name));
+        let personalGoalName = sharedGoal.name;
+        let suffix = 2;
+
+        while (usedNames.has(personalGoalName)) {
+          personalGoalName = `${sharedGoal.name} (${suffix})`;
+          suffix += 1;
+        }
+
+        const [createdPersonalGoal] = await tx
+          .insert(goals)
+          .values({
+            userId: user.id,
+            name: personalGoalName,
+            period: "daily",
+            categoryId,
+            priority: "medium",
+            iconKey:
+              sharedGoal.mode === "collaborative"
+                ? "mdi:account-group-outline"
+                : "mdi:trophy-outline",
+          })
+          .returning({ id: goals.id });
+
+        if (!createdPersonalGoal) {
+          throw new Error("Personal goal insert failed.");
+        }
+        personalGoalId = createdPersonalGoal.id;
+        personalGoalAutoCreated = true;
+      }
+
+      const [participant] = await tx
+        .update(sharedGoalParticipants)
+        .set(
+          parsed.data.action === "decline"
+            ? {
+                status: "declined",
+                personalGoalId: null,
+                personalGoalAutoCreated: false,
+                joinedAt: null,
+                updatedAt: new Date(),
+              }
+            : {
+                status: "accepted",
+                personalGoalId,
+                personalGoalAutoCreated,
+                joinedAt: new Date(),
+                leftAt: null,
+                updatedAt: new Date(),
+              },
+        )
+        .where(
+          and(
+            eq(sharedGoalParticipants.sharedGoalId, sharedGoalId),
+            eq(sharedGoalParticipants.userId, user.id),
+          ),
+        )
+        .returning({ id: sharedGoalParticipants.id });
+
+      if (
+        participant &&
+        parsed.data.action === "relink" &&
+        parsed.data.deletePreviousAutoCreated &&
+        existingParticipant.personalGoalAutoCreated &&
+        existingParticipant.personalGoalId &&
+        existingParticipant.personalGoalId !== personalGoalId
+      ) {
+        await tx
+          .delete(goals)
+          .where(
+            and(
+              eq(goals.id, existingParticipant.personalGoalId),
+              eq(goals.userId, user.id),
+            ),
+          );
+      }
+
+      return participant ?? null;
+    });
 
     if (!updated) {
       return NextResponse.json(

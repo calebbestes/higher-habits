@@ -19,6 +19,7 @@ import {
   Select,
   SelectItem,
   Spinner,
+  Switch,
   Tooltip,
   addToast,
   cn,
@@ -408,6 +409,8 @@ export function SharedGoalsSection({
     null,
   );
   const [acceptPersonalGoalId, setAcceptPersonalGoalId] = useState("");
+  const [deletePreviousAutoCreated, setDeletePreviousAutoCreated] =
+    useState(false);
   const [inviteGoal, setInviteGoal] = useState<SharedGoalSnapshot | null>(null);
   const [inviteUserIds, setInviteUserIds] = useState<string[]>([]);
   const [createStep, setCreateStep] = useState(1);
@@ -498,14 +501,21 @@ export function SharedGoalsSection({
     }: {
       sharedGoalId: string;
       input:
-        | { action: "accept"; personalGoalId: string }
+        | { action: "accept"; personalGoalId: string | null }
         | { action: "decline" }
-        | { action: "relink"; personalGoalId: string };
+        | {
+            action: "relink";
+            personalGoalId: string | null;
+            deletePreviousAutoCreated?: boolean;
+          };
     }) => respondToSharedGoal(sharedGoalId, input),
     onSuccess: () => {
       void invalidateSharedGoals();
+      void queryClient.invalidateQueries({ queryKey: ["goals"] });
+      void queryClient.invalidateQueries({ queryKey: ["categories"] });
       setAcceptingGoal(null);
       setAcceptPersonalGoalId("");
+      setDeletePreviousAutoCreated(false);
       addToast({ title: "Shared goal updated", color: "success" });
     },
     onError: (error) =>
@@ -583,8 +593,22 @@ export function SharedGoalsSection({
     const goalId = goal.currentUserParticipant?.personalGoalId;
     if (goalId) reportMutation.mutate({ sharedGoalId: goal.id, goalId });
   };
+  const openPersonalGoalLink = (
+    goal: SharedGoalSnapshot,
+    selectedGoalId = "",
+  ) => {
+    setAcceptingGoal(goal);
+    setAcceptPersonalGoalId(selectedGoalId);
+    setDeletePreviousAutoCreated(false);
+  };
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (createStep < 3) {
+      setCreateStep(Math.min(3, createStep + 1));
+      return;
+    }
+
     const targetNumber = Number(target);
 
     createMutation.mutate({
@@ -608,6 +632,14 @@ export function SharedGoalsSection({
     );
     return friends.filter((friend) => !participantIds.has(friend.friendId));
   }, [friends, inviteGoal]);
+  const linkingParticipant = acceptingGoal?.currentUserParticipant ?? null;
+  const isJoiningInvitation = linkingParticipant?.status === "invited";
+  const canDeletePreviousAutoCreated = Boolean(
+    !isJoiningInvitation &&
+      linkingParticipant?.personalGoalAutoCreated &&
+      linkingParticipant.personalGoalId &&
+      linkingParticipant.personalGoalId !== acceptPersonalGoalId,
+  );
 
   if (sharedGoalsQuery.isLoading) {
     return (
@@ -652,8 +684,7 @@ export function SharedGoalsSection({
                   goal={goal}
                   isPending={participantMutation.isPending}
                   onAccept={() => {
-                    setAcceptingGoal(goal);
-                    setAcceptPersonalGoalId(personalGoals[0]?.id ?? "");
+                    openPersonalGoalLink(goal);
                   }}
                   onDecline={() =>
                     participantMutation.mutate({
@@ -673,8 +704,7 @@ export function SharedGoalsSection({
           onOpen={(goal) => setSelectedGoalId(goal.id)}
           onReport={handleReport}
           onRelink={(goal) => {
-            setAcceptingGoal(goal);
-            setAcceptPersonalGoalId(personalGoals[0]?.id ?? "");
+            openPersonalGoalLink(goal);
           }}
           reportingGoalId={reportingGoalId}
         />
@@ -684,8 +714,7 @@ export function SharedGoalsSection({
           onOpen={(goal) => setSelectedGoalId(goal.id)}
           onReport={handleReport}
           onRelink={(goal) => {
-            setAcceptingGoal(goal);
-            setAcceptPersonalGoalId(personalGoals[0]?.id ?? "");
+            openPersonalGoalLink(goal);
           }}
           reportingGoalId={reportingGoalId}
         />
@@ -919,10 +948,9 @@ export function SharedGoalsSection({
               </Button>
               {createStep < 3 ? (
                 <Button
-                  type="button"
+                  type="submit"
                   color="primary"
                   isDisabled={createStep === 2 && name.trim().length === 0}
-                  onPress={() => setCreateStep((step) => step + 1)}
                 >
                   Continue
                 </Button>
@@ -943,33 +971,73 @@ export function SharedGoalsSection({
 
       <Modal
         isOpen={acceptingGoal !== null}
-        onOpenChange={(open) => !open && setAcceptingGoal(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAcceptingGoal(null);
+            setAcceptPersonalGoalId("");
+            setDeletePreviousAutoCreated(false);
+          }
+        }}
       >
         <ModalContent>
           <ModalHeader>
-            {acceptingGoal?.currentUserParticipant?.status === "invited"
-              ? "Join"
-              : "Relink"}{" "}
+            {isJoiningInvitation ? "Join" : "Change linked goal for"}{" "}
             {acceptingGoal?.name}
           </ModalHeader>
-          <ModalBody>
+          <ModalBody className="gap-4">
+            {!isJoiningInvitation && linkingParticipant?.personalGoalName ? (
+              <div className="rounded-xl bg-default-100 p-3">
+                <p className="text-xs font-semibold text-foreground-500">
+                  Currently linked
+                </p>
+                <p className="mt-1 text-sm font-semibold">
+                  {linkingParticipant.personalGoalName}
+                </p>
+              </div>
+            ) : null}
             <Select
-              isRequired
-              label="Link your personal goal"
-              description="Your existing reports and history stay attached to this goal."
+              isClearable
+              label={
+                isJoiningInvitation
+                  ? "Link an existing personal goal (optional)"
+                  : "Link a different existing personal goal (optional)"
+              }
+              placeholder="Create a new personal goal"
+              description="Leave blank to create and link a new daily personal goal."
               selectedKeys={
                 acceptPersonalGoalId
                   ? new Set([acceptPersonalGoalId])
                   : new Set()
               }
-              onSelectionChange={(keys) =>
-                setAcceptPersonalGoalId(firstSelection(keys) ?? "")
-              }
+              onSelectionChange={(keys) => {
+                const nextGoalId = firstSelection(keys) ?? "";
+                setAcceptPersonalGoalId(nextGoalId);
+                if (nextGoalId === linkingParticipant?.personalGoalId) {
+                  setDeletePreviousAutoCreated(false);
+                }
+              }}
             >
               {personalGoals.map((goal) => (
                 <SelectItem key={goal.id}>{goal.name}</SelectItem>
               ))}
             </Select>
+            {!isJoiningInvitation &&
+            linkingParticipant?.personalGoalAutoCreated ? (
+              <div className="rounded-xl border border-[#F3B7B9] bg-[#F3B7B9]/15 p-3">
+                <Switch
+                  color="danger"
+                  isSelected={deletePreviousAutoCreated}
+                  isDisabled={!canDeletePreviousAutoCreated}
+                  onValueChange={setDeletePreviousAutoCreated}
+                >
+                  Delete the generated personal goal
+                </Switch>
+                <p className="mt-2 text-xs text-foreground-500">
+                  This also deletes any reports, notes, and photos attached to{" "}
+                  {linkingParticipant.personalGoalName}.
+                </p>
+              </div>
+            ) : null}
           </ModalBody>
           <ModalFooter>
             <Button variant="flat" onPress={() => setAcceptingGoal(null)}>
@@ -978,24 +1046,21 @@ export function SharedGoalsSection({
             <Button
               color="primary"
               isLoading={participantMutation.isPending}
-              isDisabled={!acceptPersonalGoalId}
               onPress={() => {
-                if (!acceptingGoal || !acceptPersonalGoalId) return;
+                if (!acceptingGoal) return;
                 participantMutation.mutate({
                   sharedGoalId: acceptingGoal.id,
                   input: {
-                    action:
-                      acceptingGoal.currentUserParticipant?.status === "invited"
-                        ? "accept"
-                        : "relink",
-                    personalGoalId: acceptPersonalGoalId,
+                    action: isJoiningInvitation ? "accept" : "relink",
+                    personalGoalId: acceptPersonalGoalId || null,
+                    ...(!isJoiningInvitation
+                      ? { deletePreviousAutoCreated }
+                      : {}),
                   },
                 });
               }}
             >
-              {acceptingGoal?.currentUserParticipant?.status === "invited"
-                ? "Join Goal"
-                : "Relink Goal"}
+              {isJoiningInvitation ? "Join Goal" : "Change Linked Goal"}
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -1045,26 +1110,49 @@ export function SharedGoalsSection({
                       </div>
                     </div>
                     {selectedGoal.currentUserParticipant?.personalGoalId ? (
-                      <Button
-                        color="primary"
-                        isDisabled={
-                          selectedGoal.currentUserParticipant.completedToday
-                        }
-                        isLoading={reportingGoalId === selectedGoal.id}
-                        onPress={() => handleReport(selectedGoal)}
-                      >
-                        {selectedGoal.currentUserParticipant.completedToday
-                          ? "Completed today"
-                          : "Report today"}
-                      </Button>
+                      <>
+                        <Button
+                          color="primary"
+                          isDisabled={
+                            selectedGoal.currentUserParticipant.completedToday
+                          }
+                          isLoading={reportingGoalId === selectedGoal.id}
+                          onPress={() => handleReport(selectedGoal)}
+                        >
+                          {selectedGoal.currentUserParticipant.completedToday
+                            ? "Completed today"
+                            : "Report today"}
+                        </Button>
+                        <div className="flex items-center justify-between gap-3 rounded-xl bg-default-100 p-3">
+                          <div className="min-w-0">
+                            <p className="text-xs text-foreground-500">
+                              Linked personal goal
+                            </p>
+                            <p className="truncate text-sm font-semibold">
+                              {selectedGoal.currentUserParticipant
+                                .personalGoalName ?? "Personal goal"}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="flat"
+                            onPress={() =>
+                              openPersonalGoalLink(
+                                selectedGoal,
+                                selectedGoal.currentUserParticipant
+                                  ?.personalGoalId ?? "",
+                              )
+                            }
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      </>
                     ) : (
                       <Button
                         color="warning"
                         variant="flat"
-                        onPress={() => {
-                          setAcceptingGoal(selectedGoal);
-                          setAcceptPersonalGoalId(personalGoals[0]?.id ?? "");
-                        }}
+                        onPress={() => openPersonalGoalLink(selectedGoal)}
                       >
                         Relink Personal Goal
                       </Button>
