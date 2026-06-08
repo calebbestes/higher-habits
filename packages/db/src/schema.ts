@@ -18,6 +18,27 @@ export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
 export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
+export const SHARED_GOAL_MODES = ["collaborative", "competitive"] as const;
+export const SHARED_GOAL_SCORING_TYPES = [
+  "everyone_completes",
+  "combined_target",
+  "shared_streak",
+  "first_to_target",
+  "highest_total",
+  "best_consistency",
+  "longest_streak",
+] as const;
+export const SHARED_GOAL_STATUSES = [
+  "active",
+  "completed",
+  "archived",
+] as const;
+export const SHARED_GOAL_PARTICIPANT_STATUSES = [
+  "invited",
+  "accepted",
+  "declined",
+  "left",
+] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
@@ -30,6 +51,19 @@ export const friendMessageTypeEnum = pgEnum(
 export const friendGoalScopeEnum = pgEnum(
   "friend_goal_scope",
   FRIEND_GOAL_SCOPES,
+);
+export const sharedGoalModeEnum = pgEnum("shared_goal_mode", SHARED_GOAL_MODES);
+export const sharedGoalScoringTypeEnum = pgEnum(
+  "shared_goal_scoring_type",
+  SHARED_GOAL_SCORING_TYPES,
+);
+export const sharedGoalStatusEnum = pgEnum(
+  "shared_goal_status",
+  SHARED_GOAL_STATUSES,
+);
+export const sharedGoalParticipantStatusEnum = pgEnum(
+  "shared_goal_participant_status",
+  SHARED_GOAL_PARTICIPANT_STATUSES,
 );
 
 export const users = pgTable(
@@ -322,6 +356,120 @@ export const goalLogPhotos = pgTable(
   ],
 );
 
+export const feedProps = pgTable(
+  "feed_props",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalLogId: uuid("goal_log_id")
+      .notNull()
+      .references(() => goalLogs.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("feed_props_goal_log_id_user_id_uidx").on(
+      table.goalLogId,
+      table.userId,
+    ),
+    index("feed_props_goal_log_id_idx").on(table.goalLogId),
+    index("feed_props_user_id_idx").on(table.userId),
+  ],
+);
+
+export const feedComments = pgTable(
+  "feed_comments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalLogId: uuid("goal_log_id")
+      .notNull()
+      .references(() => goalLogs.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("feed_comments_goal_log_id_idx").on(table.goalLogId),
+    index("feed_comments_user_id_idx").on(table.userId),
+  ],
+);
+
+export const sharedGoals = pgTable(
+  "shared_goals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mode: sharedGoalModeEnum("mode").notNull(),
+    scoringType: sharedGoalScoringTypeEnum("scoring_type").notNull(),
+    target: integer("target"),
+    startsOn: date("starts_on", { mode: "string" }),
+    endsOn: date("ends_on", { mode: "string" }),
+    status: sharedGoalStatusEnum("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("shared_goals_owner_id_idx").on(table.ownerId),
+    index("shared_goals_status_idx").on(table.status),
+  ],
+);
+
+export const sharedGoalParticipants = pgTable(
+  "shared_goal_participants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sharedGoalId: uuid("shared_goal_id")
+      .notNull()
+      .references(() => sharedGoals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    personalGoalId: uuid("personal_goal_id").references(() => goals.id, {
+      onDelete: "set null",
+    }),
+    status: sharedGoalParticipantStatusEnum("status")
+      .default("invited")
+      .notNull(),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("shared_goal_participants_shared_goal_id_user_id_uidx").on(
+      table.sharedGoalId,
+      table.userId,
+    ),
+    index("shared_goal_participants_shared_goal_id_idx").on(table.sharedGoalId),
+    index("shared_goal_participants_user_id_idx").on(table.userId),
+    index("shared_goal_participants_personal_goal_id_idx").on(
+      table.personalGoalId,
+    ),
+    index("shared_goal_participants_status_idx").on(table.status),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
@@ -352,6 +500,20 @@ export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
 export type GoalLogPhoto = typeof goalLogPhotos.$inferSelect;
 export type NewGoalLogPhoto = typeof goalLogPhotos.$inferInsert;
+export type FeedProp = typeof feedProps.$inferSelect;
+export type NewFeedProp = typeof feedProps.$inferInsert;
+export type FeedComment = typeof feedComments.$inferSelect;
+export type NewFeedComment = typeof feedComments.$inferInsert;
+export type SharedGoal = typeof sharedGoals.$inferSelect;
+export type NewSharedGoal = typeof sharedGoals.$inferInsert;
+export type SharedGoalParticipant = typeof sharedGoalParticipants.$inferSelect;
+export type NewSharedGoalParticipant =
+  typeof sharedGoalParticipants.$inferInsert;
+export type SharedGoalMode = (typeof SHARED_GOAL_MODES)[number];
+export type SharedGoalScoringType = (typeof SHARED_GOAL_SCORING_TYPES)[number];
+export type SharedGoalStatus = (typeof SHARED_GOAL_STATUSES)[number];
+export type SharedGoalParticipantStatus =
+  (typeof SHARED_GOAL_PARTICIPANT_STATUSES)[number];
 
 export const friendMessages = pgTable(
   "friend_messages",

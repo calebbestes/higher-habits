@@ -25,10 +25,11 @@ import parse, {
   type HTMLReactParserOptions,
   domToReact,
 } from "html-react-parser";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, createElement, useState } from "react";
 
 import { SettingsLink } from "@/components/settings-link";
+import { SharedGoalsSection } from "@/components/shared-goals-section";
 import type { FriendsSection } from "@/lib/friends-navigation";
 
 type FriendMessageRow = {
@@ -88,6 +89,17 @@ type FriendFeedPhoto = {
   createdAt: string;
 };
 
+type FriendFeedComment = {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+};
+
 type FriendFeedEntry = {
   id: string;
   friend: {
@@ -103,6 +115,11 @@ type FriendFeedEntry = {
   dateKey: string;
   notes: string;
   updatedAt: string;
+  props: {
+    count: number;
+    hasPropped: boolean;
+  };
+  comments: FriendFeedComment[];
   photos: FriendFeedPhoto[];
 };
 
@@ -119,6 +136,11 @@ type SendMessagePayload =
       goalScope: StreakGoalScope;
       goalId?: string;
     };
+
+type FeedInteractionPayload =
+  | { type: "toggleProp" }
+  | { type: "addComment"; body: string }
+  | { type: "deleteComment"; commentId: string };
 
 const FRIENDS_ENDPOINT = "/api/friends";
 const SAFE_JOURNAL_NOTE_TAGS = new Set([
@@ -208,6 +230,19 @@ async function fetchFriendsFeed() {
     cache: "no-store",
   });
   return parseJsonResponse<FriendFeedEntry[]>(response);
+}
+
+async function updateFriendFeedPost(
+  goalLogId: string,
+  payload: FeedInteractionPayload,
+) {
+  const response = await fetch(`${FRIENDS_ENDPOINT}/feed/${goalLogId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  return parseJsonResponse<Record<string, unknown>>(response);
 }
 
 async function addFriend(email: string) {
@@ -424,7 +459,75 @@ function FeedSection({
   errorMessage?: string;
   entries: FriendFeedEntry[];
 }) {
+  const queryClient = useQueryClient();
   const [activePhoto, setActivePhoto] = useState<FriendFeedPhoto | null>(null);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const togglePropMutation = useMutation({
+    mutationFn: (goalLogId: string) =>
+      updateFriendFeedPost(goalLogId, { type: "toggleProp" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["friends-feed"] });
+    },
+    onError: (error) => {
+      addToast({
+        title: "Could not update prop",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+  const addCommentMutation = useMutation({
+    mutationFn: ({
+      goalLogId,
+      body,
+    }: {
+      goalLogId: string;
+      body: string;
+    }) => updateFriendFeedPost(goalLogId, { type: "addComment", body }),
+    onSuccess: (_, { goalLogId }) => {
+      setCommentDrafts((previous) => ({ ...previous, [goalLogId]: "" }));
+      void queryClient.invalidateQueries({ queryKey: ["friends-feed"] });
+    },
+    onError: (error) => {
+      addToast({
+        title: "Could not add comment",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+  const deleteCommentMutation = useMutation({
+    mutationFn: ({
+      goalLogId,
+      commentId,
+    }: {
+      goalLogId: string;
+      commentId: string;
+    }) => updateFriendFeedPost(goalLogId, { type: "deleteComment", commentId }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["friends-feed"] });
+    },
+    onError: (error) => {
+      addToast({
+        title: "Could not delete comment",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+
+  const handleAddComment = (
+    event: FormEvent<HTMLFormElement>,
+    goalLogId: string,
+  ) => {
+    event.preventDefault();
+    const body = commentDrafts[goalLogId]?.trim() ?? "";
+
+    if (!body) return;
+    addCommentMutation.mutate({ goalLogId, body });
+  };
 
   if (isLoading) {
     return (
@@ -541,6 +644,124 @@ function FeedSection({
                 {renderJournalNote(entry.notes)}
               </div>
             ) : null}
+
+            <div className="grid gap-3 border-t border-divider pt-3">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  color={entry.props.hasPropped ? "primary" : "default"}
+                  variant={entry.props.hasPropped ? "flat" : "light"}
+                  startContent={
+                    <Icon icon="mdi:hand-clap" className="h-4 w-4" />
+                  }
+                  isLoading={
+                    togglePropMutation.isPending &&
+                    togglePropMutation.variables === entry.id
+                  }
+                  onPress={() => togglePropMutation.mutate(entry.id)}
+                >
+                  {entry.props.count > 0
+                    ? `${entry.props.count} ${entry.props.count === 1 ? "Prop" : "Props"}`
+                    : "Prop"}
+                </Button>
+                <span className="inline-flex items-center gap-1.5 px-2 text-xs font-semibold text-foreground-500">
+                  <Icon icon="mdi:comment-outline" className="h-4 w-4" />
+                  {entry.comments.length}{" "}
+                  {entry.comments.length === 1 ? "comment" : "comments"}
+                </span>
+              </div>
+
+              {entry.comments.length > 0 ? (
+                <div className="grid gap-2">
+                  {entry.comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className="flex items-start gap-2 rounded-xl bg-default-50 px-3 py-2.5"
+                    >
+                      <FriendAvatar
+                        image={comment.authorImage}
+                        name={comment.authorName}
+                        sizeClassName="h-7 w-7"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                          <p className="text-xs font-semibold">
+                            {comment.authorName}
+                          </p>
+                          <span className="text-[11px] text-foreground-400">
+                            {formatMessageTime(comment.createdAt)}
+                          </span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground-700">
+                          {comment.body}
+                        </p>
+                      </div>
+                      {comment.canDelete ? (
+                        <Tooltip content="Delete comment" color="foreground">
+                          <Button
+                            isIconOnly
+                            size="sm"
+                            variant="light"
+                            color="danger"
+                            aria-label="Delete comment"
+                            isLoading={
+                              deleteCommentMutation.isPending &&
+                              deleteCommentMutation.variables?.commentId ===
+                                comment.id
+                            }
+                            onPress={() =>
+                              deleteCommentMutation.mutate({
+                                goalLogId: entry.id,
+                                commentId: comment.id,
+                              })
+                            }
+                          >
+                            <Icon
+                              icon="mdi:trash-can-outline"
+                              className="h-4 w-4"
+                            />
+                          </Button>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(event) => handleAddComment(event, entry.id)}
+              >
+                <Input
+                  size="sm"
+                  variant="bordered"
+                  aria-label={`Comment on ${entry.friend.name}'s post`}
+                  placeholder="Write a comment..."
+                  maxLength={2000}
+                  value={commentDrafts[entry.id] ?? ""}
+                  onValueChange={(value) =>
+                    setCommentDrafts((previous) => ({
+                      ...previous,
+                      [entry.id]: value,
+                    }))
+                  }
+                />
+                <Button
+                  isIconOnly
+                  type="submit"
+                  size="sm"
+                  color="primary"
+                  aria-label="Post comment"
+                  isDisabled={!commentDrafts[entry.id]?.trim()}
+                  isLoading={
+                    addCommentMutation.isPending &&
+                    addCommentMutation.variables?.goalLogId === entry.id
+                  }
+                >
+                  <Icon icon="mdi:send" className="h-4 w-4" />
+                </Button>
+              </form>
+            </div>
           </article>
         ))}
       </section>
@@ -968,14 +1189,6 @@ function IncentivesSection({
   );
 }
 
-function SharedGoalsSection() {
-  return (
-    <section className="flex min-h-64 flex-1 items-center justify-center rounded-2xl border border-dashed border-divider bg-content1/40 p-8 text-center">
-      <h2 className="text-xl font-semibold">Shared Goals</h2>
-    </section>
-  );
-}
-
 function FriendGridCard({
   friend,
   onMessage,
@@ -1113,12 +1326,16 @@ export function FriendsPageClient({
   activeSection: FriendsSection;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
   >(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSharedGoalCreateOpen, setIsSharedGoalCreateOpen] = useState(
+    Boolean(searchParams.get("goalId")),
+  );
   const [collabPickerMode, setCollabPickerMode] =
     useState<CollabPickerMode | null>(null);
   const [nudgeFriend, setNudgeFriend] = useState<FriendRow | null>(null);
@@ -1251,10 +1468,7 @@ export function FriendsPageClient({
     }
 
     if (activeSection === "shared-goals") {
-      addToast({
-        title: "Shared goal creation is coming next",
-        color: "default",
-      });
+      setIsSharedGoalCreateOpen(true);
       return;
     }
 
@@ -1436,7 +1650,19 @@ export function FriendsPageClient({
           />
         ) : null}
 
-        {activeSection === "shared-goals" ? <SharedGoalsSection /> : null}
+        {activeSection === "shared-goals" ? (
+          <SharedGoalsSection
+            friends={acceptedFriends.map((friend) => ({
+              friendId: friend.friendId,
+              friendName: friend.friendName,
+              friendEmail: friend.friendEmail,
+              friendImage: friend.friendImage,
+            }))}
+            isCreateOpen={isSharedGoalCreateOpen}
+            initialPersonalGoalId={searchParams.get("goalId")}
+            onCreateOpenChange={setIsSharedGoalCreateOpen}
+          />
+        ) : null}
 
         {activeSection === "friends" ? (
           <FriendsGridSection

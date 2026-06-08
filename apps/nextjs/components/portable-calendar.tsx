@@ -1837,6 +1837,11 @@ const DayView = ({
       | null;
     note: string | null;
     photoCount: number;
+    sharedGoals: Array<{
+      id: string;
+      name: string;
+      mode: "collaborative" | "competitive";
+    }>;
     onToggle: () => void;
   };
 
@@ -1940,6 +1945,7 @@ const DayView = ({
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           photoCount:
             photoCountsByGoalDate[`${goal.id}_${currentDateKey}`] ?? 0,
+          sharedGoals: goal.sharedGoals,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         };
       }),
@@ -1966,6 +1972,7 @@ const DayView = ({
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
           photoCount:
             photoCountsByGoalDate[`${goal.id}_${currentDateKey}`] ?? 0,
+          sharedGoals: goal.sharedGoals,
           onToggle: () => onToggleGoalLog?.(goal.id, currentDateKey),
         },
       ];
@@ -2294,6 +2301,20 @@ const DayView = ({
         >
           <Icon icon="mdi:image-outline" className="h-3.5 w-3.5" />
           <span className="text-[10px] font-semibold">{item.photoCount}</span>
+        </span>
+      ) : null,
+      item.sharedGoals.length > 0 ? (
+        <span
+          key="shared"
+          title={item.sharedGoals.map((goal) => goal.name).join(", ")}
+          className="inline-flex h-6 items-center gap-1 rounded-full bg-[#A0D5D5]/30 px-1.5 text-[#2C5352]"
+        >
+          <Icon icon="mdi:account-group-outline" className="h-3.5 w-3.5" />
+          {item.sharedGoals.length > 1 ? (
+            <span className="text-[10px] font-semibold">
+              {item.sharedGoals.length}
+            </span>
+          ) : null}
         </span>
       ) : null,
     ].filter(Boolean);

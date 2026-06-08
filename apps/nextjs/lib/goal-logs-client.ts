@@ -7,6 +7,13 @@ export type GoalInCategory = {
   categoryId: string;
   priority: "high" | "medium" | "low";
   hidden: boolean;
+  sharedGoals: SharedGoalLink[];
+};
+
+export type SharedGoalLink = {
+  id: string;
+  name: string;
+  mode: "collaborative" | "competitive";
 };
 
 export type CategoryWithGoals = {
@@ -24,6 +31,7 @@ export type PeriodicGoalInfo = {
   priority: "high" | "medium" | "low";
   period: string | null;
   frequencyGoal: number | null;
+  sharedGoals: SharedGoalLink[];
 };
 
 export type HiddenGoalInfo = {

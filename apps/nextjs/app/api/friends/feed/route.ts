@@ -1,4 +1,6 @@
 import {
+  feedComments,
+  feedProps,
   friends,
   getDb,
   goalLogPhotos,
@@ -6,7 +8,7 @@ import {
   goals,
   users,
 } from "@habit/db";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -119,6 +121,20 @@ export async function GET(request: Request) {
         dateKey: string;
         notes: string;
         updatedAt: string;
+        props: {
+          count: number;
+          hasPropped: boolean;
+        };
+        comments: Array<{
+          id: string;
+          userId: string;
+          authorName: string;
+          authorImage: string | null;
+          body: string;
+          createdAt: string;
+          updatedAt: string;
+          canDelete: boolean;
+        }>;
         photos: Array<{
           id: string;
           url: string;
@@ -156,8 +172,68 @@ export async function GET(request: Request) {
         dateKey: row.dateKey,
         notes: row.notes,
         updatedAt: row.updatedAt.toISOString(),
+        props: {
+          count: 0,
+          hasPropped: false,
+        },
+        comments: [],
         photos: [photo],
       });
+    }
+
+    const entryIds = [...entries.keys()];
+
+    if (entryIds.length > 0) {
+      const [propRows, commentRows] = await Promise.all([
+        db
+          .select({
+            goalLogId: feedProps.goalLogId,
+            userId: feedProps.userId,
+          })
+          .from(feedProps)
+          .where(inArray(feedProps.goalLogId, entryIds)),
+        db
+          .select({
+            id: feedComments.id,
+            goalLogId: feedComments.goalLogId,
+            userId: feedComments.userId,
+            authorName: users.name,
+            authorImage: users.image,
+            body: feedComments.body,
+            createdAt: feedComments.createdAt,
+            updatedAt: feedComments.updatedAt,
+          })
+          .from(feedComments)
+          .innerJoin(users, eq(feedComments.userId, users.id))
+          .where(inArray(feedComments.goalLogId, entryIds))
+          .orderBy(asc(feedComments.createdAt)),
+      ]);
+
+      for (const prop of propRows) {
+        const entry = entries.get(prop.goalLogId);
+        if (!entry) continue;
+
+        entry.props.count += 1;
+        if (prop.userId === user.id) {
+          entry.props.hasPropped = true;
+        }
+      }
+
+      for (const comment of commentRows) {
+        const entry = entries.get(comment.goalLogId);
+        if (!entry) continue;
+
+        entry.comments.push({
+          id: comment.id,
+          userId: comment.userId,
+          authorName: comment.authorName,
+          authorImage: comment.authorImage,
+          body: comment.body,
+          createdAt: comment.createdAt.toISOString(),
+          updatedAt: comment.updatedAt.toISOString(),
+          canDelete: comment.userId === user.id,
+        });
+      }
     }
 
     return NextResponse.json([...entries.values()]);

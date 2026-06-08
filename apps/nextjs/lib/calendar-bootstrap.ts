@@ -7,6 +7,8 @@ import {
   goalLogPhotos,
   goalLogs,
   goals,
+  sharedGoalParticipants,
+  sharedGoals,
 } from "@habit/db";
 import {
   and,
@@ -74,6 +76,7 @@ const getGoalLogsSnapshotForMonth = async (
     logs,
     photos,
     acceptedGoalIncentives,
+    sharedGoalLinks,
   ] = await Promise.all([
     db
       .select()
@@ -159,7 +162,47 @@ const getGoalLogsSnapshotForMonth = async (
         ),
       )
       .orderBy(desc(friendMessages.createdAt)),
+    db
+      .select({
+        personalGoalId: sharedGoalParticipants.personalGoalId,
+        sharedGoalId: sharedGoals.id,
+        sharedGoalName: sharedGoals.name,
+        mode: sharedGoals.mode,
+      })
+      .from(sharedGoalParticipants)
+      .innerJoin(
+        sharedGoals,
+        eq(sharedGoalParticipants.sharedGoalId, sharedGoals.id),
+      )
+      .where(
+        and(
+          eq(sharedGoalParticipants.userId, userId),
+          eq(sharedGoalParticipants.status, "accepted"),
+          isNotNull(sharedGoalParticipants.personalGoalId),
+          ne(sharedGoals.status, "archived"),
+        ),
+      ),
   ]);
+
+  const sharedGoalsByPersonalGoalId = sharedGoalLinks.reduce<
+    Record<
+      string,
+      Array<{
+        id: string;
+        name: string;
+        mode: "collaborative" | "competitive";
+      }>
+    >
+  >((links, link) => {
+    if (!link.personalGoalId) return links;
+    links[link.personalGoalId] ??= [];
+    links[link.personalGoalId].push({
+      id: link.sharedGoalId,
+      name: link.sharedGoalName,
+      mode: link.mode,
+    });
+    return links;
+  }, {});
 
   const goalsByCategoryId = dailyGoals.reduce<
     Record<string, typeof dailyGoals>
@@ -181,6 +224,7 @@ const getGoalLogsSnapshotForMonth = async (
         categoryId: goal.categoryId,
         priority: goal.priority as "high" | "medium" | "low",
         hidden: goal.hidden,
+        sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
       })),
     }))
     .filter((cat) => cat.goals.length > 0);
@@ -193,6 +237,7 @@ const getGoalLogsSnapshotForMonth = async (
     priority: goal.priority as "high" | "medium" | "low",
     period: goal.period,
     frequencyGoal: goal.frequencyGoal,
+    sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
   });
 
   return {
