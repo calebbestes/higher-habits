@@ -1,7 +1,7 @@
 {
     "name": "habit-tracker",
     "private": true,
-    "packageManager": "pnpm@10.6.0",
+    "packageManager": "pnpm@11.5.2",
     "scripts": {
         "dev": "turbo dev --parallel",
         "build": "turbo build",
