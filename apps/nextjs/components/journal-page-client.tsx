@@ -23,6 +23,8 @@ import { Icon } from "@iconify/react";
 import parse from "html-react-parser";
 import { useEffect, useMemo, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
+
 type Period = "30d" | "6m";
 
 type GoalOption = {
@@ -305,11 +307,14 @@ export function JournalPageClient() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-foreground">Journal</h1>
-        <p className="mt-0.5 text-sm text-foreground-500">
-          Notes and photos from days where a goal was completed
-        </p>
+      <div className="mb-6 flex items-start gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Journal</h1>
+          <p className="mt-0.5 text-sm text-foreground-500">
+            Notes and photos from days where a goal was completed
+          </p>
+        </div>
+        <SettingsLink className="ml-auto" />
       </div>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">

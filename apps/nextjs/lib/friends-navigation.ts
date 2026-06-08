@@ -1,5 +1,11 @@
 export const FRIENDS_SECTIONS = [
   {
+    key: "feed",
+    label: "Feed",
+    icon: "mdi:view-stream-outline",
+    href: "/friends?section=feed",
+  },
+  {
     key: "messages",
     label: "Messages",
     icon: "mdi:message-text-outline",

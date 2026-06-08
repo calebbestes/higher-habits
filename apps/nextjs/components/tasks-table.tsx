@@ -49,6 +49,8 @@ import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
+
 type SortDescriptor = {
   column: string;
   direction: "ascending" | "descending";
@@ -879,6 +881,7 @@ export function TasksTable() {
             Plan what matters and clear it daily
           </p>
         </div>
+        <SettingsLink className="ml-auto" />
       </div>
 
       <TopContent
