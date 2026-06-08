@@ -84,6 +84,7 @@ import { CategoryGoalDrawer } from "./category-goal-drawer";
 import { DayIconPickerDrawer } from "./day-icon-picker-drawer";
 import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
 import { RichTextEditor } from "./rich-text-editor";
+import { SettingsLink } from "./settings-link";
 import { WEIGHT_CHECKLIST_ITEMS } from "./weight-checklist-drawer";
 
 type CalendarView = "month" | "week" | "day";
@@ -2596,14 +2597,17 @@ const DayView = ({
                 <ChevronRightIcon />
               </Button>
             </div>
-            {dayScore.max > 0 ? (
-              <div className="shrink-0">
-                <div className="sm:hidden">
-                  {renderDayScoreRings("compact")}
+            <div className="flex shrink-0 items-start gap-2">
+              {dayScore.max > 0 ? (
+                <div>
+                  <div className="sm:hidden">
+                    {renderDayScoreRings("compact")}
+                  </div>
+                  <div className="hidden sm:block">{renderDayScoreRings()}</div>
                 </div>
-                <div className="hidden sm:block">{renderDayScoreRings()}</div>
-              </div>
-            ) : null}
+              ) : null}
+              <SettingsLink />
+            </div>
           </div>
         </div>
 
@@ -3662,7 +3666,10 @@ export const PortableCalendar = ({
 
   return (
     <>
-      <div className="flex h-full w-full flex-col rounded-2xl border border-default-200 bg-default-100/80 p-1 shadow-sm">
+      <div className="relative flex h-full w-full flex-col rounded-2xl border border-default-200 bg-default-100/80 p-1 shadow-sm">
+        {view !== "day" ? (
+          <SettingsLink className="absolute right-3 top-3 z-20" />
+        ) : null}
         <Card className="mx-0 my-0 h-full min-h-0 w-full flex-1 overflow-hidden rounded-[18px] border-default-200 bg-default-50">
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             {showDashboardPanel ? (

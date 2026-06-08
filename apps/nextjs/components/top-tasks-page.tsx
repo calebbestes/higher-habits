@@ -14,6 +14,8 @@ import { addToast, cn } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useEffect, useMemo, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
+
 const taskToInput = (task: Task) => ({
   name: task.name,
   importance: task.importance,
@@ -134,6 +136,7 @@ export function TopTasksPage() {
         <span className="ml-auto rounded-full bg-default-100 px-3 py-1 text-xs font-semibold tabular-nums text-foreground-500">
           {topTasks.length}/10
         </span>
+        <SettingsLink />
       </header>
 
       <section aria-label="Top tasks" className="space-y-2">

@@ -19,9 +19,16 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import parse, {
+  type DOMNode,
+  Element,
+  type HTMLReactParserOptions,
+  domToReact,
+} from "html-react-parser";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, createElement, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
 import type { FriendsSection } from "@/lib/friends-navigation";
 
 type FriendMessageRow = {
@@ -74,6 +81,31 @@ type FriendRow = {
   incentives: FriendIncentiveRow[];
 };
 
+type FriendFeedPhoto = {
+  id: string;
+  url: string;
+  contentType: string;
+  createdAt: string;
+};
+
+type FriendFeedEntry = {
+  id: string;
+  friend: {
+    id: string;
+    name: string;
+    image: string | null;
+  };
+  goal: {
+    id: string;
+    name: string;
+    icon: string;
+  };
+  dateKey: string;
+  notes: string;
+  updatedAt: string;
+  photos: FriendFeedPhoto[];
+};
+
 type NudgeMode = "message" | "incentive";
 type CollabPickerMode = "conversation" | "incentive";
 
@@ -89,6 +121,18 @@ type SendMessagePayload =
     };
 
 const FRIENDS_ENDPOINT = "/api/friends";
+const SAFE_JOURNAL_NOTE_TAGS = new Set([
+  "br",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "li",
+  "ol",
+  "p",
+  "strong",
+  "ul",
+]);
 
 const GOAL_SCOPE_LABELS: Record<StreakGoalScope, string> = {
   all: "All goals",
@@ -102,10 +146,14 @@ const SECTION_HEADERS: Record<
   {
     eyebrow: string;
     title: string;
-    actionLabel: string;
-    actionIcon: string;
+    actionLabel?: string;
+    actionIcon?: string;
   }
 > = {
+  feed: {
+    eyebrow: "Collaboration",
+    title: "Feed",
+  },
   messages: {
     eyebrow: "Collaboration",
     title: "Messages",
@@ -153,6 +201,13 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 async function fetchFriends() {
   const response = await fetch(FRIENDS_ENDPOINT);
   return parseJsonResponse<FriendRow[]>(response);
+}
+
+async function fetchFriendsFeed() {
+  const response = await fetch(`${FRIENDS_ENDPOINT}/feed`, {
+    cache: "no-store",
+  });
+  return parseJsonResponse<FriendFeedEntry[]>(response);
 }
 
 async function addFriend(email: string) {
@@ -234,6 +289,45 @@ function formatMessageTime(timestamp: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatFeedDate(dateKey: string) {
+  const date = dateFromDateKey(dateKey);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateKey;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function renderJournalNote(notes: string) {
+  const options: HTMLReactParserOptions = {
+    replace(domNode) {
+      if (!(domNode instanceof Element)) {
+        return;
+      }
+
+      if (domNode.name === "script" || domNode.name === "style") {
+        return <></>;
+      }
+
+      const children = domToReact(domNode.children as DOMNode[], options);
+
+      if (!SAFE_JOURNAL_NOTE_TAGS.has(domNode.name)) {
+        return <>{children}</>;
+      }
+
+      return createElement(domNode.name, {}, children);
+    },
+  };
+
+  return parse(notes, options);
 }
 
 function getLatestMessage(friend: FriendRow) {
@@ -318,6 +412,161 @@ function FriendAvatar({
         initial
       )}
     </div>
+  );
+}
+
+function FeedSection({
+  isLoading,
+  errorMessage,
+  entries,
+}: {
+  isLoading: boolean;
+  errorMessage?: string;
+  entries: FriendFeedEntry[];
+}) {
+  const [activePhoto, setActivePhoto] = useState<FriendFeedPhoto | null>(null);
+
+  if (isLoading) {
+    return (
+      <section className="flex min-h-64 flex-1 items-center justify-center">
+        <Spinner size="sm" />
+      </section>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <section className="flex min-h-64 flex-1 items-center justify-center rounded-2xl border border-dashed border-divider bg-content1/40 p-8 text-center">
+        <div className="grid max-w-md justify-items-center gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/20 text-secondary-700">
+            <Icon icon="mdi:image-broken-variant" className="h-6 w-6" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold">Could not load the feed</h2>
+            <p className="mt-1 text-sm text-foreground-500">{errorMessage}</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <section className="flex min-h-64 flex-1 items-center justify-center rounded-2xl border border-dashed border-divider bg-content1/40 p-8 text-center">
+        <div className="grid justify-items-center gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <Icon icon="mdi:view-stream-outline" className="h-6 w-6" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold">No activity yet</h2>
+            <p className="mt-1 text-sm text-foreground-500">
+              Friends&apos; journal entries with photos will appear here.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <section className="mx-auto grid w-full max-w-3xl content-start gap-4">
+        {entries.map((entry) => (
+          <article
+            key={entry.id}
+            className="grid gap-4 rounded-2xl border border-divider bg-content1 p-4 shadow-sm sm:p-5"
+          >
+            <header className="flex items-center gap-3">
+              <FriendAvatar
+                image={entry.friend.image}
+                name={entry.friend.name}
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-sm font-semibold">
+                  {entry.friend.name}
+                </h2>
+                <p className="truncate text-xs text-foreground-400">
+                  {formatFeedDate(entry.dateKey)}
+                </p>
+              </div>
+              <span className="inline-flex max-w-48 items-center gap-1.5 rounded-full bg-default-100 px-2.5 py-1.5 text-xs font-semibold text-foreground-600">
+                <Icon icon={entry.goal.icon} className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{entry.goal.name}</span>
+              </span>
+            </header>
+
+            <div
+              className={cn(
+                "grid gap-2",
+                entry.photos.length === 1 ? "grid-cols-1" : "grid-cols-2",
+              )}
+            >
+              {entry.photos.map((photo) => (
+                <button
+                  key={photo.id}
+                  type="button"
+                  aria-label={`Open ${entry.goal.name} photo from ${entry.friend.name}`}
+                  onClick={() => setActivePhoto(photo)}
+                  className={cn(
+                    "overflow-hidden rounded-xl bg-default-100",
+                    entry.photos.length === 1
+                      ? "aspect-[4/3]"
+                      : "aspect-square",
+                  )}
+                >
+                  <img
+                    src={photo.url}
+                    alt={`${entry.friend.name}'s ${entry.goal.name} journal entry`}
+                    className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
+                  />
+                </button>
+              ))}
+            </div>
+
+            {entry.notes.trim() ? (
+              <div
+                className={cn(
+                  "text-sm leading-relaxed text-foreground-700",
+                  "[&_h1]:mb-1 [&_h1]:text-base [&_h1]:font-bold",
+                  "[&_h2]:mb-1 [&_h2]:text-sm [&_h2]:font-semibold",
+                  "[&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-medium",
+                  "[&_p]:mb-1 last:[&_p]:mb-0",
+                  "[&_ul]:ml-4 [&_ul]:mb-1 [&_ul]:list-disc",
+                  "[&_ol]:ml-4 [&_ol]:mb-1 [&_ol]:list-decimal",
+                  "[&_li]:mb-0.5",
+                  "[&_strong]:font-semibold",
+                  "[&_em]:italic",
+                )}
+              >
+                {renderJournalNote(entry.notes)}
+              </div>
+            ) : null}
+          </article>
+        ))}
+      </section>
+
+      <Modal
+        isOpen={activePhoto != null}
+        onOpenChange={(open) => {
+          if (!open) setActivePhoto(null);
+        }}
+        placement="center"
+        size="3xl"
+        classNames={{ base: "mx-3 overflow-hidden sm:mx-auto" }}
+      >
+        <ModalContent>
+          <ModalBody className="p-0">
+            {activePhoto ? (
+              <img
+                src={activePhoto.url}
+                alt="Friend journal entry"
+                className="max-h-[80dvh] w-full object-contain"
+              />
+            ) : null}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+    </>
   );
 }
 
@@ -890,6 +1139,11 @@ export function FriendsPageClient({
     queryKey: ["friends"],
     queryFn: fetchFriends,
   });
+  const friendsFeedQuery = useQuery({
+    queryKey: ["friends-feed"],
+    queryFn: fetchFriendsFeed,
+    enabled: activeSection === "feed",
+  });
 
   const sendMessageMutation = useMutation({
     mutationFn: ({
@@ -1114,7 +1368,7 @@ export function FriendsPageClient({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-4 px-3 py-4 sm:gap-6 sm:p-6">
-        <header className="grid gap-4 sm:flex sm:flex-wrap sm:items-start sm:justify-between">
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
           <div className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-widest text-foreground-500">
               {sectionHeader.eyebrow}
@@ -1123,17 +1377,40 @@ export function FriendsPageClient({
               {sectionHeader.title}
             </h1>
           </div>
-          <Button
-            color="primary"
-            className="w-full sm:w-auto"
-            startContent={
-              <Icon icon={sectionHeader.actionIcon} className="h-3.5 w-3.5" />
-            }
-            onPress={handleSectionAction}
-          >
-            {sectionHeader.actionLabel}
-          </Button>
+          <div className="flex items-center gap-2">
+            {sectionHeader.actionLabel && sectionHeader.actionIcon ? (
+              <Button
+                color="primary"
+                aria-label={sectionHeader.actionLabel}
+                className="min-w-10 px-0 sm:min-w-0 sm:px-4"
+                startContent={
+                  <Icon
+                    icon={sectionHeader.actionIcon}
+                    className="h-3.5 w-3.5"
+                  />
+                }
+                onPress={handleSectionAction}
+              >
+                <span className="hidden sm:inline">
+                  {sectionHeader.actionLabel}
+                </span>
+              </Button>
+            ) : null}
+            <SettingsLink />
+          </div>
         </header>
+
+        {activeSection === "feed" ? (
+          <FeedSection
+            isLoading={friendsFeedQuery.isLoading}
+            errorMessage={
+              friendsFeedQuery.error instanceof Error
+                ? friendsFeedQuery.error.message
+                : undefined
+            }
+            entries={friendsFeedQuery.data ?? []}
+          />
+        ) : null}
 
         {activeSection === "messages" ? (
           <MessagesSection

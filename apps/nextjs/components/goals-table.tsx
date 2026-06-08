@@ -44,6 +44,8 @@ import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const COLUMNS = [
@@ -1118,6 +1120,7 @@ export function GoalsTable() {
           <h1 className="text-xl font-bold">Goals</h1>
           <p className="text-xs text-foreground-500">Track your priorities</p>
         </div>
+        <SettingsLink className="ml-auto" />
       </div>
 
       {/* Toolbar */}

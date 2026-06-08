@@ -50,6 +50,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
+import { SettingsLink } from "@/components/settings-link";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type ViewMode = "table" | "category" | "lastAttempt";
@@ -1555,6 +1557,7 @@ export function ContactsTable() {
             Manage your relationships
           </p>
         </div>
+        <SettingsLink className="ml-auto" />
       </div>
 
       {/* Tabs row */}
