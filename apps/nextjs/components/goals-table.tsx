@@ -42,6 +42,7 @@ import {
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SettingsLink } from "@/components/settings-link";
@@ -598,6 +599,7 @@ function DeleteModal({
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function GoalsTable() {
+  const router = useRouter();
   const queryClient = useQueryClient();
 
   const {
@@ -1068,6 +1070,22 @@ export function GoalsTable() {
                   }}
                 >
                   Edit
+                </DropdownItem>
+                <DropdownItem
+                  key="make-shared"
+                  startContent={
+                    <Icon
+                      icon="mdi:account-group-outline"
+                      className="h-3.5 w-3.5"
+                    />
+                  }
+                  onPress={() =>
+                    router.push(
+                      `/friends?section=shared-goals&goalId=${row.id}`,
+                    )
+                  }
+                >
+                  Make Shared
                 </DropdownItem>
                 <DropdownItem
                   key="toggle-hidden"

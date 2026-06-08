@@ -5,6 +5,8 @@ import {
   goalLogPhotos,
   goalLogs,
   goals,
+  sharedGoalParticipants,
+  sharedGoals,
 } from "@habit/db";
 import {
   and,
@@ -98,6 +100,7 @@ export async function GET(request: Request) {
       logs,
       photos,
       acceptedGoalIncentives,
+      sharedGoalLinks,
     ] = await Promise.all([
       db
         .select()
@@ -183,7 +186,47 @@ export async function GET(request: Request) {
           ),
         )
         .orderBy(desc(friendMessages.createdAt)),
+      db
+        .select({
+          personalGoalId: sharedGoalParticipants.personalGoalId,
+          sharedGoalId: sharedGoals.id,
+          sharedGoalName: sharedGoals.name,
+          mode: sharedGoals.mode,
+        })
+        .from(sharedGoalParticipants)
+        .innerJoin(
+          sharedGoals,
+          eq(sharedGoalParticipants.sharedGoalId, sharedGoals.id),
+        )
+        .where(
+          and(
+            eq(sharedGoalParticipants.userId, user.id),
+            eq(sharedGoalParticipants.status, "accepted"),
+            isNotNull(sharedGoalParticipants.personalGoalId),
+            ne(sharedGoals.status, "archived"),
+          ),
+        ),
     ]);
+
+    const sharedGoalsByPersonalGoalId = sharedGoalLinks.reduce<
+      Record<
+        string,
+        Array<{
+          id: string;
+          name: string;
+          mode: "collaborative" | "competitive";
+        }>
+      >
+    >((links, link) => {
+      if (!link.personalGoalId) return links;
+      links[link.personalGoalId] ??= [];
+      links[link.personalGoalId].push({
+        id: link.sharedGoalId,
+        name: link.sharedGoalName,
+        mode: link.mode,
+      });
+      return links;
+    }, {});
 
     const goalsByCategoryId = dailyGoals.reduce<
       Record<string, typeof dailyGoals>
@@ -204,6 +247,7 @@ export async function GET(request: Request) {
         categoryId: g.categoryId,
         priority: g.priority as "high" | "medium" | "low",
         hidden: g.hidden,
+        sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
       })),
     }));
 
@@ -215,6 +259,7 @@ export async function GET(request: Request) {
       priority: g.priority as "high" | "medium" | "low",
       period: g.period,
       frequencyGoal: g.frequencyGoal,
+      sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
     });
 
     return NextResponse.json({
