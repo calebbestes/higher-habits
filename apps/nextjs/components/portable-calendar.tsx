@@ -156,6 +156,14 @@ const CORE_CATEGORIES: PortableCalendarCategory[] = [
   { id: "financial-career", name: "Financial/Career", color: "#F3B7B9" },
 ];
 
+const CALENDAR_ENTRY_CATEGORY_ICONS: Record<string, string> = {
+  spiritual: "mdi:hands-pray",
+  physical: "mdi:dumbbell",
+  social: "mdi:account-group-outline",
+  "financial-career": "mdi:briefcase-outline",
+  __uncategorized__: "mdi:calendar-blank-outline",
+};
+
 const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -821,6 +829,27 @@ const MonthView = ({
     [currentDate],
   );
   const showCount = 3;
+  const visibleGoalCategories = useMemo(
+    () =>
+      goalLogsSnapshot.categories.filter(
+        (category) =>
+          category.goals.length > 0 &&
+          (visibleCategoryIds.length === 0 ||
+            visibleCategoryIds.includes(category.id)),
+      ),
+    [goalLogsSnapshot.categories, visibleCategoryIds],
+  );
+  const selectedDateKey = toDateKey(selectedDate);
+  const selectedDayEntries = entries
+    .filter((entry) => isDateInEntryRange(selectedDate, entry))
+    .sort(compareEntries);
+  const selectedPeriodicGoals = goalLogsSnapshot.periodicGoals.map((goal) => ({
+    goal,
+    status: goalLogsSnapshot.logsByGoalDate[`${goal.id}_${selectedDateKey}`] as
+      | "complete"
+      | "planned"
+      | undefined,
+  }));
 
   const prevMonthKey = useMemo(() => {
     const d = new Date(
@@ -1240,12 +1269,281 @@ const MonthView = ({
 
   return (
     <>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6 sm:hidden">
+        <div>
+          <div className="mb-2 grid grid-cols-7 px-1 text-center text-[11px] font-semibold text-foreground-400">
+            {DAY_NAMES.map((day) => (
+              <span key={day}>{day.slice(0, 1)}</span>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {weeks.flatMap((week) =>
+              week.map(({ date, isOutside }) => {
+                const dateKey = toDateKey(date);
+                const isSelected = isSameDay(date, selectedDate);
+                const dailyGoalCount = visibleGoalCategories.reduce(
+                  (count, category) => count + category.goals.length,
+                  0,
+                );
+                const completedDailyCount = visibleGoalCategories.reduce(
+                  (count, category) =>
+                    count +
+                    category.goals.filter(
+                      (goal) =>
+                        goalLogsSnapshot.logsByGoalDate[
+                          `${goal.id}_${dateKey}`
+                        ] === "complete",
+                    ).length,
+                  0,
+                );
+                const completedPeriodicGoals =
+                  goalLogsSnapshot.periodicGoals.filter(
+                    (goal) =>
+                      goalLogsSnapshot.logsByGoalDate[
+                        `${goal.id}_${dateKey}`
+                      ] === "complete",
+                  );
+                const plannedPeriodicGoals =
+                  goalLogsSnapshot.periodicGoals.filter(
+                    (goal) =>
+                      goalLogsSnapshot.logsByGoalDate[
+                        `${goal.id}_${dateKey}`
+                      ] === "planned",
+                  );
+                const progress =
+                  dailyGoalCount > 0 ? completedDailyCount / dailyGoalCount : 0;
+                const completionPercentage = Math.round(progress * 100);
+                const dayEntries = entries.filter((entry) =>
+                  isDateInEntryRange(date, entry),
+                );
+                const activityIndicators = [
+                  ...completedPeriodicGoals.map((goal) => ({
+                    key: `complete-${goal.id}`,
+                    icon: goal.iconKey || "mdi:star-outline",
+                    label: `${goal.name}, complete`,
+                    backgroundColor: "#2C5352",
+                    color: "#FFFFFF",
+                  })),
+                  ...plannedPeriodicGoals.map((goal) => ({
+                    key: `planned-${goal.id}`,
+                    icon: goal.iconKey || "mdi:star-outline",
+                    label: `${goal.name}, planned`,
+                    backgroundColor: "#F3B7B9",
+                    color: "#9D7474",
+                  })),
+                  ...dayEntries.map((entry) => ({
+                    key: `entry-${entry.id}`,
+                    icon:
+                      CALENDAR_ENTRY_CATEGORY_ICONS[entry.category.id] ??
+                      "mdi:calendar-blank-outline",
+                    label: entry.title,
+                    backgroundColor: withAlpha(entry.color, "35"),
+                    color: getReadableAccentColor(entry.color),
+                  })),
+                ];
+                const activityLabel = activityIndicators
+                  .map((indicator) => indicator.label)
+                  .join(", ");
+
+                return (
+                  <button
+                    type="button"
+                    key={date.toISOString()}
+                    aria-label={`${formatDayLabel(date)}, ${completionPercentage}% of daily goals complete${activityLabel ? `, ${activityLabel}` : ""}`}
+                    aria-pressed={isSelected}
+                    onClick={() => onSelectDate(date)}
+                    className={cn(
+                      "flex min-h-14 min-w-0 flex-col items-center justify-center rounded-xl px-0.5 py-1.5 text-center transition-colors",
+                      isSelected
+                        ? "bg-[#A0D5D5]/35 text-[#2C5352]"
+                        : "bg-content1 text-foreground-600",
+                      isOutside && !isSelected && "opacity-35",
+                    )}
+                  >
+                    <span
+                      className="flex h-7 w-7 items-center justify-center rounded-full p-[2px]"
+                      style={{
+                        background:
+                          progress > 0
+                            ? `conic-gradient(#2C5352 ${progress * 360}deg, rgba(160, 213, 213, 0.35) 0deg)`
+                            : "rgba(160, 213, 213, 0.22)",
+                      }}
+                    >
+                      <span
+                        className={cn(
+                          "flex h-full w-full items-center justify-center rounded-full bg-content1 text-[11px] font-semibold tabular-nums",
+                          isToday(date) && "bg-[#2C5352] text-white",
+                        )}
+                      >
+                        {date.getDate()}
+                      </span>
+                    </span>
+
+                    <span className="mt-1 flex h-4 max-w-full items-center justify-center gap-0.5">
+                      {activityIndicators.slice(0, 3).map((indicator) => (
+                        <span
+                          key={indicator.key}
+                          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px]"
+                          style={{
+                            backgroundColor: indicator.backgroundColor,
+                            color: indicator.color,
+                          }}
+                          title={indicator.label}
+                        >
+                          <Icon icon={indicator.icon} className="h-2.5 w-2.5" />
+                        </span>
+                      ))}
+                      {activityIndicators.length > 3 ? (
+                        <span className="text-[8px] font-semibold leading-none text-foreground-400">
+                          +{activityIndicators.length - 3}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              }),
+            )}
+          </div>
+        </div>
+
+        <section className="rounded-2xl bg-default-100/70 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold text-[#2C5352]">
+                {formatDayLabel(selectedDate)}
+              </p>
+              <p className="text-xs text-foreground-400">
+                Tap a goal to update its report
+              </p>
+            </div>
+            <Button
+              size="sm"
+              color="primary"
+              className="shrink-0 bg-[#2C5352] text-white"
+              startContent={<PlusIcon />}
+              onPress={() => handleOpenMonthlyGoalPicker(selectedDate)}
+            >
+              Add
+            </Button>
+          </div>
+
+          {selectedPeriodicGoals.length > 0 ? (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-foreground-500">
+                  Monthly Goals
+                </p>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[#2C5352]"
+                  onClick={() => handleOpenMonthlyGoalPicker(selectedDate)}
+                >
+                  Manage
+                </button>
+              </div>
+              <div className="space-y-2">
+                {selectedPeriodicGoals.map(({ goal, status }) => (
+                  <button
+                    type="button"
+                    key={goal.id}
+                    onClick={() =>
+                      handleToggleGoalLog(goal.id, selectedDateKey)
+                    }
+                    className={cn(
+                      "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left",
+                      status === "complete"
+                        ? "bg-[#A0D5D5]/35"
+                        : status === "planned"
+                          ? "bg-[#F3B7B9]/25"
+                          : "bg-content1",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                        status === "complete"
+                          ? "bg-[#2C5352] text-white"
+                          : status === "planned"
+                            ? "bg-[#F3B7B9]/60 text-[#9D7474]"
+                            : "bg-default-100 text-foreground-500",
+                      )}
+                    >
+                      <Icon
+                        icon={goal.iconKey || "mdi:star-outline"}
+                        className="h-4 w-4"
+                      />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {goal.name}
+                      </span>
+                      <span className="block text-xs text-foreground-400">
+                        {status === "complete"
+                          ? "Complete"
+                          : status === "planned"
+                            ? "Planned"
+                            : "Not reported"}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border",
+                        status === "complete"
+                          ? "border-[#2C5352] bg-[#2C5352] text-white"
+                          : status === "planned"
+                            ? "border-[#9D7474] text-[#9D7474]"
+                            : "border-default-300 text-transparent",
+                      )}
+                    >
+                      <Icon
+                        icon={
+                          status === "planned"
+                            ? "mdi:clock-outline"
+                            : "mdi:check"
+                        }
+                        className="h-3.5 w-3.5"
+                      />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedDayEntries.length > 0 ? (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-semibold text-foreground-500">
+                Schedule
+              </p>
+              <div className="space-y-2">
+                {selectedDayEntries.map((entry) => (
+                  <CategoryPill
+                    key={entry.id}
+                    entry={entry}
+                    compact
+                    onPress={() => onSelectEntry(entry)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedPeriodicGoals.length === 0 &&
+          selectedDayEntries.length === 0 ? (
+            <div className="mt-4 rounded-xl bg-content1 px-3 py-6 text-center text-sm text-foreground-400">
+              Nothing planned for this day yet.
+            </div>
+          ) : null}
+        </section>
+      </div>
+
       <Table
         aria-label="Month calendar"
         removeWrapper
         shadow="none"
         classNames={{
-          base: "h-full min-h-0 overflow-hidden rounded-xl border border-default-300 bg-content1",
+          base: "hidden h-full min-h-0 overflow-hidden rounded-xl border border-default-300 bg-content1 sm:block",
           table: "h-full table-fixed w-full",
           tr: "h-auto",
           th: "bg-default-100/80 text-foreground-500 py-1.5 text-center text-[10px] font-semibold sm:py-2 sm:text-xs",
@@ -3687,11 +3985,16 @@ export const PortableCalendar = ({
 
   return (
     <>
-      <div className="relative flex h-full w-full flex-col rounded-2xl border border-default-200 bg-default-100/80 p-1 shadow-sm">
+      <div className="relative flex h-full w-full flex-col bg-content1 sm:rounded-2xl sm:border sm:border-default-200 sm:bg-default-100/80 sm:p-1 sm:shadow-sm">
         {view !== "day" ? (
-          <SettingsLink className="absolute right-3 top-3 z-20" />
+          <SettingsLink
+            className={cn(
+              "absolute right-3 top-3 z-20",
+              view === "month" && "hidden sm:flex",
+            )}
+          />
         ) : null}
-        <Card className="mx-0 my-0 h-full min-h-0 w-full flex-1 overflow-hidden rounded-[18px] border-default-200 bg-default-50">
+        <Card className="mx-0 my-0 h-full min-h-0 w-full flex-1 overflow-hidden rounded-none border-0 bg-content1 shadow-none sm:rounded-[18px] sm:border sm:border-default-200 sm:bg-default-50 sm:shadow-small">
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             {showDashboardPanel ? (
               <aside
@@ -3947,6 +4250,46 @@ export const PortableCalendar = ({
 
             {showCalendarPanel ? (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-content1/40">
+                {view === "month" ? (
+                  <div className="flex items-center gap-1 px-3 pb-1 pt-3 sm:hidden">
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      aria-label="Previous month"
+                      title="Previous month"
+                      className="h-9 w-9 min-w-9"
+                      onPress={() => navigate(-1)}
+                    >
+                      <ChevronLeftIcon />
+                    </Button>
+                    <div className="min-w-0 flex-1 px-1">
+                      <p className="truncate text-lg font-semibold text-[#2C5352]">
+                        {formatMonthYear(currentDate)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      className="h-9 min-w-0 px-2 text-[#2C5352]"
+                      onPress={() => handleSelectDate(new Date())}
+                    >
+                      Today
+                    </Button>
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="light"
+                      aria-label="Next month"
+                      title="Next month"
+                      className="h-9 w-9 min-w-9"
+                      onPress={() => navigate(1)}
+                    >
+                      <ChevronRightIcon />
+                    </Button>
+                    <SettingsLink className="h-9 w-9 rounded-xl shadow-none" />
+                  </div>
+                ) : null}
                 <CardBody className="min-h-0 flex-1 p-2 sm:p-4">
                   <div className="flex min-h-0 flex-1 flex-col">
                     {view === "month" ? (

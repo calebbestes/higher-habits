@@ -444,6 +444,9 @@ export const sharedGoalParticipants = pgTable(
     personalGoalId: uuid("personal_goal_id").references(() => goals.id, {
       onDelete: "set null",
     }),
+    personalGoalAutoCreated: boolean("personal_goal_auto_created")
+      .default(false)
+      .notNull(),
     status: sharedGoalParticipantStatusEnum("status")
       .default("invited")
       .notNull(),

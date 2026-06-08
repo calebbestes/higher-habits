@@ -30,8 +30,16 @@ const CALENDAR_NAV_ITEM = {
 } as const;
 
 const CALENDAR_NAV_ITEMS = [
-  { label: "Day", icon: "mdi:view-day-outline", href: "/calendar/day" },
-  { label: "Month", icon: "mdi:calendar-month", href: "/calendar/month" },
+  {
+    label: "Daily Goals",
+    icon: "mdi:view-day-outline",
+    href: "/calendar/day",
+  },
+  {
+    label: "Monthly Goals",
+    icon: "mdi:calendar-month",
+    href: "/calendar/month",
+  },
   {
     label: "Top Tasks",
     icon: "mdi:format-list-checks",

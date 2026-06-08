@@ -48,9 +48,13 @@ export const createSharedGoal = (
 export const respondToSharedGoal = (
   sharedGoalId: string,
   input:
-    | { action: "accept"; personalGoalId: string }
+    | { action: "accept"; personalGoalId: string | null }
     | { action: "decline" }
-    | { action: "relink"; personalGoalId: string },
+    | {
+        action: "relink";
+        personalGoalId: string | null;
+        deletePreviousAutoCreated?: boolean;
+      },
 ): Promise<SharedGoalSnapshot> =>
   fetch(`${ENDPOINT}/${sharedGoalId}/participants`, {
     method: "PATCH",

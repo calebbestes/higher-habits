@@ -227,6 +227,7 @@ export async function POST(request: Request) {
           sharedGoalId: created.id,
           userId: user.id,
           personalGoalId,
+          personalGoalAutoCreated: !data.personalGoalId,
           status: "accepted",
           joinedAt: new Date(),
         },
