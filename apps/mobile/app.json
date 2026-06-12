@@ -34,6 +34,15 @@
             "imageWidth": 76
           }
         }
+      ],
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Higher Habits to choose photos for your goal journal.",
+          "cameraPermission": "Allow Higher Habits to take photos for your goal journal.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

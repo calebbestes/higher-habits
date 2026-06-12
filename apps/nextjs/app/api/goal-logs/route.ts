@@ -77,10 +77,14 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url);
-    const { month } = monthQuerySchema.parse({
-      month: url.searchParams.get("month"),
-    });
-    const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
+    const allDates = url.searchParams.get("all") === "true";
+    const range = allDates
+      ? null
+      : getMonthDateRange(
+          monthQuerySchema.parse({
+            month: url.searchParams.get("month"),
+          }).month,
+        );
 
     const periodicFields = {
       id: goals.id,
@@ -145,8 +149,8 @@ export async function GET(request: Request) {
         .where(
           and(
             eq(goalLogs.userId, user.id),
-            gte(goalLogs.date, startDateKey),
-            lt(goalLogs.date, endDateKeyExclusive),
+            range ? gte(goalLogs.date, range.startDateKey) : undefined,
+            range ? lt(goalLogs.date, range.endDateKeyExclusive) : undefined,
           ),
         ),
       db
@@ -160,8 +164,8 @@ export async function GET(request: Request) {
         .where(
           and(
             eq(goalLogPhotos.userId, user.id),
-            gte(goalLogs.date, startDateKey),
-            lt(goalLogs.date, endDateKeyExclusive),
+            range ? gte(goalLogs.date, range.startDateKey) : undefined,
+            range ? lt(goalLogs.date, range.endDateKeyExclusive) : undefined,
           ),
         ),
       db

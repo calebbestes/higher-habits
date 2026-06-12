@@ -2,3 +2,13 @@ packages:
   - "apps/*"
   - "packages/*"
   - "tooling/*"
+overrides:
+  kysely: 0.28.17
+allowBuilds:
+  '@biomejs/biome': true
+  '@heroui-pro/react': true
+  '@heroui/shared-utils': true
+  '@zowe/secrets-for-zowe-sdk': true
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true

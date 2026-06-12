@@ -3,15 +3,23 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@better-auth/expo": "^1.6.14",
     "@expo/ui": "~56.0.16",
+    "better-auth": "^1.6.14",
     "expo": "~56.0.9",
+    "expo-blur": "^56.0.3",
     "expo-constants": "~56.0.17",
     "expo-device": "~56.0.4",
     "expo-font": "~56.0.5",
     "expo-glass-effect": "~56.0.4",
+    "expo-haptics": "^56.0.3",
     "expo-image": "~56.0.10",
+    "expo-image-manipulator": "~56.0.17",
+    "expo-image-picker": "~56.0.16",
     "expo-linking": "~56.0.13",
+    "expo-network": "~56.0.5",
     "expo-router": "~56.2.9",
+    "expo-secure-store": "~56.0.4",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.6",
@@ -21,10 +29,13 @@
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
     "react-native-gesture-handler": "~2.31.1",
+    "react-native-pell-rich-editor": "^1.10.0",
     "react-native-reanimated": "4.3.1",
+    "react-native-render-html": "^6.3.4",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
     "react-native-web": "~0.21.0",
+    "react-native-webview": "^13.16.1",
     "react-native-worklets": "0.8.3"
   },
   "devDependencies": {
@@ -37,7 +48,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "biome check --apply",
+    "typecheck": "tsc --noEmit"
   },
   "private": true
 }

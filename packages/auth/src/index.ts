@@ -1,3 +1,4 @@
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
@@ -37,6 +38,10 @@ export function createAuth() {
     emailAndPassword: {
       enabled: true,
     },
-    plugins: [nextCookies()],
+    trustedOrigins: [
+      "mobile://",
+      ...(process.env.NODE_ENV === "production" ? [] : ["exp://", "exp://**"]),
+    ],
+    plugins: [expo(), nextCookies()],
   } as never);
 }

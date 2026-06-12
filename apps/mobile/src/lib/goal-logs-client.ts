@@ -1,0 +1,94 @@
+import { mobileApiFetch } from "@/lib/mobile-api";
+
+export type GoalInCategory = {
+  id: string;
+  name: string;
+  iconKey: string;
+  categoryId: string;
+  priority: "high" | "medium" | "low";
+  hidden: boolean;
+};
+
+export type CategoryWithGoals = {
+  id: string;
+  name: string;
+  icon: string;
+  goals: GoalInCategory[];
+};
+
+export type PeriodicGoalInfo = {
+  id: string;
+  name: string;
+  iconKey: string;
+  categoryId: string;
+  priority: "high" | "medium" | "low";
+  period: string | null;
+  frequencyGoal: number | null;
+};
+
+export type GoalLogsSnapshot = {
+  categories: CategoryWithGoals[];
+  periodicGoals: PeriodicGoalInfo[];
+  logsByGoalDate: Record<string, "complete" | "planned">;
+  notesByGoalDate: Record<string, string>;
+  photoCountsByGoalDate: Record<string, number>;
+};
+
+export type GoalLogStatus = "complete" | "planned" | null;
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+    } | null;
+    throw new Error(body?.error ?? body?.message ?? "Unable to continue.");
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export function getMonthKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+export function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export const fetchGoalLogsSnapshot = (
+  monthKey: string,
+): Promise<GoalLogsSnapshot> =>
+  mobileApiFetch(`/api/goal-logs?month=${monthKey}`).then((r) =>
+    parseResponse<GoalLogsSnapshot>(r),
+  );
+
+export const fetchAllGoalLogsSnapshot = (): Promise<GoalLogsSnapshot> =>
+  mobileApiFetch("/api/goal-logs?all=true").then((r) =>
+    parseResponse<GoalLogsSnapshot>(r),
+  );
+
+export const setGoalLog = (
+  goalId: string,
+  dateKey: string,
+  status: GoalLogStatus,
+): Promise<{ ok: true }> =>
+  mobileApiFetch("/api/goal-logs", {
+    method: "POST",
+    body: JSON.stringify({ type: "setLog", goalId, dateKey, status }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const setGoalLogNote = (
+  goalId: string,
+  dateKey: string,
+  notes: string,
+): Promise<{ ok: true }> =>
+  mobileApiFetch("/api/goal-logs", {
+    method: "POST",
+    body: JSON.stringify({ type: "setNote", goalId, dateKey, notes }),
+  }).then((r) => parseResponse<{ ok: true }>(r));

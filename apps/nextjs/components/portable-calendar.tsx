@@ -1679,10 +1679,7 @@ const MonthView = ({
                                             strokeLinecap="round"
                                             strokeDasharray={circ}
                                             strokeDashoffset={offset}
-                                            style={{
-                                              transform: "rotate(-90deg)",
-                                              transformOrigin: `${center}px ${center}px`,
-                                            }}
+                                            transform={`rotate(-90 ${center} ${center})`}
                                           />
                                         </g>
                                       );
@@ -2325,10 +2322,19 @@ const DayView = ({
     const isCompact = variant === "compact";
     const svgSize = isCompact ? 68 : 120;
     const center = svgSize / 2;
-    const strokeWidth = isCompact ? 5 : 8;
-    const gap = isCompact ? 3 : 5;
+    const ringCount = Math.max(1, dayScore.byCategory.length);
+    const outerEdge = center - 2;
+    const innerEdge = isCompact ? 14 : 20;
+    const availableBand = outerEdge - innerEdge;
+    const maxStrokeWidth = isCompact ? 5 : 8;
+    const gapRatio = 0.25;
+    const strokeWidth = Math.min(
+      maxStrokeWidth,
+      availableBand / (ringCount + Math.max(0, ringCount - 1) * gapRatio),
+    );
+    const gap = strokeWidth * gapRatio;
     const step = strokeWidth + gap;
-    const outerR = center - 2 - strokeWidth / 2;
+    const outerR = outerEdge - strokeWidth / 2;
 
     return (
       <div className="group relative shrink-0">
@@ -2340,9 +2346,11 @@ const DayView = ({
         >
           <title>Day score progress</title>
           {dayScore.byCategory.map(({ category, config, earned, max }, i) => {
-            const r = Math.max(2, outerR - i * step);
+            const r = outerR - i * step;
             const circ = 2 * Math.PI * r;
-            const offset = max > 0 ? circ * (1 - earned / max) : circ;
+            const progress =
+              max > 0 ? Math.max(0, Math.min(earned / max, 1)) : 0;
+            const offset = circ * (1 - progress);
             return (
               <g key={category.id}>
                 <circle
@@ -2365,10 +2373,7 @@ const DayView = ({
                   strokeDasharray={circ}
                   strokeDashoffset={offset}
                   className="transition-all duration-500"
-                  style={{
-                    transform: "rotate(-90deg)",
-                    transformOrigin: `${center}px ${center}px`,
-                  }}
+                  transform={`rotate(-90 ${center} ${center})`}
                 />
               </g>
             );
@@ -2663,10 +2668,7 @@ const DayView = ({
             strokeDashoffset={dashOffset}
             strokeWidth={strokeWidth}
             className="transition-all duration-500"
-            style={{
-              transform: "rotate(-90deg)",
-              transformOrigin: `${center}px ${center}px`,
-            }}
+            transform={`rotate(-90 ${center} ${center})`}
           />
         </svg>
         <span className="absolute inset-0 flex items-center justify-center">
