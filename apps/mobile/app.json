@@ -43,7 +43,9 @@
           "cameraPermission": "Allow Higher Habits to take photos for your goal journal.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image"
     ],
     "experiments": {
       "typedRoutes": true,

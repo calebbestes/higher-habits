@@ -541,24 +541,24 @@ export function MonthlyGoalsScreen() {
             <View style={[styles.pageHeaderText, { flex: 1 }]}>
               <PlanReportHeaderMenu currentView="monthly" />
             </View>
-            <View style={styles.headerActions}>
-              <Pressable
-                accessibilityLabel="Add goal"
-                onPress={() => setFormOpen(true)}
-                style={({ pressed }) => [
-                  styles.addButton,
-                  { backgroundColor: theme.primary },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("plus", "add")}
-                  size={18}
-                  weight="semibold"
-                  tintColor={theme.primaryForeground}
-                />
-              </Pressable>
-            </View>
+            <Pressable
+              accessibilityLabel="Add goal"
+              accessibilityRole="button"
+              onPress={() => setFormOpen(true)}
+              style={({ pressed }) => [
+                styles.addButton,
+                styles.headerAddButton,
+                { backgroundColor: theme.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("plus", "add")}
+                size={18}
+                weight="semibold"
+                tintColor={theme.primaryForeground}
+              />
+            </Pressable>
           </View>
 
           {/* Month navigator */}
@@ -1793,7 +1793,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
+    minHeight: 42,
     paddingHorizontal: 18,
+    position: "relative",
   },
   pageHeaderIcon: {
     width: 42,
@@ -1802,18 +1804,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 14,
   },
-  pageHeaderText: { gap: 1 },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  pageHeaderText: { gap: 1, paddingRight: 54 },
   addButton: {
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: 14,
+  },
+  headerAddButton: {
+    position: "absolute",
+    top: 0,
+    right: 18,
+    zIndex: 10,
+    elevation: 10,
   },
   pageTitle: {
     fontSize: 25,

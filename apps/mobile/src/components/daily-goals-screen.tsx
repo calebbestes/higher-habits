@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import { GoalFormModal } from "@/components/goals-screen";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -30,6 +31,13 @@ import {
 } from "@/lib/goal-logs-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import {
+  type Category,
+  type GoalInput,
+  createCategory,
+  createGoal,
+  fetchCategories,
+} from "@/lib/goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -152,6 +160,8 @@ export function DailyGoalsScreen({
   const [noteGoal, setNoteGoal] = useState<GoalInCategory | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -162,9 +172,13 @@ export function DailyGoalsScreen({
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const snap = await fetchGoalLogsSnapshot(monthKey);
+        const [snap, cats] = await Promise.all([
+          fetchGoalLogsSnapshot(monthKey),
+          fetchCategories(),
+        ]);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByGoalDate);
+        setCategories(cats);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load goals.");
       } finally {
@@ -178,6 +192,18 @@ export function DailyGoalsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const saveGoal = async (input: GoalInput) => {
+    await createGoal(input);
+    await load();
+    setFormOpen(false);
+  };
+
+  const addCategory = async (name: string, icon: string): Promise<Category> => {
+    const category = await createCategory({ name, icon });
+    setCategories((current) => [...current, category]);
+    return category;
+  };
 
   const handleSetStatus = useCallback(
     async (goalId: string, status: GoalLogStatus) => {
@@ -333,6 +359,24 @@ export function DailyGoalsScreen({
             <View style={styles.pageHeaderText}>
               <PlanReportHeaderMenu currentView="daily" />
             </View>
+            <Pressable
+              accessibilityLabel="Add goal"
+              accessibilityRole="button"
+              onPress={() => setFormOpen(true)}
+              style={({ pressed }) => [
+                styles.addButton,
+                styles.headerAddButton,
+                { backgroundColor: theme.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("plus", "add")}
+                size={18}
+                weight="semibold"
+                tintColor={theme.primaryForeground}
+              />
+            </Pressable>
           </View>
 
           {/* Date navigator */}
@@ -519,6 +563,15 @@ export function DailyGoalsScreen({
           )}
         </ScrollView>
       </SafeAreaView>
+      <GoalFormModal
+        categories={categories}
+        goal={null}
+        initialValues={{ period: "daily" }}
+        isOpen={formOpen}
+        onAddCategory={addCategory}
+        onClose={() => setFormOpen(false)}
+        onSave={saveGoal}
+      />
       {activeGoal ? (
         <GoalActionsModal
           goal={activeGoal}
@@ -1063,6 +1116,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
+    minHeight: 42,
+    position: "relative",
   },
   pageHeaderIcon: {
     width: 42,
@@ -1071,7 +1126,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 14,
   },
-  pageHeaderText: { flex: 1, gap: 1 },
+  pageHeaderText: { flex: 1, gap: 1, paddingRight: 54 },
+  addButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  headerAddButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 10,
+  },
   pageTitle: {
     fontSize: 25,
     lineHeight: 29,
