@@ -64,8 +64,13 @@ const getGoalLogsSnapshotForMonth = async (
     iconKey: goals.iconKey,
     categoryId: goals.categoryId,
     priority: goals.priority,
+    visibility: goals.visibility,
     period: goals.period,
     frequencyGoal: goals.frequencyGoal,
+    repeatInterval: goals.repeatInterval,
+    repeatDays: goals.repeatDays,
+    repeatMonthlyType: goals.repeatMonthlyType,
+    createdAt: goals.createdAt,
   };
 
   const [
@@ -115,6 +120,7 @@ const getGoalLogsSnapshotForMonth = async (
         goalId: goalLogs.goalId,
         date: goalLogs.date,
         status: goalLogs.status,
+        visibility: goalLogs.visibility,
       })
       .from(goalLogs)
       .where(
@@ -224,6 +230,9 @@ const getGoalLogsSnapshotForMonth = async (
         categoryId: goal.categoryId,
         priority: goal.priority as "high" | "medium" | "low",
         hidden: goal.hidden,
+        visibility: goal.visibility,
+        period: goal.period,
+        frequencyGoal: goal.frequencyGoal,
         sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
       })),
     }))
@@ -235,8 +244,13 @@ const getGoalLogsSnapshotForMonth = async (
     iconKey: goal.iconKey,
     categoryId: goal.categoryId,
     priority: goal.priority as "high" | "medium" | "low",
+    visibility: goal.visibility,
     period: goal.period,
     frequencyGoal: goal.frequencyGoal,
+    repeatInterval: goal.repeatInterval ?? null,
+    repeatDays: (goal.repeatDays as number[] | null) ?? null,
+    repeatMonthlyType: goal.repeatMonthlyType ?? null,
+    createdAt: goal.createdAt.toISOString(),
     sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
   });
 
@@ -256,6 +270,9 @@ const getGoalLogsSnapshotForMonth = async (
       logs.map((log) => [`${log.goalId}_${log.date}`, "complete" as const]),
     ),
     notesByGoalDate: {},
+    visibilityByGoalDate: Object.fromEntries(
+      logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
+    ),
     photoCountsByGoalDate: photos.reduce<Record<string, number>>(
       (counts, photo) => {
         const key = `${photo.goalId}_${photo.date}`;

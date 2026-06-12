@@ -13,10 +13,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { GoalIcon } from "@/components/goal-icon";
+import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type CategoryWithGoals,
@@ -27,30 +30,24 @@ import {
   getMonthKey,
   setGoalLog,
   setGoalLogNote,
+  setGoalLogVisibility,
   toDateKey,
 } from "@/lib/goal-logs-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
   type Category,
+  type Goal,
   type GoalInput,
+  type GoalVisibility,
   createCategory,
   createGoal,
   fetchCategories,
+  updateGoal,
 } from "@/lib/goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 
-const GOAL_ICONS: Record<string, SymbolName> = {
-  "fa7-solid:bullseye": sym("target", "target"),
-  "mdi:heart-outline": sym("heart", "favorite"),
-  "mdi:dumbbell": sym("dumbbell", "fitness_center"),
-  "mdi:book-open-page-variant-outline": sym("book", "menu_book"),
-  "mdi:briefcase-outline": sym("briefcase", "work"),
-  "mdi:account-group-outline": sym("person.2", "groups"),
-  "mdi:cash": sym("dollarsign.circle", "paid"),
-  "mdi:star-outline": sym("star", "star"),
-};
 
 type CategoryConfig = { color: string; symbol: SymbolName };
 
@@ -104,9 +101,6 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-function goalSymbol(iconKey: string): SymbolName {
-  return GOAL_ICONS[iconKey] ?? sym("target", "target");
-}
 
 function isSameDay(a: Date, b: Date) {
   return (
@@ -132,6 +126,7 @@ export function DailyGoalsScreen({
   initialDateKey?: string;
 }) {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const today = useRef(new Date()).current;
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -160,7 +155,9 @@ export function DailyGoalsScreen({
   const [noteGoal, setNoteGoal] = useState<GoalInCategory | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
 
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
@@ -194,15 +191,35 @@ export function DailyGoalsScreen({
   }, [load]);
 
   const saveGoal = async (input: GoalInput) => {
-    await createGoal(input);
+    if (editingGoal) {
+      await updateGoal(editingGoal.id, input);
+    } else {
+      await createGoal(input);
+    }
     await load();
     setFormOpen(false);
+    setEditingGoal(null);
   };
 
   const addCategory = async (name: string, icon: string): Promise<Category> => {
     const category = await createCategory({ name, icon });
     setCategories((current) => [...current, category]);
     return category;
+  };
+
+  const openEditGoal = (goal: GoalInCategory) => {
+    const category = categories.find((item) => item.id === goal.categoryId);
+    setEditingGoal({
+      ...goal,
+      categoryName: category?.name ?? "",
+      categoryIcon: category?.icon ?? "",
+      repeatInterval: null,
+      repeatDays: null,
+      repeatMonthlyType: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+    setFormOpen(true);
   };
 
   const handleSetStatus = useCallback(
@@ -263,7 +280,6 @@ export function DailyGoalsScreen({
         const snap = await fetchGoalLogsSnapshot(monthKey);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByGoalDate);
-        setActiveGoal(null);
       } catch (photoError) {
         Alert.alert(
           "Could not add photo",
@@ -276,6 +292,39 @@ export function DailyGoalsScreen({
       }
     },
     [dateKey, monthKey, uploadingPhotoSource],
+  );
+
+  const handleSetVisibility = useCallback(
+    async (goalId: string, visibility: GoalVisibility) => {
+      if (isUpdatingVisibility) return;
+      const key = `${goalId}_${dateKey}`;
+      setIsUpdatingVisibility(true);
+
+      try {
+        await setGoalLogVisibility(goalId, dateKey, visibility);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                visibilityByGoalDate: {
+                  ...current.visibilityByGoalDate,
+                  [key]: visibility,
+                },
+              }
+            : current,
+        );
+      } catch (visibilityError) {
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      } finally {
+        setIsUpdatingVisibility(false);
+      }
+    },
+    [dateKey, isUpdatingVisibility],
   );
 
   const categoriesWithGoals = useMemo(
@@ -344,7 +393,7 @@ export function DailyGoalsScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -543,6 +592,7 @@ export function DailyGoalsScreen({
                           updatingKeys={updatingKeys}
                           isExpanded={isExpanded}
                           onToggleExpand={() => toggleCatKey(catKey)}
+                          onEditGoal={openEditGoal}
                           onPressGoal={setActiveGoal}
                         />
                       );
@@ -557,6 +607,7 @@ export function DailyGoalsScreen({
                 updatingKeys={updatingKeys}
                 isOpen={showCompleted}
                 onToggle={() => setShowCompleted((v) => !v)}
+                onEditGoal={openEditGoal}
                 onPressGoal={setActiveGoal}
               />
             </View>
@@ -565,11 +616,14 @@ export function DailyGoalsScreen({
       </SafeAreaView>
       <GoalFormModal
         categories={categories}
-        goal={null}
+        goal={editingGoal}
         initialValues={{ period: "daily" }}
         isOpen={formOpen}
         onAddCategory={addCategory}
-        onClose={() => setFormOpen(false)}
+        onClose={() => {
+          setFormOpen(false);
+          setEditingGoal(null);
+        }}
         onSave={saveGoal}
       />
       {activeGoal ? (
@@ -578,6 +632,15 @@ export function DailyGoalsScreen({
           hasNote={Boolean(
             snapshot?.notesByGoalDate[`${activeGoal.id}_${dateKey}`]?.trim(),
           )}
+          hasPhoto={
+            (snapshot?.photoCountsByGoalDate[`${activeGoal.id}_${dateKey}`] ??
+              0) > 0
+          }
+          visibility={
+            snapshot?.visibilityByGoalDate[`${activeGoal.id}_${dateKey}`] ??
+            activeGoal.visibility
+          }
+          isUpdatingVisibility={isUpdatingVisibility}
           status={logsByGoalDate[`${activeGoal.id}_${dateKey}`]}
           isUpdating={updatingKeys.has(`${activeGoal.id}_${dateKey}`)}
           uploadingPhotoSource={uploadingPhotoSource}
@@ -586,6 +649,9 @@ export function DailyGoalsScreen({
             setNoteGoal(activeGoal);
             setActiveGoal(null);
           }}
+          onSetVisibility={(visibility) =>
+            void handleSetVisibility(activeGoal.id, visibility)
+          }
           onSetStatus={(newStatus: GoalLogStatus) => {
             void handleSetStatus(activeGoal.id, newStatus);
             setActiveGoal(null);
@@ -601,7 +667,10 @@ export function DailyGoalsScreen({
             snapshot?.notesByGoalDate[`${noteGoal.id}_${dateKey}`] ?? null
           }
           onClose={() => setNoteGoal(null)}
-          onSave={(notes) => handleSaveNote(noteGoal.id, notes)}
+          onSave={async (notes) => {
+            await handleSaveNote(noteGoal.id, notes);
+            setActiveGoal(noteGoal);
+          }}
         />
       ) : null}
     </View>
@@ -657,6 +726,7 @@ function CategoryAccordionRow({
   updatingKeys,
   isExpanded,
   onToggleExpand,
+  onEditGoal,
   onPressGoal,
 }: {
   category: CategoryWithGoals;
@@ -666,6 +736,7 @@ function CategoryAccordionRow({
   updatingKeys: Set<string>;
   isExpanded: boolean;
   onToggleExpand: () => void;
+  onEditGoal: (goal: GoalInCategory) => void;
   onPressGoal: (goal: GoalInCategory) => void;
 }) {
   const theme = useTheme();
@@ -726,6 +797,7 @@ function CategoryAccordionRow({
                 goal={goal}
                 status={logsByGoalDate[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
+                onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}
               />
             </View>
@@ -743,6 +815,7 @@ function CompletedSection({
   updatingKeys,
   isOpen,
   onToggle,
+  onEditGoal,
   onPressGoal,
 }: {
   completedList: { goal: GoalInCategory; category: CategoryWithGoals }[];
@@ -751,6 +824,7 @@ function CompletedSection({
   updatingKeys: Set<string>;
   isOpen: boolean;
   onToggle: () => void;
+  onEditGoal: (goal: GoalInCategory) => void;
   onPressGoal: (goal: GoalInCategory) => void;
 }) {
   const theme = useTheme();
@@ -798,6 +872,7 @@ function CompletedSection({
                 goal={goal}
                 status={logsByGoalDate[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
+                onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}
               />
             </View>
@@ -812,11 +887,13 @@ function GoalRow({
   goal,
   status,
   isUpdating,
+  onEdit,
   onPress,
 }: {
   goal: GoalInCategory;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
+  onEdit: () => void;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -883,11 +960,10 @@ function GoalRow({
       <View
         style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
       >
-        <SymbolView
-          name={goalSymbol(goal.iconKey)}
+        <GoalIcon
+          iconKey={goal.iconKey}
           size={17}
-          weight="semibold"
-          tintColor={isComplete ? theme.primary : theme.tabIcon}
+          color={isComplete ? theme.primary : theme.tabIcon}
         />
       </View>
 
@@ -903,10 +979,27 @@ function GoalRow({
         {goal.name}
       </Text>
 
-      {/* Priority dot */}
-      {goal.priority === "high" ? (
-        <View style={[styles.priorityDot, { backgroundColor: "#9D7474" }]} />
-      ) : null}
+      <Pressable
+        accessibilityLabel={`Edit ${goal.name}`}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={(event) => {
+          event.stopPropagation();
+          onEdit();
+        }}
+        style={({ pressed }) => [
+          styles.goalMenuButton,
+          { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
+        ]}
+      >
+        <SymbolView
+          name={sym("ellipsis", "more_horiz")}
+          size={17}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </Pressable>
     </Pressable>
   );
 }
@@ -914,21 +1007,29 @@ function GoalRow({
 function GoalActionsModal({
   goal,
   hasNote,
+  hasPhoto,
+  visibility,
   status,
   isUpdating,
+  isUpdatingVisibility,
   uploadingPhotoSource,
   onAddPhoto,
   onOpenNote,
+  onSetVisibility,
   onSetStatus,
   onDismiss,
 }: {
   goal: GoalInCategory;
   hasNote: boolean;
+  hasPhoto: boolean;
+  visibility: GoalVisibility;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
+  isUpdatingVisibility: boolean;
   uploadingPhotoSource: GoalPhotoSource | null;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
+  onSetVisibility: (visibility: GoalVisibility) => void;
   onSetStatus: (status: GoalLogStatus) => void;
   onDismiss: () => void;
 }) {
@@ -1020,6 +1121,14 @@ function GoalActionsModal({
                 {hasNote ? "Edit note" : "Add note"}
               </Text>
             </Pressable>
+
+            {hasNote || hasPhoto ? (
+              <GoalLogVisibilityControl
+                disabled={isUpdatingVisibility}
+                value={visibility}
+                onChange={onSetVisibility}
+              />
+            ) : null}
 
             {/* Photo row */}
             <View style={modalStyles.photoRow}>
@@ -1343,10 +1452,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   completedText: { textDecorationLine: "line-through" },
-  priorityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  goalMenuButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
   },
   pressed: { opacity: 0.72 },
 });

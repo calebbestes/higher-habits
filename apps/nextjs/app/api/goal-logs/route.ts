@@ -24,6 +24,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  GOAL_PHOTOS_BUCKET,
+  getSupabaseStorageAdmin,
+} from "@/lib/supabase-storage";
 
 function getMonthDateRange(month: string) {
   const [year, mon] = month.split("-").map(Number);
@@ -60,6 +64,17 @@ const bodySchema = z.discriminatedUnion("type", [
     dateKey: z.string().regex(DATE_KEY_REGEX),
     notes: z.string().max(20_000),
   }),
+  z.object({
+    type: z.literal("setVisibility"),
+    goalId: z.string().uuid(),
+    dateKey: z.string().regex(DATE_KEY_REGEX),
+    visibility: z.enum(["only_me", "goal_friends", "all_friends"]),
+  }),
+  z.object({
+    type: z.literal("deleteLog"),
+    goalId: z.string().uuid(),
+    dateKey: z.string().regex(DATE_KEY_REGEX),
+  }),
 ]);
 
 const getDatabase = () => getDb() ?? null;
@@ -92,8 +107,13 @@ export async function GET(request: Request) {
       iconKey: goals.iconKey,
       categoryId: goals.categoryId,
       priority: goals.priority,
+      visibility: goals.visibility,
       period: goals.period,
       frequencyGoal: goals.frequencyGoal,
+      repeatInterval: goals.repeatInterval,
+      repeatDays: goals.repeatDays,
+      repeatMonthlyType: goals.repeatMonthlyType,
+      createdAt: goals.createdAt,
     };
 
     const [
@@ -144,6 +164,7 @@ export async function GET(request: Request) {
           date: goalLogs.date,
           status: goalLogs.status,
           notes: goalLogs.notes,
+          visibility: goalLogs.visibility,
         })
         .from(goalLogs)
         .where(
@@ -251,6 +272,9 @@ export async function GET(request: Request) {
         categoryId: g.categoryId,
         priority: g.priority as "high" | "medium" | "low",
         hidden: g.hidden,
+        visibility: g.visibility,
+        period: g.period,
+        frequencyGoal: g.frequencyGoal,
         sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
       })),
     }));
@@ -261,8 +285,13 @@ export async function GET(request: Request) {
       iconKey: g.iconKey,
       categoryId: g.categoryId,
       priority: g.priority as "high" | "medium" | "low",
+      visibility: g.visibility,
       period: g.period,
       frequencyGoal: g.frequencyGoal,
+      repeatInterval: g.repeatInterval ?? null,
+      repeatDays: (g.repeatDays as number[] | null) ?? null,
+      repeatMonthlyType: g.repeatMonthlyType ?? null,
+      createdAt: g.createdAt.toISOString(),
       sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
     });
 
@@ -289,6 +318,9 @@ export async function GET(request: Request) {
         logs
           .filter((log) => log.notes?.trim())
           .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
+      ),
+      visibilityByGoalDate: Object.fromEntries(
+        logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
       ),
       photoCountsByGoalDate: photos.reduce<Record<string, number>>(
         (counts, photo) => {
@@ -332,7 +364,7 @@ export async function POST(request: Request) {
     const data = bodySchema.parse(await request.json());
 
     const [goal] = await db
-      .select({ id: goals.id })
+      .select({ id: goals.id, visibility: goals.visibility })
       .from(goals)
       .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)))
       .limit(1);
@@ -364,6 +396,7 @@ export async function POST(request: Request) {
             goalId: data.goalId,
             date: data.dateKey,
             status: data.status,
+            visibility: goal.visibility,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -389,6 +422,7 @@ export async function POST(request: Request) {
             date: data.dateKey,
             status: "planned",
             notes: data.notes,
+            visibility: goal.visibility,
             updatedAt: new Date(),
           })
           .onConflictDoUpdate({
@@ -415,6 +449,80 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (data.type === "setVisibility") {
+      const [updatedLog] = await db
+        .update(goalLogs)
+        .set({ visibility: data.visibility, updatedAt: new Date() })
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .returning({ id: goalLogs.id });
+
+      if (!updatedLog) {
+        return NextResponse.json(
+          { error: "Goal report not found" },
+          { status: 404 },
+        );
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (data.type === "deleteLog") {
+      const [ownedLog] = await db
+        .select({ id: goalLogs.id })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .limit(1);
+
+      if (!ownedLog) {
+        return NextResponse.json(
+          { error: "Journal post not found" },
+          { status: 404 },
+        );
+      }
+
+      const photos = await db
+        .select({ storagePath: goalLogPhotos.storagePath })
+        .from(goalLogPhotos)
+        .where(
+          and(
+            eq(goalLogPhotos.goalLogId, ownedLog.id),
+            eq(goalLogPhotos.userId, user.id),
+          ),
+        );
+
+      if (photos.length > 0) {
+        const storage = getSupabaseStorageAdmin();
+        const { error: removeError } = await storage.storage
+          .from(GOAL_PHOTOS_BUCKET)
+          .remove(photos.map((photo) => photo.storagePath));
+
+        if (removeError) {
+          return NextResponse.json(
+            { error: `Could not delete post photos: ${removeError.message}` },
+            { status: 502 },
+          );
+        }
+      }
+
+      await db
+        .delete(goalLogs)
+        .where(and(eq(goalLogs.id, ownedLog.id), eq(goalLogs.userId, user.id)));
+
+      return NextResponse.json({ ok: true });
+    }
+
     await db
       .update(goals)
       .set({ hidden: data.hidden, updatedAt: new Date() })
@@ -430,6 +538,13 @@ export async function POST(request: Request) {
 
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (
+      error instanceof Error &&
+      error.message === "Supabase Storage is not configured."
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
     }
 
     return NextResponse.json(

@@ -2,6 +2,8 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type GoalPeriod = "daily" | "weekly" | "monthly";
 export type GoalPriority = "high" | "medium" | "low";
+export type GoalVisibility = "only_me" | "goal_friends" | "all_friends";
+export type GoalRepeatMonthlyType = "day_of_month" | "day_of_week";
 
 export type Category = {
   id: string;
@@ -15,10 +17,14 @@ export type Goal = {
   name: string;
   frequencyGoal: number | null;
   period: GoalPeriod | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: GoalRepeatMonthlyType | null;
   categoryId: string;
   categoryName: string;
   categoryIcon: string;
   priority: GoalPriority;
+  visibility: GoalVisibility;
   iconKey: string;
   hidden: boolean;
   createdAt: string;
@@ -29,8 +35,12 @@ export type GoalInput = {
   name: string;
   frequencyGoal: number | null;
   period: GoalPeriod | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: GoalRepeatMonthlyType | null;
   categoryId: string;
   priority: GoalPriority;
+  visibility: GoalVisibility;
   iconKey: string;
   hidden: boolean;
 };

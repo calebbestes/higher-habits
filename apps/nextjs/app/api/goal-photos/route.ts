@@ -244,7 +244,7 @@ export async function POST(request: Request) {
     }
 
     const [goal] = await db
-      .select({ id: goals.id })
+      .select({ id: goals.id, visibility: goals.visibility })
       .from(goals)
       .where(and(eq(goals.id, goalId), eq(goals.userId, user.id)))
       .limit(1);
@@ -260,6 +260,7 @@ export async function POST(request: Request) {
         goalId,
         date: dateKey,
         status: "planned",
+        visibility: goal.visibility,
       })
       .onConflictDoUpdate({
         target: [goalLogs.goalId, goalLogs.date],

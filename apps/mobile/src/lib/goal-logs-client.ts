@@ -1,3 +1,4 @@
+import type { GoalVisibility } from "@/lib/goals-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type GoalInCategory = {
@@ -7,6 +8,9 @@ export type GoalInCategory = {
   categoryId: string;
   priority: "high" | "medium" | "low";
   hidden: boolean;
+  visibility: GoalVisibility;
+  period: "daily" | "weekly" | "monthly" | null;
+  frequencyGoal: number | null;
 };
 
 export type CategoryWithGoals = {
@@ -22,8 +26,13 @@ export type PeriodicGoalInfo = {
   iconKey: string;
   categoryId: string;
   priority: "high" | "medium" | "low";
+  visibility: GoalVisibility;
   period: string | null;
   frequencyGoal: number | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: string | null;
+  createdAt: string;
 };
 
 export type GoalLogsSnapshot = {
@@ -32,6 +41,7 @@ export type GoalLogsSnapshot = {
   logsByGoalDate: Record<string, "complete" | "planned">;
   notesByGoalDate: Record<string, string>;
   photoCountsByGoalDate: Record<string, number>;
+  visibilityByGoalDate: Record<string, GoalVisibility>;
 };
 
 export type GoalLogStatus = "complete" | "planned" | null;
@@ -91,4 +101,28 @@ export const setGoalLogNote = (
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
     body: JSON.stringify({ type: "setNote", goalId, dateKey, notes }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const setGoalLogVisibility = (
+  goalId: string,
+  dateKey: string,
+  visibility: GoalVisibility,
+): Promise<{ ok: true }> =>
+  mobileApiFetch("/api/goal-logs", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "setVisibility",
+      goalId,
+      dateKey,
+      visibility,
+    }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const deleteGoalLog = (
+  goalId: string,
+  dateKey: string,
+): Promise<{ ok: true }> =>
+  mobileApiFetch("/api/goal-logs", {
+    method: "POST",
+    body: JSON.stringify({ type: "deleteLog", goalId, dateKey }),
   }).then((r) => parseResponse<{ ok: true }>(r));

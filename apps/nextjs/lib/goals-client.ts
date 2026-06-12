@@ -1,6 +1,8 @@
 const GOALS_ENDPOINT = "/api/goals";
 const CATEGORIES_ENDPOINT = "/api/categories";
 
+export type GoalVisibility = "only_me" | "goal_friends" | "all_friends";
+
 export type Category = {
   id: string;
   name: string;
@@ -17,6 +19,7 @@ export type Goal = {
   categoryName: string;
   categoryIcon: string;
   priority: "high" | "medium" | "low";
+  visibility: GoalVisibility;
   iconKey: string;
   hidden: boolean;
   createdAt: string;
@@ -29,6 +32,7 @@ export type GoalInput = {
   period: "daily" | "weekly" | "monthly" | null;
   categoryId: string;
   priority: string;
+  visibility: GoalVisibility;
   iconKey: string;
   hidden: boolean;
 };

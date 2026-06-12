@@ -60,6 +60,11 @@ const COLUMNS = [
 
 const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
 const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
+const GOAL_VISIBILITIES = [
+  { value: "only_me", label: "Only me" },
+  { value: "goal_friends", label: "Friends tied to goal" },
+  { value: "all_friends", label: "All friends" },
+] as const;
 
 const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
@@ -91,6 +96,7 @@ const EMPTY_FORM: GoalInput = {
   period: null,
   categoryId: "",
   priority: "medium",
+  visibility: "only_me",
   iconKey: "",
   hidden: false,
 };
@@ -234,6 +240,7 @@ function GoalFormModal({
           period: goal.period,
           categoryId: goal.categoryId,
           priority: goal.priority,
+          visibility: goal.visibility,
           iconKey: goal.iconKey,
           hidden: goal.hidden,
         }
@@ -254,6 +261,7 @@ function GoalFormModal({
             period: goal.period,
             categoryId: goal.categoryId,
             priority: goal.priority,
+            visibility: goal.visibility,
             iconKey: goal.iconKey,
             hidden: goal.hidden,
           }
@@ -458,6 +466,22 @@ function GoalFormModal({
               }
               description="Times per period"
             />
+
+            <Select
+              label="Visibility"
+              selectedKeys={new Set([form.visibility])}
+              onSelectionChange={(keys) =>
+                setForm((p) => ({
+                  ...p,
+                  visibility:
+                    ([...keys][0] as GoalInput["visibility"]) ?? "only_me",
+                }))
+              }
+            >
+              {GOAL_VISIBILITIES.map((option) => (
+                <SelectItem key={option.value}>{option.label}</SelectItem>
+              ))}
+            </Select>
           </div>
 
           <Switch
@@ -465,7 +489,7 @@ function GoalFormModal({
             onValueChange={(v) => setForm((p) => ({ ...p, hidden: v }))}
             size="sm"
           >
-            Hidden
+            Archive
           </Switch>
         </ModalBody>
         <ModalFooter>
@@ -699,6 +723,7 @@ export function GoalsTable() {
         period: goal.period,
         categoryId: goal.categoryId,
         priority: goal.priority,
+        visibility: goal.visibility,
         iconKey: goal.iconKey,
         hidden: goal.hidden,
         ...updates,
@@ -1091,9 +1116,7 @@ export function GoalsTable() {
                   key="toggle-hidden"
                   startContent={
                     <Icon
-                      icon={
-                        row.hidden ? "fa7-solid:eye" : "fa7-solid:eye-slash"
-                      }
+                      icon={row.hidden ? "mdi:restore" : "mdi:archive-outline"}
                       className="h-3.5 w-3.5"
                     />
                   }
@@ -1101,7 +1124,7 @@ export function GoalsTable() {
                     handleInlineUpdate(row.id, { hidden: !row.hidden })
                   }
                 >
-                  {row.hidden ? "Show" : "Hide"}
+                  {row.hidden ? "Restore" : "Archive"}
                 </DropdownItem>
                 <DropdownItem
                   key="delete"

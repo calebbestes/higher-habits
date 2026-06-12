@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type Category,
@@ -27,6 +28,8 @@ import {
   type GoalInput,
   type GoalPeriod,
   type GoalPriority,
+  type GoalRepeatMonthlyType,
+  type GoalVisibility,
   createCategory,
   createGoal,
   deleteGoal,
@@ -40,6 +43,25 @@ type GoalFilter = "all" | "high" | "hidden";
 
 const PRIORITIES: GoalPriority[] = ["high", "medium", "low"];
 const PERIODS: GoalPeriod[] = ["daily", "weekly", "monthly"];
+const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const WEEKDAY_NAMES = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+const ORDINALS = ["1st", "2nd", "3rd", "4th", "last"];
+
+function getWeekOfMonth(d: Date) {
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  if (d.getDate() + 7 > daysInMonth) return 4;
+  return Math.ceil(d.getDate() / 7) - 1;
+}
+const VISIBILITY_OPTIONS: Array<{
+  value: GoalVisibility;
+  label: string;
+}> = [
+  { value: "only_me", label: "Only me" },
+  { value: "goal_friends", label: "Friends tied to goal" },
+  { value: "all_friends", label: "All friends" },
+];
 const PRIORITY_ORDER: Record<GoalPriority, number> = {
   high: 0,
   medium: 1,
@@ -94,8 +116,12 @@ const EMPTY_GOAL: GoalInput = {
   name: "",
   frequencyGoal: null,
   period: "daily",
+  repeatInterval: 1,
+  repeatDays: [new Date().getDay()],
+  repeatMonthlyType: "day_of_month",
   categoryId: "",
   priority: "medium",
+  visibility: "only_me",
   iconKey: GOAL_ICON_OPTIONS[0].key,
   hidden: false,
 };
@@ -116,8 +142,13 @@ function resolveSymbol(
 
 function frequencyLabel(goal: Goal) {
   if (!goal.period) return "No schedule";
-  if (!goal.frequencyGoal) return capitalize(goal.period);
-  return `${goal.frequencyGoal}× ${goal.period}`;
+  const interval = goal.repeatInterval ?? 1;
+  const unit = goal.period === "daily" ? "day" : goal.period === "weekly" ? "week" : "month";
+  const base = interval === 1 ? capitalize(goal.period) : `Every ${interval} ${unit}s`;
+  if (goal.period === "weekly" && goal.repeatDays?.length) {
+    return `${base} · ${goal.repeatDays.map((d) => DAY_LETTERS[d]).join("")}`;
+  }
+  return base;
 }
 
 function capitalize(value: string) {
@@ -129,8 +160,12 @@ function toInput(goal: Goal): GoalInput {
     name: goal.name,
     frequencyGoal: goal.frequencyGoal,
     period: goal.period,
+    repeatInterval: goal.repeatInterval ?? 1,
+    repeatDays: goal.repeatDays ?? [new Date().getDay()],
+    repeatMonthlyType: (goal.repeatMonthlyType as GoalRepeatMonthlyType | null) ?? "day_of_month",
     categoryId: goal.categoryId,
     priority: goal.priority,
+    visibility: goal.visibility,
     iconKey: goal.iconKey,
     hidden: goal.hidden,
   };
@@ -139,6 +174,7 @@ function toInput(goal: Goal): GoalInput {
 export function GoalsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [query, setQuery] = useState("");
@@ -299,7 +335,7 @@ export function GoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
@@ -353,7 +389,7 @@ export function GoalsScreen() {
           <View style={styles.stats}>
             <Stat label="Goals" value={goals.length} />
             <Stat label="High priority" value={highCount} accent="#9D7474" />
-            <Stat label="Hidden" value={hiddenCount} />
+            <Stat label="Archived" value={hiddenCount} />
           </View>
 
           <View
@@ -405,7 +441,7 @@ export function GoalsScreen() {
               [
                 ["all", "All"],
                 ["high", "High priority"],
-                ["hidden", "Hidden"],
+                ["hidden", "Archived"],
               ] as const
             ).map(([value, label]) => (
               <FilterChip
@@ -621,7 +657,7 @@ function GoalCard({
           </Text>
           {goal.hidden ? (
             <SymbolView
-              name={symbol("eye.slash", "visibility_off")}
+              name={symbol("archivebox", "inventory_2")}
               size={15}
               tintColor={theme.textSecondary}
             />
@@ -749,10 +785,10 @@ function GoalActionsModal({
       onPress: () => onShare(goal),
     },
     {
-      label: goal.hidden ? "Show goal" : "Hide goal",
+      label: goal.hidden ? "Restore goal" : "Archive goal",
       icon: symbol(
-        goal.hidden ? "eye" : "eye.slash",
-        goal.hidden ? "visibility" : "visibility_off",
+        goal.hidden ? "arrow.uturn.backward" : "archivebox",
+        goal.hidden ? "restore" : "inventory_2",
       ),
       onPress: () => void onToggleHidden(goal),
     },
@@ -1042,49 +1078,187 @@ export function GoalFormModal({
             </FormSection>
 
             <FormSection title="Schedule">
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Period
-              </Text>
-              <View style={styles.choiceWrap}>
-                <Choice
-                  label="None"
-                  selected={!form.period}
-                  onPress={() =>
-                    setForm((current) => ({
-                      ...current,
-                      frequencyGoal: null,
-                      period: null,
-                    }))
-                  }
-                />
-                {PERIODS.map((period) => (
+              <View style={styles.inputField}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Repeat
+                </Text>
+                <View style={styles.choiceWrap}>
                   <Choice
-                    key={period}
-                    label={capitalize(period)}
-                    selected={form.period === period}
+                    label="None"
+                    selected={!form.period}
                     onPress={() =>
-                      setForm((current) => ({ ...current, period }))
+                      setForm((current) => ({
+                        ...current,
+                        period: null,
+                      }))
                     }
                   />
-                ))}
+                  {PERIODS.map((period) => (
+                    <Choice
+                      key={period}
+                      label={capitalize(period)}
+                      selected={form.period === period}
+                      onPress={() =>
+                        setForm((current) => ({ ...current, period }))
+                      }
+                    />
+                  ))}
+                </View>
               </View>
+
               {form.period ? (
-                <LabeledInput
-                  keyboardType="number-pad"
-                  label="Frequency"
-                  onChangeText={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      frequencyGoal: value
-                        ? Math.max(1, Number.parseInt(value, 10) || 1)
-                        : null,
-                    }))
-                  }
-                  placeholder="Times per period"
-                  value={
-                    form.frequencyGoal != null ? String(form.frequencyGoal) : ""
-                  }
-                />
+                <>
+                  {/* Interval stepper */}
+                  <View style={styles.repeatIntervalRow}>
+                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                      Repeat every
+                    </Text>
+                    <View
+                      style={[
+                        styles.stepper,
+                        {
+                          backgroundColor: theme.backgroundElement,
+                          borderColor: theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      <Pressable
+                        onPress={() =>
+                          setForm((f) => ({
+                            ...f,
+                            repeatInterval: Math.max(
+                              1,
+                              (f.repeatInterval ?? 1) + 1,
+                            ),
+                          }))
+                        }
+                        style={styles.stepperBtn}
+                      >
+                        <SymbolView
+                          name={symbol("chevron.up", "keyboard_arrow_up")}
+                          size={10}
+                          tintColor={theme.text}
+                        />
+                      </Pressable>
+                      <Text style={[styles.stepperValue, { color: theme.text }]}>
+                        {form.repeatInterval ?? 1}
+                      </Text>
+                      <Pressable
+                        onPress={() =>
+                          setForm((f) => ({
+                            ...f,
+                            repeatInterval: Math.max(
+                              1,
+                              (f.repeatInterval ?? 1) - 1,
+                            ),
+                          }))
+                        }
+                        style={styles.stepperBtn}
+                      >
+                        <SymbolView
+                          name={symbol("chevron.down", "keyboard_arrow_down")}
+                          size={10}
+                          tintColor={theme.text}
+                        />
+                      </Pressable>
+                    </View>
+                    <Text style={[styles.intervalUnit, { color: theme.text }]}>
+                      {form.period === "daily"
+                        ? "day"
+                        : form.period === "weekly"
+                          ? "week"
+                          : "month"}
+                      {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
+                    </Text>
+                  </View>
+
+                  {/* Weekly: day-of-week chips */}
+                  {form.period === "weekly" ? (
+                    <View style={styles.inputField}>
+                      <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                        Repeat on
+                      </Text>
+                      <View style={styles.dayChipRow}>
+                        {DAY_LETTERS.map((letter, idx) => {
+                          const sel = (form.repeatDays ?? []).includes(idx);
+                          return (
+                            <Pressable
+                              key={WEEKDAY_NAMES[idx]}
+                              onPress={() =>
+                                setForm((f) => {
+                                  const days = f.repeatDays ?? [];
+                                  return {
+                                    ...f,
+                                    repeatDays: sel
+                                      ? days.filter((d) => d !== idx)
+                                      : [...days, idx].sort((a, b) => a - b),
+                                  };
+                                })
+                              }
+                              style={[
+                                styles.dayChip,
+                                {
+                                  backgroundColor: sel
+                                    ? theme.primary
+                                    : theme.backgroundElement,
+                                  borderColor: sel
+                                    ? theme.primary
+                                    : theme.tabBorder,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.dayChipLabel,
+                                  { color: sel ? "#fff" : theme.textSecondary },
+                                ]}
+                              >
+                                {letter}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {/* Monthly: day-of-month vs day-of-week */}
+                  {form.period === "monthly" ? (() => {
+                    const today = new Date();
+                    const weekdayLabel = `${ORDINALS[getWeekOfMonth(today)]} ${WEEKDAY_NAMES[today.getDay()]}`;
+                    return (
+                      <View style={styles.inputField}>
+                        <View style={styles.choiceWrap}>
+                          <Choice
+                            label={`Day ${today.getDate()}`}
+                            selected={
+                              (form.repeatMonthlyType ?? "day_of_month") ===
+                              "day_of_month"
+                            }
+                            onPress={() =>
+                              setForm((f) => ({
+                                ...f,
+                                repeatMonthlyType: "day_of_month",
+                              }))
+                            }
+                          />
+                          <Choice
+                            label={weekdayLabel}
+                            selected={
+                              form.repeatMonthlyType === "day_of_week"
+                            }
+                            onPress={() =>
+                              setForm((f) => ({
+                                ...f,
+                                repeatMonthlyType: "day_of_week",
+                              }))
+                            }
+                          />
+                        </View>
+                      </View>
+                    );
+                  })() : null}
+                </>
               ) : null}
             </FormSection>
 
@@ -1104,6 +1278,24 @@ export function GoalFormModal({
               </View>
             </FormSection>
 
+            <FormSection title="Visibility">
+              <View style={styles.choiceWrap}>
+                {VISIBILITY_OPTIONS.map((option) => (
+                  <Choice
+                    key={option.value}
+                    label={option.label}
+                    selected={form.visibility === option.value}
+                    onPress={() =>
+                      setForm((current) => ({
+                        ...current,
+                        visibility: option.value,
+                      }))
+                    }
+                  />
+                ))}
+              </View>
+            </FormSection>
+
             <View
               style={[
                 styles.switchRow,
@@ -1112,7 +1304,7 @@ export function GoalFormModal({
             >
               <View style={styles.switchCopy}>
                 <Text style={[styles.switchTitle, { color: theme.text }]}>
-                  Hidden
+                  Archive
                 </Text>
                 <Text
                   style={[
@@ -1120,7 +1312,7 @@ export function GoalFormModal({
                     { color: theme.textSecondary },
                   ]}
                 >
-                  Keep this goal out of planning views.
+                  Archive this goal and keep it out of planning views.
                 </Text>
               </View>
               <Switch
@@ -1665,6 +1857,37 @@ const styles = StyleSheet.create({
   iconResultImg: { width: 28, height: 28 },
   iconResultLabel: { fontSize: 8, lineHeight: 10, fontWeight: "600", textAlign: "center" },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  repeatIntervalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  stepper: {
+    alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    gap: 1,
+  },
+  stepperBtn: { padding: 3 },
+  stepperValue: {
+    fontSize: 15,
+    fontWeight: "600",
+    minWidth: 20,
+    textAlign: "center",
+  },
+  intervalUnit: { fontSize: 13, fontWeight: "600" },
+  dayChipRow: { flexDirection: "row", gap: 6 },
+  dayChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  dayChipLabel: { fontSize: 12, fontWeight: "700" },
   choice: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,

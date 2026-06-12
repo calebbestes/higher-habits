@@ -4,6 +4,7 @@ import {
   date,
   index,
   integer,
+  json,
   pgEnum,
   pgTable,
   text,
@@ -14,6 +15,11 @@ import {
 
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
 export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
+export const GOAL_VISIBILITIES = [
+  "only_me",
+  "goal_friends",
+  "all_friends",
+] as const;
 export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
@@ -42,6 +48,7 @@ export const SHARED_GOAL_PARTICIPANT_STATUSES = [
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
+export const goalVisibilityEnum = pgEnum("goal_visibility", GOAL_VISIBILITIES);
 export const logStatusEnum = pgEnum("log_status", LOG_STATUSES);
 export const friendStatusEnum = pgEnum("friend_status", FRIEND_STATUSES);
 export const friendMessageTypeEnum = pgEnum(
@@ -281,10 +288,14 @@ export const goals = pgTable(
     name: text("name").notNull(),
     frequencyGoal: integer("frequency_goal"),
     period: goalPeriodEnum("period"),
+    repeatInterval: integer("repeat_interval"),
+    repeatDays: json("repeat_days").$type<number[]>(),
+    repeatMonthlyType: text("repeat_monthly_type"),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => categories.id),
     priority: goalPriorityEnum("priority").notNull(),
+    visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     iconKey: text("icon_key").default("").notNull(),
     hidden: boolean("hidden").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -319,6 +330,7 @@ export const goalLogs = pgTable(
     date: date("date", { mode: "string" }).notNull(),
     status: logStatusEnum("status").notNull(),
     notes: text("notes").default("").notNull(),
+    visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -494,6 +506,7 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
 export type GoalPriority = (typeof GOAL_PRIORITIES)[number];
+export type GoalVisibility = (typeof GOAL_VISIBILITIES)[number];
 export type LogStatus = (typeof LOG_STATUSES)[number];
 export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;

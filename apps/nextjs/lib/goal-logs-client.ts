@@ -1,3 +1,5 @@
+import type { GoalVisibility } from "@/lib/goals-client";
+
 const ENDPOINT = "/api/goal-logs";
 
 export type GoalInCategory = {
@@ -7,6 +9,9 @@ export type GoalInCategory = {
   categoryId: string;
   priority: "high" | "medium" | "low";
   hidden: boolean;
+  visibility: GoalVisibility;
+  period: "daily" | "weekly" | "monthly" | null;
+  frequencyGoal: number | null;
   sharedGoals: SharedGoalLink[];
 };
 
@@ -29,8 +34,13 @@ export type PeriodicGoalInfo = {
   iconKey: string;
   categoryId: string;
   priority: "high" | "medium" | "low";
+  visibility: GoalVisibility;
   period: string | null;
   frequencyGoal: number | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: string | null;
+  createdAt: string;
   sharedGoals: SharedGoalLink[];
 };
 
@@ -40,6 +50,7 @@ export type HiddenGoalInfo = {
   iconKey: string;
   categoryId: string;
   priority: "high" | "medium" | "low";
+  visibility: GoalVisibility;
   period: string | null;
   frequencyGoal: number | null;
 };
@@ -64,6 +75,8 @@ export type GoalLogsSnapshot = {
   notesByGoalDate: Record<string, string>;
   /** key: `${goalId}_${dateKey}`, only logs with photos */
   photoCountsByGoalDate: Record<string, number>;
+  /** key: `${goalId}_${dateKey}` */
+  visibilityByGoalDate: Record<string, GoalVisibility>;
 };
 
 export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
@@ -74,6 +87,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   logsByGoalDate: {},
   notesByGoalDate: {},
   photoCountsByGoalDate: {},
+  visibilityByGoalDate: {},
 };
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -118,4 +132,30 @@ export const setGoalLogNote = (
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type: "setNote", goalId, dateKey, notes }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const setGoalLogVisibility = (
+  goalId: string,
+  dateKey: string,
+  visibility: GoalVisibility,
+): Promise<{ ok: true }> =>
+  fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "setVisibility",
+      goalId,
+      dateKey,
+      visibility,
+    }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const deleteGoalLog = (
+  goalId: string,
+  dateKey: string,
+): Promise<{ ok: true }> =>
+  fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "deleteLog", goalId, dateKey }),
   }).then((r) => parseResponse<{ ok: true }>(r));

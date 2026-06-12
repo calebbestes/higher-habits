@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type FriendFeedComment,
@@ -84,6 +85,7 @@ function iconSvgUrl(iconKey: string, color: string): string | null {
 
 export function FeedScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -206,7 +208,7 @@ export function FeedScreen() {
           style={styles.keyboardView}
         >
           <ScrollView
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
@@ -337,6 +339,8 @@ function FeedCard({
   onDeleteComment: (commentId: string) => void;
 }) {
   const theme = useTheme();
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const [notesOverflows, setNotesOverflows] = useState(false);
   const strippedNotes = stripHtml(entry.notes);
   const isSinglePhoto = entry.photos.length === 1;
 
@@ -397,9 +401,32 @@ function FeedCard({
 
       {/* Notes */}
       {strippedNotes ? (
-        <Text style={[styles.notes, { color: theme.text }]}>
-          {strippedNotes}
-        </Text>
+        <View>
+          <Text
+            style={[
+              styles.notes,
+              { color: theme.text, paddingBottom: notesOverflows ? 4 : 12 },
+            ]}
+            numberOfLines={notesExpanded ? undefined : 5}
+            onTextLayout={(e) => {
+              if (!notesOverflows && e.nativeEvent.lines.length >= 5) {
+                setNotesOverflows(true);
+              }
+            }}
+          >
+            {strippedNotes}
+          </Text>
+          {notesOverflows ? (
+            <Pressable
+              onPress={() => setNotesExpanded((x) => !x)}
+              style={styles.showMoreButton}
+            >
+              <Text style={[styles.showMoreText, { color: theme.primary }]}>
+                {notesExpanded ? "Show less" : "Show more"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       {/* Actions row */}
@@ -801,6 +828,14 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     paddingHorizontal: 14,
     paddingBottom: 12,
+  },
+  showMoreButton: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  showMoreText: {
+    fontSize: 13,
+    fontWeight: "500",
   },
   actionsRow: {
     flexDirection: "row",

@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { forwardRef, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -26,6 +26,7 @@ type AuthFormScreenProps = {
 export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const router = useRouter();
   const theme = useTheme();
+  const { data: session, refetch: refetchSession } = authClient.useSession();
   const passwordInput = useRef<TextInput>(null);
   const emailInput = useRef<TextInput>(null);
   const [name, setName] = useState("");
@@ -34,11 +35,18 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [shouldEnterApp, setShouldEnterApp] = useState(false);
   const isSignUp = mode === "sign-up";
   const canSubmit =
     email.trim().length > 0 &&
     password.length > 0 &&
     (!isSignUp || name.trim().length > 0);
+
+  useEffect(() => {
+    if (shouldEnterApp && session) {
+      router.replace("/");
+    }
+  }, [router, session, shouldEnterApp]);
 
   const submit = async () => {
     if (!canSubmit || isSubmitting) return;
@@ -63,8 +71,18 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         return;
       }
 
-      router.replace("/");
+      await refetchSession();
+      const sessionResponse = await authClient.getSession();
+      if (!sessionResponse.data) {
+        setShouldEnterApp(false);
+        setError(
+          "Signed in, but the session could not be saved. Please try again.",
+        );
+        return;
+      }
+      setShouldEnterApp(true);
     } catch {
+      setShouldEnterApp(false);
       setError(
         "Could not reach the auth server. Check EXPO_PUBLIC_AUTH_URL and try again.",
       );

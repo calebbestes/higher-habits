@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   TASK_IMPORTANCES,
@@ -98,6 +99,7 @@ function capitalize(value: string) {
 
 export function TasksScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
@@ -259,7 +261,7 @@ export function TasksScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl

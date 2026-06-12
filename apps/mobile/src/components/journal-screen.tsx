@@ -1,8 +1,10 @@
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { GoalIcon } from "@/components/goal-icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   RefreshControl,
@@ -16,18 +18,22 @@ import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Fonts, MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type GoalLogsSnapshot,
+  deleteGoalLog,
   fetchAllGoalLogsSnapshot,
   fetchGoalLogsSnapshot,
   getMonthKey,
+  setGoalLogVisibility,
 } from "@/lib/goal-logs-client";
 import {
   type GoalPhoto,
   fetchAllGoalPhotos,
   fetchGoalPhotosForRange,
 } from "@/lib/goal-photos-client";
+import type { GoalVisibility } from "@/lib/goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -49,6 +55,7 @@ type JournalEntry = {
   goal: GoalOption;
   note: string;
   photoCount: number;
+  visibility: GoalVisibility;
 };
 
 const MONTHS = [
@@ -66,27 +73,8 @@ const MONTHS = [
   "December",
 ] as const;
 
-const GOAL_ICONS: Record<string, SymbolName> = {
-  "fa7-solid:bullseye": sym("target", "target"),
-  "mdi:heart-outline": sym("heart", "favorite"),
-  "mdi:dumbbell": sym("dumbbell", "fitness_center"),
-  "mdi:book-open-page-variant-outline": sym("book", "menu_book"),
-  "mdi:briefcase-outline": sym("briefcase", "work"),
-  "mdi:account-group-outline": sym("person.2", "groups"),
-  "mdi:cash": sym("dollarsign.circle", "paid"),
-  "mdi:star-outline": sym("star", "star"),
-  "mdi:phone-outline": sym("phone", "phone"),
-  "mdi:home-outline": sym("house", "home"),
-  "mdi:chart-line": sym("chart.line.uptrend.xyaxis", "show_chart"),
-  "mdi:hands-pray": sym("hands.sparkles", "self_improvement"),
-};
-
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
-}
-
-function goalSymbol(iconKey: string): SymbolName {
-  return GOAL_ICONS[iconKey] ?? sym("target", "target");
 }
 
 function dateKey(year: number, month: number, day: number): string {
@@ -143,6 +131,7 @@ function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
 
 export function JournalScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -154,6 +143,8 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [activePost, setActivePost] = useState<JournalEntry | null>(null);
+  const [isUpdatingPost, setIsUpdatingPost] = useState(false);
 
   const selectedDate = useMemo(
     () =>
@@ -294,7 +285,13 @@ export function JournalScreen() {
       const note = snapshot.notesByGoalDate[key] ?? "";
       const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
       if (!note.trim() && photoCount === 0) continue;
-      results.push({ dateKey: entryDateKey, goal, note, photoCount });
+      results.push({
+        dateKey: entryDateKey,
+        goal,
+        note,
+        photoCount,
+        visibility: snapshot.visibilityByGoalDate?.[key] ?? "only_me",
+      });
     }
 
     return results.sort(
@@ -304,11 +301,82 @@ export function JournalScreen() {
     );
   }, [goalById, range, selectedGoalId, snapshot]);
 
+  const handleSetPostVisibility = useCallback(
+    async (entry: JournalEntry, visibility: GoalVisibility) => {
+      if (isUpdatingPost || visibility === entry.visibility) return;
+      const key = `${entry.goal.id}_${entry.dateKey}`;
+      setIsUpdatingPost(true);
+
+      try {
+        await setGoalLogVisibility(entry.goal.id, entry.dateKey, visibility);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                visibilityByGoalDate: {
+                  ...current.visibilityByGoalDate,
+                  [key]: visibility,
+                },
+              }
+            : current,
+        );
+        setActivePost((current) =>
+          current ? { ...current, visibility } : current,
+        );
+      } catch (visibilityError) {
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      } finally {
+        setIsUpdatingPost(false);
+      }
+    },
+    [isUpdatingPost],
+  );
+
+  const confirmDeletePost = useCallback(
+    (entry: JournalEntry) => {
+      Alert.alert(
+        "Delete log?",
+        "This permanently deletes the report, note, photos, and feed activity for this goal instance.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              setIsUpdatingPost(true);
+
+              try {
+                await deleteGoalLog(entry.goal.id, entry.dateKey);
+                setActivePost(null);
+                await load();
+              } catch (deleteError) {
+                Alert.alert(
+                  "Could not delete log",
+                  deleteError instanceof Error
+                    ? deleteError.message
+                    : "The goal log could not be deleted.",
+                );
+              } finally {
+                setIsUpdatingPost(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [load],
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -376,6 +444,7 @@ export function JournalScreen() {
                     photosByEntry.get(`${entry.goal.id}_${entry.dateKey}`) ?? []
                   }
                   onOpenPhoto={setActivePhoto}
+                  onOpenMenu={setActivePost}
                 />
               ))}
             </View>
@@ -403,6 +472,15 @@ export function JournalScreen() {
           setSelectedYear(year);
           setPicker(null);
         }}
+      />
+      <PostActionsSheet
+        entry={activePost}
+        isUpdating={isUpdatingPost}
+        onClose={() => setActivePost(null)}
+        onDelete={confirmDeletePost}
+        onSetVisibility={(entry, visibility) =>
+          void handleSetPostVisibility(entry, visibility)
+        }
       />
       <PhotoViewer photo={activePhoto} onClose={() => setActivePhoto(null)} />
     </View>
@@ -497,11 +575,13 @@ function JournalCard({
   photoLoadFailed,
   photos,
   onOpenPhoto,
+  onOpenMenu,
 }: {
   entry: JournalEntry;
   photoLoadFailed: boolean;
   photos: GoalPhoto[];
   onOpenPhoto: (photo: GoalPhoto) => void;
+  onOpenMenu: (entry: JournalEntry) => void;
 }) {
   const theme = useTheme();
 
@@ -519,11 +599,10 @@ function JournalCard({
             { backgroundColor: theme.backgroundElement },
           ]}
         >
-          <SymbolView
-            name={goalSymbol(entry.goal.iconKey)}
+          <GoalIcon
+            iconKey={entry.goal.iconKey}
             size={16}
-            weight="semibold"
-            tintColor={theme.primary}
+            color={theme.primary}
           />
         </View>
         <View style={styles.cardHeaderText}>
@@ -534,20 +613,24 @@ function JournalCard({
             {entry.goal.name}
           </Text>
         </View>
-        {entry.photoCount > 0 ? (
-          <View style={styles.photoCount}>
-            <SymbolView
-              name={sym("photo", "image")}
-              size={14}
-              tintColor={theme.textSecondary}
-            />
-            <Text
-              style={[styles.photoCountText, { color: theme.textSecondary }]}
-            >
-              {entry.photoCount}
-            </Text>
-          </View>
-        ) : null}
+        <Pressable
+          accessibilityLabel={`Open options for ${entry.goal.name} on ${formatDate(entry.dateKey)}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => onOpenMenu(entry)}
+          style={({ pressed }) => [
+            styles.postMenuButton,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
       </View>
 
       {entry.note.trim() ? <RichJournalNote html={entry.note} /> : null}
@@ -607,10 +690,107 @@ function JournalCard({
   );
 }
 
+const VISIBILITY_OPTIONS: Array<{
+  value: GoalVisibility;
+  label: string;
+  icon: SymbolName;
+}> = [
+  { value: "only_me", label: "Only me", icon: sym("person.fill", "person") },
+  {
+    value: "goal_friends",
+    label: "Goal friends",
+    icon: sym("person.2.fill", "group"),
+  },
+  {
+    value: "all_friends",
+    label: "All friends",
+    icon: sym("person.3.fill", "groups"),
+  },
+];
+
+function PostActionsSheet({
+  entry,
+  isUpdating,
+  onClose,
+  onDelete,
+  onSetVisibility,
+}: {
+  entry: JournalEntry | null;
+  isUpdating: boolean;
+  onClose: () => void;
+  onDelete: (entry: JournalEntry) => void;
+  onSetVisibility: (entry: JournalEntry, visibility: GoalVisibility) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <PickerSheet isOpen={entry !== null} title="Post options" onClose={onClose}>
+      {entry ? (
+        <>
+          <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
+            Visibility
+          </Text>
+          {VISIBILITY_OPTIONS.map((option) => (
+            <PickerRow
+              key={option.value}
+              disabled={isUpdating}
+              icon={option.icon}
+              label={option.label}
+              selected={entry.visibility === option.value}
+              onPress={() => onSetVisibility(entry, option.value)}
+            />
+          ))}
+          <View
+            style={[
+              styles.postActionDivider,
+              { backgroundColor: theme.tabBorder },
+            ]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={isUpdating}
+            onPress={() => onDelete(entry)}
+            style={({ pressed }) => [
+              styles.deleteLogRow,
+              isUpdating && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            {isUpdating ? (
+              <ActivityIndicator color="#C84850" size="small" />
+            ) : (
+              <SymbolView
+                name={sym("trash.fill", "delete")}
+                size={18}
+                tintColor="#C84850"
+              />
+            )}
+            <View style={styles.deleteLogText}>
+              <Text style={styles.deleteLogTitle}>Delete log</Text>
+              <Text
+                style={[
+                  styles.deleteLogDescription,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Deletes its report, note, photos, and feed activity.
+              </Text>
+            </View>
+          </Pressable>
+        </>
+      ) : null}
+    </PickerSheet>
+  );
+}
+
+const JOURNAL_COLLAPSE_HEIGHT = 130;
+
 function RichJournalNote({ html }: { html: string }) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const contentWidth = Math.max(0, Math.min(width, MaxContentWidth) - 66);
+  const [expanded, setExpanded] = useState(false);
+  const isLong = html.replace(/<[^>]*>/g, "").trim().length > 300;
   const tagsStyles = useMemo<MixedStyleRecord>(
     () => ({
       p: {
@@ -691,20 +871,38 @@ function RichJournalNote({ html }: { html: string }) {
 
   return (
     <View style={styles.richNote}>
-      <RenderHTML
-        baseStyle={{
-          color: theme.text,
-          fontSize: 14,
-          fontWeight: "500",
-          lineHeight: 21,
-        }}
-        contentWidth={contentWidth}
-        defaultTextProps={{ selectable: true }}
-        enableCSSInlineProcessing={false}
-        ignoredDomTags={["script", "style", "iframe", "img", "video"]}
-        source={{ html }}
-        tagsStyles={tagsStyles}
-      />
+      <View
+        style={
+          isLong && !expanded
+            ? { maxHeight: JOURNAL_COLLAPSE_HEIGHT, overflow: "hidden" }
+            : undefined
+        }
+      >
+        <RenderHTML
+          baseStyle={{
+            color: theme.text,
+            fontSize: 14,
+            fontWeight: "500",
+            lineHeight: 21,
+          }}
+          contentWidth={contentWidth}
+          defaultTextProps={{ selectable: true }}
+          enableCSSInlineProcessing={false}
+          ignoredDomTags={["script", "style", "iframe", "img", "video"]}
+          source={{ html }}
+          tagsStyles={tagsStyles}
+        />
+      </View>
+      {isLong ? (
+        <Pressable
+          onPress={() => setExpanded((x) => !x)}
+          style={styles.showMoreButton}
+        >
+          <Text style={[styles.showMoreText, { color: theme.primary }]}>
+            {expanded ? "Show less" : "Show more"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -769,7 +967,7 @@ function GoalPickerModal({
           {section.goals.map((goal) => (
             <PickerRow
               key={goal.id}
-              icon={goalSymbol(goal.iconKey)}
+              iconKey={goal.iconKey}
               label={goal.name}
               selected={selectedGoalId === goal.id}
               onPress={() => onSelect(goal.id)}
@@ -945,32 +1143,46 @@ function PickerSheet({
 
 function PickerRow({
   icon,
+  iconKey,
   label,
   selected,
+  disabled = false,
   onPress,
 }: {
-  icon: SymbolName;
+  icon?: SymbolName;
+  iconKey?: string;
   label: string;
   selected: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   const theme = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.sheetRow,
         selected && { backgroundColor: `${theme.primary}12` },
+        disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
-      <SymbolView
-        name={icon}
-        size={18}
-        tintColor={selected ? theme.primary : theme.tabIcon}
-      />
+      {iconKey ? (
+        <GoalIcon
+          iconKey={iconKey}
+          size={18}
+          color={selected ? theme.primary : theme.tabIcon}
+        />
+      ) : (
+        <SymbolView
+          name={icon ?? sym("target", "target")}
+          size={18}
+          tintColor={selected ? theme.primary : theme.tabIcon}
+        />
+      )}
       <Text
         style={[
           styles.sheetRowLabel,
@@ -1154,9 +1366,16 @@ const styles = StyleSheet.create({
   cardHeaderText: { flex: 1, gap: 1 },
   cardDate: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
   cardGoal: { fontSize: 11, lineHeight: 15, fontWeight: "600" },
-  photoCount: { flexDirection: "row", alignItems: "center", gap: 4 },
-  photoCountText: { fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  postMenuButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
   richNote: { minWidth: 0 },
+  showMoreButton: { paddingTop: 4 },
+  showMoreText: { fontSize: 13, fontWeight: "500" },
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   singlePhotoGrid: { flexDirection: "column" },
   photoButton: {
@@ -1225,6 +1444,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   sheetRowLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  postActionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 14,
+    marginVertical: 8,
+  },
+  deleteLogRow: {
+    minHeight: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  deleteLogText: { flex: 1, gap: 1 },
+  deleteLogTitle: {
+    color: "#C84850",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  deleteLogDescription: { fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  disabled: { opacity: 0.5 },
   yearNavigator: {
     minHeight: 58,
     flexDirection: "row",

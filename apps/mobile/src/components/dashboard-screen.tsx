@@ -1,4 +1,5 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { GoalIcon } from "@/components/goal-icon";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type CategoryWithGoals,
@@ -29,16 +31,6 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-const GOAL_ICONS: Record<string, SymbolName> = {
-  "fa7-solid:bullseye": sym("target", "target"),
-  "mdi:heart-outline": sym("heart", "favorite"),
-  "mdi:dumbbell": sym("dumbbell", "fitness_center"),
-  "mdi:book-open-page-variant-outline": sym("book", "menu_book"),
-  "mdi:briefcase-outline": sym("briefcase", "work"),
-  "mdi:account-group-outline": sym("person.2", "groups"),
-  "mdi:cash": sym("dollarsign.circle", "paid"),
-  "mdi:star-outline": sym("star", "star"),
-};
 
 type CategoryConfig = { color: string };
 
@@ -57,9 +49,6 @@ function getCategoryColor(name: string): string {
   return CATEGORY_CONFIG[name]?.color ?? DEFAULT_CATEGORY_COLOR;
 }
 
-function goalSymbol(iconKey: string): SymbolName {
-  return GOAL_ICONS[iconKey] ?? sym("target", "target");
-}
 
 function getLast10Days(today: Date): string[] {
   const days: string[] = [];
@@ -73,6 +62,7 @@ function getLast10Days(today: Date): string[] {
 
 export function DashboardScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const today = useRef(new Date()).current;
   const currentMonthKey = useMemo(() => getMonthKey(today), [today]);
 
@@ -159,7 +149,7 @@ export function DashboardScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -363,11 +353,10 @@ function MonthlyGoalRow({
             },
           ]}
         >
-          <SymbolView
-            name={goalSymbol(goal.iconKey)}
+          <GoalIcon
+            iconKey={goal.iconKey}
             size={18}
-            weight="semibold"
-            tintColor={isComplete ? theme.primary : theme.tabIcon}
+            color={isComplete ? theme.primary : theme.tabIcon}
           />
         </View>
         <View style={styles.progressBarWrap}>
@@ -434,11 +423,10 @@ function CategoryHeatmap({
                 { backgroundColor: theme.backgroundElement },
               ]}
             >
-              <SymbolView
-                name={goalSymbol(goal.iconKey)}
+              <GoalIcon
+                iconKey={goal.iconKey}
                 size={13}
-                weight="semibold"
-                tintColor={theme.tabIcon}
+                color={theme.tabIcon}
               />
             </View>
             <View style={styles.dayBlocks}>
@@ -471,11 +459,10 @@ function IconPreview({ goals }: { goals: GoalInCategory[] }) {
             { backgroundColor: theme.backgroundElement },
           ]}
         >
-          <SymbolView
-            name={goalSymbol(goal.iconKey)}
+          <GoalIcon
+            iconKey={goal.iconKey}
             size={16}
-            weight="semibold"
-            tintColor={theme.textSecondary}
+            color={theme.textSecondary}
           />
         </View>
       ))}

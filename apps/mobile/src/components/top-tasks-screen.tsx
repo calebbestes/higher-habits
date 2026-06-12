@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   TASK_IMPORTANCES,
@@ -128,6 +129,7 @@ function formatDueDate(dueDate: string, today: string): string {
 
 export function TopTasksScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const today = useRef(todayDateKey()).current;
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -260,7 +262,7 @@ export function TopTasksScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

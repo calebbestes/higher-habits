@@ -1,4 +1,5 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { GoalIcon } from "@/components/goal-icon";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,10 +17,12 @@ import ReanimatedSwipeable, {
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type GoalLogStatus,
@@ -29,6 +32,7 @@ import {
   getMonthKey,
   setGoalLog,
   setGoalLogNote,
+  setGoalLogVisibility,
   toDateKey,
 } from "@/lib/goal-logs-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
@@ -37,6 +41,7 @@ import {
   type Category,
   type Goal,
   type GoalInput,
+  type GoalVisibility,
   createCategory,
   createGoal,
   deleteGoal,
@@ -98,20 +103,6 @@ const PERIOD_FILTER_OPTIONS: {
   },
 ];
 
-const GOAL_ICONS: Record<string, SymbolName> = {
-  "fa7-solid:bullseye": sym("target", "target"),
-  "mdi:heart-outline": sym("heart", "favorite"),
-  "mdi:dumbbell": sym("dumbbell", "fitness_center"),
-  "mdi:book-open-page-variant-outline": sym("book", "menu_book"),
-  "mdi:briefcase-outline": sym("briefcase", "work"),
-  "mdi:account-group-outline": sym("person.2", "groups"),
-  "mdi:cash": sym("dollarsign.circle", "paid"),
-  "mdi:star-outline": sym("star", "star"),
-  "mdi:phone-outline": sym("phone", "phone"),
-  "mdi:home-outline": sym("house", "home"),
-  "mdi:chart-line": sym("chart.line.uptrend.xyaxis", "show_chart"),
-  "mdi:hands-pray": sym("hands.sparkles", "self_improvement"),
-};
 
 const DAY_ABBRS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -164,12 +155,57 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-function goalSymbol(iconKey: string): SymbolName {
-  return GOAL_ICONS[iconKey] ?? sym("target", "target");
-}
 
 function addMonths(date: Date, months: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function startOfWeekDate(d: Date): Date {
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  s.setDate(s.getDate() - s.getDay());
+  return s;
+}
+
+function weeksBetween(ref: Date, d: Date): number {
+  return Math.round(
+    (startOfWeekDate(d).getTime() - startOfWeekDate(ref).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+function weekOfMonth(d: Date): number {
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  if (d.getDate() + 7 > daysInMonth) return 4;
+  return Math.ceil(d.getDate() / 7) - 1;
+}
+
+function isGoalScheduledForDate(
+  goal: import("@/lib/goal-logs-client").PeriodicGoalInfo,
+  date: Date,
+): boolean {
+  if (!goal.period || goal.period === "daily") return true;
+  const interval = goal.repeatInterval ?? 1;
+  const dow = date.getDay();
+
+  if (goal.period === "weekly") {
+    const days = goal.repeatDays;
+    if (days && days.length > 0 && !days.includes(dow)) return false;
+    if (interval === 1) return true;
+    return weeksBetween(new Date(goal.createdAt), date) % interval === 0;
+  }
+
+  if (goal.period === "monthly") {
+    const ref = new Date(goal.createdAt);
+    const monthDiff =
+      (date.getFullYear() - ref.getFullYear()) * 12 +
+      (date.getMonth() - ref.getMonth());
+    if (monthDiff % interval !== 0) return false;
+    const type = goal.repeatMonthlyType ?? "day_of_month";
+    if (type === "day_of_month") return date.getDate() === ref.getDate();
+    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+  }
+
+  return false;
 }
 
 function isSameMonth(a: Date, b: Date): boolean {
@@ -231,6 +267,7 @@ function getCompletionsRemaining(
 
 export function MonthlyGoalsScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const today = useRef(new Date()).current;
   const todayDateKey = useMemo(() => toDateKey(today), [today]);
 
@@ -252,6 +289,7 @@ export function MonthlyGoalsScreen() {
   const [noteGoal, setNoteGoal] = useState<PeriodicGoalInfo | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -308,6 +346,9 @@ export function MonthlyGoalsScreen() {
       categoryName: category?.name ?? "",
       categoryIcon: category?.icon ?? "",
       hidden: false,
+      repeatInterval: null,
+      repeatDays: null,
+      repeatMonthlyType: null,
       createdAt: "",
       updatedAt: "",
       period:
@@ -408,7 +449,6 @@ export function MonthlyGoalsScreen() {
         const snap = await fetchGoalLogsSnapshot(monthKey);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByGoalDate);
-        setActiveGoal(null);
       } catch (photoError) {
         Alert.alert(
           "Could not add photo",
@@ -421,6 +461,39 @@ export function MonthlyGoalsScreen() {
       }
     },
     [monthKey, selectedDateKey, uploadingPhotoSource],
+  );
+
+  const handleSetVisibility = useCallback(
+    async (goalId: string, visibility: GoalVisibility) => {
+      if (isUpdatingVisibility) return;
+      const key = `${goalId}_${selectedDateKey}`;
+      setIsUpdatingVisibility(true);
+
+      try {
+        await setGoalLogVisibility(goalId, selectedDateKey, visibility);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                visibilityByGoalDate: {
+                  ...current.visibilityByGoalDate,
+                  [key]: visibility,
+                },
+              }
+            : current,
+        );
+      } catch (visibilityError) {
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      } finally {
+        setIsUpdatingVisibility(false);
+      }
+    },
+    [isUpdatingVisibility, selectedDateKey],
   );
 
   const calendarDays = useMemo(
@@ -495,7 +568,9 @@ export function MonthlyGoalsScreen() {
     for (const { date } of calendarDays) {
       const dk = toDateKey(date);
       map[dk] = periodicGoals.filter(
-        (goal) => !!logsByGoalDate[`${goal.id}_${dk}`],
+        (goal) =>
+          !!logsByGoalDate[`${goal.id}_${dk}`] ||
+          isGoalScheduledForDate(goal, date),
       );
     }
     return map;
@@ -526,7 +601,7 @@ export function MonthlyGoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -698,6 +773,17 @@ export function MonthlyGoalsScreen() {
               `${activeGoal.id}_${selectedDateKey}`
             ]?.trim(),
           )}
+          hasPhoto={
+            (snapshot?.photoCountsByGoalDate[
+              `${activeGoal.id}_${selectedDateKey}`
+            ] ?? 0) > 0
+          }
+          visibility={
+            snapshot?.visibilityByGoalDate[
+              `${activeGoal.id}_${selectedDateKey}`
+            ] ?? activeGoal.visibility
+          }
+          isUpdatingVisibility={isUpdatingVisibility}
           status={logsByGoalDate[`${activeGoal.id}_${selectedDateKey}`]}
           isUpdating={updatingKeys.has(`${activeGoal.id}_${selectedDateKey}`)}
           selectedDateKey={selectedDateKey}
@@ -708,6 +794,9 @@ export function MonthlyGoalsScreen() {
             setNoteGoal(activeGoal);
             setActiveGoal(null);
           }}
+          onSetVisibility={(visibility) =>
+            void handleSetVisibility(activeGoal.id, visibility)
+          }
           onSetStatus={(newStatus: GoalLogStatus) => {
             void handleSetStatus(activeGoal.id, newStatus);
             setActiveGoal(null);
@@ -724,7 +813,10 @@ export function MonthlyGoalsScreen() {
             null
           }
           onClose={() => setNoteGoal(null)}
-          onSave={(notes) => handleSaveNote(noteGoal.id, notes)}
+          onSave={async (notes) => {
+            await handleSaveNote(noteGoal.id, notes);
+            setActiveGoal(noteGoal);
+          }}
         />
       ) : null}
 
@@ -1132,11 +1224,10 @@ const DayCell = memo(function DayCell({
                 key={goal.id}
                 style={[styles.iconTile, { backgroundColor: bg }]}
               >
-                <SymbolView
-                  name={goalSymbol(goal.iconKey)}
+                <GoalIcon
+                  iconKey={goal.iconKey}
                   size={9}
-                  weight="semibold"
-                  tintColor="#FFFFFF"
+                  color="#FFFFFF"
                 />
               </View>
             );
@@ -1492,11 +1583,10 @@ function GoalListRow({
       <View
         style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
       >
-        <SymbolView
-          name={goalSymbol(goal.iconKey)}
+        <GoalIcon
+          iconKey={goal.iconKey}
           size={17}
-          weight="semibold"
-          tintColor={isComplete ? theme.primary : theme.tabIcon}
+          color={isComplete ? theme.primary : theme.tabIcon}
         />
       </View>
 
@@ -1577,25 +1667,33 @@ function GoalListRow({
 function GoalActionsModal({
   goal,
   hasNote,
+  hasPhoto,
+  visibility,
   status,
   isUpdating,
+  isUpdatingVisibility,
   selectedDateKey,
   todayDateKey,
   uploadingPhotoSource,
   onAddPhoto,
   onOpenNote,
+  onSetVisibility,
   onSetStatus,
   onDismiss,
 }: {
   goal: PeriodicGoalInfo;
   hasNote: boolean;
+  hasPhoto: boolean;
+  visibility: GoalVisibility;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
+  isUpdatingVisibility: boolean;
   selectedDateKey: string;
   todayDateKey: string;
   uploadingPhotoSource: GoalPhotoSource | null;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
+  onSetVisibility: (visibility: GoalVisibility) => void;
   onSetStatus: (status: GoalLogStatus) => void;
   onDismiss: () => void;
 }) {
@@ -1721,6 +1819,14 @@ function GoalActionsModal({
                 {hasNote ? "Edit note" : "Add note"}
               </Text>
             </Pressable>
+
+            {hasNote || hasPhoto ? (
+              <GoalLogVisibilityControl
+                disabled={isUpdatingVisibility}
+                value={visibility}
+                onChange={onSetVisibility}
+              />
+            ) : null}
 
             {/* Photo row */}
             <View style={modalStyles.photoRow}>

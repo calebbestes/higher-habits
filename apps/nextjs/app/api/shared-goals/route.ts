@@ -194,6 +194,7 @@ export async function POST(request: Request) {
             period: "daily",
             categoryId,
             priority: "medium",
+            visibility: "goal_friends",
             iconKey:
               data.mode === "collaborative"
                 ? "mdi:account-group-outline"

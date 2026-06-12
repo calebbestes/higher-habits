@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
 
 const createFriendSchema = z.object({
   email: z
@@ -192,26 +193,22 @@ async function getIncentiveProgress(
   };
 }
 
-async function getFriendActivitySummary(db: FriendsDb, friendId: string) {
+async function getFriendActivitySummary(
+  db: FriendsDb,
+  viewerId: string,
+  friendId: string,
+) {
   const last7DateKeys = getRecentDateKeys(7);
   const last7DateKeySet = new Set(last7DateKeys);
   const startDateKey = last7DateKeys[0] ?? mountainDateKey();
 
-  const [lastActivity] = await db
-    .select({
-      date: goalLogs.date,
-      updatedAt: goalLogs.updatedAt,
-    })
-    .from(goalLogs)
-    .where(eq(goalLogs.userId, friendId))
-    .orderBy(desc(goalLogs.updatedAt))
-    .limit(1);
-
-  const dailyGoals = await db
+  const allDailyGoals = await db
     .select({
       id: goals.id,
       name: goals.name,
       priority: goals.priority,
+      visibility: goals.visibility,
+      period: goals.period,
     })
     .from(goals)
     .where(
@@ -221,6 +218,35 @@ async function getFriendActivitySummary(db: FriendsDb, friendId: string) {
         eq(goals.hidden, false),
       ),
     );
+  const visibleGoalIds = await getVisibleGoalIdsForFriend(
+    db,
+    viewerId,
+    friendId,
+    allDailyGoals,
+  );
+  const dailyGoals = allDailyGoals.filter((goal) =>
+    visibleGoalIds.has(goal.id),
+  );
+  const [lastActivity] =
+    dailyGoals.length > 0
+      ? await db
+          .select({
+            date: goalLogs.date,
+            updatedAt: goalLogs.updatedAt,
+          })
+          .from(goalLogs)
+          .where(
+            and(
+              eq(goalLogs.userId, friendId),
+              inArray(
+                goalLogs.goalId,
+                dailyGoals.map((goal) => goal.id),
+              ),
+            ),
+          )
+          .orderBy(desc(goalLogs.updatedAt))
+          .limit(1)
+      : [];
 
   const dailyGoalPoints = new Map(
     dailyGoals.map((goal) => [goal.id, PRIORITY_POINTS[goal.priority]]),
@@ -394,7 +420,7 @@ export async function GET(request: Request) {
         messages: messagesByFriendshipId.get(row.id) ?? [],
         incentives: incentivesByFriendshipId.get(row.id) ?? [],
         ...(row.status === "accepted"
-          ? await getFriendActivitySummary(db, row.friendId)
+          ? await getFriendActivitySummary(db, user.id, row.friendId)
           : {
               lastActiveAt: null,
               lastActiveDate: null,

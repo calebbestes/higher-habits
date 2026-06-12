@@ -2,7 +2,9 @@
 
 import {
   type GoalLogsSnapshot,
+  deleteGoalLog,
   fetchGoalLogsSnapshot,
+  setGoalLogVisibility,
 } from "@/lib/goal-logs-client";
 import {
   type GoalPhoto,
@@ -10,6 +12,11 @@ import {
 } from "@/lib/goal-photos-client";
 import {
   Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownSection,
+  DropdownTrigger,
   Modal,
   ModalBody,
   ModalContent,
@@ -17,6 +24,7 @@ import {
   SelectItem,
   SelectSection,
   Spinner,
+  addToast,
   cn,
 } from "@heroui/react";
 import { Icon } from "@iconify/react";
@@ -24,6 +32,7 @@ import parse from "html-react-parser";
 import { useEffect, useMemo, useState } from "react";
 
 import { SettingsLink } from "@/components/settings-link";
+import type { GoalVisibility } from "@/lib/goals-client";
 
 type Period = "30d" | "6m";
 
@@ -39,6 +48,7 @@ type MergedData = {
   logsByGoalDate: Record<string, "complete">;
   notesByGoalDate: Record<string, string>;
   photoCountsByGoalDate: Record<string, number>;
+  visibilityByGoalDate: Record<string, GoalVisibility>;
 };
 
 type JournalEntry = {
@@ -48,6 +58,7 @@ type JournalEntry = {
   goalIcon: string;
   notes: string;
   photoCount: number;
+  visibility: GoalVisibility;
 };
 
 function formatDate(dateKey: string) {
@@ -101,6 +112,10 @@ function mergeSnapshots(snapshots: GoalLogsSnapshot[]): MergedData {
       {},
       ...snapshots.map((s) => s.photoCountsByGoalDate ?? {}),
     ),
+    visibilityByGoalDate: Object.assign(
+      {},
+      ...snapshots.map((s) => s.visibilityByGoalDate ?? {}),
+    ),
   };
 }
 
@@ -131,6 +146,7 @@ function getEntries(
       goalIcon: goal.icon,
       notes,
       photoCount,
+      visibility: data.visibilityByGoalDate[key] ?? "only_me",
     });
   }
 
@@ -148,6 +164,7 @@ export function JournalPageClient() {
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [updatingPostKey, setUpdatingPostKey] = useState<string | null>(null);
 
   const monthKeys = useMemo(() => getMonthKeysForPeriod(period), [period]);
 
@@ -305,6 +322,86 @@ export function JournalPageClient() {
 
   const periodLabel = period === "30d" ? "last 30 days" : "last 6 months";
 
+  const updatePostVisibility = async (
+    entry: JournalEntry,
+    visibility: GoalVisibility,
+  ) => {
+    if (entry.visibility === visibility) return;
+    const key = `${entry.goalId}_${entry.dateKey}`;
+    setUpdatingPostKey(key);
+
+    try {
+      await setGoalLogVisibility(entry.goalId, entry.dateKey, visibility);
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              visibilityByGoalDate: {
+                ...current.visibilityByGoalDate,
+                [key]: visibility,
+              },
+            }
+          : current,
+      );
+    } catch (error) {
+      addToast({
+        title: "Could not change visibility",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    } finally {
+      setUpdatingPostKey(null);
+    }
+  };
+
+  const removePost = async (entry: JournalEntry) => {
+    if (
+      !window.confirm(
+        "Delete this log? This permanently deletes its report, note, photos, and feed activity.",
+      )
+    ) {
+      return;
+    }
+
+    const key = `${entry.goalId}_${entry.dateKey}`;
+    setUpdatingPostKey(key);
+
+    try {
+      await deleteGoalLog(entry.goalId, entry.dateKey);
+      setData((current) => {
+        if (!current) return current;
+        const logsByGoalDate = { ...current.logsByGoalDate };
+        const notesByGoalDate = { ...current.notesByGoalDate };
+        const photoCountsByGoalDate = { ...current.photoCountsByGoalDate };
+        const visibilityByGoalDate = { ...current.visibilityByGoalDate };
+        delete logsByGoalDate[key];
+        delete notesByGoalDate[key];
+        delete photoCountsByGoalDate[key];
+        delete visibilityByGoalDate[key];
+        return {
+          ...current,
+          logsByGoalDate,
+          notesByGoalDate,
+          photoCountsByGoalDate,
+          visibilityByGoalDate,
+        };
+      });
+      setPhotosByDate((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    } catch (error) {
+      addToast({
+        title: "Could not delete log",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    } finally {
+      setUpdatingPostKey(null);
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
       <div className="mb-6 flex items-start gap-3">
@@ -421,111 +518,193 @@ export function JournalPageClient() {
         </div>
       ) : (
         <div className="space-y-4">
-          {entries.map(
-            ({ dateKey, goalId, goalLabel, goalIcon, notes, photoCount }) => {
-              const photos = photosByDate[`${goalId}_${dateKey}`] ?? [];
+          {entries.map((entry) => {
+            const { dateKey, goalId, goalLabel, goalIcon, notes, photoCount } =
+              entry;
+            const photos = photosByDate[`${goalId}_${dateKey}`] ?? [];
+            const postKey = `${goalId}_${dateKey}`;
 
-              return (
+            return (
+              <div
+                key={`${goalId}_${dateKey}`}
+                className="rounded-2xl border border-divider bg-content1 px-5 py-4"
+              >
                 <div
-                  key={`${goalId}_${dateKey}`}
-                  className="rounded-2xl border border-divider bg-content1 px-5 py-4"
+                  className={cn(
+                    "flex items-center gap-2.5",
+                    notes.trim() || photoCount > 0 ? "mb-3" : "",
+                  )}
                 >
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Icon icon={goalIcon} className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-foreground">
+                      {formatDate(dateKey)}
+                    </p>
+                    <p className="text-[11px] text-foreground-400">
+                      {goalLabel}
+                    </p>
+                  </div>
+                  <Dropdown placement="bottom-end">
+                    <DropdownTrigger>
+                      <Button
+                        isIconOnly
+                        aria-label={`Open options for ${goalLabel} on ${formatDate(dateKey)}`}
+                        isLoading={updatingPostKey === postKey}
+                        radius="lg"
+                        size="sm"
+                        variant="flat"
+                      >
+                        <Icon icon="mdi:dots-horizontal" className="h-4 w-4" />
+                      </Button>
+                    </DropdownTrigger>
+                    <DropdownMenu
+                      aria-label="Post options"
+                      disabledKeys={
+                        updatingPostKey === postKey
+                          ? new Set([
+                              "only_me",
+                              "goal_friends",
+                              "all_friends",
+                              "delete",
+                            ])
+                          : new Set()
+                      }
+                      onAction={(key) => {
+                        if (key === "delete") {
+                          void removePost(entry);
+                          return;
+                        }
+                        void updatePostVisibility(entry, key as GoalVisibility);
+                      }}
+                    >
+                      <DropdownSection title="Visibility" showDivider>
+                        <DropdownItem
+                          key="only_me"
+                          startContent={
+                            <Icon icon="mdi:account" className="h-4 w-4" />
+                          }
+                          endContent={
+                            entry.visibility === "only_me" ? (
+                              <Icon icon="mdi:check" className="h-4 w-4" />
+                            ) : null
+                          }
+                        >
+                          Only me
+                        </DropdownItem>
+                        <DropdownItem
+                          key="goal_friends"
+                          startContent={
+                            <Icon
+                              icon="mdi:account-multiple"
+                              className="h-4 w-4"
+                            />
+                          }
+                          endContent={
+                            entry.visibility === "goal_friends" ? (
+                              <Icon icon="mdi:check" className="h-4 w-4" />
+                            ) : null
+                          }
+                        >
+                          Goal friends
+                        </DropdownItem>
+                        <DropdownItem
+                          key="all_friends"
+                          startContent={
+                            <Icon
+                              icon="mdi:account-group"
+                              className="h-4 w-4"
+                            />
+                          }
+                          endContent={
+                            entry.visibility === "all_friends" ? (
+                              <Icon icon="mdi:check" className="h-4 w-4" />
+                            ) : null
+                          }
+                        >
+                          All friends
+                        </DropdownItem>
+                      </DropdownSection>
+                      <DropdownItem
+                        key="delete"
+                        className="text-danger"
+                        color="danger"
+                        startContent={
+                          <Icon icon="mdi:delete-outline" className="h-4 w-4" />
+                        }
+                      >
+                        Delete log
+                      </DropdownItem>
+                    </DropdownMenu>
+                  </Dropdown>
+                </div>
+                {notes.trim() ? (
                   <div
                     className={cn(
-                      "flex items-center gap-2.5",
-                      notes.trim() || photoCount > 0 ? "mb-3" : "",
+                      "text-sm leading-relaxed text-foreground-700",
+                      "[&_h1]:mb-1 [&_h1]:text-base [&_h1]:font-bold",
+                      "[&_h2]:mb-1 [&_h2]:text-sm [&_h2]:font-semibold",
+                      "[&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-medium",
+                      "[&_p]:mb-1 last:[&_p]:mb-0",
+                      "[&_ul]:ml-4 [&_ul]:list-disc [&_ul]:mb-1",
+                      "[&_ol]:ml-4 [&_ol]:list-decimal [&_ol]:mb-1",
+                      "[&_li]:mb-0.5",
+                      "[&_strong]:font-semibold",
+                      "[&_em]:italic",
                     )}
                   >
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon icon={goalIcon} className="h-3.5 w-3.5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-foreground">
-                        {formatDate(dateKey)}
-                      </p>
-                      <p className="text-[11px] text-foreground-400">
-                        {goalLabel}
-                      </p>
-                    </div>
-                    {photoCount > 0 ? (
-                      <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-foreground-400">
-                        <Icon
-                          icon="mdi:image-outline"
-                          className="h-3.5 w-3.5"
-                        />
-                        {photoCount}
-                      </span>
-                    ) : null}
+                    {parse(notes)}
                   </div>
-                  {notes.trim() ? (
-                    <div
-                      className={cn(
-                        "text-sm leading-relaxed text-foreground-700",
-                        "[&_h1]:mb-1 [&_h1]:text-base [&_h1]:font-bold",
-                        "[&_h2]:mb-1 [&_h2]:text-sm [&_h2]:font-semibold",
-                        "[&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-medium",
-                        "[&_p]:mb-1 last:[&_p]:mb-0",
-                        "[&_ul]:ml-4 [&_ul]:list-disc [&_ul]:mb-1",
-                        "[&_ol]:ml-4 [&_ol]:list-decimal [&_ol]:mb-1",
-                        "[&_li]:mb-0.5",
-                        "[&_strong]:font-semibold",
-                        "[&_em]:italic",
-                      )}
-                    >
-                      {parse(notes)}
-                    </div>
-                  ) : null}
-                  {photoCount > 0 ? (
-                    <div
-                      className={cn(
-                        "grid gap-2",
-                        notes.trim() ? "mt-4" : "",
-                        photoCount === 1 ? "grid-cols-1" : "grid-cols-2",
-                      )}
-                    >
-                      {loadingPhotos && photos.length === 0 ? (
-                        <div
+                ) : null}
+                {photoCount > 0 ? (
+                  <div
+                    className={cn(
+                      "grid gap-2",
+                      notes.trim() ? "mt-4" : "",
+                      photoCount === 1 ? "grid-cols-1" : "grid-cols-2",
+                    )}
+                  >
+                    {loadingPhotos && photos.length === 0 ? (
+                      <div
+                        className={cn(
+                          "animate-pulse rounded-lg bg-default-100",
+                          photoCount === 1
+                            ? "aspect-[4/3]"
+                            : "col-span-2 aspect-[2/1]",
+                        )}
+                      />
+                    ) : photos.length > 0 ? (
+                      photos.map((photo) => (
+                        <button
+                          key={photo.id}
+                          type="button"
+                          aria-label={`Open photo from ${formatDate(dateKey)}`}
+                          onClick={() => setActivePhoto(photo)}
                           className={cn(
-                            "animate-pulse rounded-lg bg-default-100",
-                            photoCount === 1
-                              ? "aspect-[4/3]"
-                              : "col-span-2 aspect-[2/1]",
+                            "overflow-hidden rounded-lg bg-default-100",
+                            photoCount === 1 ? "aspect-[4/3]" : "aspect-square",
                           )}
-                        />
-                      ) : photos.length > 0 ? (
-                        photos.map((photo) => (
-                          <button
-                            key={photo.id}
-                            type="button"
-                            aria-label={`Open photo from ${formatDate(dateKey)}`}
-                            onClick={() => setActivePhoto(photo)}
-                            className={cn(
-                              "overflow-hidden rounded-lg bg-default-100",
-                              photoCount === 1
-                                ? "aspect-[4/3]"
-                                : "aspect-square",
-                            )}
-                          >
-                            <img
-                              src={photo.url}
-                              alt={`Goal evidence from ${formatDate(dateKey)}`}
-                              className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
-                            />
-                          </button>
-                        ))
-                      ) : (
-                        <div className="col-span-2 flex min-h-20 items-center justify-center rounded-lg bg-default-50 px-4 text-center text-xs text-foreground-400">
-                          {photoLoadFailed
-                            ? "Photos could not be loaded."
-                            : "No photos found."}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            },
-          )}
+                        >
+                          <img
+                            src={photo.url}
+                            alt={`Goal evidence from ${formatDate(dateKey)}`}
+                            className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
+                          />
+                        </button>
+                      ))
+                    ) : (
+                      <div className="col-span-2 flex min-h-20 items-center justify-center rounded-lg bg-default-50 px-4 text-center text-xs text-foreground-400">
+                        {photoLoadFailed
+                          ? "Photos could not be loaded."
+                          : "No photos found."}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
 

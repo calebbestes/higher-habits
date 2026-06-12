@@ -1,3 +1,7 @@
+// Better Auth lazy-loads expo-network during startup, which can resolve to an
+// unknown Metro module in Expo Go unless it is already in the main bundle.
+import "expo-network";
+
 import { expoClient } from "@better-auth/expo/client";
 import { createAuthClient } from "better-auth/react";
 import * as SecureStore from "expo-secure-store";

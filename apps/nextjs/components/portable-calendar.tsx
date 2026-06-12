@@ -269,6 +269,51 @@ const startOfWeek = (date: Date) => {
   return next;
 };
 
+function weeksBetween(ref: Date, d: Date): number {
+  return Math.round(
+    (startOfWeek(d).getTime() - startOfWeek(ref).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+function weekOfMonth(d: Date): number {
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  if (d.getDate() + 7 > daysInMonth) return 4;
+  return Math.ceil(d.getDate() / 7) - 1;
+}
+
+function isGoalScheduledForDate(
+  goal: Pick<
+    PeriodicGoalInfo,
+    "period" | "repeatInterval" | "repeatDays" | "repeatMonthlyType" | "createdAt"
+  >,
+  date: Date,
+): boolean {
+  if (!goal.period || goal.period === "daily") return true;
+  const interval = goal.repeatInterval ?? 1;
+  const dow = date.getDay();
+
+  if (goal.period === "weekly") {
+    const days = goal.repeatDays;
+    if (days && days.length > 0 && !days.includes(dow)) return false;
+    if (interval === 1) return true;
+    return weeksBetween(new Date(goal.createdAt), date) % interval === 0;
+  }
+
+  if (goal.period === "monthly") {
+    const ref = new Date(goal.createdAt);
+    const monthDiff =
+      (date.getFullYear() - ref.getFullYear()) * 12 +
+      (date.getMonth() - ref.getMonth());
+    if (monthDiff % interval !== 0) return false;
+    const type = goal.repeatMonthlyType ?? "day_of_month";
+    if (type === "day_of_month") return date.getDate() === ref.getDate();
+    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+  }
+
+  return false;
+}
+
 const addDays = (date: Date, amount: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
@@ -917,6 +962,19 @@ const MonthView = ({
             ),
             ...(prevGoalsSnap.photoCountsByGoalDate ?? {}),
             ...(goalsSnap.photoCountsByGoalDate ?? {}),
+          },
+          visibilityByGoalDate: {
+            ...Object.fromEntries(
+              Object.entries(previous.visibilityByGoalDate).filter(([key]) => {
+                const dateKey = key.slice(-10);
+                return (
+                  !dateKey.startsWith(currentMonthKey) &&
+                  !dateKey.startsWith(prevMonthKey)
+                );
+              }),
+            ),
+            ...(prevGoalsSnap.visibilityByGoalDate ?? {}),
+            ...(goalsSnap.visibilityByGoalDate ?? {}),
           },
         }));
       } catch (error) {
@@ -1626,7 +1684,9 @@ const MonthView = ({
                           }))
                           .filter(
                             (g) =>
-                              g.status === "complete" || g.status === "planned",
+                              g.status === "complete" ||
+                              g.status === "planned" ||
+                              isGoalScheduledForDate(g, date),
                           );
                         return (
                           <div className="mb-1 min-w-0">
