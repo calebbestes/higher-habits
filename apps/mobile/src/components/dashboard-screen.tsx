@@ -1,5 +1,5 @@
-import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { GoalIcon } from "@/components/goal-icon";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,7 +31,6 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-
 type CategoryConfig = { color: string };
 
 const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
@@ -48,7 +47,6 @@ const DEFAULT_CATEGORY_COLOR = "#516162";
 function getCategoryColor(name: string): string {
   return CATEGORY_CONFIG[name]?.color ?? DEFAULT_CATEGORY_COLOR;
 }
-
 
 function getLast10Days(today: Date): string[] {
   const days: string[] = [];
@@ -114,7 +112,7 @@ export function DashboardScreen() {
 
   const monthlyGoals = useMemo(() => {
     if (!snapshot) return [];
-    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    const order: Record<string, number> = { high: 0, medium: 1, low: 1 };
     return snapshot.periodicGoals
       .filter((g) => g.period === "monthly" && (g.frequencyGoal ?? 0) > 0)
       .sort((a, b) => (order[a.priority] ?? 1) - (order[b.priority] ?? 1));
@@ -149,7 +147,10 @@ export function DashboardScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -279,7 +280,10 @@ function DashSection({
     >
       <Pressable
         onPress={onToggle}
-        style={({ pressed }) => [styles.sectionHeader, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.sectionHeader,
+          pressed && styles.pressed,
+        ]}
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
       >
@@ -406,7 +410,9 @@ function CategoryHeatmap({
   return (
     <View style={styles.catHeatmap}>
       {showDivider ? (
-        <View style={[styles.catDivider, { backgroundColor: theme.tabBorder }]} />
+        <View
+          style={[styles.catDivider, { backgroundColor: theme.tabBorder }]}
+        />
       ) : null}
       <Text style={[styles.catLabel, { color }]}>
         {category.name.toUpperCase()}

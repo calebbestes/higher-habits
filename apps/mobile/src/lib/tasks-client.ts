@@ -116,8 +116,7 @@ export function compareTasksByPriority(
 
   const aDueDate = a.dueDate ?? "9999-99-99";
   const bDueDate = b.dueDate ?? "9999-99-99";
-  const dueDateCompare =
-    aDueDate < bDueDate ? -1 : aDueDate > bDueDate ? 1 : 0;
+  const dueDateCompare = aDueDate < bDueDate ? -1 : aDueDate > bDueDate ? 1 : 0;
   if (dueDateCompare !== 0) return dueDateCompare;
 
   const createdCompare = b.createdAt.localeCompare(a.createdAt);

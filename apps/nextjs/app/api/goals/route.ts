@@ -8,9 +8,7 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 const goalFields = {
   name: z.string().trim().min(1),
   frequencyGoal: z.number().int().positive().nullable().default(null),
-  period: z
-    .union([z.enum(["daily", "weekly", "monthly"]), z.null()])
-    .default(null),
+  period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
   repeatInterval: z.number().int().min(1).max(99).nullable().default(null),
   repeatDays: z.array(z.number().int().min(0).max(6)).nullable().default(null),
   repeatMonthlyType: z
@@ -18,7 +16,7 @@ const goalFields = {
     .nullable()
     .default(null),
   categoryId: z.string().uuid(),
-  priority: z.enum(["high", "medium", "low"]),
+  priority: z.enum(["high", "low"]),
   visibility: z
     .enum(["only_me", "goal_friends", "all_friends"])
     .default("only_me"),

@@ -1,6 +1,6 @@
+import { GoalIcon } from "@/components/goal-icon";
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { GoalIcon } from "@/components/goal-icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -376,7 +376,10 @@ export function JournalScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

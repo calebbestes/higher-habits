@@ -48,7 +48,6 @@ import {
 
 type SymbolName = SymbolViewProps["name"];
 
-
 type CategoryConfig = { color: string; symbol: SymbolName };
 
 const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
@@ -77,7 +76,6 @@ function getCategoryConfig(name: string): CategoryConfig {
 
 const PRIORITY_LABELS: Record<string, string> = {
   high: "High Priority",
-  medium: "Medium Priority",
   low: "Low Priority",
 };
 
@@ -100,7 +98,6 @@ const MONTH_NAMES = [
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
-
 
 function isSameDay(a: Date, b: Date) {
   return (
@@ -348,7 +345,7 @@ export function DailyGoalsScreen({
 
   // Goals grouped by priority, excluding completed goals
   const priorityGroups = useMemo(() => {
-    const make = (p: "high" | "medium" | "low") =>
+    const make = (p: "high" | "low") =>
       categoriesWithGoals
         .map((cat) => ({
           category: cat,
@@ -359,7 +356,7 @@ export function DailyGoalsScreen({
           ),
         }))
         .filter((g) => g.goals.length > 0);
-    return { high: make("high"), medium: make("medium"), low: make("low") };
+    return { high: make("high"), low: make("low") };
   }, [categoriesWithGoals, logsByGoalDate, dateKey]);
 
   // All completed goals for this date
@@ -393,7 +390,10 @@ export function DailyGoalsScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -568,7 +568,7 @@ export function DailyGoalsScreen({
             <EmptyState />
           ) : (
             <View style={styles.prioritySections}>
-              {(["high", "medium", "low"] as const).map((p) => {
+              {(["high", "low"] as const).map((p) => {
                 const groups = priorityGroups[p];
                 if (groups.length === 0) return null;
                 const isOpen = openPriorities.has(p);

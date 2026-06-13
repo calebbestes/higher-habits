@@ -17,18 +17,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { useTheme } from "@/hooks/use-theme";
-import { fetchFriends, type FriendRow } from "@/lib/friends-client";
+import { type FriendRow, fetchFriends } from "@/lib/friends-client";
 import { setGoalLog, toDateKey } from "@/lib/goal-logs-client";
-import { fetchGoals, type Goal } from "@/lib/goals-client";
+import { type Goal, fetchGoals } from "@/lib/goals-client";
 import {
+  type CreateSharedGoalInput,
+  type SharedGoalParticipantSnapshot,
+  type SharedGoalScoringType,
+  type SharedGoalSnapshot,
   createSharedGoal,
   fetchSharedGoals,
   respondToSharedGoal,
   updateSharedGoal,
-  type CreateSharedGoalInput,
-  type SharedGoalParticipantSnapshot,
-  type SharedGoalSnapshot,
-  type SharedGoalScoringType,
 } from "@/lib/shared-goals-client";
 
 const SCORING_LABELS: Record<SharedGoalScoringType, string> = {
@@ -134,9 +134,7 @@ function Avatar({
         borderColor: borderColor ?? "transparent",
       }}
     >
-      <Text
-        style={{ color: "#fff", fontSize: size * 0.34, fontWeight: "700" }}
-      >
+      <Text style={{ color: "#fff", fontSize: size * 0.34, fontWeight: "700" }}>
         {getInitials(name)}
       </Text>
     </View>
@@ -163,7 +161,10 @@ function AvatarStack({
       {shown.map((p, i) => (
         <View
           key={p.userId}
-          style={{ marginLeft: i === 0 ? 0 : -overlap, zIndex: shown.length - i }}
+          style={{
+            marginLeft: i === 0 ? 0 : -overlap,
+            zIndex: shown.length - i,
+          }}
         >
           <Avatar
             image={p.userImage}
@@ -216,10 +217,7 @@ function ModeBadge({ mode }: { mode: "collaborative" | "competitive" }) {
       ]}
     >
       <Text
-        style={[
-          styles.badgeText,
-          { color: isCollab ? "#1B4040" : "#7A2828" },
-        ]}
+        style={[styles.badgeText, { color: isCollab ? "#1B4040" : "#7A2828" }]}
       >
         {isCollab ? "Collaborative" : "Competitive"}
       </Text>
@@ -239,7 +237,10 @@ function ScoringBadge({ type }: { type: SharedGoalScoringType }) {
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ percent, primary }: { percent: number; primary: string }) {
+function ProgressBar({
+  percent,
+  primary,
+}: { percent: number; primary: string }) {
   const pct = Math.min(100, Math.max(0, Math.round(percent)));
   return (
     <View style={styles.progressTrack}>
@@ -305,16 +306,23 @@ function GoalCard({
       {showProgress && (
         <View style={styles.progressSection}>
           <View style={styles.progressRow}>
-            <ProgressBar percent={goal.progress.percent} primary={theme.primary} />
+            <ProgressBar
+              percent={goal.progress.percent}
+              primary={theme.primary}
+            />
           </View>
           <View style={styles.progressMeta}>
             {goal.progress.target !== null ? (
-              <Text style={[styles.progressText, { color: theme.textSecondary }]}>
-                {goal.progress.value} / {goal.progress.target}{" "}
-                ({Math.round(goal.progress.percent)}%)
+              <Text
+                style={[styles.progressText, { color: theme.textSecondary }]}
+              >
+                {goal.progress.value} / {goal.progress.target} (
+                {Math.round(goal.progress.percent)}%)
               </Text>
             ) : (
-              <Text style={[styles.progressText, { color: theme.textSecondary }]}>
+              <Text
+                style={[styles.progressText, { color: theme.textSecondary }]}
+              >
                 {goal.progress.value} total
               </Text>
             )}
@@ -335,9 +343,14 @@ function GoalCard({
       <View style={styles.cardDivider} />
       <View style={styles.cardFooter}>
         <View style={styles.footerAvatars}>
-          <AvatarStack participants={accepted} size={26} borderColor={theme.background} />
+          <AvatarStack
+            participants={accepted}
+            size={26}
+            borderColor={theme.background}
+          />
           <Text style={[styles.doneCount, { color: theme.textSecondary }]}>
-            {goal.progress.completedToday}/{goal.progress.acceptedParticipants} done
+            {goal.progress.completedToday}/{goal.progress.acceptedParticipants}{" "}
+            done
           </Text>
         </View>
         <View style={styles.footerActions}>
@@ -363,9 +376,7 @@ function GoalCard({
               </Text>
             </Pressable>
           ) : completedToday ? (
-            <View
-              style={[styles.cardBtn, { backgroundColor: "#22C55E" }]}
-            >
+            <View style={[styles.cardBtn, { backgroundColor: "#22C55E" }]}>
               <Text style={[styles.cardBtnText, { color: "#fff" }]}>
                 Done ✓
               </Text>
@@ -375,7 +386,9 @@ function GoalCard({
               onPress={onReport}
               style={[styles.cardBtn, { backgroundColor: theme.primary }]}
             >
-              <Text style={[styles.cardBtnText, { color: theme.primaryForeground }]}>
+              <Text
+                style={[styles.cardBtnText, { color: theme.primaryForeground }]}
+              >
                 Report today
               </Text>
             </Pressable>
@@ -416,7 +429,8 @@ function InvitationCard({
       </View>
       <Text style={[styles.cardTitle, { color: theme.text }]}>{goal.name}</Text>
       <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-        From: {owner?.userName ?? "Someone"} · {SCORING_LABELS[goal.scoringType]}
+        From: {owner?.userName ?? "Someone"} ·{" "}
+        {SCORING_LABELS[goal.scoringType]}
       </Text>
       <View style={styles.inviteActions}>
         <Pressable
@@ -434,7 +448,9 @@ function InvitationCard({
           onPress={onAccept}
           style={[styles.inviteBtn, { backgroundColor: theme.primary }]}
         >
-          <Text style={[styles.inviteBtnText, { color: theme.primaryForeground }]}>
+          <Text
+            style={[styles.inviteBtnText, { color: theme.primaryForeground }]}
+          >
             Accept
           </Text>
         </Pressable>
@@ -472,23 +488,36 @@ function GoalDetailsSheet({
     <View
       style={[
         styles.sheet,
-        { backgroundColor: theme.background, paddingBottom: insets.bottom + 16 },
+        {
+          backgroundColor: theme.background,
+          paddingBottom: insets.bottom + 16,
+        },
       ]}
     >
       {/* Drag handle */}
       <View style={styles.sheetHandle}>
         <View
-          style={[styles.sheetHandleBar, { backgroundColor: theme.backgroundElement }]}
+          style={[
+            styles.sheetHandleBar,
+            { backgroundColor: theme.backgroundElement },
+          ]}
         />
       </View>
 
       {/* Header */}
-      <View style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}>
-        <Text style={[styles.sheetTitle, { color: theme.text }]} numberOfLines={2}>
+      <View
+        style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}
+      >
+        <Text
+          style={[styles.sheetTitle, { color: theme.text }]}
+          numberOfLines={2}
+        >
           {goal.name}
         </Text>
         <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={12}>
-          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>✕</Text>
+          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>
+            ✕
+          </Text>
         </Pressable>
       </View>
 
@@ -512,14 +541,21 @@ function GoalDetailsSheet({
         >
           <View style={styles.statItem}>
             <Text style={[styles.statValue, { color: theme.text }]}>
-              {goal.progress.completedToday}/{goal.progress.acceptedParticipants}
+              {goal.progress.completedToday}/
+              {goal.progress.acceptedParticipants}
             </Text>
             <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
               Done today
             </Text>
           </View>
           {goal.target !== null && (
-            <View style={[styles.statItem, styles.statItemBorder, { borderColor: theme.tabBorder }]}>
+            <View
+              style={[
+                styles.statItem,
+                styles.statItemBorder,
+                { borderColor: theme.tabBorder },
+              ]}
+            >
               <Text style={[styles.statValue, { color: theme.text }]}>
                 {goal.progress.value}/{goal.target}
               </Text>
@@ -529,7 +565,13 @@ function GoalDetailsSheet({
             </View>
           )}
           {cur && (
-            <View style={[styles.statItem, styles.statItemBorder, { borderColor: theme.tabBorder }]}>
+            <View
+              style={[
+                styles.statItem,
+                styles.statItemBorder,
+                { borderColor: theme.tabBorder },
+              ]}
+            >
               <Text style={[styles.statValue, { color: theme.text }]}>
                 {cur.currentStreak}
               </Text>
@@ -543,9 +585,19 @@ function GoalDetailsSheet({
         {/* Progress bar */}
         {showProgress && (
           <View style={styles.sheetSection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Progress</Text>
-            <ProgressBar percent={goal.progress.percent} primary={theme.primary} />
-            <Text style={[styles.progressText, { color: theme.textSecondary, marginTop: 6 }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Progress
+            </Text>
+            <ProgressBar
+              percent={goal.progress.percent}
+              primary={theme.primary}
+            />
+            <Text
+              style={[
+                styles.progressText,
+                { color: theme.textSecondary, marginTop: 6 },
+              ]}
+            >
               {Math.round(goal.progress.percent)}% complete
               {goal.progress.target !== null
                 ? ` · ${goal.progress.value} of ${goal.progress.target}`
@@ -569,7 +621,11 @@ function GoalDetailsSheet({
               <Text
                 style={[
                   styles.linkedGoalName,
-                  { color: cur.personalGoalId ? theme.text : theme.textSecondary },
+                  {
+                    color: cur.personalGoalId
+                      ? theme.text
+                      : theme.textSecondary,
+                  },
                 ]}
               >
                 {cur.personalGoalName ?? "No goal linked"}
@@ -607,7 +663,10 @@ function GoalDetailsSheet({
                   {p.userName}
                 </Text>
                 <Text
-                  style={[styles.participantStats, { color: theme.textSecondary }]}
+                  style={[
+                    styles.participantStats,
+                    { color: theme.textSecondary },
+                  ]}
                 >
                   {p.completedCount} total · {p.currentStreak} streak
                 </Text>
@@ -663,7 +722,12 @@ function GoalDetailsSheet({
             onPress={onReportToday}
             style={[styles.sheetPrimaryBtn, { backgroundColor: theme.primary }]}
           >
-            <Text style={[styles.sheetPrimaryBtnText, { color: theme.primaryForeground }]}>
+            <Text
+              style={[
+                styles.sheetPrimaryBtnText,
+                { color: theme.primaryForeground },
+              ]}
+            >
               Report today
             </Text>
           </Pressable>
@@ -672,12 +736,22 @@ function GoalDetailsSheet({
           {goal.canManage && goal.status === "active" && (
             <>
               <Pressable onPress={onMarkComplete} style={styles.sheetSecBtn}>
-                <Text style={[styles.sheetSecBtnText, { color: theme.textSecondary }]}>
+                <Text
+                  style={[
+                    styles.sheetSecBtnText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
                   Mark complete
                 </Text>
               </Pressable>
               <Pressable onPress={onArchive} style={styles.sheetSecBtn}>
-                <Text style={[styles.sheetSecBtnText, { color: theme.textSecondary }]}>
+                <Text
+                  style={[
+                    styles.sheetSecBtnText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
                   Archive
                 </Text>
               </Pressable>
@@ -712,23 +786,38 @@ function RelinkModal({
   const [selected, setSelected] = useState<string | null>(
     goal.currentUserParticipant?.personalGoalId ?? null,
   );
-  const autoCreated = goal.currentUserParticipant?.personalGoalAutoCreated ?? false;
+  const autoCreated =
+    goal.currentUserParticipant?.personalGoalAutoCreated ?? false;
   const [deleteAuto, setDeleteAuto] = useState(false);
 
   return (
     <View
       style={[
         styles.sheet,
-        { backgroundColor: theme.background, paddingBottom: insets.bottom + 16 },
+        {
+          backgroundColor: theme.background,
+          paddingBottom: insets.bottom + 16,
+        },
       ]}
     >
       <View style={styles.sheetHandle}>
-        <View style={[styles.sheetHandleBar, { backgroundColor: theme.backgroundElement }]} />
+        <View
+          style={[
+            styles.sheetHandleBar,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        />
       </View>
-      <View style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}>
-        <Text style={[styles.sheetTitle, { color: theme.text }]}>Link Personal Goal</Text>
+      <View
+        style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}
+      >
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>
+          Link Personal Goal
+        </Text>
         <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={12}>
-          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>✕</Text>
+          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>
+            ✕
+          </Text>
         </Pressable>
       </View>
       <ScrollView
@@ -745,7 +834,9 @@ function RelinkModal({
             styles.goalOption,
             {
               backgroundColor:
-                selected === null ? theme.backgroundSelected : theme.backgroundElement,
+                selected === null
+                  ? theme.backgroundSelected
+                  : theme.backgroundElement,
               borderColor: selected === null ? theme.primary : "transparent",
             },
           ]}
@@ -762,7 +853,9 @@ function RelinkModal({
               styles.goalOption,
               {
                 backgroundColor:
-                  selected === g.id ? theme.backgroundSelected : theme.backgroundElement,
+                  selected === g.id
+                    ? theme.backgroundSelected
+                    : theme.backgroundElement,
                 borderColor: selected === g.id ? theme.primary : "transparent",
               },
             ]}
@@ -771,7 +864,9 @@ function RelinkModal({
               {g.name}
             </Text>
             {g.period && (
-              <Text style={[styles.goalOptionSub, { color: theme.textSecondary }]}>
+              <Text
+                style={[styles.goalOptionSub, { color: theme.textSecondary }]}
+              >
                 {g.period}
               </Text>
             )}
@@ -792,10 +887,14 @@ function RelinkModal({
               ]}
             >
               {deleteAuto && (
-                <Text style={{ color: theme.primaryForeground, fontSize: 11 }}>✓</Text>
+                <Text style={{ color: theme.primaryForeground, fontSize: 11 }}>
+                  ✓
+                </Text>
               )}
             </View>
-            <Text style={[styles.deleteAutoText, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.deleteAutoText, { color: theme.textSecondary }]}
+            >
               Delete the auto-created goal
             </Text>
           </Pressable>
@@ -806,7 +905,12 @@ function RelinkModal({
           onPress={() => onRelink(selected, deleteAuto)}
           style={[styles.sheetPrimaryBtn, { backgroundColor: theme.primary }]}
         >
-          <Text style={[styles.sheetPrimaryBtnText, { color: theme.primaryForeground }]}>
+          <Text
+            style={[
+              styles.sheetPrimaryBtnText,
+              { color: theme.primaryForeground },
+            ]}
+          >
             Save
           </Text>
         </Pressable>
@@ -857,11 +961,14 @@ function CreateGoalModal({
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
   const scoringOptions =
     form.mode === "collaborative" ? COLLAB_SCORING : COMP_SCORING;
-  const needsTarget = form.scoringType ? NEEDS_TARGET.has(form.scoringType) : false;
+  const needsTarget = form.scoringType
+    ? NEEDS_TARGET.has(form.scoringType)
+    : false;
 
   function canProceed() {
     if (step === 1) return form.mode !== null;
-    if (step === 2) return form.name.trim().length > 0 && form.scoringType !== null;
+    if (step === 2)
+      return form.name.trim().length > 0 && form.scoringType !== null;
     return true;
   }
 
@@ -873,7 +980,8 @@ function CreateGoalModal({
         name: form.name.trim(),
         mode: form.mode,
         scoringType: form.scoringType,
-        target: needsTarget && form.target ? parseInt(form.target, 10) : null,
+        target:
+          needsTarget && form.target ? Number.parseInt(form.target, 10) : null,
         startsOn: form.startsOn.trim() || null,
         endsOn: form.endsOn.trim() || null,
         personalGoalId: form.personalGoalId,
@@ -902,19 +1010,34 @@ function CreateGoalModal({
         style={[
           styles.sheet,
           styles.createSheet,
-          { backgroundColor: theme.background, paddingBottom: insets.bottom + 16 },
+          {
+            backgroundColor: theme.background,
+            paddingBottom: insets.bottom + 16,
+          },
         ]}
       >
         <View style={styles.sheetHandle}>
-          <View style={[styles.sheetHandleBar, { backgroundColor: theme.backgroundElement }]} />
+          <View
+            style={[
+              styles.sheetHandleBar,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          />
         </View>
 
         {/* Header */}
-        <View style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}>
+        <View
+          style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}
+        >
           <View style={styles.createHeaderLeft}>
             {step > 1 && (
-              <Pressable onPress={() => setStep((s) => (s - 1) as 1 | 2 | 3)} hitSlop={12}>
-                <Text style={[styles.backBtn, { color: theme.primary }]}>← Back</Text>
+              <Pressable
+                onPress={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
+                hitSlop={12}
+              >
+                <Text style={[styles.backBtn, { color: theme.primary }]}>
+                  ← Back
+                </Text>
               </Pressable>
             )}
           </View>
@@ -922,11 +1045,17 @@ function CreateGoalModal({
             New Shared Goal
           </Text>
           <View style={styles.createHeaderRight}>
-            <Text style={[styles.stepIndicator, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.stepIndicator, { color: theme.textSecondary }]}
+            >
               {step}/3
             </Text>
             <Pressable onPress={onClose} hitSlop={12}>
-              <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>✕</Text>
+              <Text
+                style={[styles.sheetCloseText, { color: theme.textSecondary }]}
+              >
+                ✕
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -967,7 +1096,8 @@ function CreateGoalModal({
                   Collaborative
                 </Text>
                 <Text style={[styles.modeCardDesc, { color: "#3D7070" }]}>
-                  Work together toward a shared goal. Everyone's progress counts.
+                  Work together toward a shared goal. Everyone's progress
+                  counts.
                 </Text>
               </Pressable>
               <Pressable
@@ -1004,7 +1134,9 @@ function CreateGoalModal({
           {/* Step 2: Details */}
           {step === 2 && (
             <View>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Goal name</Text>
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Goal name
+              </Text>
               <TextInput
                 style={[
                   styles.textInput,
@@ -1022,7 +1154,12 @@ function CreateGoalModal({
                 returnKeyType="next"
               />
 
-              <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 16 }]}>
+              <Text
+                style={[
+                  styles.fieldLabel,
+                  { color: theme.text, marginTop: 16 },
+                ]}
+              >
                 Scoring type
               </Text>
               <ScrollView
@@ -1033,7 +1170,9 @@ function CreateGoalModal({
                 {scoringOptions.map((type) => (
                   <Pressable
                     key={type}
-                    onPress={() => setForm((f) => ({ ...f, scoringType: type }))}
+                    onPress={() =>
+                      setForm((f) => ({ ...f, scoringType: type }))
+                    }
                     style={[
                       styles.scoringChip,
                       {
@@ -1063,7 +1202,12 @@ function CreateGoalModal({
 
               {needsTarget && (
                 <>
-                  <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 16 }]}>
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: theme.text, marginTop: 16 },
+                    ]}
+                  >
                     Target (number)
                   </Text>
                   <TextInput
@@ -1086,7 +1230,12 @@ function CreateGoalModal({
 
               <View style={styles.dateRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 16 }]}>
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: theme.text, marginTop: 16 },
+                    ]}
+                  >
                     Start date
                   </Text>
                   <TextInput
@@ -1101,12 +1250,19 @@ function CreateGoalModal({
                     placeholder="YYYY-MM-DD"
                     placeholderTextColor={theme.textSecondary}
                     value={form.startsOn}
-                    onChangeText={(v) => setForm((f) => ({ ...f, startsOn: v }))}
+                    onChangeText={(v) =>
+                      setForm((f) => ({ ...f, startsOn: v }))
+                    }
                   />
                 </View>
                 <View style={{ width: 12 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 16 }]}>
+                  <Text
+                    style={[
+                      styles.fieldLabel,
+                      { color: theme.text, marginTop: 16 },
+                    ]}
+                  >
                     End date
                   </Text>
                   <TextInput
@@ -1147,18 +1303,27 @@ function CreateGoalModal({
                         ? theme.backgroundSelected
                         : theme.backgroundElement,
                     borderColor:
-                      form.personalGoalId === null ? theme.primary : "transparent",
+                      form.personalGoalId === null
+                        ? theme.primary
+                        : "transparent",
                   },
                 ]}
               >
-                <Text style={[styles.goalOptionText, { color: theme.textSecondary }]}>
+                <Text
+                  style={[
+                    styles.goalOptionText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
                   None — I'll link later
                 </Text>
               </Pressable>
               {personalGoals.map((g) => (
                 <Pressable
                   key={g.id}
-                  onPress={() => setForm((f) => ({ ...f, personalGoalId: g.id }))}
+                  onPress={() =>
+                    setForm((f) => ({ ...f, personalGoalId: g.id }))
+                  }
                   style={[
                     styles.goalOption,
                     {
@@ -1167,7 +1332,9 @@ function CreateGoalModal({
                           ? theme.backgroundSelected
                           : theme.backgroundElement,
                       borderColor:
-                        form.personalGoalId === g.id ? theme.primary : "transparent",
+                        form.personalGoalId === g.id
+                          ? theme.primary
+                          : "transparent",
                     },
                   ]}
                 >
@@ -1175,7 +1342,12 @@ function CreateGoalModal({
                     {g.name}
                   </Text>
                   {g.period && (
-                    <Text style={[styles.goalOptionSub, { color: theme.textSecondary }]}>
+                    <Text
+                      style={[
+                        styles.goalOptionSub,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
                       {g.period}
                     </Text>
                   )}
@@ -1210,11 +1382,16 @@ function CreateGoalModal({
                           size={36}
                         />
                         <View style={styles.friendInfo}>
-                          <Text style={[styles.friendName, { color: theme.text }]}>
+                          <Text
+                            style={[styles.friendName, { color: theme.text }]}
+                          >
                             {f.friendName}
                           </Text>
                           <Text
-                            style={[styles.friendEmail, { color: theme.textSecondary }]}
+                            style={[
+                              styles.friendEmail,
+                              { color: theme.textSecondary },
+                            ]}
                           >
                             {f.friendEmail}
                           </Text>
@@ -1260,7 +1437,9 @@ function CreateGoalModal({
               style={[
                 styles.sheetPrimaryBtn,
                 {
-                  backgroundColor: canProceed() ? theme.primary : theme.backgroundElement,
+                  backgroundColor: canProceed()
+                    ? theme.primary
+                    : theme.backgroundElement,
                 },
               ]}
             >
@@ -1283,7 +1462,11 @@ function CreateGoalModal({
               disabled={submitting}
               style={[
                 styles.sheetPrimaryBtn,
-                { backgroundColor: submitting ? theme.backgroundElement : theme.primary },
+                {
+                  backgroundColor: submitting
+                    ? theme.backgroundElement
+                    : theme.primary,
+                },
               ]}
             >
               {submitting ? (
@@ -1320,7 +1503,9 @@ export function SharedGoalsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
   const [friends, setFriends] = useState<FriendRow[]>([]);
-  const [selectedGoal, setSelectedGoal] = useState<SharedGoalSnapshot | null>(null);
+  const [selectedGoal, setSelectedGoal] = useState<SharedGoalSnapshot | null>(
+    null,
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [relinkGoal, setRelinkGoal] = useState<SharedGoalSnapshot | null>(null);
 
@@ -1359,7 +1544,14 @@ export function SharedGoalsScreen() {
       await load();
       if (selectedGoal?.id === goal.id) {
         setSelectedGoal((prev) =>
-          prev ? { ...prev, currentUserParticipant: prev.currentUserParticipant ? { ...prev.currentUserParticipant, completedToday: true } : null } : null,
+          prev
+            ? {
+                ...prev,
+                currentUserParticipant: prev.currentUserParticipant
+                  ? { ...prev.currentUserParticipant, completedToday: true }
+                  : null,
+              }
+            : null,
         );
       }
     } catch (e) {
@@ -1369,7 +1561,10 @@ export function SharedGoalsScreen() {
 
   async function handleAccept(goal: SharedGoalSnapshot) {
     try {
-      await respondToSharedGoal(goal.id, { action: "accept", personalGoalId: null });
+      await respondToSharedGoal(goal.id, {
+        action: "accept",
+        personalGoalId: null,
+      });
       await load();
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
@@ -1416,7 +1611,10 @@ export function SharedGoalsScreen() {
   async function handleMarkComplete(goal: SharedGoalSnapshot) {
     try {
       setSelectedGoal(null);
-      await updateSharedGoal(goal.id, { action: "setStatus", status: "completed" });
+      await updateSharedGoal(goal.id, {
+        action: "setStatus",
+        status: "completed",
+      });
       await load();
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
@@ -1426,7 +1624,10 @@ export function SharedGoalsScreen() {
   async function handleArchive(goal: SharedGoalSnapshot) {
     try {
       setSelectedGoal(null);
-      await updateSharedGoal(goal.id, { action: "setStatus", status: "archived" });
+      await updateSharedGoal(goal.id, {
+        action: "setStatus",
+        status: "archived",
+      });
       await load();
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
@@ -1459,13 +1660,11 @@ export function SharedGoalsScreen() {
 
   const invitations = goals.filter(
     (g) =>
-      g.status === "active" &&
-      g.currentUserParticipant?.status === "invited",
+      g.status === "active" && g.currentUserParticipant?.status === "invited",
   );
   const active = goals.filter(
     (g) =>
-      g.status === "active" &&
-      g.currentUserParticipant?.status !== "invited",
+      g.status === "active" && g.currentUserParticipant?.status !== "invited",
   );
   const completed = goals.filter(
     (g) => g.status === "completed" || g.status === "archived",
@@ -1509,8 +1708,13 @@ export function SharedGoalsScreen() {
           <Text style={[styles.errorText, { color: theme.textSecondary }]}>
             {error}
           </Text>
-          <Pressable onPress={load} style={[styles.retryBtn, { borderColor: theme.primary }]}>
-            <Text style={[styles.retryBtnText, { color: theme.primary }]}>Retry</Text>
+          <Pressable
+            onPress={load}
+            style={[styles.retryBtn, { borderColor: theme.primary }]}
+          >
+            <Text style={[styles.retryBtnText, { color: theme.primary }]}>
+              Retry
+            </Text>
           </Pressable>
         </View>
       ) : goals.length === 0 ? (
@@ -1525,7 +1729,12 @@ export function SharedGoalsScreen() {
             onPress={() => setShowCreate(true)}
             style={[styles.emptyCreateBtn, { backgroundColor: theme.primary }]}
           >
-            <Text style={[styles.emptyCreateBtnText, { color: theme.primaryForeground }]}>
+            <Text
+              style={[
+                styles.emptyCreateBtnText,
+                { color: theme.primaryForeground },
+              ]}
+            >
               Create Shared Goal
             </Text>
           </Pressable>

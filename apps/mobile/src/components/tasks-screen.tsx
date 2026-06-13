@@ -261,7 +261,10 @@ export function TasksScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl

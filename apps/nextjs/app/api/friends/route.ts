@@ -51,7 +51,6 @@ type IncentiveHistoryRow = MessageHistoryRow & {
 
 const PRIORITY_POINTS: Record<GoalPriority, number> = {
   high: 3,
-  medium: 2,
   low: 1,
 };
 

@@ -16,13 +16,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { useTheme } from "@/hooks/use-theme";
 import {
-  acceptFriendIncentive,
-  fetchFriends,
-  sendFriendIncentive,
   type FriendIncentiveRow,
   type FriendRow,
   type SendIncentivePayload,
   type StreakGoalScope,
+  acceptFriendIncentive,
+  fetchFriends,
+  sendFriendIncentive,
 } from "@/lib/friends-client";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -158,14 +158,12 @@ function IncentiveCard({
     >
       {/* From / To header */}
       <View style={styles.cardHeader}>
-        <Avatar
-          name={friend.friendName}
-          userId={friend.friendId}
-          size={30}
-        />
+        <Avatar name={friend.friendName} userId={friend.friendId} size={30} />
         <View style={styles.cardHeaderText}>
           <Text style={[styles.cardHeaderName, { color: theme.text }]}>
-            {isReceived ? `From ${friend.friendName}` : `To ${friend.friendName}`}
+            {isReceived
+              ? `From ${friend.friendName}`
+              : `To ${friend.friendName}`}
           </Text>
           <Text style={[styles.cardHeaderDate, { color: theme.textSecondary }]}>
             {formatDate(incentive.createdAt)}
@@ -192,40 +190,43 @@ function IncentiveCard({
           ]}
         >
           <View style={styles.progressHeader}>
-            <Text style={[styles.progressLabel, { color: theme.textSecondary }]}>
+            <Text
+              style={[styles.progressLabel, { color: theme.textSecondary }]}
+            >
               🎁 Incentive progress
             </Text>
-            <Text
-              style={[styles.progressDays, { color: theme.textSecondary }]}
-            >
+            <Text style={[styles.progressDays, { color: theme.textSecondary }]}>
               {incentive.progress.qualifyingDays}/
               {incentive.progress.requiredDays} days
             </Text>
           </View>
-          <ProgressBar
-            percent={incentive.progress.percent}
-            color="#22C55E"
-          />
+          <ProgressBar percent={incentive.progress.percent} color="#22C55E" />
         </View>
       ) : null}
 
       {/* Badges */}
       <View style={styles.badgesRow}>
         {incentive.streakDays ? (
-          <View style={[styles.badge, { backgroundColor: theme.backgroundElement }]}>
+          <View
+            style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
+          >
             <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
               📅 {incentive.streakDays} days
             </Text>
           </View>
         ) : null}
         {incentive.streakPercent ? (
-          <View style={[styles.badge, { backgroundColor: theme.backgroundElement }]}>
+          <View
+            style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
+          >
             <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
               🎯 {incentive.streakPercent}%
             </Text>
           </View>
         ) : null}
-        <View style={[styles.badge, { backgroundColor: theme.backgroundElement }]}>
+        <View
+          style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
+        >
           <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
             ◎ {goalLabel}
           </Text>
@@ -270,7 +271,10 @@ function CreateIncentiveModal({
 }: {
   friends: FriendRow[];
   onClose: () => void;
-  onSend: (friendshipId: string, payload: SendIncentivePayload) => Promise<void>;
+  onSend: (
+    friendshipId: string,
+    payload: SendIncentivePayload,
+  ) => Promise<void>;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -284,8 +288,8 @@ function CreateIncentiveModal({
   const [percent, setPercent] = useState("80");
   const [sending, setSending] = useState(false);
 
-  const daysNum = parseInt(days, 10);
-  const percentNum = parseInt(percent, 10);
+  const daysNum = Number.parseInt(days, 10);
+  const percentNum = Number.parseInt(percent, 10);
   const canSend =
     body.trim().length > 0 &&
     Number.isFinite(daysNum) &&
@@ -320,24 +324,29 @@ function CreateIncentiveModal({
       <View
         style={[
           styles.sheet,
-          { backgroundColor: theme.background, paddingBottom: insets.bottom + 16 },
+          {
+            backgroundColor: theme.background,
+            paddingBottom: insets.bottom + 16,
+          },
         ]}
       >
         {/* Handle */}
         <View style={styles.sheetHandle}>
           <View
-            style={[styles.sheetHandleBar, { backgroundColor: theme.backgroundElement }]}
+            style={[
+              styles.sheetHandleBar,
+              { backgroundColor: theme.backgroundElement },
+            ]}
           />
         </View>
 
         {/* Header */}
-        <View style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}>
+        <View
+          style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}
+        >
           <View style={{ width: 60 }}>
             {step === 2 && (
-              <Pressable
-                onPress={() => setStep(1)}
-                hitSlop={12}
-              >
+              <Pressable onPress={() => setStep(1)} hitSlop={12}>
                 <Text style={[styles.backBtn, { color: theme.primary }]}>
                   ← Back
                 </Text>
@@ -368,7 +377,9 @@ function CreateIncentiveModal({
                 Who are you incentivizing?
               </Text>
               {friends.length === 0 ? (
-                <Text style={[styles.emptyHint, { color: theme.textSecondary }]}>
+                <Text
+                  style={[styles.emptyHint, { color: theme.textSecondary }]}
+                >
                   Add friends first to send incentives.
                 </Text>
               ) : (
@@ -387,7 +398,9 @@ function CreateIncentiveModal({
                   >
                     <Avatar name={f.friendName} userId={f.friendId} size={40} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.friendOptionName, { color: theme.text }]}>
+                      <Text
+                        style={[styles.friendOptionName, { color: theme.text }]}
+                      >
                         {f.friendName}
                       </Text>
                       <Text
@@ -435,7 +448,10 @@ function CreateIncentiveModal({
               <View
                 style={[
                   styles.earnBox,
-                  { backgroundColor: theme.backgroundElement, borderColor: theme.tabBorder },
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
                 ]}
               >
                 <Text
@@ -685,7 +701,10 @@ export function IncentivesScreen() {
     void load();
   }, []);
 
-  async function handleAccept(friend: FriendRow, incentive: FriendIncentiveRow) {
+  async function handleAccept(
+    friend: FriendRow,
+    incentive: FriendIncentiveRow,
+  ) {
     setAcceptingId(incentive.id);
     try {
       await acceptFriendIncentive(friend.id, incentive.id);
@@ -763,7 +782,8 @@ export function IncentivesScreen() {
           ]}
         >
           {(["received", "sent"] as const).map((t) => {
-            const count = t === "received" ? receivedItems.length : sentItems.length;
+            const count =
+              t === "received" ? receivedItems.length : sentItems.length;
             return (
               <Pressable
                 key={t}
@@ -784,8 +804,7 @@ export function IncentivesScreen() {
                   style={[
                     styles.tabSwitcherText,
                     {
-                      color:
-                        tab === t ? theme.text : theme.textSecondary,
+                      color: tab === t ? theme.text : theme.textSecondary,
                     },
                   ]}
                 >
@@ -856,7 +875,10 @@ export function IncentivesScreen() {
           {tab === "sent" && (
             <Pressable
               onPress={() => setShowCreate(true)}
-              style={[styles.emptyCreateBtn, { backgroundColor: theme.primary }]}
+              style={[
+                styles.emptyCreateBtn,
+                { backgroundColor: theme.primary },
+              ]}
             >
               <Text
                 style={[

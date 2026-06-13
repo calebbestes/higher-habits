@@ -50,7 +50,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "biome check --apply",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "submit:ios": "eas build --platform ios --auto-submit",
+    "submit:android": "eas build --platform android --auto-submit"
   },
   "private": true
 }

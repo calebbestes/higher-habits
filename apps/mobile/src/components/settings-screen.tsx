@@ -1,6 +1,8 @@
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,13 +11,18 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import { mobileApiFetch } from "@/lib/mobile-api";
+import {
+  type ThemePreference,
+  getThemePreference,
+  setThemePreference,
+} from "@/lib/theme-preference";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -23,12 +30,51 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function uriToBlob(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => resolve(xhr.response as Blob);
+    xhr.onerror = reject;
+    xhr.responseType = "blob";
+    xhr.open("GET", uri);
+    xhr.send();
+  });
+}
+
+async function uploadProfilePicture(uri: string): Promise<string> {
+  const filename = uri.split("/").pop() ?? "photo.jpg";
+  const blob = await uriToBlob(uri);
+
+  const formData = new FormData();
+  formData.append("file", blob, filename);
+
+  const response = await mobileApiFetch("/api/users/profile-picture", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? "Could not upload photo.");
+  }
+
+  const data = (await response.json()) as { imageUrl: string };
+  return data.imageUrl;
+}
+
 export function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const colorScheme = useColorScheme();
-  const { data: session } = authClient.useSession();
+  const { data: session, refetch } = authClient.useSession();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [appearance, setAppearance] = useState<ThemePreference>("system");
+
+  useEffect(() => {
+    void getThemePreference().then(setAppearance);
+  }, []);
 
   const signOut = async () => {
     setIsSigningOut(true);
@@ -46,6 +92,55 @@ export function SettingsScreen() {
       { text: "Sign Out", style: "destructive", onPress: () => void signOut() },
     ]);
   };
+
+  const chooseAppearance = () => {
+    const choose = (preference: ThemePreference) => {
+      setAppearance(preference);
+      void setThemePreference(preference);
+    };
+
+    Alert.alert("Appearance", "Choose how Higher Habits looks.", [
+      { text: "Automatic", onPress: () => choose("system") },
+      { text: "Light", onPress: () => choose("light") },
+      { text: "Dark", onPress: () => choose("dark") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const pickProfilePicture = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "Allow photo access in Settings to change your profile picture.",
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      await uploadProfilePicture(result.assets[0].uri);
+      await refetch();
+    } catch (err) {
+      Alert.alert(
+        "Upload failed",
+        err instanceof Error ? err.message : "Could not upload photo.",
+      );
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const profileImageUrl = session?.user.image;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -76,13 +171,56 @@ export function SettingsScreen() {
               },
             ]}
           >
-            <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-              <Text
-                style={[styles.avatarText, { color: theme.primaryForeground }]}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change profile picture"
+              disabled={isUploadingPhoto}
+              onPress={() => void pickProfilePicture()}
+              style={({ pressed }) => [
+                styles.avatarWrapper,
+                pressed && styles.pressed,
+              ]}
+            >
+              {profileImageUrl ? (
+                <Image
+                  source={{ uri: profileImageUrl }}
+                  style={[styles.avatar, styles.avatarImage]}
+                  contentFit="cover"
+                />
+              ) : (
+                <View
+                  style={[styles.avatar, { backgroundColor: theme.primary }]}
+                >
+                  <Text
+                    style={[
+                      styles.avatarText,
+                      { color: theme.primaryForeground },
+                    ]}
+                  >
+                    {initials(
+                      session?.user.name ?? session?.user.email ?? "HH",
+                    )}
+                  </Text>
+                </View>
+              )}
+              <View
+                style={[
+                  styles.avatarBadge,
+                  { backgroundColor: theme.backgroundElement },
+                ]}
               >
-                {initials(session?.user.name ?? session?.user.email ?? "HH")}
-              </Text>
-            </View>
+                {isUploadingPhoto ? (
+                  <ActivityIndicator size={10} color={theme.primary} />
+                ) : (
+                  <SymbolView
+                    name={sym("camera.fill", "photo_camera")}
+                    size={10}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                )}
+              </View>
+            </Pressable>
             <View style={styles.profileText}>
               <Text style={[styles.profileName, { color: theme.text }]}>
                 {session?.user.name ?? "Higher Habits account"}
@@ -100,7 +238,14 @@ export function SettingsScreen() {
             <SettingsRow
               icon={sym("paintpalette.fill", "palette")}
               title="Appearance"
-              value={colorScheme === "dark" ? "Dark" : "Light"}
+              value={
+                appearance === "system"
+                  ? "Automatic"
+                  : appearance === "dark"
+                    ? "Dark"
+                    : "Light"
+              }
+              onPress={chooseAppearance}
             />
             <SettingsRow
               icon={sym("bell.fill", "notifications")}
@@ -168,17 +313,18 @@ function SettingsGroup({
 
 function SettingsRow({
   icon,
+  onPress,
   title,
   value,
 }: {
   icon: SymbolName;
+  onPress?: () => void;
   title: string;
   value: string;
 }) {
   const theme = useTheme();
-
-  return (
-    <View style={[styles.row, { borderBottomColor: theme.tabBorder }]}>
+  const content = (
+    <>
       <SymbolView
         name={icon}
         size={20}
@@ -189,6 +335,32 @@ function SettingsRow({
       <Text style={[styles.rowValue, { color: theme.textSecondary }]}>
         {value}
       </Text>
+      {onPress ? (
+        <SymbolView
+          name={sym("chevron.right", "chevron_right")}
+          size={13}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      ) : null}
+    </>
+  );
+
+  return onPress ? (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.row,
+        { borderBottomColor: theme.tabBorder },
+        pressed && styles.pressed,
+      ]}
+    >
+      {content}
+    </Pressable>
+  ) : (
+    <View style={[styles.row, { borderBottomColor: theme.tabBorder }]}>
+      {content}
     </View>
   );
 }
@@ -245,12 +417,30 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
+  avatarWrapper: {
+    position: "relative",
+  },
   avatar: {
     width: 52,
     height: 52,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
+  },
+  avatarImage: {
+    borderRadius: 18,
+  },
+  avatarBadge: {
+    position: "absolute",
+    bottom: -4,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(0,0,0,0.08)",
   },
   avatarText: { fontSize: 18, fontWeight: "800" },
   profileText: { flex: 1, gap: 2 },

@@ -44,7 +44,16 @@ export function fetchGoalPhotosForRange(
 export function fetchAllGoalPhotos(
   goalId: string | null,
 ): Promise<GoalPhoto[]> {
-  const query = new URLSearchParams({ all: "true" });
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const toDateKey = (day: number) =>
+    `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const query = new URLSearchParams({
+    all: "true",
+    startDateKey: toDateKey(1),
+    endDateKey: toDateKey(new Date(year, month + 1, 0).getDate()),
+  });
   if (goalId) query.set("goalId", goalId);
 
   return mobileApiFetch(`/api/goal-photos?${query}`).then((response) =>

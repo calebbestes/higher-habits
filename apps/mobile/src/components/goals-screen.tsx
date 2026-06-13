@@ -7,6 +7,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -41,11 +42,17 @@ import {
 type SymbolName = SymbolViewProps["name"];
 type GoalFilter = "all" | "high" | "hidden";
 
-const PRIORITIES: GoalPriority[] = ["high", "medium", "low"];
+const PRIORITIES: GoalPriority[] = ["high", "low"];
 const PERIODS: GoalPeriod[] = ["daily", "weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const WEEKDAY_NAMES = [
-  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
 ];
 const ORDINALS = ["1st", "2nd", "3rd", "4th", "last"];
 
@@ -62,10 +69,10 @@ const VISIBILITY_OPTIONS: Array<{
   { value: "goal_friends", label: "Friends tied to goal" },
   { value: "all_friends", label: "All friends" },
 ];
-const PRIORITY_ORDER: Record<GoalPriority, number> = {
+const PRIORITY_ORDER: Record<string, number> = {
   high: 0,
   medium: 1,
-  low: 2,
+  low: 1,
 };
 
 const GOAL_ICON_OPTIONS = [
@@ -111,7 +118,6 @@ const GOAL_ICON_OPTIONS = [
   },
 ] as const;
 
-
 const EMPTY_GOAL: GoalInput = {
   name: "",
   frequencyGoal: null,
@@ -120,7 +126,7 @@ const EMPTY_GOAL: GoalInput = {
   repeatDays: [new Date().getDay()],
   repeatMonthlyType: "day_of_month",
   categoryId: "",
-  priority: "medium",
+  priority: "low",
   visibility: "only_me",
   iconKey: GOAL_ICON_OPTIONS[0].key,
   hidden: false,
@@ -141,10 +147,15 @@ function resolveSymbol(
 }
 
 function frequencyLabel(goal: Goal) {
-  if (!goal.period) return "No schedule";
   const interval = goal.repeatInterval ?? 1;
-  const unit = goal.period === "daily" ? "day" : goal.period === "weekly" ? "week" : "month";
-  const base = interval === 1 ? capitalize(goal.period) : `Every ${interval} ${unit}s`;
+  const unit =
+    goal.period === "daily"
+      ? "day"
+      : goal.period === "weekly"
+        ? "week"
+        : "month";
+  const base =
+    interval === 1 ? capitalize(goal.period) : `Every ${interval} ${unit}s`;
   if (goal.period === "weekly" && goal.repeatDays?.length) {
     return `${base} · ${goal.repeatDays.map((d) => DAY_LETTERS[d]).join("")}`;
   }
@@ -162,7 +173,9 @@ function toInput(goal: Goal): GoalInput {
     period: goal.period,
     repeatInterval: goal.repeatInterval ?? 1,
     repeatDays: goal.repeatDays ?? [new Date().getDay()],
-    repeatMonthlyType: (goal.repeatMonthlyType as GoalRepeatMonthlyType | null) ?? "day_of_month",
+    repeatMonthlyType:
+      (goal.repeatMonthlyType as GoalRepeatMonthlyType | null) ??
+      "day_of_month",
     categoryId: goal.categoryId,
     priority: goal.priority,
     visibility: goal.visibility,
@@ -335,7 +348,10 @@ export function GoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
@@ -613,11 +629,7 @@ function GoalCard({
 }) {
   const theme = useTheme();
   const priorityColor =
-    goal.priority === "high"
-      ? "#9D7474"
-      : goal.priority === "medium"
-        ? theme.primary
-        : theme.textSecondary;
+    goal.priority === "high" ? "#9D7474" : theme.textSecondary;
 
   return (
     <Pressable
@@ -1000,7 +1012,9 @@ export function GoalFormModal({
               </Text>
               <IconSearchPicker
                 value={form.iconKey}
-                onChange={(iconKey) => setForm((current) => ({ ...current, iconKey }))}
+                onChange={(iconKey) =>
+                  setForm((current) => ({ ...current, iconKey }))
+                }
               />
             </FormSection>
 
@@ -1083,16 +1097,6 @@ export function GoalFormModal({
                   Repeat
                 </Text>
                 <View style={styles.choiceWrap}>
-                  <Choice
-                    label="None"
-                    selected={!form.period}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        period: null,
-                      }))
-                    }
-                  />
                   {PERIODS.map((period) => (
                     <Choice
                       key={period}
@@ -1106,160 +1110,116 @@ export function GoalFormModal({
                 </View>
               </View>
 
-              {form.period ? (
-                <>
-                  {/* Interval stepper */}
-                  <View style={styles.repeatIntervalRow}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Repeat every
-                    </Text>
-                    <View
-                      style={[
-                        styles.stepper,
-                        {
-                          backgroundColor: theme.backgroundElement,
-                          borderColor: theme.tabBorder,
-                        },
-                      ]}
-                    >
-                      <Pressable
-                        onPress={() =>
-                          setForm((f) => ({
-                            ...f,
-                            repeatInterval: Math.max(
-                              1,
-                              (f.repeatInterval ?? 1) + 1,
-                            ),
-                          }))
-                        }
-                        style={styles.stepperBtn}
-                      >
-                        <SymbolView
-                          name={symbol("chevron.up", "keyboard_arrow_up")}
-                          size={10}
-                          tintColor={theme.text}
-                        />
-                      </Pressable>
-                      <Text style={[styles.stepperValue, { color: theme.text }]}>
-                        {form.repeatInterval ?? 1}
-                      </Text>
-                      <Pressable
-                        onPress={() =>
-                          setForm((f) => ({
-                            ...f,
-                            repeatInterval: Math.max(
-                              1,
-                              (f.repeatInterval ?? 1) - 1,
-                            ),
-                          }))
-                        }
-                        style={styles.stepperBtn}
-                      >
-                        <SymbolView
-                          name={symbol("chevron.down", "keyboard_arrow_down")}
-                          size={10}
-                          tintColor={theme.text}
-                        />
-                      </Pressable>
-                    </View>
-                    <Text style={[styles.intervalUnit, { color: theme.text }]}>
-                      {form.period === "daily"
-                        ? "day"
-                        : form.period === "weekly"
-                          ? "week"
-                          : "month"}
-                      {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
-                    </Text>
-                  </View>
+              <>
+                <View style={styles.repeatIntervalRow}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Repeat every
+                  </Text>
+                  <VerticalNumberSlider
+                    value={form.repeatInterval ?? 1}
+                    onChange={(repeatInterval) =>
+                      setForm((current) => ({ ...current, repeatInterval }))
+                    }
+                  />
+                  <Text style={[styles.intervalUnit, { color: theme.text }]}>
+                    {form.period === "daily"
+                      ? "day"
+                      : form.period === "weekly"
+                        ? "week"
+                        : "month"}
+                    {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
+                  </Text>
+                </View>
 
-                  {/* Weekly: day-of-week chips */}
-                  {form.period === "weekly" ? (
-                    <View style={styles.inputField}>
-                      <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                        Repeat on
-                      </Text>
-                      <View style={styles.dayChipRow}>
-                        {DAY_LETTERS.map((letter, idx) => {
-                          const sel = (form.repeatDays ?? []).includes(idx);
-                          return (
-                            <Pressable
-                              key={WEEKDAY_NAMES[idx]}
-                              onPress={() =>
-                                setForm((f) => {
-                                  const days = f.repeatDays ?? [];
-                                  return {
-                                    ...f,
-                                    repeatDays: sel
-                                      ? days.filter((d) => d !== idx)
-                                      : [...days, idx].sort((a, b) => a - b),
-                                  };
-                                })
-                              }
+                {/* Weekly: day-of-week chips */}
+                {form.period === "weekly" ? (
+                  <View style={styles.inputField}>
+                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                      Repeat on
+                    </Text>
+                    <View style={styles.dayChipRow}>
+                      {DAY_LETTERS.map((letter, idx) => {
+                        const sel = (form.repeatDays ?? []).includes(idx);
+                        return (
+                          <Pressable
+                            key={WEEKDAY_NAMES[idx]}
+                            onPress={() =>
+                              setForm((f) => {
+                                const days = f.repeatDays ?? [];
+                                return {
+                                  ...f,
+                                  repeatDays: sel
+                                    ? days.filter((d) => d !== idx)
+                                    : [...days, idx].sort((a, b) => a - b),
+                                };
+                              })
+                            }
+                            style={[
+                              styles.dayChip,
+                              {
+                                backgroundColor: sel
+                                  ? theme.primary
+                                  : theme.backgroundElement,
+                                borderColor: sel
+                                  ? theme.primary
+                                  : theme.tabBorder,
+                              },
+                            ]}
+                          >
+                            <Text
                               style={[
-                                styles.dayChip,
-                                {
-                                  backgroundColor: sel
-                                    ? theme.primary
-                                    : theme.backgroundElement,
-                                  borderColor: sel
-                                    ? theme.primary
-                                    : theme.tabBorder,
-                                },
+                                styles.dayChipLabel,
+                                { color: sel ? "#fff" : theme.textSecondary },
                               ]}
                             >
-                              <Text
-                                style={[
-                                  styles.dayChipLabel,
-                                  { color: sel ? "#fff" : theme.textSecondary },
-                                ]}
-                              >
-                                {letter}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
+                              {letter}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
-                  ) : null}
+                  </View>
+                ) : null}
 
-                  {/* Monthly: day-of-month vs day-of-week */}
-                  {form.period === "monthly" ? (() => {
-                    const today = new Date();
-                    const weekdayLabel = `${ORDINALS[getWeekOfMonth(today)]} ${WEEKDAY_NAMES[today.getDay()]}`;
-                    return (
-                      <View style={styles.inputField}>
-                        <View style={styles.choiceWrap}>
-                          <Choice
-                            label={`Day ${today.getDate()}`}
-                            selected={
-                              (form.repeatMonthlyType ?? "day_of_month") ===
-                              "day_of_month"
-                            }
-                            onPress={() =>
-                              setForm((f) => ({
-                                ...f,
-                                repeatMonthlyType: "day_of_month",
-                              }))
-                            }
-                          />
-                          <Choice
-                            label={weekdayLabel}
-                            selected={
-                              form.repeatMonthlyType === "day_of_week"
-                            }
-                            onPress={() =>
-                              setForm((f) => ({
-                                ...f,
-                                repeatMonthlyType: "day_of_week",
-                              }))
-                            }
-                          />
+                {/* Monthly: day-of-month vs day-of-week */}
+                {form.period === "monthly"
+                  ? (() => {
+                      const today = new Date();
+                      const weekdayLabel = `${ORDINALS[getWeekOfMonth(today)]} ${WEEKDAY_NAMES[today.getDay()]}`;
+                      return (
+                        <View style={styles.inputField}>
+                          <View style={styles.choiceWrap}>
+                            <Choice
+                              label={`Day ${today.getDate()}`}
+                              selected={
+                                (form.repeatMonthlyType ?? "day_of_month") ===
+                                "day_of_month"
+                              }
+                              onPress={() =>
+                                setForm((f) => ({
+                                  ...f,
+                                  repeatMonthlyType: "day_of_month",
+                                }))
+                              }
+                            />
+                            <Choice
+                              label={weekdayLabel}
+                              selected={
+                                form.repeatMonthlyType === "day_of_week"
+                              }
+                              onPress={() =>
+                                setForm((f) => ({
+                                  ...f,
+                                  repeatMonthlyType: "day_of_week",
+                                }))
+                              }
+                            />
+                          </View>
                         </View>
-                      </View>
-                    );
-                  })() : null}
-                </>
-              ) : null}
+                      );
+                    })()
+                  : null}
+              </>
             </FormSection>
 
             <FormSection title="Priority">
@@ -1428,6 +1388,77 @@ function Choice({
   );
 }
 
+function VerticalNumberSlider({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const theme = useTheme();
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  const dragStartValueRef = useRef(value);
+  valueRef.current = value;
+  onChangeRef.current = onChange;
+
+  const setValue = useCallback((nextValue: number) => {
+    const clampedValue = Math.min(99, Math.max(1, Math.round(nextValue)));
+    if (clampedValue === valueRef.current) return;
+    valueRef.current = clampedValue;
+    onChangeRef.current(clampedValue);
+  }, []);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          Math.abs(gesture.dy) > 4 &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          dragStartValueRef.current = valueRef.current;
+        },
+        onPanResponderMove: (_, gesture) => {
+          setValue(dragStartValueRef.current - gesture.dy / 14);
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [setValue],
+  );
+
+  return (
+    <View
+      accessibilityActions={[
+        { name: "increment", label: "Increase repeat interval" },
+        { name: "decrement", label: "Decrease repeat interval" },
+      ]}
+      accessibilityLabel="Repeat interval"
+      accessibilityRole="adjustable"
+      accessibilityValue={{ min: 1, max: 99, now: value }}
+      onAccessibilityAction={({ nativeEvent }) => {
+        if (nativeEvent.actionName === "increment") {
+          setValue(valueRef.current + 1);
+        }
+        if (nativeEvent.actionName === "decrement") {
+          setValue(valueRef.current - 1);
+        }
+      }}
+      style={[
+        styles.verticalNumberSlider,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <Text style={[styles.verticalNumberSliderValue, { color: theme.text }]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function iconSvgUrl(iconKey: string, color: string) {
   const colon = iconKey.indexOf(":");
   if (colon === -1) return null;
@@ -1475,7 +1506,10 @@ function IconSearchPicker({
       <View
         style={[
           styles.iconSearchField,
-          { backgroundColor: theme.backgroundElement, borderColor: theme.tabBorder },
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
         ]}
       >
         <SymbolView
@@ -1504,12 +1538,19 @@ function IconSearchPicker({
         ) : null}
       </View>
       {value && !results.length ? (
-        <Text style={[styles.iconSearchSelected, { color: theme.textSecondary }]}>
+        <Text
+          style={[styles.iconSearchSelected, { color: theme.textSecondary }]}
+        >
           {value}
         </Text>
       ) : null}
       {results.length > 0 ? (
-        <View style={[styles.iconResults, { borderColor: theme.tabBorder, backgroundColor: theme.tabBar }]}>
+        <View
+          style={[
+            styles.iconResults,
+            { borderColor: theme.tabBorder, backgroundColor: theme.tabBar },
+          ]}
+        >
           {results.map((iconKey) => {
             const selected = iconKey === value;
             const url = iconSvgUrl(iconKey, selected ? "#FFFFFF" : "#6B7280");
@@ -1518,19 +1559,34 @@ function IconSearchPicker({
               <Pressable
                 key={iconKey}
                 accessibilityLabel={iconKey}
-                onPress={() => { onChange(iconKey); setResults([]); setQuery(shortName); }}
+                onPress={() => {
+                  onChange(iconKey);
+                  setResults([]);
+                  setQuery(shortName);
+                }}
                 style={({ pressed }) => [
                   styles.iconResultItem,
-                  { backgroundColor: selected ? theme.primary : theme.backgroundElement },
+                  {
+                    backgroundColor: selected
+                      ? theme.primary
+                      : theme.backgroundElement,
+                  },
                   pressed && styles.pressed,
                 ]}
               >
                 {url ? (
-                  <Image source={{ uri: url }} style={styles.iconResultImg} contentFit="contain" />
+                  <Image
+                    source={{ uri: url }}
+                    style={styles.iconResultImg}
+                    contentFit="contain"
+                  />
                 ) : null}
                 <Text
                   numberOfLines={1}
-                  style={[styles.iconResultLabel, { color: selected ? "#FFFFFF" : theme.textSecondary }]}
+                  style={[
+                    styles.iconResultLabel,
+                    { color: selected ? "#FFFFFF" : theme.textSecondary },
+                  ]}
                 >
                   {shortName}
                 </Text>
@@ -1855,27 +1911,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   iconResultImg: { width: 28, height: 28 },
-  iconResultLabel: { fontSize: 8, lineHeight: 10, fontWeight: "600", textAlign: "center" },
+  iconResultLabel: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    textAlign: "center",
+  },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   repeatIntervalRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  stepper: {
+  verticalNumberSlider: {
+    width: 54,
+    minHeight: 66,
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    gap: 1,
+    borderRadius: 14,
   },
-  stepperBtn: { padding: 3 },
-  stepperValue: {
-    fontSize: 15,
+  verticalNumberSliderValue: {
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "600",
-    minWidth: 20,
-    textAlign: "center",
+    fontVariant: ["tabular-nums"],
   },
   intervalUnit: { fontSize: 13, fontWeight: "600" },
   dayChipRow: { flexDirection: "row", gap: 6 },

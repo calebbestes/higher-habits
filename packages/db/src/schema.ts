@@ -14,7 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
-export const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
+export const GOAL_PRIORITIES = ["high", "low"] as const;
 export const GOAL_VISIBILITIES = [
   "only_me",
   "goal_friends",
@@ -287,7 +287,7 @@ export const goals = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     frequencyGoal: integer("frequency_goal"),
-    period: goalPeriodEnum("period"),
+    period: goalPeriodEnum("period").default("daily").notNull(),
     repeatInterval: integer("repeat_interval"),
     repeatDays: json("repeat_days").$type<number[]>(),
     repeatMonthlyType: text("repeat_monthly_type"),

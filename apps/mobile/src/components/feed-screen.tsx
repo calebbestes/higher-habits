@@ -208,7 +208,10 @@ export function FeedScreen() {
           style={styles.keyboardView}
         >
           <ScrollView
-            contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+            contentContainerStyle={[
+              styles.content,
+              { paddingBottom: tabBarHeight + 16 },
+            ]}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl

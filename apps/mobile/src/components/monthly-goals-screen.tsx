@@ -1,9 +1,10 @@
-import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { GoalIcon } from "@/components/goal-icon";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -53,10 +54,10 @@ type SymbolName = SymbolViewProps["name"];
 type SortKey = "priority" | "frequency" | "remaining";
 type PeriodFilter = "all" | "monthly" | "weekly";
 
-const PRIORITY_ORDER: Record<PeriodicGoalInfo["priority"], number> = {
+const PRIORITY_ORDER: Record<string, number> = {
   high: 0,
   medium: 1,
-  low: 2,
+  low: 1,
 };
 
 const SORT_OPTIONS: {
@@ -102,7 +103,6 @@ const PERIOD_FILTER_OPTIONS: {
     icon: ["calendar.badge.clock", "date_range"],
   },
 ];
-
 
 const DAY_ABBRS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -155,7 +155,6 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-
 function addMonths(date: Date, months: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
 }
@@ -183,7 +182,7 @@ function isGoalScheduledForDate(
   goal: import("@/lib/goal-logs-client").PeriodicGoalInfo,
   date: Date,
 ): boolean {
-  if (!goal.period || goal.period === "daily") return true;
+  if (goal.period === "daily") return true;
   const interval = goal.repeatInterval ?? 1;
   const dow = date.getDay();
 
@@ -351,12 +350,7 @@ export function MonthlyGoalsScreen() {
       repeatMonthlyType: null,
       createdAt: "",
       updatedAt: "",
-      period:
-        goal.period === "daily" ||
-        goal.period === "weekly" ||
-        goal.period === "monthly"
-          ? goal.period
-          : null,
+      period: goal.period,
     });
     setFormOpen(true);
   };
@@ -594,6 +588,10 @@ export function MonthlyGoalsScreen() {
     setSelectedDateKey(todayDateKey);
   }, [today, todayDateKey]);
 
+  const openGoalActions = useCallback((goal: PeriodicGoalInfo) => {
+    InteractionManager.runAfterInteractions(() => setActiveGoal(goal));
+  }, []);
+
   const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
 
@@ -601,7 +599,10 @@ export function MonthlyGoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -746,7 +747,7 @@ export function MonthlyGoalsScreen() {
               onDeleteGoal={confirmDelete}
               onEditGoal={openEdit}
               onOpenSortFilter={() => setSortFilterOpen(true)}
-              onPressGoal={setActiveGoal}
+              onPressGoal={openGoalActions}
             />
           ) : null}
         </ScrollView>
@@ -1218,17 +1219,13 @@ const DayCell = memo(function DayCell({
         <View style={styles.tilesRow}>
           {visibleGoals.map((goal) => {
             const status = logsByGoalDate[`${goal.id}_${dateKey}`];
-            const bg = status === "complete" ? theme.primary : "#B87D4D";
+            const bg = status === "complete" ? theme.primary : "#3B82F6";
             return (
               <View
                 key={goal.id}
                 style={[styles.iconTile, { backgroundColor: bg }]}
               >
-                <GoalIcon
-                  iconKey={goal.iconKey}
-                  size={9}
-                  color="#FFFFFF"
-                />
+                <GoalIcon iconKey={goal.iconKey} size={9} color="#FFFFFF" />
               </View>
             );
           })}
@@ -1555,17 +1552,17 @@ function GoalListRow({
   const rowBg = isComplete
     ? `${theme.primary}12`
     : isPlanned
-      ? "#B87D4D0E"
+      ? "#3B82F60E"
       : "transparent";
   const statusBg = isComplete
     ? theme.primary
     : isPlanned
-      ? "#B87D4D"
+      ? "#3B82F6"
       : "transparent";
   const statusBorder = isComplete
     ? theme.primary
     : isPlanned
-      ? "#B87D4D"
+      ? "#3B82F6"
       : theme.tabBorder;
 
   return (
@@ -1783,7 +1780,7 @@ function GoalActionsModal({
                 ]}
               >
                 {isUpdating ? (
-                  <ActivityIndicator size="small" color="#B87D4D" />
+                  <ActivityIndicator size="small" color="#3B82F6" />
                 ) : (
                   <SymbolView
                     name={
@@ -1792,7 +1789,7 @@ function GoalActionsModal({
                         : sym("calendar.badge.plus", "event_available")
                     }
                     size={26}
-                    tintColor={isPlanned ? theme.textSecondary : "#B87D4D"}
+                    tintColor={isPlanned ? theme.textSecondary : "#3B82F6"}
                   />
                 )}
                 <Text style={[modalStyles.actionText, { color: theme.text }]}>
@@ -2177,7 +2174,7 @@ const styles = StyleSheet.create({
   goalProgressPlanned: {
     height: "100%",
     overflow: "hidden",
-    backgroundColor: "#E6B86E",
+    backgroundColor: "#93C5FD",
   },
   plannedStripeRow: {
     position: "absolute",
@@ -2191,7 +2188,7 @@ const styles = StyleSheet.create({
   plannedStripe: {
     width: 3,
     height: 24,
-    backgroundColor: "#B87D4D99",
+    backgroundColor: "#3B82F699",
     transform: [{ rotate: "32deg" }],
   },
   completedText: { textDecorationLine: "line-through" },

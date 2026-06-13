@@ -6,10 +6,10 @@ export type GoalInCategory = {
   name: string;
   iconKey: string;
   categoryId: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   hidden: boolean;
   visibility: GoalVisibility;
-  period: "daily" | "weekly" | "monthly" | null;
+  period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
 };
 
@@ -25,9 +25,9 @@ export type PeriodicGoalInfo = {
   name: string;
   iconKey: string;
   categoryId: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   visibility: GoalVisibility;
-  period: string | null;
+  period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
@@ -79,7 +79,7 @@ export const fetchGoalLogsSnapshot = (
   );
 
 export const fetchAllGoalLogsSnapshot = (): Promise<GoalLogsSnapshot> =>
-  mobileApiFetch("/api/goal-logs?all=true").then((r) =>
+  mobileApiFetch(`/api/goal-logs?all=true&month=${getMonthKey()}`).then((r) =>
     parseResponse<GoalLogsSnapshot>(r),
   );
 

@@ -106,7 +106,7 @@ export async function GET(request: Request) {
         string,
         {
           id: string;
-          period: (typeof goals.period.enumValues)[number] | null;
+          period: (typeof goals.period.enumValues)[number];
           priority: (typeof goals.priority.enumValues)[number];
         }
       >
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
           string,
           {
             id: string;
-            period: (typeof goals.period.enumValues)[number] | null;
+            period: (typeof goals.period.enumValues)[number];
             priority: (typeof goals.priority.enumValues)[number];
           }
         >();

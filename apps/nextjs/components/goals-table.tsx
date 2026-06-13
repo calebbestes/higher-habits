@@ -59,14 +59,14 @@ const COLUMNS = [
 ] as const;
 
 const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
-const GOAL_PRIORITIES = ["high", "medium", "low"] as const;
+const GOAL_PRIORITIES = ["high", "low"] as const;
 const GOAL_VISIBILITIES = [
   { value: "only_me", label: "Only me" },
   { value: "goal_friends", label: "Friends tied to goal" },
   { value: "all_friends", label: "All friends" },
 ] as const;
 
-const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const PRIORITY_RANK: Record<string, number> = { high: 0, low: 1 };
 
 const PERIOD_COLORS: Record<string, string> = {
   daily: "bg-[#A0D5D5]/35 text-[#2C5352]",
@@ -86,16 +86,15 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-[#F3B7B9]/55 text-[#9D7474]",
-  medium: "bg-[#A0D5D5]/35 text-[#2C5352]",
   low: "bg-[#516162]/10 text-[#516162]",
 };
 
 const EMPTY_FORM: GoalInput = {
   name: "",
   frequencyGoal: null,
-  period: null,
+  period: "daily",
   categoryId: "",
-  priority: "medium",
+  priority: "low",
   visibility: "only_me",
   iconKey: "",
   hidden: false,
@@ -420,7 +419,7 @@ function GoalFormModal({
               onSelectionChange={(keys) =>
                 setForm((p) => ({
                   ...p,
-                  priority: ([...keys][0] as string) ?? "medium",
+                  priority: ([...keys][0] as string) ?? "low",
                 }))
               }
             >
@@ -434,9 +433,10 @@ function GoalFormModal({
             <Select
               label="Period"
               placeholder="Select period"
-              selectedKeys={form.period ? new Set([form.period]) : new Set()}
+              isRequired
+              selectedKeys={new Set([form.period])}
               onSelectionChange={(keys) => {
-                const val = ([...keys][0] as string) || null;
+                const val = ([...keys][0] as string) || "daily";
                 setForm((p) => ({
                   ...p,
                   period: val as GoalInput["period"],
@@ -928,30 +928,24 @@ export function GoalsTable() {
                 className="cursor-pointer rounded-full focus:outline-none"
                 onClick={(e) => e.stopPropagation()}
               >
-                {row.period ? (
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize hover:opacity-80",
-                      PERIOD_COLORS[row.period] ??
-                        "bg-default-200 text-foreground-500",
-                    )}
-                  >
-                    {row.period}
-                  </span>
-                ) : (
-                  <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
-                    Set period
-                  </span>
-                )}
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize hover:opacity-80",
+                    PERIOD_COLORS[row.period] ??
+                      "bg-default-200 text-foreground-500",
+                  )}
+                >
+                  {row.period}
+                </span>
               </button>
             </DropdownTrigger>
             <DropdownMenu
               aria-label="Period"
               selectionMode="single"
-              disallowEmptySelection={false}
-              selectedKeys={row.period ? new Set([row.period]) : new Set()}
+              disallowEmptySelection
+              selectedKeys={new Set([row.period])}
               onSelectionChange={(keys) => {
-                const val = ([...keys][0] as string) || null;
+                const val = ([...keys][0] as string) || "daily";
                 handleInlineUpdate(row.id, {
                   period: val as GoalInput["period"],
                 });

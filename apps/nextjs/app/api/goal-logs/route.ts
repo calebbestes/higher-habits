@@ -8,18 +8,7 @@ import {
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  isNotNull,
-  isNull,
-  lt,
-  ne,
-  or,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -148,7 +137,7 @@ export async function GET(request: Request) {
         .where(
           and(
             eq(goals.userId, user.id),
-            or(ne(goals.period, "daily"), isNull(goals.period)),
+            ne(goals.period, "daily"),
             eq(goals.hidden, false),
           ),
         )
@@ -270,7 +259,7 @@ export async function GET(request: Request) {
         name: g.name,
         iconKey: g.iconKey,
         categoryId: g.categoryId,
-        priority: g.priority as "high" | "medium" | "low",
+        priority: g.priority as "high" | "low",
         hidden: g.hidden,
         visibility: g.visibility,
         period: g.period,
@@ -284,7 +273,7 @@ export async function GET(request: Request) {
       name: g.name,
       iconKey: g.iconKey,
       categoryId: g.categoryId,
-      priority: g.priority as "high" | "medium" | "low",
+      priority: g.priority as "high" | "low",
       visibility: g.visibility,
       period: g.period,
       frequencyGoal: g.frequencyGoal,

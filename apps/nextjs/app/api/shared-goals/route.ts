@@ -193,7 +193,7 @@ export async function POST(request: Request) {
             name: personalGoalName,
             period: "daily",
             categoryId,
-            priority: "medium",
+            priority: "low",
             visibility: "goal_friends",
             iconKey:
               data.mode === "collaborative"

@@ -1,4 +1,5 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { useEffect } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -10,9 +11,17 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import {
+  applyThemePreference,
+  getThemePreference,
+} from "@/lib/theme-preference";
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    void getThemePreference().then(applyThemePreference);
+  }, []);
 
   return (
     <GestureHandlerRootView style={styles.root}>

@@ -7,10 +7,10 @@ export type GoalInCategory = {
   name: string;
   iconKey: string;
   categoryId: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   hidden: boolean;
   visibility: GoalVisibility;
-  period: "daily" | "weekly" | "monthly" | null;
+  period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   sharedGoals: SharedGoalLink[];
 };
@@ -33,9 +33,9 @@ export type PeriodicGoalInfo = {
   name: string;
   iconKey: string;
   categoryId: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   visibility: GoalVisibility;
-  period: string | null;
+  period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
@@ -49,9 +49,9 @@ export type HiddenGoalInfo = {
   name: string;
   iconKey: string;
   categoryId: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   visibility: GoalVisibility;
-  period: string | null;
+  period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
 };
 

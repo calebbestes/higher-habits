@@ -14,11 +14,11 @@ export type Goal = {
   id: string;
   name: string;
   frequencyGoal: number | null;
-  period: "daily" | "weekly" | "monthly" | null;
+  period: "daily" | "weekly" | "monthly";
   categoryId: string;
   categoryName: string;
   categoryIcon: string;
-  priority: "high" | "medium" | "low";
+  priority: "high" | "low";
   visibility: GoalVisibility;
   iconKey: string;
   hidden: boolean;
@@ -29,7 +29,7 @@ export type Goal = {
 export type GoalInput = {
   name: string;
   frequencyGoal: number | null;
-  period: "daily" | "weekly" | "monthly" | null;
+  period: "daily" | "weekly" | "monthly";
   categoryId: string;
   priority: string;
   visibility: GoalVisibility;

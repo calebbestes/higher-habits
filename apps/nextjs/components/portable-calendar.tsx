@@ -285,11 +285,15 @@ function weekOfMonth(d: Date): number {
 function isGoalScheduledForDate(
   goal: Pick<
     PeriodicGoalInfo,
-    "period" | "repeatInterval" | "repeatDays" | "repeatMonthlyType" | "createdAt"
+    | "period"
+    | "repeatInterval"
+    | "repeatDays"
+    | "repeatMonthlyType"
+    | "createdAt"
   >,
   date: Date,
 ): boolean {
-  if (!goal.period || goal.period === "daily") return true;
+  if (goal.period === "daily") return true;
   const interval = goal.repeatInterval ?? 1;
   const dow = date.getDay();
 
@@ -2117,19 +2121,17 @@ const DEFAULT_DAY_VIEW_CATEGORY_CONFIG = {
   color: "#516162",
   foregroundColor: "#FFFFFF",
 };
-const GOAL_PRIORITY_STAGES = ["high", "medium", "low"] as const;
+const GOAL_PRIORITY_STAGES = ["high", "low"] as const;
 
 type GoalPriorityStage = (typeof GOAL_PRIORITY_STAGES)[number];
 
 const PRIORITY_POINTS: Record<GoalPriorityStage, number> = {
   high: 3,
-  medium: 2,
   low: 1,
 };
 
 const PRIORITY_LABELS: Record<GoalPriorityStage, string> = {
   high: "High Priority",
-  medium: "Medium Priority",
   low: "Low Priority",
 };
 
@@ -2182,7 +2184,7 @@ const DayView = ({
     categoryIcon: string;
     priority: GoalPriorityStage;
     completed: boolean;
-    period: string | null;
+    period: "daily" | "weekly" | "monthly";
     isScheduled: boolean;
     incentive:
       | (AcceptedGoalIncentive & {
@@ -2205,7 +2207,6 @@ const DayView = ({
     Record<GoalPriorityStage, boolean>
   >({
     high: true,
-    medium: false,
     low: false,
   });
   const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(
@@ -2294,7 +2295,7 @@ const DayView = ({
           categoryIcon: cat.icon || "mdi:circle",
           priority: goal.priority,
           completed: status === "complete",
-          period: "daily",
+          period: "daily" as const,
           isScheduled: false,
           incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,

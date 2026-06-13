@@ -6,7 +6,11 @@ type SymbolName = SymbolViewProps["name"];
 type MCIName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 type FA6Name = React.ComponentProps<typeof FontAwesome6>["name"];
 
-const FALLBACK: SymbolName = { ios: "target", android: "target", web: "target" } as SymbolName;
+const FALLBACK: SymbolName = {
+  ios: "target",
+  android: "target",
+  web: "target",
+} as SymbolName;
 
 export type GoalIconProps = {
   iconKey: string;

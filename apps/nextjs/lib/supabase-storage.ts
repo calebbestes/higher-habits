@@ -3,6 +3,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 export const GOAL_PHOTOS_BUCKET = "goal-photos";
+export const PROFILE_PICTURES_BUCKET = "profile-photos";
 
 export function getSupabaseStorageAdmin() {
   const url = process.env.SUPABASE_URL;

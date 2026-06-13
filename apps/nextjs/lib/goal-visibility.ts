@@ -10,8 +10,8 @@ type VisibilityDb = NonNullable<ReturnType<typeof getDb>>;
 
 type GoalRelationshipRow = {
   id: string;
-  period?: "daily" | "weekly" | "monthly" | null;
-  priority?: "high" | "medium" | "low";
+  period?: "daily" | "weekly" | "monthly";
+  priority?: "high" | "low";
 };
 
 export async function getGoalIdsTiedToFriend(
