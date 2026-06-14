@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/react-native";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -26,6 +27,7 @@ import {
   type GoalInCategory,
   type GoalLogStatus,
   type GoalLogsSnapshot,
+  type PeriodicGoalInfo,
   fetchGoalLogsSnapshot,
   getMonthKey,
   setGoalLog,
@@ -47,6 +49,7 @@ import {
 } from "@/lib/goals-client";
 
 type SymbolName = SymbolViewProps["name"];
+type ActionGoal = GoalInCategory | PeriodicGoalInfo;
 
 type CategoryConfig = { color: string; symbol: SymbolName };
 
@@ -148,8 +151,8 @@ export function DailyGoalsScreen({
     () => new Set(),
   );
   const [showCompleted, setShowCompleted] = useState(false);
-  const [activeGoal, setActiveGoal] = useState<GoalInCategory | null>(null);
-  const [noteGoal, setNoteGoal] = useState<GoalInCategory | null>(null);
+  const [activeGoal, setActiveGoal] = useState<ActionGoal | null>(null);
+  const [noteGoal, setNoteGoal] = useState<ActionGoal | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
@@ -329,19 +332,48 @@ export function DailyGoalsScreen({
     [snapshot],
   );
 
-  const { totalGoals, completedGoals } = useMemo(() => {
-    let total = 0;
-    let completed = 0;
+  const priorityProgress = useMemo(() => {
+    const progress = {
+      high: { completed: 0, total: 0 },
+      low: { completed: 0, total: 0 },
+    };
+
     for (const cat of categoriesWithGoals) {
       for (const goal of cat.goals) {
-        total++;
-        if (logsByGoalDate[`${goal.id}_${dateKey}`] === "complete") completed++;
+        progress[goal.priority].total++;
+        if (logsByGoalDate[`${goal.id}_${dateKey}`] === "complete") {
+          progress[goal.priority].completed++;
+        }
       }
     }
-    return { totalGoals: total, completedGoals: completed };
-  }, [categoriesWithGoals, logsByGoalDate, dateKey]);
 
-  const progress = totalGoals > 0 ? completedGoals / totalGoals : 0;
+    return progress;
+  }, [categoriesWithGoals, dateKey, logsByGoalDate]);
+
+  const monthlyPlannedGoals = useMemo(
+    () =>
+      snapshot?.periodicGoals.filter((goal) => {
+        const status = logsByGoalDate[`${goal.id}_${dateKey}`];
+        return status === "planned" || status === "complete";
+      }) ?? [],
+    [dateKey, logsByGoalDate, snapshot],
+  );
+  const monthlyPlannedCompleted = useMemo(
+    () =>
+      monthlyPlannedGoals.filter(
+        (goal) => logsByGoalDate[`${goal.id}_${dateKey}`] === "complete",
+      ).length,
+    [dateKey, logsByGoalDate, monthlyPlannedGoals],
+  );
+
+  const monthlyActionGoals = useMemo(
+    () =>
+      monthlyPlannedGoals.map<ActionGoal>((goal) => ({
+        ...goal,
+        hidden: false,
+      })),
+    [monthlyPlannedGoals],
+  );
 
   // Goals grouped by priority, excluding completed goals
   const priorityGroups = useMemo(() => {
@@ -512,38 +544,6 @@ export function DailyGoalsScreen({
             </View>
           </View>
 
-          {/* Progress bar */}
-          {totalGoals > 0 ? (
-            <View style={styles.progressSection}>
-              <View style={styles.progressLabelRow}>
-                <Text
-                  style={[styles.progressLabel, { color: theme.textSecondary }]}
-                >
-                  {completedGoals} / {totalGoals} goals complete
-                </Text>
-                <Text style={[styles.progressPct, { color: theme.primary }]}>
-                  {Math.round(progress * 100)}%
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.progressTrack,
-                  { backgroundColor: theme.backgroundElement },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      backgroundColor: theme.primary,
-                      width: `${Math.round(progress * 100)}%`,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-          ) : null}
-
           {/* Error */}
           {error ? (
             <View style={styles.errorBanner}>
@@ -564,19 +564,99 @@ export function DailyGoalsScreen({
             <View style={styles.centerState}>
               <ActivityIndicator color={theme.primary} size="large" />
             </View>
-          ) : categoriesWithGoals.length === 0 ? (
+          ) : categoriesWithGoals.length === 0 &&
+            monthlyPlannedGoals.length === 0 ? (
             <EmptyState />
           ) : (
             <View style={styles.prioritySections}>
-              {(["high", "low"] as const).map((p) => {
+              {(["high"] as const).map((p) => {
                 const groups = priorityGroups[p];
-                if (groups.length === 0) return null;
+                const progress = priorityProgress[p];
+                if (progress.total === 0) return null;
                 const isOpen = openPriorities.has(p);
                 return (
                   <PriorityAccordion
+                    color={theme.primary}
+                    completed={progress.completed}
                     key={p}
                     label={PRIORITY_LABELS[p] ?? p}
                     isOpen={isOpen}
+                    total={progress.total}
+                    onToggle={() => togglePriority(p)}
+                  >
+                    {groups.map(({ category, goals }) => {
+                      const catKey = `${p}_${category.id}`;
+                      const isExpanded = expandedCatKeys.has(catKey);
+                      return (
+                        <CategoryAccordionRow
+                          key={catKey}
+                          category={category}
+                          goals={goals}
+                          dateKey={dateKey}
+                          logsByGoalDate={logsByGoalDate}
+                          updatingKeys={updatingKeys}
+                          isExpanded={isExpanded}
+                          onToggleExpand={() => toggleCatKey(catKey)}
+                          onEditGoal={openEditGoal}
+                          onPressGoal={setActiveGoal}
+                        />
+                      );
+                    })}
+                  </PriorityAccordion>
+                );
+              })}
+              {monthlyPlannedGoals.length > 0 ? (
+                <PriorityAccordion
+                  color="#3B82F6"
+                  completed={monthlyPlannedCompleted}
+                  isOpen={openPriorities.has("monthly")}
+                  label="Monthly Goals"
+                  total={monthlyPlannedGoals.length}
+                  onToggle={() => togglePriority("monthly")}
+                >
+                  <View
+                    style={[
+                      styles.goalSurface,
+                      {
+                        backgroundColor: theme.tabBar,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    {monthlyActionGoals.map((goal, index) => (
+                      <View key={goal.id}>
+                        {index > 0 ? (
+                          <View
+                            style={[
+                              styles.divider,
+                              { backgroundColor: theme.tabBorder },
+                            ]}
+                          />
+                        ) : null}
+                        <GoalRow
+                          goal={goal}
+                          status={logsByGoalDate[`${goal.id}_${dateKey}`]}
+                          isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
+                          onPress={() => setActiveGoal(goal)}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                </PriorityAccordion>
+              ) : null}
+              {(["low"] as const).map((p) => {
+                const groups = priorityGroups[p];
+                const progress = priorityProgress[p];
+                if (progress.total === 0) return null;
+                const isOpen = openPriorities.has(p);
+                return (
+                  <PriorityAccordion
+                    color={theme.textSecondary}
+                    completed={progress.completed}
+                    key={p}
+                    label={PRIORITY_LABELS[p] ?? p}
+                    isOpen={isOpen}
+                    total={progress.total}
                     onToggle={() => togglePriority(p)}
                   >
                     {groups.map(({ category, goals }) => {
@@ -678,17 +758,25 @@ export function DailyGoalsScreen({
 }
 
 function PriorityAccordion({
+  color,
+  completed,
   label,
   isOpen,
+  total,
   onToggle,
   children,
 }: {
+  color: string;
+  completed: number;
   label: string;
   isOpen: boolean;
+  total: number;
   onToggle: () => void;
   children: React.ReactNode;
 }) {
   const theme = useTheme();
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
   return (
     <View style={styles.priorityBlock}>
       <Pressable
@@ -700,18 +788,46 @@ function PriorityAccordion({
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
       >
-        <SymbolView
-          name={sym(
-            isOpen ? "chevron.down" : "chevron.right",
-            isOpen ? "expand_more" : "chevron_right",
-          )}
-          size={13}
-          weight="bold"
-          tintColor={theme.textSecondary}
-        />
-        <Text style={[styles.priorityLabel, { color: theme.textSecondary }]}>
-          {label.toUpperCase()}
-        </Text>
+        <View style={styles.priorityHeaderLabelRow}>
+          <SymbolView
+            name={sym(
+              isOpen ? "chevron.down" : "chevron.right",
+              isOpen ? "expand_more" : "chevron_right",
+            )}
+            size={13}
+            weight="bold"
+            tintColor={theme.textSecondary}
+          />
+          <Text style={[styles.priorityLabel, { color: theme.textSecondary }]}>
+            {label.toUpperCase()}
+          </Text>
+          <Text
+            style={[
+              styles.priorityProgressCount,
+              { color: theme.textSecondary },
+            ]}
+          >
+            {completed}/{total}
+          </Text>
+        </View>
+        <View
+          accessibilityLabel={`${completed} of ${total} ${label} complete`}
+          accessibilityRole="progressbar"
+          accessibilityValue={{ max: total, min: 0, now: completed }}
+          style={[
+            styles.sectionProgressTrack,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          {completed > 0 ? (
+            <View
+              style={[
+                styles.sectionProgressFill,
+                { backgroundColor: color, width: `${percent}%` },
+              ]}
+            />
+          ) : null}
+        </View>
       </Pressable>
       {isOpen ? <View style={styles.priorityContent}>{children}</View> : null}
     </View>
@@ -762,7 +878,7 @@ function CategoryAccordionRow({
             name={cfg.symbol}
             size={20}
             weight="semibold"
-            tintColor={cfg.color}
+            tintColor={theme.primary}
           />
         </View>
         <View style={styles.catRowText}>
@@ -890,10 +1006,10 @@ function GoalRow({
   onEdit,
   onPress,
 }: {
-  goal: GoalInCategory;
+  goal: ActionGoal;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
-  onEdit: () => void;
+  onEdit?: () => void;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -979,27 +1095,29 @@ function GoalRow({
         {goal.name}
       </Text>
 
-      <Pressable
-        accessibilityLabel={`Edit ${goal.name}`}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={(event) => {
-          event.stopPropagation();
-          onEdit();
-        }}
-        style={({ pressed }) => [
-          styles.goalMenuButton,
-          { backgroundColor: theme.backgroundElement },
-          pressed && styles.pressed,
-        ]}
-      >
-        <SymbolView
-          name={sym("ellipsis", "more_horiz")}
-          size={17}
-          weight="semibold"
-          tintColor={theme.textSecondary}
-        />
-      </Pressable>
+      {onEdit ? (
+        <Pressable
+          accessibilityLabel={`Edit ${goal.name}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={(event) => {
+            event.stopPropagation();
+            onEdit();
+          }}
+          style={({ pressed }) => [
+            styles.goalMenuButton,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={17}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -1019,7 +1137,7 @@ function GoalActionsModal({
   onSetStatus,
   onDismiss,
 }: {
-  goal: GoalInCategory;
+  goal: ActionGoal;
   hasNote: boolean;
   hasPhoto: boolean;
   visibility: GoalVisibility;
@@ -1105,7 +1223,11 @@ function GoalActionsModal({
 
             {/* Add note */}
             <Pressable
-              onPress={onOpenNote}
+              onPress={() => {
+                onOpenNote();
+                console.log("Opening note editor for goal:", goal.name);
+                Sentry.captureException(new Error("First error"));
+              }}
               style={({ pressed }) => [
                 modalStyles.actionRow,
                 { backgroundColor: theme.backgroundElement },
@@ -1308,24 +1430,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   todayButtonText: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
-  progressSection: { gap: 8 },
-  progressLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  progressLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
-  progressPct: { fontSize: 13, lineHeight: 17, fontWeight: "800" },
-  progressTrack: {
-    height: 7,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 999,
-    minWidth: 7,
-  },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1369,17 +1473,37 @@ const styles = StyleSheet.create({
   prioritySections: { gap: 6 },
   priorityBlock: { gap: 8 },
   priorityHeader: {
-    flexDirection: "row",
-    alignItems: "center",
     gap: 7,
     paddingHorizontal: 3,
     paddingVertical: 4,
   },
+  priorityHeaderLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   priorityLabel: {
+    flex: 1,
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "800",
     letterSpacing: 0.8,
+  },
+  priorityProgressCount: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  sectionProgressTrack: {
+    height: 5,
+    borderRadius: 999,
+    overflow: "hidden",
+    marginLeft: 20,
+  },
+  sectionProgressFill: {
+    height: "100%",
+    borderRadius: 999,
   },
   priorityContent: { gap: 8 },
   catAccordion: {

@@ -8,6 +8,7 @@ allowBuilds:
   '@biomejs/biome': true
   '@heroui-pro/react': true
   '@heroui/shared-utils': true
+  '@sentry/cli': true
   '@zowe/secrets-for-zowe-sdk': true
   esbuild: true
   msgpackr-extract: true

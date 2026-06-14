@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -42,6 +43,12 @@ const SCOPE_OPTIONS: Array<{ value: StreakGoalScope; label: string }> = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+type SymbolName = SymbolViewProps["name"];
+
+function sym(ios: string, android: string): SymbolName {
+  return { ios, android, web: android } as SymbolName;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -49,14 +56,6 @@ function getInitials(name: string) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
-}
-
-function hashColor(str: string) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return `hsl(${Math.abs(hash) % 360}, 45%, 52%)`;
 }
 
 function formatDate(iso: string) {
@@ -88,25 +87,31 @@ function getGoalLabel(friend: FriendRow, incentive: FriendIncentiveRow) {
 
 function Avatar({
   name,
-  userId,
   size = 36,
 }: {
   name: string;
-  userId: string;
   size?: number;
 }) {
+  const theme = useTheme();
+
   return (
     <View
       style={{
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: hashColor(userId),
+        backgroundColor: theme.backgroundSelected,
         alignItems: "center",
         justifyContent: "center",
       }}
     >
-      <Text style={{ color: "#fff", fontSize: size * 0.34, fontWeight: "700" }}>
+      <Text
+        style={{
+          color: theme.primary,
+          fontSize: size * 0.34,
+          fontWeight: "600",
+        }}
+      >
         {getInitials(name)}
       </Text>
     </View>
@@ -116,15 +121,45 @@ function Avatar({
 // ─── ProgressBar ──────────────────────────────────────────────────────────────
 
 function ProgressBar({ percent, color }: { percent: number; color: string }) {
+  const theme = useTheme();
   const pct = Math.min(100, Math.max(0, Math.round(percent)));
   return (
-    <View style={styles.progressTrack}>
+    <View
+      style={[
+        styles.progressTrack,
+        { backgroundColor: theme.backgroundSelected },
+      ]}
+    >
       <View
         style={[
           styles.progressFill,
           { width: `${pct}%` as `${number}%`, backgroundColor: color },
         ]}
       />
+    </View>
+  );
+}
+
+function MetadataItem({
+  icon,
+  label,
+}: {
+  icon: SymbolName;
+  label: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.metadataItem}>
+      <SymbolView
+        name={icon}
+        size={14}
+        weight="semibold"
+        tintColor={theme.textSecondary}
+      />
+      <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -145,43 +180,42 @@ function IncentiveCard({
   onAccept: () => void;
 }) {
   const theme = useTheme();
+  const accent = theme.primary;
+  const accentForeground = theme.primaryForeground;
   const isReceived = direction === "received";
   const isAccepted = incentive.accepted === true;
   const goalLabel = getGoalLabel(friend, incentive);
 
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: theme.background, borderColor: theme.tabBorder },
-      ]}
-    >
-      {/* From / To header */}
+    <View style={[styles.card, { backgroundColor: theme.background }]}>
       <View style={styles.cardHeader}>
-        <Avatar name={friend.friendName} userId={friend.friendId} size={30} />
+        <Avatar name={friend.friendName} size={38} />
         <View style={styles.cardHeaderText}>
           <Text style={[styles.cardHeaderName, { color: theme.text }]}>
-            {isReceived
-              ? `From ${friend.friendName}`
-              : `To ${friend.friendName}`}
+            {friend.friendName}
           </Text>
           <Text style={[styles.cardHeaderDate, { color: theme.textSecondary }]}>
+            {isReceived ? "Received" : "Sent"} ·{" "}
             {formatDate(incentive.createdAt)}
           </Text>
         </View>
         {isAccepted && (
-          <View style={[styles.acceptedBadge, { backgroundColor: "#D1FAE5" }]}>
-            <Text style={[styles.acceptedBadgeText, { color: "#065F46" }]}>
+          <View style={styles.acceptedStatus}>
+            <SymbolView
+              name={sym("checkmark.circle.fill", "check_circle")}
+              size={15}
+              weight="semibold"
+              tintColor={accent}
+            />
+            <Text style={[styles.acceptedStatusText, { color: accent }]}>
               Accepted
             </Text>
           </View>
         )}
       </View>
 
-      {/* Incentive body */}
       <Text style={[styles.body, { color: theme.text }]}>{incentive.body}</Text>
 
-      {/* Progress block (only when accepted and has progress) */}
       {isAccepted && incentive.progress ? (
         <View
           style={[
@@ -190,69 +224,58 @@ function IncentiveCard({
           ]}
         >
           <View style={styles.progressHeader}>
-            <Text
-              style={[styles.progressLabel, { color: theme.textSecondary }]}
-            >
-              🎁 Incentive progress
-            </Text>
+            <View style={styles.progressTitle}>
+              <SymbolView
+                name={sym("gift.fill", "card_giftcard")}
+                size={14}
+                weight="semibold"
+                tintColor={accent}
+              />
+              <Text style={[styles.progressLabel, { color: theme.text }]}>
+                Progress
+              </Text>
+            </View>
             <Text style={[styles.progressDays, { color: theme.textSecondary }]}>
               {incentive.progress.qualifyingDays}/
               {incentive.progress.requiredDays} days
             </Text>
           </View>
-          <ProgressBar percent={incentive.progress.percent} color="#22C55E" />
+          <ProgressBar percent={incentive.progress.percent} color={accent} />
         </View>
       ) : null}
 
-      {/* Badges */}
-      <View style={styles.badgesRow}>
+      <View style={[styles.metadataRow, { borderTopColor: theme.tabBorder }]}>
         {incentive.streakDays ? (
-          <View
-            style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
-          >
-            <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
-              📅 {incentive.streakDays} days
-            </Text>
-          </View>
+          <MetadataItem
+            icon={sym("calendar", "calendar_today")}
+            label={`${incentive.streakDays} days`}
+          />
         ) : null}
         {incentive.streakPercent ? (
-          <View
-            style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
-          >
-            <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
-              🎯 {incentive.streakPercent}%
-            </Text>
-          </View>
+          <MetadataItem
+            icon={sym("chart.bar.fill", "bar_chart")}
+            label={`${incentive.streakPercent}%`}
+          />
         ) : null}
-        <View
-          style={[styles.badge, { backgroundColor: theme.backgroundElement }]}
-        >
-          <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
-            ◎ {goalLabel}
-          </Text>
-        </View>
+        <MetadataItem icon={sym("scope", "track_changes")} label={goalLabel} />
       </View>
 
-      {/* Accept button (received, not yet accepted) */}
       {isReceived && !isAccepted ? (
         <Pressable
           onPress={onAccept}
           disabled={accepting}
-          style={[
+          style={({ pressed }) => [
             styles.acceptBtn,
             {
-              backgroundColor: accepting
-                ? theme.backgroundElement
-                : theme.primary,
+              backgroundColor: accepting ? theme.backgroundElement : accent,
             },
+            pressed && styles.pressed,
           ]}
         >
           {accepting ? (
-            <ActivityIndicator color={theme.primaryForeground} size="small" />
+            <ActivityIndicator color={theme.textSecondary} size="small" />
           ) : (
-            <Text
-              style={[styles.acceptBtnText, { color: theme.primaryForeground }]}
-            >
+            <Text style={[styles.acceptBtnText, { color: accentForeground }]}>
               Accept
             </Text>
           )}
@@ -277,6 +300,8 @@ function CreateIncentiveModal({
   ) => Promise<void>;
 }) {
   const theme = useTheme();
+  const accent = theme.primary;
+  const accentForeground = theme.primaryForeground;
   const insets = useSafeAreaInsets();
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -347,9 +372,15 @@ function CreateIncentiveModal({
           <View style={{ width: 60 }}>
             {step === 2 && (
               <Pressable onPress={() => setStep(1)} hitSlop={12}>
-                <Text style={[styles.backBtn, { color: theme.primary }]}>
-                  ← Back
-                </Text>
+                <View style={styles.headerTextButton}>
+                  <SymbolView
+                    name={sym("chevron.left", "chevron_left")}
+                    size={16}
+                    weight="semibold"
+                    tintColor={accent}
+                  />
+                  <Text style={[styles.backBtn, { color: accent }]}>Back</Text>
+                </View>
               </Pressable>
             )}
           </View>
@@ -358,9 +389,12 @@ function CreateIncentiveModal({
           </Text>
           <View style={{ width: 60, alignItems: "flex-end" }}>
             <Pressable onPress={onClose} hitSlop={12}>
-              <Text style={[styles.closeBtn, { color: theme.textSecondary }]}>
-                ✕
-              </Text>
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={16}
+                weight="semibold"
+                tintColor={accent}
+              />
             </Pressable>
           </View>
         </View>
@@ -396,7 +430,7 @@ function CreateIncentiveModal({
                       { borderBottomColor: theme.tabBorder },
                     ]}
                   >
-                    <Avatar name={f.friendName} userId={f.friendId} size={40} />
+                    <Avatar name={f.friendName} size={40} />
                     <View style={{ flex: 1 }}>
                       <Text
                         style={[styles.friendOptionName, { color: theme.text }]}
@@ -412,9 +446,12 @@ function CreateIncentiveModal({
                         {f.friendEmail}
                       </Text>
                     </View>
-                    <Text style={{ color: theme.textSecondary, fontSize: 18 }}>
-                      →
-                    </Text>
+                    <SymbolView
+                      name={sym("chevron.right", "chevron_right")}
+                      size={14}
+                      weight="semibold"
+                      tintColor={theme.textSecondary}
+                    />
                   </Pressable>
                 ))
               )}
@@ -472,13 +509,9 @@ function CreateIncentiveModal({
                         styles.scopeChip,
                         {
                           backgroundColor:
-                            scope === opt.value
-                              ? theme.primary
-                              : theme.background,
+                            scope === opt.value ? accent : theme.background,
                           borderColor:
-                            scope === opt.value
-                              ? theme.primary
-                              : theme.tabBorder,
+                            scope === opt.value ? accent : theme.tabBorder,
                         },
                       ]}
                     >
@@ -488,7 +521,7 @@ function CreateIncentiveModal({
                           {
                             color:
                               scope === opt.value
-                                ? theme.primaryForeground
+                                ? accentForeground
                                 : theme.textSecondary,
                           },
                         ]}
@@ -532,13 +565,9 @@ function CreateIncentiveModal({
                               styles.scopeChip,
                               {
                                 backgroundColor:
-                                  goalId === g.id
-                                    ? theme.primary
-                                    : theme.background,
+                                  goalId === g.id ? accent : theme.background,
                                 borderColor:
-                                  goalId === g.id
-                                    ? theme.primary
-                                    : theme.tabBorder,
+                                  goalId === g.id ? accent : theme.tabBorder,
                               },
                             ]}
                           >
@@ -548,7 +577,7 @@ function CreateIncentiveModal({
                                 {
                                   color:
                                     goalId === g.id
-                                      ? theme.primaryForeground
+                                      ? accentForeground
                                       : theme.textSecondary,
                                 },
                               ]}
@@ -638,17 +667,12 @@ function CreateIncentiveModal({
                 styles.sendBtn,
                 {
                   backgroundColor:
-                    canSend && !sending
-                      ? theme.primary
-                      : theme.backgroundElement,
+                    canSend && !sending ? accent : theme.backgroundElement,
                 },
               ]}
             >
               {sending ? (
-                <ActivityIndicator
-                  color={theme.primaryForeground}
-                  size="small"
-                />
+                <ActivityIndicator color={accentForeground} size="small" />
               ) : (
                 <Text
                   style={[
@@ -656,7 +680,7 @@ function CreateIncentiveModal({
                     {
                       color:
                         canSend && !sending
-                          ? theme.primaryForeground
+                          ? accentForeground
                           : theme.textSecondary,
                     },
                   ]}
@@ -676,6 +700,8 @@ function CreateIncentiveModal({
 
 export function IncentivesScreen() {
   const theme = useTheme();
+  const accent = theme.primary;
+  const accentForeground = theme.primaryForeground;
   const insets = useSafeAreaInsets();
 
   const [friends, setFriends] = useState<FriendRow[]>([]);
@@ -685,7 +711,7 @@ export function IncentivesScreen() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await fetchFriends();
       setFriends(data.filter((f) => f.status === "accepted"));
@@ -695,11 +721,11 @@ export function IncentivesScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   async function handleAccept(
     friend: FriendRow,
@@ -741,14 +767,14 @@ export function IncentivesScreen() {
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+    <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: insets.top + 8,
-            backgroundColor: theme.background,
+            backgroundColor: theme.backgroundElement,
             borderBottomColor: theme.tabBorder,
           },
         ]}
@@ -756,14 +782,21 @@ export function IncentivesScreen() {
         <CollabHeaderMenu currentSection="incentives" />
         <View style={styles.headerActions}>
           <Pressable
+            accessibilityLabel="New incentive"
             onPress={() => setShowCreate(true)}
-            style={[styles.newBtn, { backgroundColor: theme.primary }]}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.addButton,
+              { backgroundColor: theme.primary },
+              pressed && styles.pressed,
+            ]}
           >
-            <Text
-              style={[styles.newBtnText, { color: theme.primaryForeground }]}
-            >
-              + New
-            </Text>
+            <SymbolView
+              name={sym("plus", "add")}
+              size={20}
+              weight="semibold"
+              tintColor={theme.primaryForeground}
+            />
           </Pressable>
         </View>
       </View>
@@ -774,7 +807,7 @@ export function IncentivesScreen() {
           style={[
             styles.tabSwitcher,
             {
-              backgroundColor: theme.backgroundElement,
+              backgroundColor: theme.backgroundSelected,
               marginHorizontal: 16,
               marginTop: 12,
               marginBottom: 4,
@@ -792,11 +825,6 @@ export function IncentivesScreen() {
                   styles.tabSwitcherBtn,
                   tab === t && {
                     backgroundColor: theme.background,
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.08,
-                    shadowRadius: 2,
-                    elevation: 2,
                   },
                 ]}
               >
@@ -811,29 +839,16 @@ export function IncentivesScreen() {
                   {t === "received" ? "Received" : "Sent"}
                 </Text>
                 {count > 0 && (
-                  <View
+                  <Text
                     style={[
-                      styles.tabBadge,
+                      styles.tabCount,
                       {
-                        backgroundColor:
-                          tab === t ? theme.primary : theme.backgroundSelected,
+                        color: tab === t ? accent : theme.textSecondary,
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.tabBadgeText,
-                        {
-                          color:
-                            tab === t
-                              ? theme.primaryForeground
-                              : theme.textSecondary,
-                        },
-                      ]}
-                    >
-                      {count}
-                    </Text>
-                  </View>
+                    {count}
+                  </Text>
                 )}
               </Pressable>
             );
@@ -844,7 +859,7 @@ export function IncentivesScreen() {
       {/* Content */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={theme.primary} size="large" />
+          <ActivityIndicator color={accent} size="large" />
         </View>
       ) : error ? (
         <View style={styles.center}>
@@ -853,11 +868,9 @@ export function IncentivesScreen() {
           </Text>
           <Pressable
             onPress={load}
-            style={[styles.retryBtn, { borderColor: theme.primary }]}
+            style={[styles.retryBtn, { borderColor: accent }]}
           >
-            <Text style={[styles.retryText, { color: theme.primary }]}>
-              Retry
-            </Text>
+            <Text style={[styles.retryText, { color: accent }]}>Retry</Text>
           </Pressable>
         </View>
       ) : visibleItems.length === 0 ? (
@@ -875,16 +888,10 @@ export function IncentivesScreen() {
           {tab === "sent" && (
             <Pressable
               onPress={() => setShowCreate(true)}
-              style={[
-                styles.emptyCreateBtn,
-                { backgroundColor: theme.primary },
-              ]}
+              style={[styles.emptyCreateBtn, { backgroundColor: accent }]}
             >
               <Text
-                style={[
-                  styles.emptyCreateBtnText,
-                  { color: theme.primaryForeground },
-                ]}
+                style={[styles.emptyCreateBtnText, { color: accentForeground }]}
               >
                 Send Incentive
               </Text>
@@ -941,39 +948,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingHorizontal: 18,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  newBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
-  newBtnText: { fontSize: 14, fontWeight: "700" },
+  addButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
   tabSwitcher: {
     flexDirection: "row",
-    borderRadius: 12,
-    padding: 3,
-    gap: 3,
+    borderRadius: 9,
+    padding: 2,
+    gap: 2,
   },
   tabSwitcherBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
-    borderRadius: 10,
-    gap: 6,
+    minHeight: 30,
+    borderRadius: 7,
+    gap: 5,
   },
-  tabSwitcherText: { fontSize: 14, fontWeight: "700" },
-  tabBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 5,
-  },
-  tabBadgeText: { fontSize: 11, fontWeight: "700" },
+  tabSwitcherText: { fontSize: 13, fontWeight: "600" },
+  tabCount: { fontSize: 12, fontWeight: "600" },
   center: {
     flex: 1,
     alignItems: "center",
@@ -983,11 +986,11 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 15, textAlign: "center", marginBottom: 16 },
   retryBtn: {
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1.5,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
   },
-  retryText: { fontSize: 14, fontWeight: "700" },
+  retryText: { fontSize: 15, fontWeight: "600" },
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
@@ -1003,62 +1006,63 @@ const styles = StyleSheet.create({
   emptyCreateBtn: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 22,
+    borderRadius: 10,
   },
-  emptyCreateBtnText: { fontSize: 15, fontWeight: "700" },
+  emptyCreateBtnText: { fontSize: 15, fontWeight: "600" },
   list: { paddingTop: 12, paddingHorizontal: 16, gap: 12 },
   // Card
   card: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
     padding: 16,
-    gap: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 14,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   cardHeaderText: { flex: 1 },
-  cardHeaderName: { fontSize: 13, fontWeight: "700" },
-  cardHeaderDate: { fontSize: 12, marginTop: 1 },
-  acceptedBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+  cardHeaderName: { fontSize: 16, fontWeight: "600" },
+  cardHeaderDate: { fontSize: 13, marginTop: 1 },
+  acceptedStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
-  acceptedBadgeText: { fontSize: 11, fontWeight: "700" },
-  body: { fontSize: 15, lineHeight: 22 },
+  acceptedStatusText: { fontSize: 13, fontWeight: "600" },
+  body: { fontSize: 18, lineHeight: 24, letterSpacing: -0.15 },
   progressBlock: {
-    borderRadius: 10,
-    padding: 12,
-    gap: 8,
+    borderRadius: 9,
+    padding: 11,
+    gap: 9,
   },
   progressHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  progressLabel: { fontSize: 12, fontWeight: "600" },
-  progressDays: { fontSize: 12, fontWeight: "600" },
+  progressTitle: { flexDirection: "row", alignItems: "center", gap: 6 },
+  progressLabel: { fontSize: 13, fontWeight: "600" },
+  progressDays: { fontSize: 13, fontWeight: "500" },
   progressTrack: {
-    height: 6,
-    backgroundColor: "#D1D5DB",
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     overflow: "hidden",
   },
-  progressFill: { height: 6, borderRadius: 3 },
-  badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
-  badgeText: { fontSize: 12, fontWeight: "600" },
-  acceptBtn: {
-    paddingVertical: 11,
-    borderRadius: 22,
-    alignItems: "center",
-    marginTop: 2,
+  progressFill: { height: 4, borderRadius: 2 },
+  metadataRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
   },
-  acceptBtnText: { fontSize: 14, fontWeight: "700" },
+  metadataItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  metadataText: { fontSize: 13, fontWeight: "500" },
+  acceptBtn: {
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  acceptBtnText: { fontSize: 16, fontWeight: "600" },
+  pressed: { opacity: 0.6 },
   // Modal
   modalOverlay: {
     zIndex: 200,
@@ -1085,8 +1089,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   sheetTitle: { fontSize: 18, fontWeight: "700" },
-  backBtn: { fontSize: 14, fontWeight: "700" },
-  closeBtn: { fontSize: 17, fontWeight: "600" },
+  headerTextButton: { flexDirection: "row", alignItems: "center", gap: 2 },
+  backBtn: { fontSize: 16, fontWeight: "500" },
   sheetContent: { padding: 20, paddingBottom: 8 },
   sheetFooter: {
     paddingHorizontal: 20,
@@ -1107,22 +1111,20 @@ const styles = StyleSheet.create({
   friendOptionEmail: { fontSize: 12, marginTop: 2 },
   detailsStep: { gap: 4 },
   fieldLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    fontSize: 13,
+    fontWeight: "600",
     marginBottom: 6,
   },
   textInput: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
   },
   earnBox: {
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
     marginTop: 12,
     gap: 8,
@@ -1137,15 +1139,15 @@ const styles = StyleSheet.create({
   scopeChip: {
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   scopeChipText: { fontSize: 13, fontWeight: "600" },
   streakRow: { flexDirection: "row", marginTop: 4 },
   inputSuffix: { fontSize: 12, marginTop: 4 },
   sendBtn: {
     paddingVertical: 14,
-    borderRadius: 26,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },

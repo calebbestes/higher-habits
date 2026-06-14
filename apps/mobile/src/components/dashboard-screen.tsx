@@ -1,8 +1,13 @@
 import { GoalIcon } from "@/components/goal-icon";
+import * as Clipboard from "expo-clipboard";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { type FriendRow, fetchFriends } from "@/lib/friends-client";
 import {
   type CategoryWithGoals,
   type GoalInCategory,
@@ -43,6 +49,8 @@ const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
 };
 
 const DEFAULT_CATEGORY_COLOR = "#516162";
+const COMPLETE_SHARE_TILE = "🟩";
+const EMPTY_SHARE_TILE = "⬜";
 
 function getCategoryColor(name: string): string {
   return CATEGORY_CONFIG[name]?.color ?? DEFAULT_CATEGORY_COLOR;
@@ -58,6 +66,77 @@ function getLast10Days(today: Date): string[] {
   return days;
 }
 
+function dateFromDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatShareDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function buildHabitShareText({
+  currentDate,
+  categories,
+  days,
+  logsByGoalDate,
+}: {
+  currentDate: Date;
+  categories: CategoryWithGoals[];
+  days: string[];
+  logsByGoalDate: Record<string, "complete" | "planned">;
+}): string {
+  const currentDateKey = toDateKey(currentDate);
+  const rows = categories.flatMap((category) =>
+    category.goals.map((goal) => ({
+      categoryName: category.name,
+      goalName: goal.name,
+      cells: days
+        .map((dateKey) =>
+          logsByGoalDate[`${goal.id}_${dateKey}`] === "complete"
+            ? COMPLETE_SHARE_TILE
+            : EMPTY_SHARE_TILE,
+        )
+        .join(""),
+      completedToday:
+        logsByGoalDate[`${goal.id}_${currentDateKey}`] === "complete",
+    })),
+  );
+
+  if (rows.length === 0) return "";
+
+  const firstDateKey = days[0];
+  const lastDateKey = days.at(-1);
+  const rangeLabel =
+    firstDateKey && lastDateKey
+      ? `Last ${days.length} days (${formatShareDate(
+          dateFromDateKey(firstDateKey),
+        )} - ${formatShareDate(dateFromDateKey(lastDateKey))})`
+      : "Last 10 days";
+  const completedToday = rows.filter((row) => row.completedToday).length;
+  const lines = [
+    `Dashboard ${formatShareDate(currentDate)} ${completedToday}/${rows.length}`,
+    rangeLabel,
+    "",
+  ];
+  let previousCategoryName: string | null = null;
+
+  for (const row of rows) {
+    if (row.categoryName !== previousCategoryName) {
+      if (previousCategoryName !== null) lines.push("");
+      lines.push(row.categoryName);
+      previousCategoryName = row.categoryName;
+    }
+
+    lines.push(`${row.cells} ${row.goalName}`);
+  }
+
+  return lines.join("\n");
+}
+
 export function DashboardScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
@@ -71,6 +150,9 @@ export function DashboardScreen() {
   const [monthlyOpen, setMonthlyOpen] = useState(true);
   const [dailyOpen, setDailyOpen] = useState(true);
   const [lowerOpen, setLowerOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareFriends, setShareFriends] = useState<FriendRow[]>([]);
+  const [isLoadingShareFriends, setIsLoadingShareFriends] = useState(false);
 
   const last10Days = useMemo(() => getLast10Days(today), [today]);
 
@@ -142,6 +224,71 @@ export function DashboardScreen() {
     () => lowerPriorityCats.flatMap((cat) => cat.goals),
     [lowerPriorityCats],
   );
+  const shareText = useMemo(
+    () =>
+      snapshot
+        ? buildHabitShareText({
+            currentDate: today,
+            categories: highPriorityCats,
+            days: last10Days,
+            logsByGoalDate: snapshot.logsByGoalDate,
+          })
+        : "",
+    [highPriorityCats, last10Days, snapshot, today],
+  );
+
+  const openShare = async () => {
+    if (!shareText) {
+      Alert.alert(
+        "Nothing to share yet",
+        "No daily goal history is available.",
+      );
+      return;
+    }
+
+    setIsShareOpen(true);
+    setIsLoadingShareFriends(true);
+    try {
+      const friends = await fetchFriends();
+      setShareFriends(
+        friends.filter(
+          (friend) =>
+            friend.status === "accepted" && Boolean(friend.friendPhoneNumber),
+        ),
+      );
+    } catch {
+      setShareFriends([]);
+    } finally {
+      setIsLoadingShareFriends(false);
+    }
+  };
+
+  const copyResults = async () => {
+    try {
+      await Clipboard.setStringAsync(shareText);
+      setIsShareOpen(false);
+      Alert.alert("Results copied", "Paste them into any message.");
+    } catch {
+      Alert.alert("Could not copy results");
+    }
+  };
+
+  const messageFriend = async (friend: FriendRow) => {
+    if (!friend.friendPhoneNumber) return;
+
+    const phoneNumber = friend.friendPhoneNumber.replace(/[^\d+]/g, "");
+    const bodySeparator = Platform.OS === "ios" ? "&" : "?";
+    const url = `sms:${phoneNumber}${bodySeparator}body=${encodeURIComponent(
+      shareText,
+    )}`;
+
+    try {
+      await Linking.openURL(url);
+      setIsShareOpen(false);
+    } catch {
+      Alert.alert("Could not open Messages");
+    }
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -171,6 +318,26 @@ export function DashboardScreen() {
                 Track your habits and progress
               </Text>
             </View>
+            <Pressable
+              accessibilityLabel="Share habit results"
+              hitSlop={8}
+              onPress={() => void openShare()}
+              style={({ pressed }) => [
+                styles.shareButton,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.tabBorder,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("square.and.arrow.up", "share")}
+                size={18}
+                weight="semibold"
+                tintColor={theme.primary}
+              />
+            </Pressable>
           </View>
 
           {error ? (
@@ -253,7 +420,148 @@ export function DashboardScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <ShareResultsModal
+        friends={shareFriends}
+        isLoadingFriends={isLoadingShareFriends}
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        onCopy={() => void copyResults()}
+        onMessage={(friend) => void messageFriend(friend)}
+      />
     </View>
+  );
+}
+
+function ShareResultsModal({
+  friends,
+  isLoadingFriends,
+  isOpen,
+  onClose,
+  onCopy,
+  onMessage,
+}: {
+  friends: FriendRow[];
+  isLoadingFriends: boolean;
+  isOpen: boolean;
+  onClose: () => void;
+  onCopy: () => void;
+  onMessage: (friend: FriendRow) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      transparent
+      visible={isOpen}
+    >
+      <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.shareSheet,
+            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+          ]}
+        >
+          <View style={styles.shareSheetHeader}>
+            <View style={styles.shareSheetHeading}>
+              <Text style={[styles.shareSheetTitle, { color: theme.text }]}>
+                Share results
+              </Text>
+              <Text
+                style={[
+                  styles.shareSheetSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Copy the grid or send it through{" "}
+                {Platform.OS === "ios" ? "iMessage" : "Messages"}
+              </Text>
+            </View>
+            <Pressable accessibilityLabel="Close" hitSlop={8} onPress={onClose}>
+              <SymbolView
+                name={sym("xmark.circle.fill", "cancel")}
+                size={22}
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+
+          <Pressable
+            onPress={onCopy}
+            style={({ pressed }) => [
+              styles.shareAction,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("doc.on.doc", "content_copy")}
+              size={19}
+              tintColor={theme.primary}
+            />
+            <Text style={[styles.shareActionText, { color: theme.text }]}>
+              Copy results
+            </Text>
+          </Pressable>
+
+          <Text
+            style={[styles.shareFriendsLabel, { color: theme.textSecondary }]}
+          >
+            SEND TO A FRIEND
+          </Text>
+          {isLoadingFriends ? (
+            <ActivityIndicator color={theme.primary} />
+          ) : friends.length > 0 ? (
+            <ScrollView
+              contentContainerStyle={styles.shareFriendsList}
+              style={styles.shareFriendsScroll}
+            >
+              {friends.map((friend) => (
+                <Pressable
+                  key={friend.id}
+                  onPress={() => onMessage(friend)}
+                  style={({ pressed }) => [
+                    styles.shareFriendRow,
+                    pressed && { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <View style={styles.shareFriendText}>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.shareFriendName, { color: theme.text }]}
+                    >
+                      {friend.friendName}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.shareFriendPhone,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {friend.friendPhoneNumber}
+                    </Text>
+                  </View>
+                  <SymbolView
+                    name={sym("message.fill", "message")}
+                    size={18}
+                    tintColor={theme.primary}
+                  />
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text
+              style={[styles.noShareFriends, { color: theme.textSecondary }]}
+            >
+              No friends with phone numbers yet.
+            </Text>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -491,6 +799,7 @@ const styles = StyleSheet.create({
   pageHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 11,
   },
   pageHeaderIcon: {
@@ -500,7 +809,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 14,
   },
-  pageHeaderText: { gap: 1 },
+  pageHeaderText: { minWidth: 0, flex: 1, gap: 1 },
   pageTitle: {
     fontSize: 25,
     lineHeight: 29,
@@ -508,6 +817,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   pageSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
+  shareButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+  },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -643,5 +960,62 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "#0000004D",
+    padding: 12,
+  },
+  shareSheet: {
+    maxHeight: "72%",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 24,
+    padding: 16,
+  },
+  shareSheetHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  shareSheetHeading: { minWidth: 0, flex: 1, gap: 2 },
+  shareSheetTitle: { fontSize: 19, fontWeight: "800", letterSpacing: -0.2 },
+  shareSheetSubtitle: { fontSize: 12, lineHeight: 17, fontWeight: "500" },
+  shareAction: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+  },
+  shareActionText: { fontSize: 15, fontWeight: "700" },
+  shareFriendsLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  shareFriendsScroll: { flexGrow: 0 },
+  shareFriendsList: { gap: 2 },
+  shareFriendRow: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  shareFriendText: { minWidth: 0, flex: 1, gap: 1 },
+  shareFriendName: { fontSize: 14, fontWeight: "700" },
+  shareFriendPhone: { fontSize: 11, fontWeight: "500" },
+  noShareFriends: {
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+    fontSize: 13,
+    fontWeight: "500",
   },
 });

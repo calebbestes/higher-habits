@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { useEffect } from "react";
 import {
   ActivityIndicator,
+  AppState,
   StyleSheet,
   View,
   useColorScheme,
@@ -12,11 +13,16 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import {
+  setCrashReportingUser,
+  wrapWithCrashReporting,
+} from "@/lib/crash-reporting";
+import {
   applyThemePreference,
   getThemePreference,
 } from "@/lib/theme-preference";
+import { recordAppOpened } from "@/lib/user-activity-client";
 
-export default function RootLayout() {
+function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
@@ -36,6 +42,26 @@ export default function RootLayout() {
 function AuthNavigator() {
   const theme = useTheme();
   const { data: session, isPending } = authClient.useSession();
+  const sessionUserId = session?.user.id;
+
+  useEffect(() => {
+    setCrashReportingUser(sessionUserId ?? null);
+  }, [sessionUserId]);
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+
+    const record = () => {
+      void recordAppOpened().catch(() => undefined);
+    };
+
+    record();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") record();
+    });
+
+    return () => subscription.remove();
+  }, [sessionUserId]);
 
   if (isPending) {
     return (
@@ -57,6 +83,8 @@ function AuthNavigator() {
     </Stack>
   );
 }
+
+export default wrapWithCrashReporting(RootLayout);
 
 const styles = StyleSheet.create({
   root: { flex: 1 },

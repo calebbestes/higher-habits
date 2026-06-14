@@ -79,12 +79,17 @@ export const users = pgTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     email: text("email").notNull(),
+    phoneNumber: text("phone_number"),
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
   },
-  (table) => [unique("user_email_unique").on(table.email)],
+  (table) => [
+    unique("user_email_unique").on(table.email),
+    index("user_last_opened_at_idx").on(table.lastOpenedAt),
+  ],
 );
 
 export const sessions = pgTable(

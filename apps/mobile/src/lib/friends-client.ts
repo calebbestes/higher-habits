@@ -33,8 +33,9 @@ export type FriendRow = {
   friendName: string;
   friendEmail: string;
   friendImage: string | null;
-  lastActiveAt: string | null;
-  lastActiveDate: string | null;
+  friendPhoneNumber: string | null;
+  isIncomingRequest: boolean;
+  lastOpenedAt: string | null;
   performance7Day: {
     earnedPoints: number;
     possiblePoints: number;
@@ -105,6 +106,12 @@ export const addFriend = (email: string): Promise<FriendRow> =>
     method: "POST",
     body: JSON.stringify({ email }),
   }).then((r) => parseResponse<FriendRow>(r));
+
+export const acceptFriendRequest = (friendshipId: string) =>
+  mobileApiFetch("/api/friends", {
+    method: "PATCH",
+    body: JSON.stringify({ friendshipId, action: "accept" }),
+  }).then((r) => parseResponse<{ id: string; status: "accepted" }>(r));
 
 export const fetchFriendsFeed = () =>
   mobileApiFetch("/api/friends/feed").then((r) =>

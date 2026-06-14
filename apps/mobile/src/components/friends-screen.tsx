@@ -21,7 +21,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { type FriendRow, addFriend, fetchFriends } from "@/lib/friends-client";
+import {
+  type FriendRow,
+  acceptFriendRequest,
+  addFriend,
+  fetchFriends,
+} from "@/lib/friends-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -38,6 +43,9 @@ export function FriendsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
+    string | null
+  >(null);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
@@ -61,11 +69,25 @@ export function FriendsScreen() {
   }, [load]);
 
   const acceptedFriends = useMemo(
-    () => friends.filter((friend) => friend.status === "accepted"),
+    () =>
+      friends
+        .filter((friend) => friend.status === "accepted")
+        .sort(
+          (left, right) =>
+            lastOpenedTime(right) - lastOpenedTime(left) ||
+            left.friendName.localeCompare(right.friendName),
+        ),
     [friends],
   );
   const pendingFriends = useMemo(
-    () => friends.filter((friend) => friend.status === "requested"),
+    () =>
+      friends
+        .filter((friend) => friend.status === "requested")
+        .sort(
+          (left, right) =>
+            Number(right.isIncomingRequest) - Number(left.isIncomingRequest) ||
+            left.friendName.localeCompare(right.friendName),
+        ),
     [friends],
   );
   const visibleFriends = useMemo(() => {
@@ -86,6 +108,21 @@ export function FriendsScreen() {
           ) / acceptedFriends.length,
         )
       : 0;
+
+  const acceptRequest = async (friend: FriendRow) => {
+    setAcceptingFriendshipId(friend.id);
+    try {
+      await acceptFriendRequest(friend.id);
+      await load();
+    } catch (acceptError) {
+      Alert.alert(
+        "Could not accept request",
+        acceptError instanceof Error ? acceptError.message : "Try again.",
+      );
+    } finally {
+      setAcceptingFriendshipId(null);
+    }
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -221,7 +258,12 @@ export function FriendsScreen() {
                   />
                   <View style={styles.pendingList}>
                     {pendingFriends.map((friend) => (
-                      <PendingFriendRow key={friend.id} friend={friend} />
+                      <PendingFriendRow
+                        key={friend.id}
+                        friend={friend}
+                        isAccepting={acceptingFriendshipId === friend.id}
+                        onAccept={() => void acceptRequest(friend)}
+                      />
                     ))}
                   </View>
                 </View>
@@ -238,9 +280,6 @@ export function FriendsScreen() {
                       <FriendCard
                         key={friend.id}
                         friend={friend}
-                        onIncentivize={() =>
-                          router.navigate("/?section=incentives")
-                        }
                         onMessage={() => router.navigate("/?section=messages")}
                       />
                     ))}
@@ -330,17 +369,11 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 function FriendCard({
   friend,
   onMessage,
-  onIncentivize,
 }: {
   friend: FriendRow;
   onMessage: () => void;
-  onIncentivize: () => void;
 }) {
   const theme = useTheme();
-  const performance = friend.performance7Day;
-  const hasTrackedGoals = Boolean(
-    performance && performance.possiblePoints > 0,
-  );
 
   return (
     <View
@@ -352,117 +385,51 @@ function FriendCard({
         },
       ]}
     >
-      <View style={styles.friendCardHeader}>
-        <FriendAvatar friend={friend} size={52} />
-        <View style={styles.friendIdentity}>
-          <Text
-            numberOfLines={1}
-            style={[styles.friendName, { color: theme.text }]}
-          >
-            {friend.friendName}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.friendEmail, { color: theme.textSecondary }]}
-          >
-            {friend.friendEmail}
-          </Text>
-        </View>
-        <PerformanceBadge percent={performance?.percent ?? 0} />
+      <FriendAvatar friend={friend} size={48} />
+      <View style={styles.friendIdentity}>
+        <Text
+          numberOfLines={1}
+          style={[styles.friendName, { color: theme.text }]}
+        >
+          {friend.friendName}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.friendActive, { color: theme.textSecondary }]}
+        >
+          Active: {formatLastOpened(friend)}
+        </Text>
       </View>
-
-      <View
-        style={[
-          styles.friendDetails,
+      <Pressable
+        accessibilityLabel={`Message ${friend.friendName}`}
+        hitSlop={8}
+        onPress={onMessage}
+        style={({ pressed }) => [
+          styles.messageButton,
           { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
         ]}
       >
-        <DetailItem label="Last active" value={formatLastActive(friend)} />
-        <View
-          style={[styles.detailDivider, { backgroundColor: theme.tabBorder }]}
+        <SymbolView
+          name={sym("message.fill", "message")}
+          size={19}
+          weight="semibold"
+          tintColor={theme.primary}
         />
-        <DetailItem
-          label="Last 7 days"
-          value={
-            hasTrackedGoals
-              ? `${performance?.earnedPoints}/${performance?.possiblePoints} pts`
-              : "No goals tracked"
-          }
-        />
-      </View>
-
-      <View style={styles.cardActions}>
-        <FriendAction
-          icon={sym("message.fill", "message")}
-          label="Message"
-          onPress={onMessage}
-        />
-        <FriendAction
-          icon={sym("gift.fill", "card_giftcard")}
-          label="Incentivize"
-          onPress={onIncentivize}
-        />
-      </View>
+      </Pressable>
     </View>
   );
 }
 
-function DetailItem({ label, value }: { label: string; value: string }) {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.detailItem}>
-      <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>
-        {label}
-      </Text>
-      <Text
-        numberOfLines={1}
-        style={[styles.detailValue, { color: theme.text }]}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function FriendAction({
-  icon,
-  label,
-  onPress,
+function PendingFriendRow({
+  friend,
+  isAccepting,
+  onAccept,
 }: {
-  icon: SymbolName;
-  label: string;
-  onPress: () => void;
+  friend: FriendRow;
+  isAccepting: boolean;
+  onAccept: () => void;
 }) {
-  const theme = useTheme();
-
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.friendAction,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.tabBorder,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <SymbolView
-        name={icon}
-        size={16}
-        weight="semibold"
-        tintColor={theme.primary}
-      />
-      <Text style={[styles.friendActionText, { color: theme.primary }]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function PendingFriendRow({ friend }: { friend: FriendRow }) {
   const theme = useTheme();
 
   return (
@@ -490,16 +457,44 @@ function PendingFriendRow({ friend }: { friend: FriendRow }) {
           {friend.friendEmail}
         </Text>
       </View>
-      <View
-        style={[
-          styles.pendingBadge,
-          { backgroundColor: theme.backgroundSelected },
-        ]}
-      >
-        <Text style={[styles.pendingBadgeText, { color: theme.textSecondary }]}>
-          Pending
-        </Text>
-      </View>
+      {friend.isIncomingRequest ? (
+        <Pressable
+          accessibilityLabel={`Accept ${friend.friendName}'s friend request`}
+          disabled={isAccepting}
+          onPress={onAccept}
+          style={({ pressed }) => [
+            styles.acceptButton,
+            { backgroundColor: theme.primary },
+            pressed && styles.pressed,
+          ]}
+        >
+          {isAccepting ? (
+            <ActivityIndicator color={theme.primaryForeground} size="small" />
+          ) : (
+            <Text
+              style={[
+                styles.acceptButtonText,
+                { color: theme.primaryForeground },
+              ]}
+            >
+              Accept
+            </Text>
+          )}
+        </Pressable>
+      ) : (
+        <View
+          style={[
+            styles.pendingBadge,
+            { backgroundColor: theme.backgroundSelected },
+          ]}
+        >
+          <Text
+            style={[styles.pendingBadgeText, { color: theme.textSecondary }]}
+          >
+            Sent
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -530,32 +525,6 @@ function FriendAvatar({ friend, size }: { friend: FriendRow; size: number }) {
           {friend.friendName.slice(0, 1).toUpperCase()}
         </Text>
       )}
-    </View>
-  );
-}
-
-function PerformanceBadge({ percent }: { percent: number }) {
-  const theme = useTheme();
-  const clampedPercent = Math.max(0, Math.min(100, Math.round(percent)));
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={`${clampedPercent}% performance over the last 7 days`}
-      style={[
-        styles.performanceBadge,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.primary,
-        },
-      ]}
-    >
-      <Text style={[styles.performanceValue, { color: theme.primary }]}>
-        {clampedPercent}%
-      </Text>
-      <Text style={[styles.performanceLabel, { color: theme.textSecondary }]}>
-        7 days
-      </Text>
     </View>
   );
 }
@@ -738,23 +707,29 @@ function AddFriendModal({
   );
 }
 
-function formatLastActive(friend: FriendRow): string {
-  if (!friend.lastActiveAt && !friend.lastActiveDate) return "No activity yet";
-  const date = new Date(
-    friend.lastActiveAt ?? `${friend.lastActiveDate}T12:00:00`,
-  );
-  if (Number.isNaN(date.getTime()))
-    return friend.lastActiveDate ?? "No activity yet";
+function lastOpenedTime(friend: FriendRow): number {
+  if (!friend.lastOpenedAt) return 0;
+  const time = new Date(friend.lastOpenedAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function formatLastOpened(friend: FriendRow): string {
+  const time = lastOpenedTime(friend);
+  if (!time) return "Not opened yet";
 
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  if (date.toDateString() === today.toDateString()) return "Today";
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  today.setHours(0, 0, 0, 0);
+  const opened = new Date(time);
+  opened.setHours(0, 0, 0, 0);
+  const daysAgo = Math.max(
+    0,
+    Math.floor((today.getTime() - opened.getTime()) / 86_400_000),
+  );
+
+  if (daysAgo === 0) return "Today";
+  if (daysAgo <= 6) return `${daysAgo} ${daysAgo === 1 ? "day" : "days"} ago`;
+  if (daysAgo <= 30) return "Over a week ago";
+  return "Over one month ago";
 }
 
 const styles = StyleSheet.create({
@@ -882,69 +857,43 @@ const styles = StyleSheet.create({
   pendingName: { fontSize: 15, fontWeight: "700" },
   pendingBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   pendingBadgeText: { fontSize: 11, fontWeight: "700" },
+  acceptButton: {
+    minWidth: 68,
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  acceptButtonText: { fontSize: 13, fontWeight: "700" },
   friendGrid: { gap: 12 },
   friendCard: {
-    gap: 13,
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    padding: 14,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  friendCardHeader: { flexDirection: "row", alignItems: "center", gap: 11 },
   friendIdentity: { minWidth: 0, flex: 1, gap: 2 },
   friendName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
   friendEmail: { fontSize: 12, fontWeight: "500" },
+  friendActive: { fontSize: 13, fontWeight: "500" },
   avatar: {
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
   avatarText: { fontSize: 18, fontWeight: "800" },
-  performanceBadge: {
-    width: 58,
-    height: 58,
+  messageButton: {
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 3,
-    borderRadius: 29,
-  },
-  performanceValue: { fontSize: 14, fontWeight: "800" },
-  performanceLabel: {
-    fontSize: 8,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  friendDetails: {
-    flexDirection: "row",
-    alignItems: "center",
     borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
   },
-  detailItem: { minWidth: 0, flex: 1, gap: 3 },
-  detailDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 32,
-    marginHorizontal: 10,
-  },
-  detailLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  detailValue: { fontSize: 12, fontWeight: "700" },
-  cardActions: { flexDirection: "row", gap: 8 },
-  friendAction: {
-    height: 40,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-  },
-  friendActionText: { fontSize: 13, fontWeight: "700" },
   emptyCard: {
     alignItems: "center",
     gap: 8,

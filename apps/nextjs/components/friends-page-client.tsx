@@ -67,8 +67,8 @@ type FriendRow = {
   friendName: string;
   friendEmail: string;
   friendImage: string | null;
-  lastActiveAt: string | null;
-  lastActiveDate: string | null;
+  isIncomingRequest: boolean;
+  lastOpenedAt: string | null;
   performance7Day: {
     earnedPoints: number;
     possiblePoints: number;
@@ -255,6 +255,16 @@ async function addFriend(email: string) {
   return parseJsonResponse<FriendRow>(response);
 }
 
+async function acceptFriendRequest(friendshipId: string) {
+  const response = await fetch(FRIENDS_ENDPOINT, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ friendshipId, action: "accept" }),
+  });
+
+  return parseJsonResponse<{ id: string; status: "accepted" }>(response);
+}
+
 async function sendFriendMessage(
   friendshipId: string,
   payload: SendMessagePayload,
@@ -291,24 +301,29 @@ function dateFromDateKey(dateKey: string) {
   return new Date(year, month - 1, day);
 }
 
-function formatLastActive(friend: FriendRow) {
-  if (!friend.lastActiveAt && !friend.lastActiveDate) {
-    return "No activity yet";
-  }
+function lastOpenedTime(friend: FriendRow) {
+  if (!friend.lastOpenedAt) return 0;
+  const time = new Date(friend.lastOpenedAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
 
-  const date = friend.lastActiveAt
-    ? new Date(friend.lastActiveAt)
-    : dateFromDateKey(friend.lastActiveDate ?? "");
+function formatLastOpened(friend: FriendRow) {
+  const time = lastOpenedTime(friend);
+  if (!time) return "Not opened yet";
 
-  if (Number.isNaN(date.getTime())) {
-    return friend.lastActiveDate ?? "No activity yet";
-  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const opened = new Date(time);
+  opened.setHours(0, 0, 0, 0);
+  const daysAgo = Math.max(
+    0,
+    Math.floor((today.getTime() - opened.getTime()) / 86_400_000),
+  );
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
+  if (daysAgo === 0) return "Today";
+  if (daysAgo <= 6) return `${daysAgo} ${daysAgo === 1 ? "day" : "days"} ago`;
+  if (daysAgo <= 30) return "Over a week ago";
+  return "Over one month ago";
 }
 
 function formatMessageTime(timestamp: string) {
@@ -1254,10 +1269,10 @@ function FriendGridCard({
         <dl className="grid gap-3">
           <div>
             <dt className="text-[10px] font-semibold uppercase tracking-widest text-foreground-400">
-              Last Active
+              Last Opened
             </dt>
             <dd className="mt-1 text-sm font-semibold">
-              {formatLastActive(friend)}
+              {formatLastOpened(friend)}
             </dd>
           </div>
           <div>
@@ -1282,11 +1297,17 @@ function FriendGridCard({
 function FriendsGridSection({
   isLoading,
   friends,
+  pendingFriends,
+  acceptingFriendshipId,
+  onAcceptRequest,
   onMessage,
   onIncentivize,
 }: {
   isLoading: boolean;
   friends: FriendRow[];
+  pendingFriends: FriendRow[];
+  acceptingFriendshipId: string | null;
+  onAcceptRequest: (friend: FriendRow) => void;
   onMessage: (friend: FriendRow) => void;
   onIncentivize: (friend: FriendRow) => void;
 }) {
@@ -1298,7 +1319,7 @@ function FriendsGridSection({
     );
   }
 
-  if (friends.length === 0) {
+  if (friends.length === 0 && pendingFriends.length === 0) {
     return (
       <section className="flex min-h-64 flex-1 items-center justify-center text-center">
         <h2 className="text-xl font-semibold">No friends yet</h2>
@@ -1307,16 +1328,61 @@ function FriendsGridSection({
   }
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
-      {friends.map((friend) => (
-        <FriendGridCard
-          key={friend.id}
-          friend={friend}
-          onMessage={onMessage}
-          onIncentivize={onIncentivize}
-        />
-      ))}
-    </section>
+    <div className="grid gap-6">
+      {pendingFriends.length > 0 ? (
+        <section className="grid gap-3">
+          <h2 className="text-lg font-semibold">Pending requests</h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pendingFriends.map((friend) => (
+              <article
+                key={friend.id}
+                className="flex items-center gap-3 rounded-xl border border-divider bg-content1 p-4"
+              >
+                <FriendAvatar
+                  image={friend.friendImage}
+                  name={friend.friendName}
+                />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm font-semibold">
+                    {friend.friendName}
+                  </h3>
+                  <p className="truncate text-xs text-foreground-500">
+                    {friend.friendEmail}
+                  </p>
+                </div>
+                {friend.isIncomingRequest ? (
+                  <Button
+                    color="primary"
+                    size="sm"
+                    isLoading={acceptingFriendshipId === friend.id}
+                    onPress={() => onAcceptRequest(friend)}
+                  >
+                    Accept
+                  </Button>
+                ) : (
+                  <span className="text-xs font-semibold text-foreground-500">
+                    Sent
+                  </span>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {friends.length > 0 ? (
+        <section className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+          {friends.map((friend) => (
+            <FriendGridCard
+              key={friend.id}
+              friend={friend}
+              onMessage={onMessage}
+              onIncentivize={onIncentivize}
+            />
+          ))}
+        </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -1411,6 +1477,24 @@ export function FriendsPageClient({
     },
   });
 
+  const acceptFriendRequestMutation = useMutation({
+    mutationFn: acceptFriendRequest,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["friends"] });
+      addToast({
+        title: "Friend request accepted",
+        color: "success",
+      });
+    },
+    onError: (error) => {
+      addToast({
+        title: "Could not accept friend request",
+        description: error instanceof Error ? error.message : undefined,
+        color: "danger",
+      });
+    },
+  });
+
   const acceptIncentiveMutation = useMutation({
     mutationFn: ({
       friendshipId,
@@ -1442,9 +1526,20 @@ export function FriendsPageClient({
   });
 
   const friends = friendsQuery.data ?? [];
-  const acceptedFriends = friends.filter(
-    (friend) => friend.status === "accepted",
-  );
+  const acceptedFriends = friends
+    .filter((friend) => friend.status === "accepted")
+    .sort(
+      (left, right) =>
+        lastOpenedTime(right) - lastOpenedTime(left) ||
+        left.friendName.localeCompare(right.friendName),
+    );
+  const pendingFriends = friends
+    .filter((friend) => friend.status === "requested")
+    .sort(
+      (left, right) =>
+        Number(right.isIncomingRequest) - Number(left.isIncomingRequest) ||
+        left.friendName.localeCompare(right.friendName),
+    );
   const conversationFriend =
     acceptedFriends.find((friend) => friend.id === selectedConversationId) ??
     acceptedFriends[0] ??
@@ -1668,6 +1763,15 @@ export function FriendsPageClient({
           <FriendsGridSection
             isLoading={friendsQuery.isLoading}
             friends={acceptedFriends}
+            pendingFriends={pendingFriends}
+            acceptingFriendshipId={
+              acceptFriendRequestMutation.isPending
+                ? (acceptFriendRequestMutation.variables ?? null)
+                : null
+            }
+            onAcceptRequest={(friend) =>
+              acceptFriendRequestMutation.mutate(friend.id)
+            }
             onMessage={(friend) => {
               setSelectedConversationId(friend.id);
               router.push("/friends?section=messages");

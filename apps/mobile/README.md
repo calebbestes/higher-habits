@@ -41,6 +41,22 @@ This command will move the starter code to the **app-example** directory and cre
 - If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
 
+## Production crash reporting
+
+Production crash reporting uses Sentry and stays disabled until a DSN is
+configured. After creating a Sentry React Native project, configure its values
+for EAS production builds:
+
+```bash
+eas env:create production --name EXPO_PUBLIC_SENTRY_DSN --value "<dsn>" --visibility plaintext
+eas env:create production --name SENTRY_ORG --value "<organization-slug>" --visibility plaintext
+eas env:create production --name SENTRY_PROJECT --value "<project-slug>" --visibility plaintext
+eas env:create production --name SENTRY_AUTH_TOKEN --value "<auth-token>" --visibility secret
+```
+
+`SENTRY_AUTH_TOKEN` uploads source maps and native debug symbols during EAS
+builds. Never commit it to the repository.
+
 ## Learn more
 
 To learn more about developing your project with Expo, look at the following resources:

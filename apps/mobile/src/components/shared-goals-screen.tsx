@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
-import { useEffect, useRef, useState } from "react";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -59,6 +60,12 @@ const NEEDS_TARGET = new Set<SharedGoalScoringType>([
   "first_to_target",
 ]);
 
+type SymbolName = SymbolViewProps["name"];
+
+function sym(ios: string, android: string): SymbolName {
+  return { ios, android, web: android } as SymbolName;
+}
+
 function todayKey() {
   return toDateKey(new Date());
 }
@@ -66,7 +73,7 @@ function todayKey() {
 function formatEndDate(dateStr: string | null): string {
   if (!dateStr) return "No end date";
   try {
-    const d = new Date(dateStr + "T12:00:00");
+    const d = new Date(`${dateStr}T12:00:00`);
     return `Ends ${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
   } catch {
     return dateStr;
@@ -82,30 +89,21 @@ function getInitials(name: string): string {
     .toUpperCase();
 }
 
-function hashColor(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const h = Math.abs(hash) % 360;
-  return `hsl(${h}, 45%, 52%)`;
-}
-
 // ─── Avatar ──────────────────────────────────────────────────────────────────
 
 function Avatar({
   image,
   name,
-  userId,
   size,
   borderColor,
 }: {
   image: string | null;
   name: string;
-  userId: string;
   size: number;
   borderColor?: string;
 }) {
+  const theme = useTheme();
+
   if (image) {
     return (
       <Image
@@ -127,14 +125,20 @@ function Avatar({
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: hashColor(userId),
+        backgroundColor: theme.backgroundSelected,
         alignItems: "center",
         justifyContent: "center",
         borderWidth: borderColor ? 2 : 0,
         borderColor: borderColor ?? "transparent",
       }}
     >
-      <Text style={{ color: "#fff", fontSize: size * 0.34, fontWeight: "700" }}>
+      <Text
+        style={{
+          color: theme.primary,
+          fontSize: size * 0.34,
+          fontWeight: "600",
+        }}
+      >
         {getInitials(name)}
       </Text>
     </View>
@@ -145,13 +149,15 @@ function AvatarStack({
   participants,
   size = 30,
   max = 4,
-  borderColor = "#fff",
+  borderColor,
 }: {
   participants: SharedGoalParticipantSnapshot[];
   size?: number;
   max?: number;
   borderColor?: string;
 }) {
+  const theme = useTheme();
+  const resolvedBorderColor = borderColor ?? theme.background;
   const shown = participants.slice(0, max);
   const extra = participants.length - max;
   const overlap = Math.floor(size * 0.38);
@@ -169,9 +175,8 @@ function AvatarStack({
           <Avatar
             image={p.userImage}
             name={p.userName}
-            userId={p.userId}
             size={size}
-            borderColor={borderColor}
+            borderColor={resolvedBorderColor}
           />
         </View>
       ))}
@@ -182,11 +187,11 @@ function AvatarStack({
             width: size,
             height: size,
             borderRadius: size / 2,
-            backgroundColor: "#B0B4BA",
+            backgroundColor: theme.backgroundSelected,
             alignItems: "center",
             justifyContent: "center",
             borderWidth: 2,
-            borderColor: borderColor,
+            borderColor: resolvedBorderColor,
             zIndex: 0,
           }}
         >
@@ -194,7 +199,7 @@ function AvatarStack({
             style={{
               fontSize: size * 0.3,
               fontWeight: "700",
-              color: "#fff",
+              color: theme.textSecondary,
             }}
           >
             +{extra}
@@ -208,17 +213,21 @@ function AvatarStack({
 // ─── Badges ──────────────────────────────────────────────────────────────────
 
 function ModeBadge({ mode }: { mode: "collaborative" | "competitive" }) {
+  const theme = useTheme();
   const isCollab = mode === "collaborative";
   return (
-    <View
-      style={[
-        styles.badge,
-        { backgroundColor: isCollab ? "#D4EEEE" : "#FDE8E8" },
-      ]}
-    >
-      <Text
-        style={[styles.badgeText, { color: isCollab ? "#1B4040" : "#7A2828" }]}
-      >
+    <View style={styles.badge}>
+      <SymbolView
+        name={
+          isCollab
+            ? sym("person.2.fill", "groups")
+            : sym("trophy.fill", "emoji_events")
+        }
+        size={13}
+        weight="semibold"
+        tintColor={theme.primary}
+      />
+      <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
         {isCollab ? "Collaborative" : "Competitive"}
       </Text>
     </View>
@@ -226,9 +235,16 @@ function ModeBadge({ mode }: { mode: "collaborative" | "competitive" }) {
 }
 
 function ScoringBadge({ type }: { type: SharedGoalScoringType }) {
+  const theme = useTheme();
   return (
-    <View style={[styles.badge, { backgroundColor: "#EBEBEF" }]}>
-      <Text style={[styles.badgeText, { color: "#50545C" }]}>
+    <View style={styles.badge}>
+      <SymbolView
+        name={sym("chart.bar.fill", "bar_chart")}
+        size={13}
+        weight="semibold"
+        tintColor={theme.textSecondary}
+      />
+      <Text style={[styles.badgeText, { color: theme.textSecondary }]}>
         {SCORING_LABELS[type]}
       </Text>
     </View>
@@ -241,9 +257,15 @@ function ProgressBar({
   percent,
   primary,
 }: { percent: number; primary: string }) {
+  const theme = useTheme();
   const pct = Math.min(100, Math.max(0, Math.round(percent)));
   return (
-    <View style={styles.progressTrack}>
+    <View
+      style={[
+        styles.progressTrack,
+        { backgroundColor: theme.backgroundSelected },
+      ]}
+    >
       <View
         style={[
           styles.progressFill,
@@ -282,12 +304,7 @@ function GoalCard({
     .join(", ");
 
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: theme.background, borderColor: theme.tabBorder },
-      ]}
-    >
+    <View style={[styles.card, { backgroundColor: theme.background }]}>
       {/* Badges */}
       <View style={styles.badgeRow}>
         <ModeBadge mode={goal.mode} />
@@ -340,7 +357,9 @@ function GoalCard({
       )}
 
       {/* Footer */}
-      <View style={styles.cardDivider} />
+      <View
+        style={[styles.cardDivider, { backgroundColor: theme.tabBorder }]}
+      />
       <View style={styles.cardFooter}>
         <View style={styles.footerAvatars}>
           <AvatarStack
@@ -369,16 +388,30 @@ function GoalCard({
           {noGoalLinked ? (
             <Pressable
               onPress={onRelink}
-              style={[styles.cardBtn, { backgroundColor: "#F59E0B" }]}
+              style={[
+                styles.cardBtn,
+                { backgroundColor: theme.backgroundElement },
+              ]}
             >
-              <Text style={[styles.cardBtnText, { color: "#fff" }]}>
+              <Text style={[styles.cardBtnText, { color: theme.primary }]}>
                 Link Goal
               </Text>
             </Pressable>
           ) : completedToday ? (
-            <View style={[styles.cardBtn, { backgroundColor: "#22C55E" }]}>
-              <Text style={[styles.cardBtnText, { color: "#fff" }]}>
-                Done ✓
+            <View
+              style={[
+                styles.cardBtn,
+                { backgroundColor: theme.backgroundElement },
+              ]}
+            >
+              <SymbolView
+                name={sym("checkmark.circle.fill", "check_circle")}
+                size={15}
+                weight="semibold"
+                tintColor={theme.primary}
+              />
+              <Text style={[styles.cardBtnText, { color: theme.primary }]}>
+                Done
               </Text>
             </View>
           ) : (
@@ -418,12 +451,20 @@ function InvitationCard({
       style={[
         styles.card,
         styles.inviteCard,
-        { backgroundColor: theme.background, borderColor: "#A0D5D5" },
+        { backgroundColor: theme.background, borderColor: theme.primary },
       ]}
     >
       <View style={styles.inviteHeader}>
-        <View style={[styles.invitedBadge, { backgroundColor: "#D4EEEE" }]}>
-          <Text style={[styles.badgeText, { color: "#1B4040" }]}>Invited</Text>
+        <View style={styles.badge}>
+          <SymbolView
+            name={sym("envelope.fill", "mail")}
+            size={13}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+          <Text style={[styles.badgeText, { color: theme.primary }]}>
+            Invitation
+          </Text>
         </View>
         <ModeBadge mode={goal.mode} />
       </View>
@@ -515,9 +556,12 @@ function GoalDetailsSheet({
           {goal.name}
         </Text>
         <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={12}>
-          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>
-            ✕
-          </Text>
+          <SymbolView
+            name={sym("xmark", "close")}
+            size={16}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
         </Pressable>
       </View>
 
@@ -652,12 +696,7 @@ function GoalDetailsSheet({
                 { borderBottomColor: theme.tabBorder },
               ]}
             >
-              <Avatar
-                image={p.userImage}
-                name={p.userName}
-                userId={p.userId}
-                size={36}
-              />
+              <Avatar image={p.userImage} name={p.userName} size={36} />
               <View style={styles.participantInfo}>
                 <Text style={[styles.participantName, { color: theme.text }]}>
                   {p.userName}
@@ -672,8 +711,21 @@ function GoalDetailsSheet({
                 </Text>
               </View>
               {p.completedToday && (
-                <View style={styles.doneChip}>
-                  <Text style={styles.doneChipText}>Done ✓</Text>
+                <View
+                  style={[
+                    styles.doneChip,
+                    { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("checkmark", "check")}
+                    size={11}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text style={[styles.doneChipText, { color: theme.primary }]}>
+                    Done
+                  </Text>
                 </View>
               )}
             </View>
@@ -686,20 +738,15 @@ function GoalDetailsSheet({
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
               Recent activity
             </Text>
-            {goal.recentActivity.slice(0, 5).map((a, i) => (
+            {goal.recentActivity.slice(0, 5).map((a) => (
               <View
-                key={i}
+                key={`${a.userId}-${a.dateKey}`}
                 style={[
                   styles.activityRow,
                   { borderBottomColor: theme.tabBorder },
                 ]}
               >
-                <Avatar
-                  image={a.userImage}
-                  name={a.userName}
-                  userId={a.userId}
-                  size={28}
-                />
+                <Avatar image={a.userImage} name={a.userName} size={28} />
                 <Text
                   style={[styles.activityText, { color: theme.textSecondary }]}
                   numberOfLines={1}
@@ -815,9 +862,12 @@ function RelinkModal({
           Link Personal Goal
         </Text>
         <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={12}>
-          <Text style={[styles.sheetCloseText, { color: theme.textSecondary }]}>
-            ✕
-          </Text>
+          <SymbolView
+            name={sym("xmark", "close")}
+            size={16}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
         </Pressable>
       </View>
       <ScrollView
@@ -887,9 +937,12 @@ function RelinkModal({
               ]}
             >
               {deleteAuto && (
-                <Text style={{ color: theme.primaryForeground, fontSize: 11 }}>
-                  ✓
-                </Text>
+                <SymbolView
+                  name={sym("checkmark", "check")}
+                  size={11}
+                  weight="semibold"
+                  tintColor={theme.primaryForeground}
+                />
               )}
             </View>
             <Text
@@ -1035,9 +1088,17 @@ function CreateGoalModal({
                 onPress={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
                 hitSlop={12}
               >
-                <Text style={[styles.backBtn, { color: theme.primary }]}>
-                  ← Back
-                </Text>
+                <View style={styles.headerTextButton}>
+                  <SymbolView
+                    name={sym("chevron.left", "chevron_left")}
+                    size={15}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text style={[styles.backBtn, { color: theme.primary }]}>
+                    Back
+                  </Text>
+                </View>
               </Pressable>
             )}
           </View>
@@ -1051,11 +1112,12 @@ function CreateGoalModal({
               {step}/3
             </Text>
             <Pressable onPress={onClose} hitSlop={12}>
-              <Text
-                style={[styles.sheetCloseText, { color: theme.textSecondary }]}
-              >
-                ✕
-              </Text>
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={16}
+                weight="semibold"
+                tintColor={theme.primary}
+              />
             </Pressable>
           </View>
         </View>
@@ -1071,63 +1133,144 @@ function CreateGoalModal({
               <Text style={[styles.stepHeading, { color: theme.text }]}>
                 How will you work together?
               </Text>
-              <Pressable
-                onPress={() =>
-                  setForm((f) => ({
-                    ...f,
-                    mode: "collaborative",
-                    scoringType:
-                      f.mode === "competitive" ? null : f.scoringType,
-                  }))
-                }
+              <View
                 style={[
-                  styles.modeCard,
+                  styles.modeOptions,
                   {
-                    backgroundColor:
+                    backgroundColor: theme.background,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={() =>
+                    setForm((f) => ({
+                      ...f,
+                      mode: "collaborative",
+                      scoringType:
+                        f.mode === "competitive" ? null : f.scoringType,
+                    }))
+                  }
+                  style={[
+                    styles.modeCard,
+                    {
+                      backgroundColor:
+                        form.mode === "collaborative"
+                          ? theme.backgroundSelected
+                          : theme.background,
+                      borderBottomColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.modeIcon,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("person.2.fill", "groups")}
+                      size={20}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                  </View>
+                  <View style={styles.modeText}>
+                    <Text style={[styles.modeCardTitle, { color: theme.text }]}>
+                      Collaborative
+                    </Text>
+                    <Text
+                      style={[
+                        styles.modeCardDesc,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Work together toward one result.
+                    </Text>
+                  </View>
+                  <SymbolView
+                    name={sym(
                       form.mode === "collaborative"
-                        ? "#D4EEEE"
-                        : theme.backgroundElement,
-                    borderColor:
-                      form.mode === "collaborative" ? "#2C5352" : "transparent",
-                  },
-                ]}
-              >
-                <Text style={[styles.modeCardTitle, { color: "#1B4040" }]}>
-                  Collaborative
-                </Text>
-                <Text style={[styles.modeCardDesc, { color: "#3D7070" }]}>
-                  Work together toward a shared goal. Everyone's progress
-                  counts.
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() =>
-                  setForm((f) => ({
-                    ...f,
-                    mode: "competitive",
-                    scoringType:
-                      f.mode === "collaborative" ? null : f.scoringType,
-                  }))
-                }
-                style={[
-                  styles.modeCard,
-                  {
-                    backgroundColor:
+                        ? "checkmark.circle.fill"
+                        : "circle",
+                      form.mode === "collaborative"
+                        ? "check_circle"
+                        : "radio_button_unchecked",
+                    )}
+                    size={20}
+                    weight="semibold"
+                    tintColor={
+                      form.mode === "collaborative"
+                        ? theme.primary
+                        : theme.textSecondary
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() =>
+                    setForm((f) => ({
+                      ...f,
+                      mode: "competitive",
+                      scoringType:
+                        f.mode === "collaborative" ? null : f.scoringType,
+                    }))
+                  }
+                  style={[
+                    styles.modeCard,
+                    styles.modeCardLast,
+                    {
+                      backgroundColor:
+                        form.mode === "competitive"
+                          ? theme.backgroundSelected
+                          : theme.background,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.modeIcon,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("trophy.fill", "emoji_events")}
+                      size={20}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                  </View>
+                  <View style={styles.modeText}>
+                    <Text style={[styles.modeCardTitle, { color: theme.text }]}>
+                      Competitive
+                    </Text>
+                    <Text
+                      style={[
+                        styles.modeCardDesc,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Compare individual results.
+                    </Text>
+                  </View>
+                  <SymbolView
+                    name={sym(
                       form.mode === "competitive"
-                        ? "#FDE8E8"
-                        : theme.backgroundElement,
-                    borderColor:
-                      form.mode === "competitive" ? "#7A2828" : "transparent",
-                  },
-                ]}
-              >
-                <Text style={[styles.modeCardTitle, { color: "#7A2828" }]}>
-                  Competitive
-                </Text>
-                <Text style={[styles.modeCardDesc, { color: "#A05050" }]}>
-                  Compete against each other. See who can do the most.
-                </Text>
-              </Pressable>
+                        ? "checkmark.circle.fill"
+                        : "circle",
+                      form.mode === "competitive"
+                        ? "check_circle"
+                        : "radio_button_unchecked",
+                    )}
+                    size={20}
+                    weight="semibold"
+                    tintColor={
+                      form.mode === "competitive"
+                        ? theme.primary
+                        : theme.textSecondary
+                    }
+                  />
+                </Pressable>
+              </View>
             </View>
           )}
 
@@ -1378,7 +1521,6 @@ function CreateGoalModal({
                         <Avatar
                           image={f.friendImage}
                           name={f.friendName}
-                          userId={f.friendId}
                           size={36}
                         />
                         <View style={styles.friendInfo}>
@@ -1410,14 +1552,12 @@ function CreateGoalModal({
                           ]}
                         >
                           {selected && (
-                            <Text
-                              style={{
-                                color: theme.primaryForeground,
-                                fontSize: 12,
-                              }}
-                            >
-                              ✓
-                            </Text>
+                            <SymbolView
+                              name={sym("checkmark", "check")}
+                              size={11}
+                              weight="semibold"
+                              tintColor={theme.primaryForeground}
+                            />
                           )}
                         </View>
                       </Pressable>
@@ -1509,7 +1649,7 @@ export function SharedGoalsScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [relinkGoal, setRelinkGoal] = useState<SharedGoalSnapshot | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await fetchSharedGoals();
       setGoals(data);
@@ -1519,18 +1659,18 @@ export function SharedGoalsScreen() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function loadAuxiliary() {
+  const loadAuxiliary = useCallback(async () => {
     const [g, f] = await Promise.allSettled([fetchGoals(), fetchFriends()]);
     if (g.status === "fulfilled") setPersonalGoals(g.value);
     if (f.status === "fulfilled") setFriends(f.value);
-  }
+  }, []);
 
   useEffect(() => {
     void load();
     void loadAuxiliary();
-  }, []);
+  }, [load, loadAuxiliary]);
 
   async function handleReport(goal: SharedGoalSnapshot) {
     const cur = goal.currentUserParticipant;
@@ -1671,14 +1811,14 @@ export function SharedGoalsScreen() {
   );
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+    <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: insets.top + 8,
-            backgroundColor: theme.background,
+            backgroundColor: theme.backgroundElement,
             borderBottomColor: theme.tabBorder,
           },
         ]}
@@ -1686,14 +1826,21 @@ export function SharedGoalsScreen() {
         <CollabHeaderMenu currentSection="shared-goals" />
         <View style={styles.headerActions}>
           <Pressable
+            accessibilityLabel="New shared goal"
             onPress={() => setShowCreate(true)}
-            style={[styles.newBtn, { backgroundColor: theme.primary }]}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.addButton,
+              { backgroundColor: theme.primary },
+              pressed && styles.pressed,
+            ]}
           >
-            <Text
-              style={[styles.newBtnText, { color: theme.primaryForeground }]}
-            >
-              + New
-            </Text>
+            <SymbolView
+              name={sym("plus", "add")}
+              size={20}
+              weight="semibold"
+              tintColor={theme.primaryForeground}
+            />
           </Pressable>
         </View>
       </View>
@@ -1870,28 +2017,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingHorizontal: 18,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "800",
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  newBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
+  addButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
   },
-  newBtnText: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
+  pressed: { opacity: 0.6 },
   center: {
     flex: 1,
     alignItems: "center",
@@ -1905,9 +2047,9 @@ const styles = StyleSheet.create({
   },
   retryBtn: {
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1.5,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   retryBtnText: {
     fontSize: 14,
@@ -1928,7 +2070,7 @@ const styles = StyleSheet.create({
   emptyCreateBtn: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 22,
+    borderRadius: 10,
   },
   emptyCreateBtnText: {
     fontSize: 15,
@@ -1944,25 +2086,17 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+    fontSize: 15,
+    fontWeight: "600",
     marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   // Card
   card: {
     marginHorizontal: 16,
     marginBottom: 12,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
     padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
   },
   inviteCard: {
     borderWidth: 1,
@@ -1970,24 +2104,23 @@ const styles = StyleSheet.create({
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
+    gap: 14,
+    marginBottom: 12,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: "600",
   },
   cardTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: "700",
     marginBottom: 4,
+    letterSpacing: -0.15,
   },
   cardSubtitle: {
     fontSize: 13,
@@ -2012,18 +2145,16 @@ const styles = StyleSheet.create({
   },
   progressTrack: {
     width: "100%",
-    height: 6,
-    backgroundColor: "#E0E1E6",
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     overflow: "hidden",
   },
   progressFill: {
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
   },
   cardDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#E0E1E6",
     marginVertical: 10,
   },
   cardFooter: {
@@ -2043,8 +2174,10 @@ const styles = StyleSheet.create({
   },
   cardBtn: {
     flex: 1,
-    paddingVertical: 9,
-    borderRadius: 22,
+    minHeight: 40,
+    flexDirection: "row",
+    gap: 5,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2061,11 +2194,6 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 10,
   },
-  invitedBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 7,
-  },
   inviteActions: {
     flexDirection: "row",
     gap: 8,
@@ -2074,7 +2202,7 @@ const styles = StyleSheet.create({
   inviteBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 22,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2116,10 +2244,6 @@ const styles = StyleSheet.create({
     width: 32,
     alignItems: "flex-end",
   },
-  sheetCloseText: {
-    fontSize: 17,
-    fontWeight: "600",
-  },
   sheetScroll: {
     flex: 1,
   },
@@ -2138,7 +2262,7 @@ const styles = StyleSheet.create({
   },
   sheetPrimaryBtn: {
     paddingVertical: 14,
-    borderRadius: 26,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2226,15 +2350,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   doneChip: {
-    backgroundColor: "#22C55E",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
   },
   doneChipText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#fff",
   },
   // Activity row
   activityRow: {
@@ -2256,8 +2381,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   goalOption: {
-    borderRadius: 12,
-    borderWidth: 1.5,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
     marginBottom: 8,
   },
@@ -2300,15 +2425,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   backBtn: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
   },
+  headerTextButton: { flexDirection: "row", alignItems: "center", gap: 2 },
   stepIndicator: {
     fontSize: 13,
     fontWeight: "600",
   },
   modeStep: {
-    gap: 12,
+    gap: 8,
+  },
+  modeOptions: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
   },
   stepHeading: {
     fontSize: 17,
@@ -2320,29 +2451,39 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modeCard: {
-    borderRadius: 16,
-    borderWidth: 2,
-    padding: 20,
-    gap: 6,
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  modeCardLast: { borderBottomWidth: 0 },
+  modeIcon: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  modeText: { flex: 1, gap: 2 },
   modeCardTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "600",
   },
   modeCardDesc: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
   fieldLabel: {
     fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    fontWeight: "600",
     marginBottom: 6,
   },
   textInput: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
@@ -2354,7 +2495,7 @@ const styles = StyleSheet.create({
   scoringChip: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 20,
+    borderRadius: 9,
   },
   scoringChipText: {
     fontSize: 13,

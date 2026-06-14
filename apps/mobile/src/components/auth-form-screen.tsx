@@ -1,3 +1,6 @@
+import { Image } from "expo-image";
+import { SaveFormat, manipulateAsync } from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { forwardRef, useEffect, useRef, useState } from "react";
@@ -18,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
 type AuthFormScreenProps = {
   mode: "login" | "sign-up";
@@ -29,24 +33,79 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const { data: session, refetch: refetchSession } = authClient.useSession();
   const passwordInput = useRef<TextInput>(null);
   const emailInput = useRef<TextInput>(null);
+  const phoneInput = useRef<TextInput>(null);
   const [name, setName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [profilePicture, setProfilePicture] = useState<{
+    uri: string;
+    dataUrl: string;
+  } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isPickingPhoto, setIsPickingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [shouldEnterApp, setShouldEnterApp] = useState(false);
   const isSignUp = mode === "sign-up";
   const canSubmit =
     email.trim().length > 0 &&
     password.length > 0 &&
-    (!isSignUp || name.trim().length > 0);
+    (!isSignUp ||
+      (name.trim().length > 0 &&
+        phoneNumber.replace(/\D/g, "").length >= 10 &&
+        profilePicture !== null));
 
   useEffect(() => {
     if (shouldEnterApp && session) {
       router.replace("/");
     }
   }, [router, session, shouldEnterApp]);
+
+  const pickProfilePicture = async () => {
+    setError(null);
+    setIsPickingPhoto(true);
+
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Photo access is required to choose a profile picture.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets[0]) return;
+
+      const image = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 512, height: 512 } }],
+        {
+          base64: true,
+          compress: 0.7,
+          format: SaveFormat.JPEG,
+        },
+      );
+      if (!image.base64) {
+        setError("Could not prepare that profile picture.");
+        return;
+      }
+
+      setProfilePicture({
+        uri: image.uri,
+        dataUrl: `data:image/jpeg;base64,${image.base64}`,
+      });
+    } catch {
+      setError("Could not choose that profile picture.");
+    } finally {
+      setIsPickingPhoto(false);
+    }
+  };
 
   const submit = async () => {
     if (!canSubmit || isSubmitting) return;
@@ -58,8 +117,12 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       const response = isSignUp
         ? await authClient.signUp.email({
             name: name.trim(),
+            phoneNumber: phoneNumber.trim(),
             email: email.trim(),
             password,
+            image: profilePicture?.dataUrl,
+          } as Parameters<typeof authClient.signUp.email>[0] & {
+            phoneNumber: string;
           })
         : await authClient.signIn.email({
             email: email.trim(),
@@ -71,6 +134,9 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         return;
       }
 
+      if (isSignUp && profilePicture) {
+        await uploadProfilePicture(profilePicture.uri).catch(() => undefined);
+      }
       await refetchSession();
       const sessionResponse = await authClient.getSession();
       if (!sessionResponse.data) {
@@ -155,16 +221,95 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
 
                 <View style={styles.form}>
                   {isSignUp ? (
-                    <AuthInput
-                      label="Name"
-                      value={name}
-                      onChangeText={setName}
-                      autoCapitalize="words"
-                      autoComplete="name"
-                      textContentType="name"
-                      returnKeyType="next"
-                      onSubmitEditing={() => emailInput.current?.focus()}
-                    />
+                    <>
+                      <Pressable
+                        accessibilityLabel={
+                          profilePicture
+                            ? "Change profile picture"
+                            : "Choose profile picture"
+                        }
+                        accessibilityRole="button"
+                        disabled={isPickingPhoto}
+                        onPress={() => void pickProfilePicture()}
+                        style={({ pressed }) => [
+                          styles.photoPicker,
+                          {
+                            backgroundColor: theme.backgroundElement,
+                            borderColor: profilePicture
+                              ? theme.primary
+                              : theme.tabBorder,
+                          },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        {profilePicture ? (
+                          <Image
+                            contentFit="cover"
+                            source={{ uri: profilePicture.uri }}
+                            style={styles.photoPreview}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.photoPlaceholder,
+                              { backgroundColor: theme.backgroundSelected },
+                            ]}
+                          >
+                            {isPickingPhoto ? (
+                              <ActivityIndicator color={theme.primary} />
+                            ) : (
+                              <SymbolView
+                                name={{
+                                  ios: "camera.fill",
+                                  android: "photo_camera",
+                                  web: "photo_camera",
+                                }}
+                                size={24}
+                                tintColor={theme.primary}
+                              />
+                            )}
+                          </View>
+                        )}
+                        <View style={styles.photoPickerText}>
+                          <Text
+                            style={[styles.photoTitle, { color: theme.text }]}
+                          >
+                            Profile picture
+                          </Text>
+                          <Text
+                            style={[
+                              styles.photoSubtitle,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {profilePicture
+                              ? "Tap to choose a different photo"
+                              : "Required to create your profile"}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <AuthInput
+                        label="Name"
+                        value={name}
+                        onChangeText={setName}
+                        autoCapitalize="words"
+                        autoComplete="name"
+                        textContentType="name"
+                        returnKeyType="next"
+                        onSubmitEditing={() => phoneInput.current?.focus()}
+                      />
+                      <AuthInput
+                        ref={phoneInput}
+                        label="Phone number"
+                        value={phoneNumber}
+                        onChangeText={setPhoneNumber}
+                        autoComplete="tel"
+                        keyboardType="phone-pad"
+                        textContentType="telephoneNumber"
+                        returnKeyType="next"
+                        onSubmitEditing={() => emailInput.current?.focus()}
+                      />
+                    </>
                   ) : null}
                   <AuthInput
                     ref={emailInput}
@@ -417,6 +562,42 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 16,
+  },
+  photoPicker: {
+    minHeight: 82,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 12,
+  },
+  photoPreview: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+  },
+  photoPlaceholder: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+  },
+  photoPickerText: {
+    minWidth: 0,
+    flex: 1,
+    gap: 2,
+  },
+  photoTitle: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  photoSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "500",
   },
   field: {
     gap: 7,

@@ -7,7 +7,7 @@ import {
   goals,
   users,
 } from "@habit/db";
-import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -20,6 +20,11 @@ const createFriendSchema = z.object({
     .trim()
     .email()
     .transform((value) => value.toLowerCase()),
+});
+
+const respondToFriendSchema = z.object({
+  friendshipId: z.string().uuid(),
+  action: z.literal("accept"),
 });
 
 const getDatabase = () => getDb() ?? null;
@@ -226,27 +231,6 @@ async function getFriendActivitySummary(
   const dailyGoals = allDailyGoals.filter((goal) =>
     visibleGoalIds.has(goal.id),
   );
-  const [lastActivity] =
-    dailyGoals.length > 0
-      ? await db
-          .select({
-            date: goalLogs.date,
-            updatedAt: goalLogs.updatedAt,
-          })
-          .from(goalLogs)
-          .where(
-            and(
-              eq(goalLogs.userId, friendId),
-              inArray(
-                goalLogs.goalId,
-                dailyGoals.map((goal) => goal.id),
-              ),
-            ),
-          )
-          .orderBy(desc(goalLogs.updatedAt))
-          .limit(1)
-      : [];
-
   const dailyGoalPoints = new Map(
     dailyGoals.map((goal) => [goal.id, PRIORITY_POINTS[goal.priority]]),
   );
@@ -282,11 +266,6 @@ async function getFriendActivitySummary(
   }, 0);
 
   return {
-    lastActiveAt:
-      lastActivity?.updatedAt instanceof Date
-        ? lastActivity.updatedAt.toISOString()
-        : null,
-    lastActiveDate: lastActivity?.date ?? null,
     performance7Day: {
       earnedPoints,
       possiblePoints,
@@ -324,6 +303,8 @@ export async function GET(request: Request) {
         friendName: users.name,
         friendEmail: users.email,
         friendImage: users.image,
+        friendPhoneNumber: users.phoneNumber,
+        lastOpenedAt: users.lastOpenedAt,
       })
       .from(friends)
       .innerJoin(
@@ -416,13 +397,16 @@ export async function GET(request: Request) {
     const rowsWithActivity = await Promise.all(
       rows.map(async (row) => ({
         ...row,
+        isIncomingRequest:
+          row.status === "requested" && row.userId2 === user.id,
+        friendPhoneNumber:
+          row.status === "accepted" ? row.friendPhoneNumber : null,
+        lastOpenedAt: row.lastOpenedAt?.toISOString() ?? null,
         messages: messagesByFriendshipId.get(row.id) ?? [],
         incentives: incentivesByFriendshipId.get(row.id) ?? [],
         ...(row.status === "accepted"
           ? await getFriendActivitySummary(db, user.id, row.friendId)
           : {
-              lastActiveAt: null,
-              lastActiveDate: null,
               performance7Day: null,
               goalOptions: [],
             }),
@@ -524,13 +508,73 @@ export async function POST(request: Request) {
       friendName: friendUser.name,
       friendEmail: friendUser.email,
       friendImage: friendUser.image,
-      lastActiveAt: null,
-      lastActiveDate: null,
+      friendPhoneNumber: null,
+      isIncomingRequest: false,
+      lastOpenedAt: null,
       performance7Day: null,
       goalOptions: [],
       messages: [],
       incentives: [],
     });
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+
+    if (authErrorResponse) {
+      return authErrorResponse;
+    }
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await requireRequestUser(request);
+    const db = getDatabase();
+
+    if (!db) {
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
+    }
+
+    const parsed = respondToFriendSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.message },
+        { status: 400 },
+      );
+    }
+
+    const [friendship] = await db
+      .select({ id: friends.id })
+      .from(friends)
+      .where(
+        and(
+          eq(friends.id, parsed.data.friendshipId),
+          eq(friends.userId2, user.id),
+          eq(friends.status, "requested"),
+        ),
+      )
+      .limit(1);
+
+    if (!friendship) {
+      return NextResponse.json(
+        { error: "Friend request not found." },
+        { status: 404 },
+      );
+    }
+
+    await db
+      .update(friends)
+      .set({ status: "accepted" })
+      .where(eq(friends.id, friendship.id));
+
+    return NextResponse.json({ id: friendship.id, status: "accepted" });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

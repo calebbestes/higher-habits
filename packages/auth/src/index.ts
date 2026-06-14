@@ -1,6 +1,7 @@
 import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 
 import { accounts, getDb, sessions, users, verifications } from "@habit/db";
@@ -37,6 +38,60 @@ export function createAuth() {
     }),
     emailAndPassword: {
       enabled: true,
+    },
+    user: {
+      additionalFields: {
+        phoneNumber: {
+          type: "string",
+          required: true,
+        },
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (
+            user: Record<string, unknown> & {
+              image?: unknown;
+              phoneNumber?: unknown;
+            },
+          ) => {
+            const phoneNumber =
+              typeof user.phoneNumber === "string"
+                ? user.phoneNumber.trim()
+                : "";
+            const phoneDigits = phoneNumber.replace(/\D/g, "");
+
+            if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+              throw APIError.from("BAD_REQUEST", {
+                code: "INVALID_PHONE_NUMBER",
+                message: "Enter a valid phone number.",
+              });
+            }
+
+            const image =
+              typeof user.image === "string" ? user.image.trim() : "";
+            const hasProfilePicture =
+              image.startsWith("data:image/") ||
+              image.startsWith("https://") ||
+              image.startsWith("http://");
+
+            if (!hasProfilePicture) {
+              throw APIError.from("BAD_REQUEST", {
+                code: "PROFILE_PICTURE_REQUIRED",
+                message: "Choose a profile picture.",
+              });
+            }
+
+            return {
+              data: {
+                ...user,
+                phoneNumber,
+              },
+            };
+          },
+        },
+      },
     },
     trustedOrigins: [
       "mobile://",
