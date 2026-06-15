@@ -1,0 +1,104 @@
+import { SymbolView } from "expo-symbols";
+import { Pressable, Text, View } from "react-native";
+
+import { withErrorTrace } from "@/components/component-error-boundary";
+import { useTheme } from "@/hooks/use-theme";
+import type { CategoryWithGoals, GoalInCategory } from "@/lib/goal-logs-client";
+
+import { GoalRow } from "./goal-row";
+import { getCategoryConfig, styles, sym } from "./shared";
+
+function CategoryAccordionRowImpl({
+  category,
+  goals,
+  dateKey,
+  logsByGoalDate,
+  updatingKeys,
+  isExpanded,
+  onToggleExpand,
+  onEditGoal,
+  onPressGoal,
+}: {
+  category: CategoryWithGoals;
+  goals: GoalInCategory[];
+  dateKey: string;
+  logsByGoalDate: Record<string, "complete" | "planned">;
+  updatingKeys: Set<string>;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onEditGoal: (goal: GoalInCategory) => void;
+  onPressGoal: (goal: GoalInCategory) => void;
+}) {
+  const theme = useTheme();
+  const cfg = getCategoryConfig(category.name);
+
+  return (
+    <View
+      style={[
+        styles.catAccordion,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
+      <Pressable
+        onPress={onToggleExpand}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isExpanded }}
+        style={({ pressed }) => [styles.catRow, pressed && styles.pressed]}
+      >
+        <View
+          style={[styles.catIconWrap, { backgroundColor: `${cfg.color}22` }]}
+        >
+          <SymbolView
+            name={cfg.symbol}
+            size={20}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+        </View>
+        <View style={styles.catRowText}>
+          <Text style={[styles.catName, { color: theme.text }]}>
+            {category.name}
+          </Text>
+          <Text style={[styles.catCount, { color: theme.textSecondary }]}>
+            {goals.length} {goals.length === 1 ? "goal" : "goals"}
+          </Text>
+        </View>
+        <SymbolView
+          name={sym(
+            isExpanded ? "chevron.up" : "chevron.down",
+            isExpanded ? "expand_less" : "expand_more",
+          )}
+          size={14}
+          weight="semibold"
+          tintColor={theme.tabIcon}
+        />
+      </Pressable>
+
+      {isExpanded ? (
+        <View style={[styles.catGoals, { borderTopColor: theme.tabBorder }]}>
+          {goals.map((goal, index) => (
+            <View key={goal.id}>
+              {index > 0 ? (
+                <View
+                  style={[styles.divider, { backgroundColor: theme.tabBorder }]}
+                />
+              ) : null}
+              <GoalRow
+                goal={goal}
+                status={logsByGoalDate[`${goal.id}_${dateKey}`]}
+                isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
+                onEdit={() => onEditGoal(goal)}
+                onPress={() => onPressGoal(goal)}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export const CategoryAccordionRow = withErrorTrace(
+  CategoryAccordionRowImpl,
+  "CategoryAccordionRow",
+);

@@ -56,4 +56,37 @@ export function setCrashReportingUser(userId: string | null): void {
   Sentry.setUser(userId ? { id: userId } : null);
 }
 
+/**
+ * Wraps an event handler so that a breadcrumb is dropped every time it runs and
+ * any synchronous throw is reported to Sentry (tagged with the handler name and
+ * the surrounding component) before being re-thrown. Async handlers report
+ * rejections too.
+ */
+export function traceHandler<A extends unknown[], R>(
+  name: string,
+  handler: (...args: A) => R,
+  data?: CrashContext,
+): (...args: A) => R {
+  return (...args: A): R => {
+    addCrashBreadcrumb(`Handler: ${name}`, data);
+    try {
+      const result = handler(...args);
+      if (result instanceof Promise) {
+        return result.catch((error: unknown) => {
+          captureHandledError(error, {
+            ...data,
+            handler: name,
+            phase: "handler",
+          });
+          throw error;
+        }) as R;
+      }
+      return result;
+    } catch (error) {
+      captureHandledError(error, { ...data, handler: name, phase: "handler" });
+      throw error;
+    }
+  };
+}
+
 export const wrapWithCrashReporting = Sentry.wrap;

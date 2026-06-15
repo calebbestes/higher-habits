@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 
+import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DailyGoalsScreen } from "@/components/daily-goals-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
 import { TopTasksScreen } from "@/components/top-tasks-screen";
@@ -10,17 +11,25 @@ export default function PlanReportScreen() {
     date?: string;
   }>();
 
-  if (!view || view === "daily") {
-    return <DailyGoalsScreen initialDateKey={date} />;
-  }
-
   if (view === "monthly") {
-    return <MonthlyGoalsScreen />;
+    return (
+      <ComponentErrorBoundary name="MonthlyGoalsScreen">
+        <MonthlyGoalsScreen />
+      </ComponentErrorBoundary>
+    );
   }
 
   if (view === "top-tasks") {
-    return <TopTasksScreen />;
+    return (
+      <ComponentErrorBoundary name="TopTasksScreen">
+        <TopTasksScreen />
+      </ComponentErrorBoundary>
+    );
   }
 
-  return <DailyGoalsScreen initialDateKey={date} />;
+  return (
+    <ComponentErrorBoundary name="DailyGoalsScreen">
+      <DailyGoalsScreen initialDateKey={date} />
+    </ComponentErrorBoundary>
+  );
 }

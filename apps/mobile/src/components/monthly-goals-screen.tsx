@@ -210,6 +210,11 @@ function isSameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, (m as number) - 1, d as number);
+}
+
 function buildCalendarDays(
   year: number,
   month: number,
@@ -248,19 +253,6 @@ function getGoalMonthProgress(
   }
 
   return { completed, planned, target };
-}
-
-function getCompletionsRemaining(
-  goal: PeriodicGoalInfo,
-  monthKey: string,
-  logsByGoalDate: Record<string, "complete" | "planned">,
-): number {
-  const { completed, target } = getGoalMonthProgress(
-    goal,
-    monthKey,
-    logsByGoalDate,
-  );
-  return Math.max(target - completed, 0);
 }
 
 export function MonthlyGoalsScreen() {
@@ -517,54 +509,56 @@ export function MonthlyGoalsScreen() {
       .sort((left, right) => left.name.localeCompare(right.name));
   }, [categories, periodicGoals]);
 
-  const visiblePeriodicGoals = useMemo(
-    () =>
-      periodicGoals
-        .filter(
-          (goal) =>
-            (categoryFilter === null || goal.categoryId === categoryFilter) &&
-            (periodFilter === "all" || goal.period === periodFilter),
-        )
-        .sort((left, right) => {
-          const priorityCompare =
-            PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
-          const frequencyCompare =
-            (right.frequencyGoal ?? -1) - (left.frequencyGoal ?? -1);
-          const remainingCompare =
-            getCompletionsRemaining(right, monthKey, logsByGoalDate) -
-            getCompletionsRemaining(left, monthKey, logsByGoalDate);
+  const monthProgressByGoal = useMemo(() => {
+    const map: Record<string, ReturnType<typeof getGoalMonthProgress>> = {};
+    for (const goal of periodicGoals) {
+      map[goal.id] = getGoalMonthProgress(goal, monthKey, logsByGoalDate);
+    }
+    return map;
+  }, [periodicGoals, monthKey, logsByGoalDate]);
 
-          if (sort === "frequency") {
-            return (
-              frequencyCompare ||
-              priorityCompare ||
-              left.name.localeCompare(right.name)
-            );
-          }
+  const visiblePeriodicGoals = useMemo(() => {
+    const remaining = (goal: PeriodicGoalInfo) => {
+      const progress = monthProgressByGoal[goal.id];
+      return Math.max(progress.target - progress.completed, 0);
+    };
 
-          if (sort === "remaining") {
-            return (
-              remainingCompare ||
-              priorityCompare ||
-              left.name.localeCompare(right.name)
-            );
-          }
+    return periodicGoals
+      .filter(
+        (goal) =>
+          (categoryFilter === null || goal.categoryId === categoryFilter) &&
+          (periodFilter === "all" || goal.period === periodFilter),
+      )
+      .sort((left, right) => {
+        const priorityCompare =
+          PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority];
+        const frequencyCompare =
+          (right.frequencyGoal ?? -1) - (left.frequencyGoal ?? -1);
+        const remainingCompare = remaining(right) - remaining(left);
 
+        if (sort === "frequency") {
           return (
-            priorityCompare ||
             frequencyCompare ||
+            priorityCompare ||
             left.name.localeCompare(right.name)
           );
-        }),
-    [
-      categoryFilter,
-      logsByGoalDate,
-      monthKey,
-      periodFilter,
-      periodicGoals,
-      sort,
-    ],
-  );
+        }
+
+        if (sort === "remaining") {
+          return (
+            remainingCompare ||
+            priorityCompare ||
+            left.name.localeCompare(right.name)
+          );
+        }
+
+        return (
+          priorityCompare ||
+          frequencyCompare ||
+          left.name.localeCompare(right.name)
+        );
+      });
+  }, [categoryFilter, monthProgressByGoal, periodFilter, periodicGoals, sort]);
 
   const dayLoggedMap = useMemo(() => {
     const map: Record<string, PeriodicGoalInfo[]> = {};
@@ -579,10 +573,7 @@ export function MonthlyGoalsScreen() {
     return map;
   }, [calendarDays, periodicGoals, logsByGoalDate]);
 
-  const selectedDate = useMemo(() => {
-    const [y, m, d] = selectedDateKey.split("-").map(Number);
-    return new Date(y, (m as number) - 1, d as number);
-  }, [selectedDateKey]);
+  const selectedDate = dateFromKey(selectedDateKey);
 
   const navigateMonth = useCallback((delta: 1 | -1) => {
     setDisplayMonth((m) => {
@@ -597,9 +588,7 @@ export function MonthlyGoalsScreen() {
     setSelectedDateKey(todayDateKey);
   }, [today, todayDateKey]);
 
-  const openGoalActions = useCallback((goal: PeriodicGoalInfo) => {
-    setActiveGoal(goal);
-  }, []);
+  const openGoalActions = (goal: PeriodicGoalInfo) => setActiveGoal(goal);
 
   const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
@@ -1740,191 +1729,207 @@ function GoalActionsModal({
   return (
     <Modal
       animationType="slide"
-      presentationStyle="pageSheet"
+      transparent
+      statusBarTranslucent
       visible={visible}
       onRequestClose={onDismiss}
     >
-      <SafeAreaView
-        edges={["top", "left", "right", "bottom"]}
-        style={[modalStyles.sheet, { backgroundColor: theme.background }]}
-      >
-        {goal ? (
-          <>
-            <View
-              style={[
-                modalStyles.header,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderBottomColor: theme.tabBorder,
-                },
-              ]}
-            >
-              <Text
-                style={[modalStyles.title, { color: theme.text }]}
-                numberOfLines={2}
-              >
-                {goal.name}
-              </Text>
-              <Pressable
-                onPress={onDismiss}
-                hitSlop={8}
-                style={({ pressed }) => [
-                  modalStyles.closeBtn,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
+      <View style={modalStyles.overlay}>
+        <Pressable
+          accessibilityLabel="Close"
+          style={StyleSheet.absoluteFill}
+          onPress={onDismiss}
+        />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+        >
+          {goal ? (
+            <>
+              <View
+                style={[
+                  modalStyles.header,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderBottomColor: theme.tabBorder,
+                  },
                 ]}
               >
-                <SymbolView
-                  name={sym("xmark", "close")}
-                  size={14}
-                  weight="bold"
-                  tintColor={theme.tabIcon}
-                />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              contentContainerStyle={modalStyles.actions}
-              showsVerticalScrollIndicator={false}
-            >
-              {showCompleteAction ? (
-                <Pressable
-                  onPress={() => onSetStatus(isComplete ? null : "complete")}
-                  style={({ pressed }) => [
-                    modalStyles.actionRow,
-                    { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
-                  ]}
+                <Text
+                  style={[modalStyles.title, { color: theme.text }]}
+                  numberOfLines={2}
                 >
-                  {isUpdating ? (
-                    <ActivityIndicator size="small" color={theme.primary} />
-                  ) : (
-                    <SymbolView
-                      name={
-                        isComplete
-                          ? sym("arrow.uturn.backward.circle.fill", "undo")
-                          : sym("checkmark.circle.fill", "check_circle")
-                      }
-                      size={26}
-                      tintColor={
-                        isComplete ? theme.textSecondary : theme.primary
-                      }
-                    />
-                  )}
-                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                    {isComplete ? "Reopen" : "Mark complete"}
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              {showPlanAction ? (
-                <Pressable
-                  onPress={() => onSetStatus(isPlanned ? null : "planned")}
-                  style={({ pressed }) => [
-                    modalStyles.actionRow,
-                    { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {isUpdating ? (
-                    <ActivityIndicator size="small" color="#3B82F6" />
-                  ) : (
-                    <SymbolView
-                      name={
-                        isPlanned
-                          ? sym("calendar.badge.minus", "event_busy")
-                          : sym("calendar.badge.plus", "event_available")
-                      }
-                      size={26}
-                      tintColor={isPlanned ? theme.textSecondary : "#3B82F6"}
-                    />
-                  )}
-                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                    {isPlanned ? "Remove plan" : "Plan"}
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              {/* Add note */}
-              <Pressable
-                onPress={onOpenNote}
-                style={({ pressed }) => [
-                  modalStyles.actionRow,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("note.text", "notes")}
-                  size={26}
-                  tintColor={theme.primary}
-                />
-                <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                  {hasNote ? "Edit note" : "Add note"}
+                  {goal.name}
                 </Text>
-              </Pressable>
-
-              {hasNote || hasPhoto ? (
-                <GoalLogVisibilityControl
-                  disabled={isUpdatingVisibility}
-                  value={visibility}
-                  onChange={onSetVisibility}
-                />
-              ) : null}
-
-              {/* Photo row */}
-              <View style={modalStyles.photoRow}>
                 <Pressable
-                  disabled={isUploadingPhoto}
-                  onPress={() => onAddPhoto("camera")}
+                  onPress={onDismiss}
+                  hitSlop={8}
                   style={({ pressed }) => [
-                    modalStyles.photoBtn,
+                    modalStyles.closeBtn,
                     { backgroundColor: theme.backgroundElement },
-                    isUploadingPhoto && modalStyles.disabled,
                     pressed && styles.pressed,
                   ]}
                 >
-                  {uploadingPhotoSource === "camera" ? (
-                    <ActivityIndicator color={theme.primary} size="small" />
-                  ) : (
-                    <SymbolView
-                      name={sym("camera.fill", "camera_alt")}
-                      size={26}
-                      tintColor={theme.primary}
-                    />
-                  )}
-                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                    Take photo
-                  </Text>
-                </Pressable>
-                <Pressable
-                  disabled={isUploadingPhoto}
-                  onPress={() => onAddPhoto("library")}
-                  style={({ pressed }) => [
-                    modalStyles.photoBtn,
-                    { backgroundColor: theme.backgroundElement },
-                    isUploadingPhoto && modalStyles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {uploadingPhotoSource === "library" ? (
-                    <ActivityIndicator color={theme.primary} size="small" />
-                  ) : (
-                    <SymbolView
-                      name={sym("photo.fill", "photo_library")}
-                      size={26}
-                      tintColor={theme.primary}
-                    />
-                  )}
-                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                    Add photo
-                  </Text>
+                  <SymbolView
+                    name={sym("xmark", "close")}
+                    size={14}
+                    weight="bold"
+                    tintColor={theme.tabIcon}
+                  />
                 </Pressable>
               </View>
-            </ScrollView>
-          </>
-        ) : null}
-      </SafeAreaView>
+
+              <ScrollView
+                contentContainerStyle={modalStyles.actions}
+                showsVerticalScrollIndicator={false}
+              >
+                {showCompleteAction ? (
+                  <Pressable
+                    onPress={() => onSetStatus(isComplete ? null : "complete")}
+                    style={({ pressed }) => [
+                      modalStyles.actionRow,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isUpdating ? (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    ) : (
+                      <SymbolView
+                        name={
+                          isComplete
+                            ? sym("arrow.uturn.backward.circle.fill", "undo")
+                            : sym("checkmark.circle.fill", "check_circle")
+                        }
+                        size={26}
+                        tintColor={
+                          isComplete ? theme.textSecondary : theme.primary
+                        }
+                      />
+                    )}
+                    <Text
+                      style={[modalStyles.actionText, { color: theme.text }]}
+                    >
+                      {isComplete ? "Reopen" : "Mark complete"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {showPlanAction ? (
+                  <Pressable
+                    onPress={() => onSetStatus(isPlanned ? null : "planned")}
+                    style={({ pressed }) => [
+                      modalStyles.actionRow,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isUpdating ? (
+                      <ActivityIndicator size="small" color="#3B82F6" />
+                    ) : (
+                      <SymbolView
+                        name={
+                          isPlanned
+                            ? sym("calendar.badge.minus", "event_busy")
+                            : sym("calendar.badge.plus", "event_available")
+                        }
+                        size={26}
+                        tintColor={isPlanned ? theme.textSecondary : "#3B82F6"}
+                      />
+                    )}
+                    <Text
+                      style={[modalStyles.actionText, { color: theme.text }]}
+                    >
+                      {isPlanned ? "Remove plan" : "Plan"}
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {/* Add note */}
+                <Pressable
+                  onPress={onOpenNote}
+                  style={({ pressed }) => [
+                    modalStyles.actionRow,
+                    { backgroundColor: theme.backgroundElement },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("note.text", "notes")}
+                    size={26}
+                    tintColor={theme.primary}
+                  />
+                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                    {hasNote ? "Edit note" : "Add note"}
+                  </Text>
+                </Pressable>
+
+                {hasNote || hasPhoto ? (
+                  <GoalLogVisibilityControl
+                    disabled={isUpdatingVisibility}
+                    value={visibility}
+                    onChange={onSetVisibility}
+                  />
+                ) : null}
+
+                {/* Photo row */}
+                <View style={modalStyles.photoRow}>
+                  <Pressable
+                    disabled={isUploadingPhoto}
+                    onPress={() => onAddPhoto("camera")}
+                    style={({ pressed }) => [
+                      modalStyles.photoBtn,
+                      { backgroundColor: theme.backgroundElement },
+                      isUploadingPhoto && modalStyles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {uploadingPhotoSource === "camera" ? (
+                      <ActivityIndicator color={theme.primary} size="small" />
+                    ) : (
+                      <SymbolView
+                        name={sym("camera.fill", "camera_alt")}
+                        size={26}
+                        tintColor={theme.primary}
+                      />
+                    )}
+                    <Text
+                      style={[modalStyles.actionText, { color: theme.text }]}
+                    >
+                      Take photo
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isUploadingPhoto}
+                    onPress={() => onAddPhoto("library")}
+                    style={({ pressed }) => [
+                      modalStyles.photoBtn,
+                      { backgroundColor: theme.backgroundElement },
+                      isUploadingPhoto && modalStyles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {uploadingPhotoSource === "library" ? (
+                      <ActivityIndicator color={theme.primary} size="small" />
+                    ) : (
+                      <SymbolView
+                        name={sym("photo.fill", "photo_library")}
+                        size={26}
+                        tintColor={theme.primary}
+                      />
+                    )}
+                    <Text
+                      style={[modalStyles.actionText, { color: theme.text }]}
+                    >
+                      Add photo
+                    </Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </>
+          ) : null}
+        </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -1948,13 +1953,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     position: "relative",
   },
-  pageHeaderIcon: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-  },
   pageHeaderText: { gap: 1, paddingRight: 54 },
   addButton: {
     width: 42,
@@ -1970,13 +1968,6 @@ const styles = StyleSheet.create({
     zIndex: 10,
     elevation: 10,
   },
-  pageTitle: {
-    fontSize: 25,
-    lineHeight: 29,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  pageSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   monthNav: {
     flexDirection: "row",
     alignItems: "center",
@@ -2355,7 +2346,17 @@ const styles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-  sheet: { flex: 1 },
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "#00000055",
+  },
+  sheet: {
+    maxHeight: "90%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
+  },
   header: {
     minHeight: 68,
     flexDirection: "row",
