@@ -5,7 +5,10 @@ const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
 Sentry.init({
   dsn,
   enabled: Boolean(dsn),
+  enableNative: true,
+  enableNativeCrashHandling: true,
   environment: __DEV__ ? "development" : "production",
+  maxBreadcrumbs: 150,
   sendDefaultPii: false,
   tracesSampleRate: 0,
 });
@@ -15,13 +18,23 @@ type CrashContext = Record<
   boolean | number | string | null | undefined
 >;
 
-export function addCrashBreadcrumb(message: string, data?: CrashContext): void {
+type CrashBreadcrumbLevel = "debug" | "info" | "warning" | "error";
+
+export function addCrashBreadcrumb(
+  message: string,
+  data?: CrashContext,
+  level: CrashBreadcrumbLevel = "info",
+): void {
   Sentry.addBreadcrumb({
     category: "app",
     data,
-    level: "info",
+    level,
     message,
   });
+}
+
+export function setCrashContext(name: string, context: CrashContext | null) {
+  Sentry.setContext(name, context);
 }
 
 export function captureHandledError(

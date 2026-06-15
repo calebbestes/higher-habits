@@ -56,7 +56,7 @@ function stripHtml(html: string): string {
 function formatFeedDate(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map(Number);
   const date = new Date(y as number, (m as number) - 1, d as number);
-  if (isNaN(date.getTime())) return dateKey;
+  if (Number.isNaN(date.getTime())) return dateKey;
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
@@ -66,7 +66,7 @@ function formatFeedDate(dateKey: string): string {
 
 function formatCommentTime(timestamp: string): string {
   const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",

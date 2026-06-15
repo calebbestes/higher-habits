@@ -49,7 +49,8 @@
         }
       ],
       "expo-font",
-      "expo-image"
+      "expo-image",
+      "@sentry/react-native/expo"
     ],
     "experiments": {
       "typedRoutes": true,

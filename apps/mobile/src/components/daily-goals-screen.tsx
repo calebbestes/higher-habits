@@ -1,9 +1,9 @@
-import * as Sentry from "@sentry/react-native";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -22,6 +22,11 @@ import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  addCrashBreadcrumb,
+  captureHandledError,
+  setCrashContext,
+} from "@/lib/crash-reporting";
 import {
   type CategoryWithGoals,
   type GoalInCategory,
@@ -159,6 +164,8 @@ export function DailyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const modalOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalOpenStartedAtRef = useRef<number | null>(null);
 
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -418,6 +425,119 @@ export function DailyGoalsScreen({
     });
   }, []);
 
+  const clearModalOpenTimer = useCallback(() => {
+    if (modalOpenTimerRef.current) {
+      clearTimeout(modalOpenTimerRef.current);
+      modalOpenTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearModalOpenTimer, [clearModalOpenTimer]);
+
+  const openGoalActions = useCallback(
+    (goal: ActionGoal) => {
+      clearModalOpenTimer();
+      modalOpenStartedAtRef.current = Date.now();
+      setCrashContext("goal_actions_modal", {
+        dateKey,
+        goalId: goal.id,
+        period: goal.period,
+        phase: "tap-received",
+      });
+      addCrashBreadcrumb("Opening goal actions", {
+        dateKey,
+        goalId: goal.id,
+        period: goal.period,
+      });
+      modalOpenTimerRef.current = setTimeout(() => {
+        const elapsedMs = modalOpenStartedAtRef.current
+          ? Date.now() - modalOpenStartedAtRef.current
+          : null;
+        setCrashContext("goal_actions_modal", {
+          dateKey,
+          elapsedMs,
+          goalId: goal.id,
+          period: goal.period,
+          phase: "on-show-timeout",
+        });
+        addCrashBreadcrumb(
+          "Goal actions modal onShow timed out",
+          { elapsedMs, goalId: goal.id, period: goal.period },
+          "error",
+        );
+        captureHandledError(new Error("Goal actions modal failed to open"), {
+          action: "open-goal-actions",
+          dateKey,
+          elapsedMs,
+          goalId: goal.id,
+          period: goal.period,
+          phase: "on-show-timeout",
+        });
+        modalOpenTimerRef.current = null;
+      }, 5_000);
+      InteractionManager.runAfterInteractions(() => {
+        const elapsedMs = modalOpenStartedAtRef.current
+          ? Date.now() - modalOpenStartedAtRef.current
+          : null;
+        setCrashContext("goal_actions_modal", {
+          dateKey,
+          elapsedMs,
+          goalId: goal.id,
+          period: goal.period,
+          phase: "interaction-settled",
+        });
+        addCrashBreadcrumb("Goal actions interaction settled", {
+          elapsedMs,
+          goalId: goal.id,
+          period: goal.period,
+        });
+        setActiveGoal(goal);
+      });
+    },
+    [clearModalOpenTimer, dateKey],
+  );
+
+  const handleGoalActionsShown = useCallback(
+    (goal: ActionGoal) => {
+      clearModalOpenTimer();
+      const elapsedMs = modalOpenStartedAtRef.current
+        ? Date.now() - modalOpenStartedAtRef.current
+        : null;
+      setCrashContext("goal_actions_modal", {
+        dateKey,
+        elapsedMs,
+        goalId: goal.id,
+        period: goal.period,
+        phase: "native-on-show",
+      });
+      addCrashBreadcrumb("Goal actions modal shown", {
+        elapsedMs,
+        goalId: goal.id,
+        period: goal.period,
+      });
+    },
+    [clearModalOpenTimer, dateKey],
+  );
+
+  const handleGoalActionsDismiss = useCallback(
+    (goal: ActionGoal, reason: string) => {
+      clearModalOpenTimer();
+      setCrashContext("goal_actions_modal", {
+        dateKey,
+        goalId: goal.id,
+        period: goal.period,
+        phase: `dismissed:${reason}`,
+      });
+      addCrashBreadcrumb("Goal actions modal dismissed", {
+        goalId: goal.id,
+        period: goal.period,
+        reason,
+      });
+      setActiveGoal(null);
+    },
+    [clearModalOpenTimer, dateKey],
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -598,7 +718,7 @@ export function DailyGoalsScreen({
                           isExpanded={isExpanded}
                           onToggleExpand={() => toggleCatKey(catKey)}
                           onEditGoal={openEditGoal}
-                          onPressGoal={setActiveGoal}
+                          onPressGoal={openGoalActions}
                         />
                       );
                     })}
@@ -637,7 +757,7 @@ export function DailyGoalsScreen({
                           goal={goal}
                           status={logsByGoalDate[`${goal.id}_${dateKey}`]}
                           isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
-                          onPress={() => setActiveGoal(goal)}
+                          onPress={() => openGoalActions(goal)}
                         />
                       </View>
                     ))}
@@ -673,7 +793,7 @@ export function DailyGoalsScreen({
                           isExpanded={isExpanded}
                           onToggleExpand={() => toggleCatKey(catKey)}
                           onEditGoal={openEditGoal}
-                          onPressGoal={setActiveGoal}
+                          onPressGoal={openGoalActions}
                         />
                       );
                     })}
@@ -688,7 +808,7 @@ export function DailyGoalsScreen({
                 isOpen={showCompleted}
                 onToggle={() => setShowCompleted((v) => !v)}
                 onEditGoal={openEditGoal}
-                onPressGoal={setActiveGoal}
+                onPressGoal={openGoalActions}
               />
             </View>
           )}
@@ -706,39 +826,106 @@ export function DailyGoalsScreen({
         }}
         onSave={saveGoal}
       />
-      {activeGoal ? (
-        <GoalActionsModal
-          goal={activeGoal}
-          hasNote={Boolean(
-            snapshot?.notesByGoalDate[`${activeGoal.id}_${dateKey}`]?.trim(),
-          )}
-          hasPhoto={
-            (snapshot?.photoCountsByGoalDate[`${activeGoal.id}_${dateKey}`] ??
-              0) > 0
+      <GoalActionsModal
+        goal={activeGoal}
+        hasNote={
+          activeGoal
+            ? Boolean(
+                snapshot?.notesByGoalDate[
+                  `${activeGoal.id}_${dateKey}`
+                ]?.trim(),
+              )
+            : false
+        }
+        hasPhoto={
+          activeGoal
+            ? (snapshot?.photoCountsByGoalDate[`${activeGoal.id}_${dateKey}`] ??
+                0) > 0
+            : false
+        }
+        visibility={
+          activeGoal
+            ? (snapshot?.visibilityByGoalDate[`${activeGoal.id}_${dateKey}`] ??
+              activeGoal.visibility)
+            : "only_me"
+        }
+        isUpdatingVisibility={isUpdatingVisibility}
+        status={
+          activeGoal ? logsByGoalDate[`${activeGoal.id}_${dateKey}`] : undefined
+        }
+        isUpdating={
+          activeGoal ? updatingKeys.has(`${activeGoal.id}_${dateKey}`) : false
+        }
+        uploadingPhotoSource={uploadingPhotoSource}
+        visible={Boolean(activeGoal)}
+        onAddPhoto={(source) => {
+          if (!activeGoal) return;
+          setCrashContext("goal_actions_modal", {
+            dateKey,
+            goalId: activeGoal.id,
+            period: activeGoal.period,
+            phase: `action:photo:${source}`,
+          });
+          addCrashBreadcrumb("Goal actions photo selected", {
+            goalId: activeGoal.id,
+            source,
+          });
+          void handleAddPhoto(activeGoal.id, source);
+        }}
+        onOpenNote={() => {
+          if (!activeGoal) return;
+          setCrashContext("goal_actions_modal", {
+            dateKey,
+            goalId: activeGoal.id,
+            period: activeGoal.period,
+            phase: "action:open-note",
+          });
+          addCrashBreadcrumb("Goal actions note selected", {
+            goalId: activeGoal.id,
+          });
+          setNoteGoal(activeGoal);
+          handleGoalActionsDismiss(activeGoal, "open-note");
+        }}
+        onSetVisibility={(visibility) => {
+          if (!activeGoal) return;
+          setCrashContext("goal_actions_modal", {
+            dateKey,
+            goalId: activeGoal.id,
+            period: activeGoal.period,
+            phase: `action:visibility:${visibility}`,
+          });
+          addCrashBreadcrumb("Goal actions visibility selected", {
+            goalId: activeGoal.id,
+            visibility,
+          });
+          void handleSetVisibility(activeGoal.id, visibility);
+        }}
+        onSetStatus={(newStatus: GoalLogStatus) => {
+          if (!activeGoal) return;
+          setCrashContext("goal_actions_modal", {
+            dateKey,
+            goalId: activeGoal.id,
+            period: activeGoal.period,
+            phase: `action:status:${newStatus ?? "clear"}`,
+          });
+          addCrashBreadcrumb("Goal actions status selected", {
+            goalId: activeGoal.id,
+            status: newStatus,
+          });
+          void handleSetStatus(activeGoal.id, newStatus);
+          handleGoalActionsDismiss(activeGoal, "set-status");
+        }}
+        onDismiss={() => {
+          if (activeGoal) {
+            handleGoalActionsDismiss(activeGoal, "user");
           }
-          visibility={
-            snapshot?.visibilityByGoalDate[`${activeGoal.id}_${dateKey}`] ??
-            activeGoal.visibility
+        }}
+        onShown={() => {
+          if (activeGoal) {
+            handleGoalActionsShown(activeGoal);
           }
-          isUpdatingVisibility={isUpdatingVisibility}
-          status={logsByGoalDate[`${activeGoal.id}_${dateKey}`]}
-          isUpdating={updatingKeys.has(`${activeGoal.id}_${dateKey}`)}
-          uploadingPhotoSource={uploadingPhotoSource}
-          onAddPhoto={(source) => void handleAddPhoto(activeGoal.id, source)}
-          onOpenNote={() => {
-            setNoteGoal(activeGoal);
-            setActiveGoal(null);
-          }}
-          onSetVisibility={(visibility) =>
-            void handleSetVisibility(activeGoal.id, visibility)
-          }
-          onSetStatus={(newStatus: GoalLogStatus) => {
-            void handleSetStatus(activeGoal.id, newStatus);
-            setActiveGoal(null);
-          }}
-          onDismiss={() => setActiveGoal(null)}
-        />
-      ) : null}
+        }}
+      />
       {noteGoal ? (
         <GoalNoteEditorModal
           dateKey={dateKey}
@@ -1124,6 +1311,7 @@ function GoalRow({
 
 function GoalActionsModal({
   goal,
+  visible,
   hasNote,
   hasPhoto,
   visibility,
@@ -1136,8 +1324,10 @@ function GoalActionsModal({
   onSetVisibility,
   onSetStatus,
   onDismiss,
+  onShown,
 }: {
-  goal: ActionGoal;
+  goal: ActionGoal | null;
+  visible: boolean;
   hasNote: boolean;
   hasPhoto: boolean;
   visibility: GoalVisibility;
@@ -1150,160 +1340,205 @@ function GoalActionsModal({
   onSetVisibility: (visibility: GoalVisibility) => void;
   onSetStatus: (status: GoalLogStatus) => void;
   onDismiss: () => void;
+  onShown: () => void;
 }) {
   const theme = useTheme();
   const isComplete = status === "complete";
   const isUploadingPhoto = uploadingPhotoSource !== null;
 
+  useEffect(() => {
+    if (!goal || !visible) return;
+    const visibleGoal = goal;
+
+    setCrashContext("goal_actions_modal", {
+      goalId: visibleGoal.id,
+      hasNote,
+      hasPhoto,
+      isUpdating,
+      isUpdatingVisibility,
+      period: visibleGoal.period,
+      phase: "react-mounted",
+      status: status ?? null,
+    });
+    addCrashBreadcrumb("Goal actions modal React mounted", {
+      goalId: visibleGoal.id,
+      period: visibleGoal.period,
+    });
+
+    return () => {
+      addCrashBreadcrumb("Goal actions modal React unmounted", {
+        goalId: visibleGoal.id,
+        period: visibleGoal.period,
+      });
+    };
+  }, [
+    goal,
+    hasNote,
+    hasPhoto,
+    isUpdating,
+    isUpdatingVisibility,
+    status,
+    visible,
+  ]);
+
   return (
     <Modal
-      visible
-      transparent
-      animationType="fade"
+      animationType="slide"
+      presentationStyle="pageSheet"
+      visible={visible}
+      onShow={onShown}
       onRequestClose={onDismiss}
-      statusBarTranslucent
     >
-      <View style={modalStyles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss} />
-        <View style={[modalStyles.card, { backgroundColor: theme.tabBar }]}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <Text
-              style={[modalStyles.title, { color: theme.text }]}
-              numberOfLines={2}
-            >
-              {goal.name}
-            </Text>
-            <Pressable
-              onPress={onDismiss}
-              hitSlop={8}
-              style={({ pressed }) => [
-                modalStyles.closeBtn,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
+      <SafeAreaView
+        edges={["top", "left", "right", "bottom"]}
+        style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+      >
+        {goal ? (
+          <>
+            <View
+              style={[
+                modalStyles.header,
+                {
+                  backgroundColor: theme.tabBar,
+                  borderBottomColor: theme.tabBorder,
+                },
               ]}
             >
-              <SymbolView
-                name={sym("xmark", "close")}
-                size={14}
-                weight="bold"
-                tintColor={theme.tabIcon}
-              />
-            </Pressable>
-          </View>
-
-          {/* Actions */}
-          <View style={modalStyles.actions}>
-            {/* Mark complete / Reopen */}
-            <Pressable
-              onPress={() => onSetStatus(isComplete ? null : "complete")}
-              style={({ pressed }) => [
-                modalStyles.actionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              {isUpdating ? (
-                <ActivityIndicator size="small" color={theme.primary} />
-              ) : (
+              <Text
+                style={[modalStyles.title, { color: theme.text }]}
+                numberOfLines={2}
+              >
+                {goal.name}
+              </Text>
+              <Pressable
+                onPress={onDismiss}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  modalStyles.closeBtn,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
                 <SymbolView
-                  name={
-                    isComplete
-                      ? sym("arrow.uturn.backward.circle.fill", "undo")
-                      : sym("checkmark.circle.fill", "check_circle")
-                  }
-                  size={26}
-                  tintColor={isComplete ? theme.textSecondary : theme.primary}
+                  name={sym("xmark", "close")}
+                  size={14}
+                  weight="bold"
+                  tintColor={theme.tabIcon}
                 />
-              )}
-              <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                {isComplete ? "Reopen" : "Mark complete"}
-              </Text>
-            </Pressable>
-
-            {/* Add note */}
-            <Pressable
-              onPress={() => {
-                onOpenNote();
-                console.log("Opening note editor for goal:", goal.name);
-                Sentry.captureException(new Error("First error"));
-              }}
-              style={({ pressed }) => [
-                modalStyles.actionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("note.text", "notes")}
-                size={26}
-                tintColor={theme.primary}
-              />
-              <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                {hasNote ? "Edit note" : "Add note"}
-              </Text>
-            </Pressable>
-
-            {hasNote || hasPhoto ? (
-              <GoalLogVisibilityControl
-                disabled={isUpdatingVisibility}
-                value={visibility}
-                onChange={onSetVisibility}
-              />
-            ) : null}
-
-            {/* Photo row */}
-            <View style={modalStyles.photoRow}>
-              <Pressable
-                disabled={isUploadingPhoto}
-                onPress={() => onAddPhoto("camera")}
-                style={({ pressed }) => [
-                  modalStyles.photoBtn,
-                  { backgroundColor: theme.backgroundElement },
-                  isUploadingPhoto && modalStyles.disabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {uploadingPhotoSource === "camera" ? (
-                  <ActivityIndicator color={theme.primary} size="small" />
-                ) : (
-                  <SymbolView
-                    name={sym("camera.fill", "camera_alt")}
-                    size={26}
-                    tintColor={theme.primary}
-                  />
-                )}
-                <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                  Take photo
-                </Text>
-              </Pressable>
-              <Pressable
-                disabled={isUploadingPhoto}
-                onPress={() => onAddPhoto("library")}
-                style={({ pressed }) => [
-                  modalStyles.photoBtn,
-                  { backgroundColor: theme.backgroundElement },
-                  isUploadingPhoto && modalStyles.disabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {uploadingPhotoSource === "library" ? (
-                  <ActivityIndicator color={theme.primary} size="small" />
-                ) : (
-                  <SymbolView
-                    name={sym("photo.fill", "photo_library")}
-                    size={26}
-                    tintColor={theme.primary}
-                  />
-                )}
-                <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                  Add photo
-                </Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </View>
+
+            <ScrollView
+              contentContainerStyle={modalStyles.actions}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Mark complete / Reopen */}
+              <Pressable
+                onPress={() => onSetStatus(isComplete ? null : "complete")}
+                style={({ pressed }) => [
+                  modalStyles.actionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <SymbolView
+                    name={
+                      isComplete
+                        ? sym("arrow.uturn.backward.circle.fill", "undo")
+                        : sym("checkmark.circle.fill", "check_circle")
+                    }
+                    size={26}
+                    tintColor={isComplete ? theme.textSecondary : theme.primary}
+                  />
+                )}
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  {isComplete ? "Reopen" : "Mark complete"}
+                </Text>
+              </Pressable>
+
+              {/* Add note */}
+              <Pressable
+                onPress={onOpenNote}
+                style={({ pressed }) => [
+                  modalStyles.actionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("note.text", "notes")}
+                  size={26}
+                  tintColor={theme.primary}
+                />
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  {hasNote ? "Edit note" : "Add note"}
+                </Text>
+              </Pressable>
+
+              {hasNote || hasPhoto ? (
+                <GoalLogVisibilityControl
+                  disabled={isUpdatingVisibility}
+                  value={visibility}
+                  onChange={onSetVisibility}
+                />
+              ) : null}
+
+              {/* Photo row */}
+              <View style={modalStyles.photoRow}>
+                <Pressable
+                  disabled={isUploadingPhoto}
+                  onPress={() => onAddPhoto("camera")}
+                  style={({ pressed }) => [
+                    modalStyles.photoBtn,
+                    { backgroundColor: theme.backgroundElement },
+                    isUploadingPhoto && modalStyles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {uploadingPhotoSource === "camera" ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : (
+                    <SymbolView
+                      name={sym("camera.fill", "camera_alt")}
+                      size={26}
+                      tintColor={theme.primary}
+                    />
+                  )}
+                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                    Take photo
+                  </Text>
+                </Pressable>
+                <Pressable
+                  disabled={isUploadingPhoto}
+                  onPress={() => onAddPhoto("library")}
+                  style={({ pressed }) => [
+                    modalStyles.photoBtn,
+                    { backgroundColor: theme.backgroundElement },
+                    isUploadingPhoto && modalStyles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {uploadingPhotoSource === "library" ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : (
+                    <SymbolView
+                      name={sym("photo.fill", "photo_library")}
+                      size={26}
+                      tintColor={theme.primary}
+                    />
+                  )}
+                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                    Add photo
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </>
+        ) : null}
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -1587,25 +1822,15 @@ const styles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "flex-end",
-    padding: 16,
-    paddingBottom: 36,
-  },
-  card: {
-    borderRadius: 24,
-    overflow: "hidden",
-    paddingBottom: 8,
-  },
+  sheet: { flex: 1 },
   header: {
+    minHeight: 68,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
+    paddingVertical: 12,
     gap: 12,
   },
   title: {
@@ -1622,9 +1847,9 @@ const modalStyles = StyleSheet.create({
     justifyContent: "center",
   },
   actions: {
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    gap: 10,
+    padding: 16,
+    paddingBottom: 32,
   },
   actionRow: {
     flexDirection: "row",
