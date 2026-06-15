@@ -4,7 +4,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -267,15 +266,17 @@ function getCompletionsRemaining(
 export function MonthlyGoalsScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const today = useRef(new Date()).current;
-  const todayDateKey = useMemo(() => toDateKey(today), [today]);
-
-  const [displayMonth, setDisplayMonth] = useState(
-    () => new Date(today.getFullYear(), today.getMonth(), 1),
-  );
+  const [displayMonth, setDisplayMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
-    toDateKey(today),
+    toDateKey(new Date()),
   );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
+  const today = useMemo(() => new Date(), [displayMonth]);
+  const todayDateKey = useMemo(() => toDateKey(today), [today]);
   const [snapshot, setSnapshot] = useState<GoalLogsSnapshot | null>(null);
   const [logsByGoalDate, setLogsByGoalDate] = useState<
     Record<string, "complete" | "planned">
@@ -296,11 +297,18 @@ export function MonthlyGoalsScreen() {
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [sortFilterOpen, setSortFilterOpen] = useState(false);
+  const updatingKeysRef = useRef(updatingKeys);
+  updatingKeysRef.current = updatingKeys;
+  const logsByGoalDateRef = useRef(logsByGoalDate);
+  logsByGoalDateRef.current = logsByGoalDate;
+  const isLoadingRef = useRef(false);
 
   const monthKey = useMemo(() => getMonthKey(displayMonth), [displayMonth]);
 
   const load = useCallback(
     async (refresh = false) => {
+      if (isLoadingRef.current && !refresh) return;
+      isLoadingRef.current = true;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
@@ -314,6 +322,7 @@ export function MonthlyGoalsScreen() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load goals.");
       } finally {
+        isLoadingRef.current = false;
         setIsLoading(false);
         setIsRefreshing(false);
       }
@@ -388,8 +397,8 @@ export function MonthlyGoalsScreen() {
   const handleSetStatus = useCallback(
     async (goalId: string, status: GoalLogStatus) => {
       const key = `${goalId}_${selectedDateKey}`;
-      if (updatingKeys.has(key)) return;
-      const current = logsByGoalDate[key];
+      if (updatingKeysRef.current.has(key)) return;
+      const current = logsByGoalDateRef.current[key];
 
       setUpdatingKeys((prev) => new Set(prev).add(key));
       setLogsByGoalDate((prev) => {
@@ -417,7 +426,7 @@ export function MonthlyGoalsScreen() {
         });
       }
     },
-    [selectedDateKey, logsByGoalDate, updatingKeys],
+    [selectedDateKey],
   );
 
   const handleSaveNote = useCallback(
@@ -589,7 +598,7 @@ export function MonthlyGoalsScreen() {
   }, [today, todayDateKey]);
 
   const openGoalActions = useCallback((goal: PeriodicGoalInfo) => {
-    InteractionManager.runAfterInteractions(() => setActiveGoal(goal));
+    setActiveGoal(goal);
   }, []);
 
   const isCurrentMonth = isSameMonth(displayMonth, today);

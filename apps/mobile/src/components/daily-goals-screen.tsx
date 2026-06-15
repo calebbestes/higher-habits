@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  InteractionManager,
   Modal,
   Pressable,
   RefreshControl,
@@ -22,11 +21,7 @@ import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
-import {
-  addCrashBreadcrumb,
-  captureHandledError,
-  setCrashContext,
-} from "@/lib/crash-reporting";
+import { addCrashBreadcrumb, setCrashContext } from "@/lib/crash-reporting";
 import {
   type CategoryWithGoals,
   type GoalInCategory,
@@ -132,14 +127,13 @@ export function DailyGoalsScreen({
 }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const today = useRef(new Date()).current;
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     if (initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)) {
       const [y, m, d] = initialDateKey.split("-").map(Number);
       return new Date(y, (m as number) - 1, d as number);
     }
-    return today;
+    return new Date();
   });
   const [snapshot, setSnapshot] = useState<GoalLogsSnapshot | null>(null);
   const [logsByGoalDate, setLogsByGoalDate] = useState<
@@ -164,15 +158,20 @@ export function DailyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const modalOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const modalOpenStartedAtRef = useRef<number | null>(null);
+  const updatingKeysRef = useRef(updatingKeys);
+  updatingKeysRef.current = updatingKeys;
+  const isLoadingRef = useRef(false);
 
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the selected date changes (e.g. across midnight)
+  const today = useMemo(() => new Date(), [dateKey]);
   const isToday = isSameDay(selectedDate, today);
 
   const load = useCallback(
     async (refresh = false) => {
+      if (isLoadingRef.current) return;
+      isLoadingRef.current = true;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
@@ -186,6 +185,7 @@ export function DailyGoalsScreen({
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load goals.");
       } finally {
+        isLoadingRef.current = false;
         setIsLoading(false);
         setIsRefreshing(false);
       }
@@ -232,7 +232,7 @@ export function DailyGoalsScreen({
   const handleSetStatus = useCallback(
     async (goalId: string, status: GoalLogStatus) => {
       const key = `${goalId}_${dateKey}`;
-      if (updatingKeys.has(key)) return;
+      if (updatingKeysRef.current.has(key)) return;
       const current = logsByGoalDate[key];
 
       setUpdatingKeys((prev) => new Set(prev).add(key));
@@ -261,7 +261,7 @@ export function DailyGoalsScreen({
         });
       }
     },
-    [dateKey, logsByGoalDate, updatingKeys],
+    [dateKey, logsByGoalDate],
   );
 
   const handleSaveNote = useCallback(
@@ -425,19 +425,8 @@ export function DailyGoalsScreen({
     });
   }, []);
 
-  const clearModalOpenTimer = useCallback(() => {
-    if (modalOpenTimerRef.current) {
-      clearTimeout(modalOpenTimerRef.current);
-      modalOpenTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => clearModalOpenTimer, [clearModalOpenTimer]);
-
   const openGoalActions = useCallback(
     (goal: ActionGoal) => {
-      clearModalOpenTimer();
-      modalOpenStartedAtRef.current = Date.now();
       setCrashContext("goal_actions_modal", {
         dateKey,
         goalId: goal.id,
@@ -449,79 +438,29 @@ export function DailyGoalsScreen({
         goalId: goal.id,
         period: goal.period,
       });
-      modalOpenTimerRef.current = setTimeout(() => {
-        const elapsedMs = modalOpenStartedAtRef.current
-          ? Date.now() - modalOpenStartedAtRef.current
-          : null;
-        setCrashContext("goal_actions_modal", {
-          dateKey,
-          elapsedMs,
-          goalId: goal.id,
-          period: goal.period,
-          phase: "on-show-timeout",
-        });
-        addCrashBreadcrumb(
-          "Goal actions modal onShow timed out",
-          { elapsedMs, goalId: goal.id, period: goal.period },
-          "error",
-        );
-        captureHandledError(new Error("Goal actions modal failed to open"), {
-          action: "open-goal-actions",
-          dateKey,
-          elapsedMs,
-          goalId: goal.id,
-          period: goal.period,
-          phase: "on-show-timeout",
-        });
-        modalOpenTimerRef.current = null;
-      }, 5_000);
-      InteractionManager.runAfterInteractions(() => {
-        const elapsedMs = modalOpenStartedAtRef.current
-          ? Date.now() - modalOpenStartedAtRef.current
-          : null;
-        setCrashContext("goal_actions_modal", {
-          dateKey,
-          elapsedMs,
-          goalId: goal.id,
-          period: goal.period,
-          phase: "interaction-settled",
-        });
-        addCrashBreadcrumb("Goal actions interaction settled", {
-          elapsedMs,
-          goalId: goal.id,
-          period: goal.period,
-        });
-        setActiveGoal(goal);
-      });
+      setActiveGoal(goal);
     },
-    [clearModalOpenTimer, dateKey],
+    [dateKey],
   );
 
   const handleGoalActionsShown = useCallback(
     (goal: ActionGoal) => {
-      clearModalOpenTimer();
-      const elapsedMs = modalOpenStartedAtRef.current
-        ? Date.now() - modalOpenStartedAtRef.current
-        : null;
       setCrashContext("goal_actions_modal", {
         dateKey,
-        elapsedMs,
         goalId: goal.id,
         period: goal.period,
         phase: "native-on-show",
       });
       addCrashBreadcrumb("Goal actions modal shown", {
-        elapsedMs,
         goalId: goal.id,
         period: goal.period,
       });
     },
-    [clearModalOpenTimer, dateKey],
+    [dateKey],
   );
 
   const handleGoalActionsDismiss = useCallback(
     (goal: ActionGoal, reason: string) => {
-      clearModalOpenTimer();
       setCrashContext("goal_actions_modal", {
         dateKey,
         goalId: goal.id,
@@ -535,7 +474,7 @@ export function DailyGoalsScreen({
       });
       setActiveGoal(null);
     },
-    [clearModalOpenTimer, dateKey],
+    [dateKey],
   );
 
   return (
