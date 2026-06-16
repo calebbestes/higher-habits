@@ -10,18 +10,7 @@ import {
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gte,
-  isNotNull,
-  isNull,
-  lt,
-  ne,
-  or,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import type { CalendarBootstrapData } from "./calendar-bootstrap-types";
@@ -64,8 +53,13 @@ const getGoalLogsSnapshotForMonth = async (
     iconKey: goals.iconKey,
     categoryId: goals.categoryId,
     priority: goals.priority,
+    visibility: goals.visibility,
     period: goals.period,
     frequencyGoal: goals.frequencyGoal,
+    repeatInterval: goals.repeatInterval,
+    repeatDays: goals.repeatDays,
+    repeatMonthlyType: goals.repeatMonthlyType,
+    createdAt: goals.createdAt,
   };
 
   const [
@@ -100,7 +94,7 @@ const getGoalLogsSnapshotForMonth = async (
       .where(
         and(
           eq(goals.userId, userId),
-          or(ne(goals.period, "daily"), isNull(goals.period)),
+          ne(goals.period, "daily"),
           eq(goals.hidden, false),
         ),
       )
@@ -115,6 +109,7 @@ const getGoalLogsSnapshotForMonth = async (
         goalId: goalLogs.goalId,
         date: goalLogs.date,
         status: goalLogs.status,
+        visibility: goalLogs.visibility,
       })
       .from(goalLogs)
       .where(
@@ -222,8 +217,11 @@ const getGoalLogsSnapshotForMonth = async (
         name: goal.name,
         iconKey: goal.iconKey,
         categoryId: goal.categoryId,
-        priority: goal.priority as "high" | "medium" | "low",
+        priority: goal.priority as "high" | "low",
         hidden: goal.hidden,
+        visibility: goal.visibility,
+        period: goal.period,
+        frequencyGoal: goal.frequencyGoal,
         sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
       })),
     }))
@@ -234,9 +232,14 @@ const getGoalLogsSnapshotForMonth = async (
     name: goal.name,
     iconKey: goal.iconKey,
     categoryId: goal.categoryId,
-    priority: goal.priority as "high" | "medium" | "low",
+    priority: goal.priority as "high" | "low",
+    visibility: goal.visibility,
     period: goal.period,
     frequencyGoal: goal.frequencyGoal,
+    repeatInterval: goal.repeatInterval ?? null,
+    repeatDays: (goal.repeatDays as number[] | null) ?? null,
+    repeatMonthlyType: goal.repeatMonthlyType ?? null,
+    createdAt: goal.createdAt.toISOString(),
     sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
   });
 
@@ -256,6 +259,9 @@ const getGoalLogsSnapshotForMonth = async (
       logs.map((log) => [`${log.goalId}_${log.date}`, "complete" as const]),
     ),
     notesByGoalDate: {},
+    visibilityByGoalDate: Object.fromEntries(
+      logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
+    ),
     photoCountsByGoalDate: photos.reduce<Record<string, number>>(
       (counts, photo) => {
         const key = `${photo.goalId}_${photo.date}`;

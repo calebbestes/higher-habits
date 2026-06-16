@@ -27,7 +27,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <HeroUIProvider>
+    <HeroUIProvider disableRipple>
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </HeroUIProvider>
   );

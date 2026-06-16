@@ -269,6 +269,55 @@ const startOfWeek = (date: Date) => {
   return next;
 };
 
+function weeksBetween(ref: Date, d: Date): number {
+  return Math.round(
+    (startOfWeek(d).getTime() - startOfWeek(ref).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+function weekOfMonth(d: Date): number {
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  if (d.getDate() + 7 > daysInMonth) return 4;
+  return Math.ceil(d.getDate() / 7) - 1;
+}
+
+function isGoalScheduledForDate(
+  goal: Pick<
+    PeriodicGoalInfo,
+    | "period"
+    | "repeatInterval"
+    | "repeatDays"
+    | "repeatMonthlyType"
+    | "createdAt"
+  >,
+  date: Date,
+): boolean {
+  if (goal.period === "daily") return true;
+  const interval = goal.repeatInterval ?? 1;
+  const dow = date.getDay();
+
+  if (goal.period === "weekly") {
+    const days = goal.repeatDays;
+    if (days && days.length > 0 && !days.includes(dow)) return false;
+    if (interval === 1) return true;
+    return weeksBetween(new Date(goal.createdAt), date) % interval === 0;
+  }
+
+  if (goal.period === "monthly") {
+    const ref = new Date(goal.createdAt);
+    const monthDiff =
+      (date.getFullYear() - ref.getFullYear()) * 12 +
+      (date.getMonth() - ref.getMonth());
+    if (monthDiff % interval !== 0) return false;
+    const type = goal.repeatMonthlyType ?? "day_of_month";
+    if (type === "day_of_month") return date.getDate() === ref.getDate();
+    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+  }
+
+  return false;
+}
+
 const addDays = (date: Date, amount: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
@@ -917,6 +966,19 @@ const MonthView = ({
             ),
             ...(prevGoalsSnap.photoCountsByGoalDate ?? {}),
             ...(goalsSnap.photoCountsByGoalDate ?? {}),
+          },
+          visibilityByGoalDate: {
+            ...Object.fromEntries(
+              Object.entries(previous.visibilityByGoalDate).filter(([key]) => {
+                const dateKey = key.slice(-10);
+                return (
+                  !dateKey.startsWith(currentMonthKey) &&
+                  !dateKey.startsWith(prevMonthKey)
+                );
+              }),
+            ),
+            ...(prevGoalsSnap.visibilityByGoalDate ?? {}),
+            ...(goalsSnap.visibilityByGoalDate ?? {}),
           },
         }));
       } catch (error) {
@@ -1626,7 +1688,9 @@ const MonthView = ({
                           }))
                           .filter(
                             (g) =>
-                              g.status === "complete" || g.status === "planned",
+                              g.status === "complete" ||
+                              g.status === "planned" ||
+                              isGoalScheduledForDate(g, date),
                           );
                         return (
                           <div className="mb-1 min-w-0">
@@ -1679,10 +1743,7 @@ const MonthView = ({
                                             strokeLinecap="round"
                                             strokeDasharray={circ}
                                             strokeDashoffset={offset}
-                                            style={{
-                                              transform: "rotate(-90deg)",
-                                              transformOrigin: `${center}px ${center}px`,
-                                            }}
+                                            transform={`rotate(-90 ${center} ${center})`}
                                           />
                                         </g>
                                       );
@@ -2060,19 +2121,17 @@ const DEFAULT_DAY_VIEW_CATEGORY_CONFIG = {
   color: "#516162",
   foregroundColor: "#FFFFFF",
 };
-const GOAL_PRIORITY_STAGES = ["high", "medium", "low"] as const;
+const GOAL_PRIORITY_STAGES = ["high", "low"] as const;
 
 type GoalPriorityStage = (typeof GOAL_PRIORITY_STAGES)[number];
 
 const PRIORITY_POINTS: Record<GoalPriorityStage, number> = {
   high: 3,
-  medium: 2,
   low: 1,
 };
 
 const PRIORITY_LABELS: Record<GoalPriorityStage, string> = {
   high: "High Priority",
-  medium: "Medium Priority",
   low: "Low Priority",
 };
 
@@ -2125,7 +2184,7 @@ const DayView = ({
     categoryIcon: string;
     priority: GoalPriorityStage;
     completed: boolean;
-    period: string | null;
+    period: "daily" | "weekly" | "monthly";
     isScheduled: boolean;
     incentive:
       | (AcceptedGoalIncentive & {
@@ -2148,7 +2207,6 @@ const DayView = ({
     Record<GoalPriorityStage, boolean>
   >({
     high: true,
-    medium: false,
     low: false,
   });
   const [expandedCategoryKey, setExpandedCategoryKey] = useState<string | null>(
@@ -2237,7 +2295,7 @@ const DayView = ({
           categoryIcon: cat.icon || "mdi:circle",
           priority: goal.priority,
           completed: status === "complete",
-          period: "daily",
+          period: "daily" as const,
           isScheduled: false,
           incentive: incentiveByGoalId.get(goal.id) ?? null,
           note: notesByGoalDate[`${goal.id}_${currentDateKey}`] ?? null,
@@ -2325,10 +2383,19 @@ const DayView = ({
     const isCompact = variant === "compact";
     const svgSize = isCompact ? 68 : 120;
     const center = svgSize / 2;
-    const strokeWidth = isCompact ? 5 : 8;
-    const gap = isCompact ? 3 : 5;
+    const ringCount = Math.max(1, dayScore.byCategory.length);
+    const outerEdge = center - 2;
+    const innerEdge = isCompact ? 14 : 20;
+    const availableBand = outerEdge - innerEdge;
+    const maxStrokeWidth = isCompact ? 5 : 8;
+    const gapRatio = 0.25;
+    const strokeWidth = Math.min(
+      maxStrokeWidth,
+      availableBand / (ringCount + Math.max(0, ringCount - 1) * gapRatio),
+    );
+    const gap = strokeWidth * gapRatio;
     const step = strokeWidth + gap;
-    const outerR = center - 2 - strokeWidth / 2;
+    const outerR = outerEdge - strokeWidth / 2;
 
     return (
       <div className="group relative shrink-0">
@@ -2340,9 +2407,11 @@ const DayView = ({
         >
           <title>Day score progress</title>
           {dayScore.byCategory.map(({ category, config, earned, max }, i) => {
-            const r = Math.max(2, outerR - i * step);
+            const r = outerR - i * step;
             const circ = 2 * Math.PI * r;
-            const offset = max > 0 ? circ * (1 - earned / max) : circ;
+            const progress =
+              max > 0 ? Math.max(0, Math.min(earned / max, 1)) : 0;
+            const offset = circ * (1 - progress);
             return (
               <g key={category.id}>
                 <circle
@@ -2365,10 +2434,7 @@ const DayView = ({
                   strokeDasharray={circ}
                   strokeDashoffset={offset}
                   className="transition-all duration-500"
-                  style={{
-                    transform: "rotate(-90deg)",
-                    transformOrigin: `${center}px ${center}px`,
-                  }}
+                  transform={`rotate(-90 ${center} ${center})`}
                 />
               </g>
             );
@@ -2663,10 +2729,7 @@ const DayView = ({
             strokeDashoffset={dashOffset}
             strokeWidth={strokeWidth}
             className="transition-all duration-500"
-            style={{
-              transform: "rotate(-90deg)",
-              transformOrigin: `${center}px ${center}px`,
-            }}
+            transform={`rotate(-90 ${center} ${center})`}
           />
         </svg>
         <span className="absolute inset-0 flex items-center justify-center">

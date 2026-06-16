@@ -5,12 +5,14 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
+  goals,
 } from "@habit/db";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
 
 const interactionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -38,20 +40,42 @@ async function findAccessibleFeedEntry(
     .select({
       id: goalLogs.id,
       ownerId: goalLogs.userId,
+      goalId: goals.id,
+      visibility: goalLogs.visibility,
+      period: goals.period,
+      priority: goals.priority,
+      notes: goalLogs.notes,
     })
     .from(goalLogs)
-    .innerJoin(goalLogPhotos, eq(goalLogPhotos.goalLogId, goalLogs.id))
+    .innerJoin(goals, eq(goalLogs.goalId, goals.id))
     .where(
       and(
         eq(goalLogs.id, goalLogId),
         eq(goalLogs.status, "complete"),
-        eq(goalLogPhotos.userId, goalLogs.userId),
+        eq(goals.userId, goalLogs.userId),
       ),
     )
     .limit(1);
 
   if (!entry || entry.ownerId === userId) {
     return null;
+  }
+
+  if (!entry.notes.trim()) {
+    const [photo] = await db
+      .select({ id: goalLogPhotos.id })
+      .from(goalLogPhotos)
+      .where(
+        and(
+          eq(goalLogPhotos.goalLogId, entry.id),
+          eq(goalLogPhotos.userId, entry.ownerId),
+        ),
+      )
+      .limit(1);
+
+    if (!photo) {
+      return null;
+    }
   }
 
   const [friendship] = await db
@@ -68,7 +92,26 @@ async function findAccessibleFeedEntry(
     )
     .limit(1);
 
-  return friendship ? entry : null;
+  if (!friendship) {
+    return null;
+  }
+
+  if (entry.visibility === "all_friends") {
+    return entry;
+  }
+
+  if (entry.visibility === "only_me") {
+    return null;
+  }
+
+  const relatedGoalIds = await getGoalIdsTiedToFriend(
+    db,
+    userId,
+    entry.ownerId,
+    [entry],
+  );
+
+  return relatedGoalIds.has(entry.goalId) ? entry : null;
 }
 
 export async function POST(

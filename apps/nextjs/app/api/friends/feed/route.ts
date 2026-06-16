@@ -12,6 +12,7 @@ import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -74,37 +75,93 @@ export async function GET(request: Request) {
       return NextResponse.json([]);
     }
 
-    const photoRows = await db
+    const logRows = await db
       .select({
         entryId: goalLogs.id,
         friendId: goalLogs.userId,
         goalId: goals.id,
         goalName: goals.name,
         goalIcon: goals.iconKey,
+        visibility: goalLogs.visibility,
+        goalPeriod: goals.period,
+        goalPriority: goals.priority,
         dateKey: goalLogs.date,
         notes: goalLogs.notes,
         updatedAt: goalLogs.updatedAt,
-        photoId: goalLogPhotos.id,
-        storagePath: goalLogPhotos.storagePath,
-        contentType: goalLogPhotos.contentType,
-        photoCreatedAt: goalLogPhotos.createdAt,
       })
-      .from(goalLogPhotos)
-      .innerJoin(goalLogs, eq(goalLogPhotos.goalLogId, goalLogs.id))
+      .from(goalLogs)
       .innerJoin(goals, eq(goalLogs.goalId, goals.id))
       .where(
         and(
           inArray(goalLogs.userId, friendIds),
           eq(goalLogs.status, "complete"),
-          eq(goalLogPhotos.userId, goalLogs.userId),
           eq(goals.userId, goalLogs.userId),
         ),
       )
-      .orderBy(
-        desc(goalLogs.updatedAt),
-        desc(goalLogs.date),
-        desc(goalLogPhotos.createdAt),
-      );
+      .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.date));
+
+    const goalRowsByFriendId = new Map<
+      string,
+      Map<
+        string,
+        {
+          id: string;
+          period: (typeof goals.period.enumValues)[number];
+          priority: (typeof goals.priority.enumValues)[number];
+        }
+      >
+    >();
+    for (const row of logRows) {
+      const goalsById =
+        goalRowsByFriendId.get(row.friendId) ??
+        new Map<
+          string,
+          {
+            id: string;
+            period: (typeof goals.period.enumValues)[number];
+            priority: (typeof goals.priority.enumValues)[number];
+          }
+        >();
+      goalsById.set(row.goalId, {
+        id: row.goalId,
+        period: row.goalPeriod,
+        priority: row.goalPriority,
+      });
+      goalRowsByFriendId.set(row.friendId, goalsById);
+    }
+
+    const tiedGoalIdsByFriendId = new Map<string, Set<string>>();
+    await Promise.all(
+      [...goalRowsByFriendId.entries()].map(async ([friendId, goalsById]) => {
+        tiedGoalIdsByFriendId.set(
+          friendId,
+          await getGoalIdsTiedToFriend(db, user.id, friendId, [
+            ...goalsById.values(),
+          ]),
+        );
+      }),
+    );
+    const visibleLogRows = logRows.filter(
+      (row) =>
+        row.visibility === "all_friends" ||
+        (row.visibility === "goal_friends" &&
+          tiedGoalIdsByFriendId.get(row.friendId)?.has(row.goalId)),
+    );
+    const visibleLogIds = visibleLogRows.map((row) => row.entryId);
+    const photoRows =
+      visibleLogIds.length > 0
+        ? await db
+            .select({
+              entryId: goalLogPhotos.goalLogId,
+              photoId: goalLogPhotos.id,
+              storagePath: goalLogPhotos.storagePath,
+              contentType: goalLogPhotos.contentType,
+              photoCreatedAt: goalLogPhotos.createdAt,
+            })
+            .from(goalLogPhotos)
+            .where(inArray(goalLogPhotos.goalLogId, visibleLogIds))
+            .orderBy(desc(goalLogPhotos.createdAt))
+        : [];
 
     const signedPhotoRows = await Promise.all(
       photoRows.map(async (row) => ({
@@ -112,6 +169,28 @@ export async function GET(request: Request) {
         url: await createSignedPhotoUrl(row.storagePath),
       })),
     );
+    const photosByLogId = signedPhotoRows.reduce<
+      Map<
+        string,
+        Array<{
+          id: string;
+          url: string;
+          contentType: string;
+          createdAt: string;
+        }>
+      >
+    >((photosByLog, row) => {
+      const photos = photosByLog.get(row.entryId) ?? [];
+      photos.push({
+        id: row.photoId,
+        url: row.url,
+        contentType: row.contentType,
+        createdAt: row.photoCreatedAt.toISOString(),
+      });
+      photosByLog.set(row.entryId, photos);
+      return photosByLog;
+    }, new Map());
+
     const entries = new Map<
       string,
       {
@@ -144,22 +223,11 @@ export async function GET(request: Request) {
       }
     >();
 
-    for (const row of signedPhotoRows) {
+    for (const row of visibleLogRows) {
       const friend = friendsById.get(row.friendId);
       if (!friend) continue;
-
-      const photo = {
-        id: row.photoId,
-        url: row.url,
-        contentType: row.contentType,
-        createdAt: row.photoCreatedAt.toISOString(),
-      };
-      const entry = entries.get(row.entryId);
-
-      if (entry) {
-        entry.photos.push(photo);
-        continue;
-      }
+      const photos = photosByLogId.get(row.entryId) ?? [];
+      if (!row.notes.trim() && photos.length === 0) continue;
 
       entries.set(row.entryId, {
         id: row.entryId,
@@ -177,7 +245,7 @@ export async function GET(request: Request) {
           hasPropped: false,
         },
         comments: [],
-        photos: [photo],
+        photos,
       });
     }
 

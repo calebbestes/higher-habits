@@ -32,6 +32,10 @@ const goalRangeSchema = z
     message: "Start date must be before end date",
   });
 
+const allGoalPhotosSchema = z.object({
+  goalId: z.string().uuid().optional(),
+});
+
 const deleteSchema = z.object({
   id: z.string().uuid(),
 });
@@ -88,13 +92,20 @@ export async function GET(request: Request) {
     const queryGoalId = url.searchParams.get("goalId");
     const startDateKey = url.searchParams.get("startDateKey");
     const endDateKey = url.searchParams.get("endDateKey");
+    const allDates = url.searchParams.get("all") === "true";
 
-    if (startDateKey || endDateKey) {
-      const range = goalRangeSchema.parse({
-        goalId: queryGoalId ?? undefined,
-        startDateKey,
-        endDateKey,
-      });
+    if (allDates || startDateKey || endDateKey) {
+      const range: {
+        goalId?: string;
+        startDateKey?: string;
+        endDateKey?: string;
+      } = allDates
+        ? allGoalPhotosSchema.parse({ goalId: queryGoalId ?? undefined })
+        : goalRangeSchema.parse({
+            goalId: queryGoalId ?? undefined,
+            startDateKey,
+            endDateKey,
+          });
       const photos = await db
         .select({
           id: goalLogPhotos.id,
@@ -111,8 +122,10 @@ export async function GET(request: Request) {
             eq(goalLogPhotos.userId, user.id),
             eq(goalLogs.userId, user.id),
             range.goalId ? eq(goalLogs.goalId, range.goalId) : undefined,
-            gte(goalLogs.date, range.startDateKey),
-            lte(goalLogs.date, range.endDateKey),
+            range.startDateKey
+              ? gte(goalLogs.date, range.startDateKey)
+              : undefined,
+            range.endDateKey ? lte(goalLogs.date, range.endDateKey) : undefined,
           ),
         )
         .orderBy(desc(goalLogs.date), desc(goalLogPhotos.createdAt));
@@ -231,7 +244,7 @@ export async function POST(request: Request) {
     }
 
     const [goal] = await db
-      .select({ id: goals.id })
+      .select({ id: goals.id, visibility: goals.visibility })
       .from(goals)
       .where(and(eq(goals.id, goalId), eq(goals.userId, user.id)))
       .limit(1);
@@ -247,6 +260,7 @@ export async function POST(request: Request) {
         goalId,
         date: dateKey,
         status: "planned",
+        visibility: goal.visibility,
       })
       .onConflictDoUpdate({
         target: [goalLogs.goalId, goalLogs.date],

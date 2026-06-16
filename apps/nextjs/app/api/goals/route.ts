@@ -8,11 +8,18 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 const goalFields = {
   name: z.string().trim().min(1),
   frequencyGoal: z.number().int().positive().nullable().default(null),
-  period: z
-    .union([z.enum(["daily", "weekly", "monthly"]), z.null()])
+  period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+  repeatInterval: z.number().int().min(1).max(99).nullable().default(null),
+  repeatDays: z.array(z.number().int().min(0).max(6)).nullable().default(null),
+  repeatMonthlyType: z
+    .enum(["day_of_month", "day_of_week"])
+    .nullable()
     .default(null),
   categoryId: z.string().uuid(),
-  priority: z.enum(["high", "medium", "low"]),
+  priority: z.enum(["high", "low"]),
+  visibility: z
+    .enum(["only_me", "goal_friends", "all_friends"])
+    .default("only_me"),
   iconKey: z.string().default(""),
   hidden: z.boolean().default(false),
 };
@@ -41,10 +48,14 @@ const selectGoalShape = {
   name: goals.name,
   frequencyGoal: goals.frequencyGoal,
   period: goals.period,
+  repeatInterval: goals.repeatInterval,
+  repeatDays: goals.repeatDays,
+  repeatMonthlyType: goals.repeatMonthlyType,
   categoryId: goals.categoryId,
   categoryName: categories.name,
   categoryIcon: categories.icon,
   priority: goals.priority,
+  visibility: goals.visibility,
   iconKey: goals.iconKey,
   hidden: goals.hidden,
   createdAt: goals.createdAt,
@@ -153,8 +164,12 @@ export async function POST(request: Request) {
       name: d.name,
       frequencyGoal: d.frequencyGoal,
       period: d.period,
+      repeatInterval: d.repeatInterval,
+      repeatDays: d.repeatDays,
+      repeatMonthlyType: d.repeatMonthlyType,
       categoryId: d.categoryId,
       priority: d.priority,
+      visibility: d.visibility,
       iconKey: d.iconKey,
       hidden: d.hidden,
     });

@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "abi",
+    "slug": "abi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/abi-logo.png",
+    "scheme": "mobile",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/images/abi-logo.png",
+      "bundleIdentifier": "com.calebbestessteam.abi",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "android": {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 76
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Higher Habits to choose profile and goal journal photos.",
+          "cameraPermission": "Allow Higher Habits to take photos for your goal journal.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font",
+      "expo-image",
+      "@sentry/react-native/expo"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ed710f69-6d5e-4666-8169-1fbc4e712837"
+      }
+    },
+    "owner": "calebbestess-team"
+  }
+}

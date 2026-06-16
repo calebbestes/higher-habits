@@ -1,0 +1,1522 @@
+import { GoalIcon } from "@/components/goal-icon";
+import { Image } from "expo-image";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { Fonts, MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
+import { useTheme } from "@/hooks/use-theme";
+import {
+  type GoalLogsSnapshot,
+  deleteGoalLog,
+  fetchAllGoalLogsSnapshot,
+  fetchGoalLogsSnapshot,
+  getMonthKey,
+  setGoalLogVisibility,
+} from "@/lib/goal-logs-client";
+import {
+  type GoalPhoto,
+  fetchAllGoalPhotos,
+  fetchGoalPhotosForRange,
+} from "@/lib/goal-photos-client";
+import type { GoalVisibility } from "@/lib/goals-client";
+
+type SymbolName = SymbolViewProps["name"];
+
+type GoalOption = {
+  id: string;
+  name: string;
+  iconKey: string;
+  categoryId: string;
+};
+
+type GoalSection = {
+  categoryId: string;
+  categoryName: string;
+  goals: GoalOption[];
+};
+
+type JournalEntry = {
+  dateKey: string;
+  goal: GoalOption;
+  note: string;
+  photoCount: number;
+  visibility: GoalVisibility;
+};
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
+function sym(ios: string, android: string): SymbolName {
+  return { ios, android, web: android } as SymbolName;
+}
+
+function dateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function monthRange(year: number, month: number) {
+  return {
+    startDateKey: dateKey(year, month, 1),
+    endDateKey: dateKey(year, month, new Date(year, month + 1, 0).getDate()),
+  };
+}
+
+function formatDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
+  if (!snapshot) return [];
+
+  return snapshot.categories
+    .map((category) => {
+      const dailyGoals = category.goals.map((goal) => ({
+        id: goal.id,
+        name: goal.name,
+        iconKey: goal.iconKey,
+        categoryId: goal.categoryId,
+      }));
+      const periodicGoals = snapshot.periodicGoals
+        .filter((goal) => goal.categoryId === category.id)
+        .map((goal) => ({
+          id: goal.id,
+          name: goal.name,
+          iconKey: goal.iconKey,
+          categoryId: goal.categoryId,
+        }));
+
+      return {
+        categoryId: category.id,
+        categoryName: category.name,
+        goals: [...dailyGoals, ...periodicGoals].sort((left, right) =>
+          left.name.localeCompare(right.name),
+        ),
+      };
+    })
+    .filter((section) => section.goals.length > 0);
+}
+
+export function JournalScreen() {
+  const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<GoalLogsSnapshot | null>(null);
+  const [photos, setPhotos] = useState<GoalPhoto[]>([]);
+  const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
+  const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [activePost, setActivePost] = useState<JournalEntry | null>(null);
+  const [isUpdatingPost, setIsUpdatingPost] = useState(false);
+
+  const selectedDate = useMemo(
+    () =>
+      selectedMonth !== null && selectedYear !== null
+        ? new Date(selectedYear, selectedMonth, 1)
+        : null,
+    [selectedMonth, selectedYear],
+  );
+  const range = useMemo(
+    () =>
+      selectedMonth !== null && selectedYear !== null
+        ? monthRange(selectedYear, selectedMonth)
+        : null,
+    [selectedMonth, selectedYear],
+  );
+  const load = useCallback(
+    async (refresh = false) => {
+      refresh ? setIsRefreshing(true) : setIsLoading(true);
+      setError(null);
+      setPhotoLoadFailed(false);
+
+      try {
+        const nextSnapshot = selectedDate
+          ? await fetchGoalLogsSnapshot(getMonthKey(selectedDate))
+          : await fetchAllGoalLogsSnapshot();
+        const nextPhotos = await (range
+          ? fetchGoalPhotosForRange(
+              selectedGoalId,
+              range.startDateKey,
+              range.endDateKey,
+            )
+          : fetchAllGoalPhotos(selectedGoalId)
+        ).catch(() => {
+          setPhotoLoadFailed(true);
+          return [];
+        });
+        setSnapshot(nextSnapshot);
+        setPhotos(nextPhotos);
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load journal.",
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [range, selectedDate, selectedGoalId],
+  );
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const allSections = useMemo(() => buildGoalSections(snapshot), [snapshot]);
+  const goals = useMemo(
+    () => allSections.flatMap((section) => section.goals),
+    [allSections],
+  );
+  const goalById = useMemo(
+    () => new Map(goals.map((goal) => [goal.id, goal])),
+    [goals],
+  );
+  const journalGoalIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!snapshot) return ids;
+
+    const keys = new Set([
+      ...Object.keys(snapshot.notesByGoalDate),
+      ...Object.keys(snapshot.photoCountsByGoalDate ?? {}),
+    ]);
+
+    for (const key of keys) {
+      if (snapshot.logsByGoalDate[key] !== "complete") continue;
+      const note = snapshot.notesByGoalDate[key] ?? "";
+      const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
+      if (note.trim() || photoCount > 0) {
+        ids.add(key.slice(0, key.indexOf("_")));
+      }
+    }
+
+    return ids;
+  }, [snapshot]);
+  const sections = useMemo(
+    () =>
+      allSections
+        .map((section) => ({
+          ...section,
+          goals: section.goals.filter((goal) => journalGoalIds.has(goal.id)),
+        }))
+        .filter((section) => section.goals.length > 0),
+    [allSections, journalGoalIds],
+  );
+  const selectedGoal = selectedGoalId
+    ? (goalById.get(selectedGoalId) ?? null)
+    : null;
+
+  useEffect(() => {
+    if (selectedGoalId && snapshot && !journalGoalIds.has(selectedGoalId)) {
+      setSelectedGoalId(null);
+    }
+  }, [journalGoalIds, selectedGoalId, snapshot]);
+
+  const photosByEntry = useMemo(() => {
+    const grouped = new Map<string, GoalPhoto[]>();
+    for (const photo of photos) {
+      const key = `${photo.goalId}_${photo.dateKey}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), photo]);
+    }
+    return grouped;
+  }, [photos]);
+
+  const entries = useMemo(() => {
+    if (!snapshot) return [];
+    const keys = new Set([
+      ...Object.keys(snapshot.notesByGoalDate),
+      ...Object.keys(snapshot.photoCountsByGoalDate ?? {}),
+    ]);
+    const results: JournalEntry[] = [];
+
+    for (const key of keys) {
+      const separator = key.indexOf("_");
+      const goalId = key.slice(0, separator);
+      const entryDateKey = key.slice(separator + 1);
+      const goal = goalById.get(goalId);
+      if (!goal || (selectedGoalId && goalId !== selectedGoalId)) continue;
+      if (
+        (range &&
+          (entryDateKey < range.startDateKey ||
+            entryDateKey > range.endDateKey)) ||
+        snapshot.logsByGoalDate[key] !== "complete"
+      ) {
+        continue;
+      }
+
+      const note = snapshot.notesByGoalDate[key] ?? "";
+      const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
+      if (!note.trim() && photoCount === 0) continue;
+      results.push({
+        dateKey: entryDateKey,
+        goal,
+        note,
+        photoCount,
+        visibility: snapshot.visibilityByGoalDate?.[key] ?? "only_me",
+      });
+    }
+
+    return results.sort(
+      (left, right) =>
+        right.dateKey.localeCompare(left.dateKey) ||
+        left.goal.name.localeCompare(right.goal.name),
+    );
+  }, [goalById, range, selectedGoalId, snapshot]);
+
+  const handleSetPostVisibility = useCallback(
+    async (entry: JournalEntry, visibility: GoalVisibility) => {
+      if (isUpdatingPost || visibility === entry.visibility) return;
+      const key = `${entry.goal.id}_${entry.dateKey}`;
+      setIsUpdatingPost(true);
+
+      try {
+        await setGoalLogVisibility(entry.goal.id, entry.dateKey, visibility);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                visibilityByGoalDate: {
+                  ...current.visibilityByGoalDate,
+                  [key]: visibility,
+                },
+              }
+            : current,
+        );
+        setActivePost((current) =>
+          current ? { ...current, visibility } : current,
+        );
+      } catch (visibilityError) {
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      } finally {
+        setIsUpdatingPost(false);
+      }
+    },
+    [isUpdatingPost],
+  );
+
+  const confirmDeletePost = useCallback(
+    (entry: JournalEntry) => {
+      Alert.alert(
+        "Delete log?",
+        "This permanently deletes the report, note, photos, and feed activity for this goal instance.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              setIsUpdatingPost(true);
+
+              try {
+                await deleteGoalLog(entry.goal.id, entry.dateKey);
+                setActivePost(null);
+                await load();
+              } catch (deleteError) {
+                Alert.alert(
+                  "Could not delete log",
+                  deleteError instanceof Error
+                    ? deleteError.message
+                    : "The goal log could not be deleted.",
+                );
+              } finally {
+                setIsUpdatingPost(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [load],
+  );
+
+  return (
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              tintColor={theme.primary}
+              onRefresh={() => void load(true)}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              <Text style={[styles.title, { color: theme.text }]}>Journal</Text>
+            </View>
+          </View>
+
+          <View style={styles.filters}>
+            <PickerButton
+              icon={sym("book", "menu_book")}
+              label="Goal"
+              value={selectedGoal?.name ?? "All goals"}
+              onPress={() => setPicker("goal")}
+            />
+            <MonthButton
+              month={selectedMonth}
+              year={selectedYear}
+              onPress={() => setPicker("monthYear")}
+            />
+          </View>
+
+          {error ? (
+            <View style={styles.errorBanner}>
+              <SymbolView
+                name={sym("exclamationmark.circle.fill", "error")}
+                size={18}
+                tintColor="#9D474D"
+              />
+              <Text style={styles.errorText}>{error}</Text>
+              <Pressable onPress={() => void load()}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {isLoading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator color={theme.primary} size="large" />
+            </View>
+          ) : entries.length === 0 ? (
+            <EmptyState
+              goalName={selectedGoal?.name ?? null}
+              dateLabel={
+                selectedMonth !== null && selectedYear !== null
+                  ? `${MONTHS[selectedMonth]} ${selectedYear}`
+                  : null
+              }
+            />
+          ) : (
+            <View style={styles.entryList}>
+              {entries.map((entry) => (
+                <JournalCard
+                  key={`${entry.goal.id}_${entry.dateKey}`}
+                  entry={entry}
+                  photoLoadFailed={photoLoadFailed}
+                  photos={
+                    photosByEntry.get(`${entry.goal.id}_${entry.dateKey}`) ?? []
+                  }
+                  onOpenPhoto={setActivePhoto}
+                  onOpenMenu={setActivePost}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+
+      <GoalPickerModal
+        isOpen={picker === "goal"}
+        sections={sections}
+        selectedGoalId={selectedGoalId}
+        onClose={() => setPicker(null)}
+        onSelect={(goalId) => {
+          setSelectedGoalId(goalId);
+          setPicker(null);
+        }}
+      />
+      <MonthYearPickerModal
+        isOpen={picker === "monthYear"}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+        onClose={() => setPicker(null)}
+        onSelect={(month, year) => {
+          setSelectedMonth(month);
+          setSelectedYear(year);
+          setPicker(null);
+        }}
+      />
+      <PostActionsSheet
+        entry={activePost}
+        isUpdating={isUpdatingPost}
+        onClose={() => setActivePost(null)}
+        onDelete={confirmDeletePost}
+        onSetVisibility={(entry, visibility) =>
+          void handleSetPostVisibility(entry, visibility)
+        }
+      />
+      <PhotoViewer photo={activePhoto} onClose={() => setActivePhoto(null)} />
+    </View>
+  );
+}
+
+function PickerButton({
+  icon,
+  label,
+  value,
+  onPress,
+}: {
+  icon: SymbolName;
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pickerButton,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <SymbolView name={icon} size={17} tintColor={theme.primary} />
+      <View style={styles.pickerText}>
+        <Text style={[styles.pickerLabel, { color: theme.textSecondary }]}>
+          {label}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.pickerValue, { color: theme.text }]}
+        >
+          {value}
+        </Text>
+      </View>
+      <SymbolView
+        name={sym("chevron.down", "expand_more")}
+        size={14}
+        tintColor={theme.textSecondary}
+      />
+    </Pressable>
+  );
+}
+
+function MonthButton({
+  month,
+  year,
+  onPress,
+}: {
+  month: number | null;
+  year: number | null;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const hasDateFilter = month !== null && year !== null;
+  return (
+    <Pressable
+      accessibilityLabel={`Select month and year. Currently ${
+        hasDateFilter ? `${MONTHS[month]} ${year}` : "all dates"
+      }`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.monthButton,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.monthButtonMonth, { color: theme.primary }]}>
+        {hasDateFilter ? MONTHS[month].slice(0, 3) : "ALL"}
+      </Text>
+      <Text style={[styles.monthButtonYear, { color: theme.text }]}>
+        {hasDateFilter ? year : "DATES"}
+      </Text>
+    </Pressable>
+  );
+}
+
+function JournalCard({
+  entry,
+  photoLoadFailed,
+  photos,
+  onOpenPhoto,
+  onOpenMenu,
+}: {
+  entry: JournalEntry;
+  photoLoadFailed: boolean;
+  photos: GoalPhoto[];
+  onOpenPhoto: (photo: GoalPhoto) => void;
+  onOpenMenu: (entry: JournalEntry) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View
+          style={[
+            styles.goalIcon,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <GoalIcon
+            iconKey={entry.goal.iconKey}
+            size={16}
+            color={theme.primary}
+          />
+        </View>
+        <View style={styles.cardHeaderText}>
+          <Text style={[styles.cardDate, { color: theme.text }]}>
+            {formatDate(entry.dateKey)}
+          </Text>
+          <Text style={[styles.cardGoal, { color: theme.textSecondary }]}>
+            {entry.goal.name}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel={`Open options for ${entry.goal.name} on ${formatDate(entry.dateKey)}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => onOpenMenu(entry)}
+          style={({ pressed }) => [
+            styles.postMenuButton,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      </View>
+
+      {entry.note.trim() ? <RichJournalNote html={entry.note} /> : null}
+
+      {entry.photoCount > 0 ? (
+        photos.length > 0 ? (
+          <View
+            style={[
+              styles.photoGrid,
+              photos.length === 1 && styles.singlePhotoGrid,
+            ]}
+          >
+            {photos.map((photo) => (
+              <Pressable
+                key={photo.id}
+                accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
+                onPress={() => onOpenPhoto(photo)}
+                style={({ pressed }) => [
+                  styles.photoButton,
+                  photos.length === 1 && styles.singlePhotoButton,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Image
+                  contentFit="cover"
+                  source={{ uri: photo.url }}
+                  style={styles.photo}
+                  transition={180}
+                />
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.photoPlaceholder,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            {photoLoadFailed ? (
+              <Text
+                style={[
+                  styles.photoPlaceholderText,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Photos could not be loaded.
+              </Text>
+            ) : (
+              <ActivityIndicator color={theme.primary} size="small" />
+            )}
+          </View>
+        )
+      ) : null}
+    </View>
+  );
+}
+
+const VISIBILITY_OPTIONS: Array<{
+  value: GoalVisibility;
+  label: string;
+  icon: SymbolName;
+}> = [
+  { value: "only_me", label: "Only me", icon: sym("person.fill", "person") },
+  {
+    value: "goal_friends",
+    label: "Goal friends",
+    icon: sym("person.2.fill", "group"),
+  },
+  {
+    value: "all_friends",
+    label: "All friends",
+    icon: sym("person.3.fill", "groups"),
+  },
+];
+
+function PostActionsSheet({
+  entry,
+  isUpdating,
+  onClose,
+  onDelete,
+  onSetVisibility,
+}: {
+  entry: JournalEntry | null;
+  isUpdating: boolean;
+  onClose: () => void;
+  onDelete: (entry: JournalEntry) => void;
+  onSetVisibility: (entry: JournalEntry, visibility: GoalVisibility) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <PickerSheet isOpen={entry !== null} title="Post options" onClose={onClose}>
+      {entry ? (
+        <>
+          <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
+            Visibility
+          </Text>
+          {VISIBILITY_OPTIONS.map((option) => (
+            <PickerRow
+              key={option.value}
+              disabled={isUpdating}
+              icon={option.icon}
+              label={option.label}
+              selected={entry.visibility === option.value}
+              onPress={() => onSetVisibility(entry, option.value)}
+            />
+          ))}
+          <View
+            style={[
+              styles.postActionDivider,
+              { backgroundColor: theme.tabBorder },
+            ]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={isUpdating}
+            onPress={() => onDelete(entry)}
+            style={({ pressed }) => [
+              styles.deleteLogRow,
+              isUpdating && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            {isUpdating ? (
+              <ActivityIndicator color="#C84850" size="small" />
+            ) : (
+              <SymbolView
+                name={sym("trash.fill", "delete")}
+                size={18}
+                tintColor="#C84850"
+              />
+            )}
+            <View style={styles.deleteLogText}>
+              <Text style={styles.deleteLogTitle}>Delete log</Text>
+              <Text
+                style={[
+                  styles.deleteLogDescription,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Deletes its report, note, photos, and feed activity.
+              </Text>
+            </View>
+          </Pressable>
+        </>
+      ) : null}
+    </PickerSheet>
+  );
+}
+
+const JOURNAL_COLLAPSE_HEIGHT = 130;
+
+function RichJournalNote({ html }: { html: string }) {
+  const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.max(0, Math.min(width, MaxContentWidth) - 66);
+  const [expanded, setExpanded] = useState(false);
+  const isLong = html.replace(/<[^>]*>/g, "").trim().length > 300;
+  const tagsStyles = useMemo<MixedStyleRecord>(
+    () => ({
+      p: {
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      h1: {
+        fontSize: 17,
+        lineHeight: 24,
+        fontWeight: "800",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      h2: {
+        fontSize: 16,
+        lineHeight: 23,
+        fontWeight: "800",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      h3: {
+        fontSize: 15,
+        lineHeight: 22,
+        fontWeight: "700",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      strong: { fontWeight: "800" },
+      b: { fontWeight: "800" },
+      em: { fontStyle: "italic" },
+      i: { fontStyle: "italic" },
+      s: { textDecorationLine: "line-through" },
+      del: { textDecorationLine: "line-through" },
+      ul: {
+        marginTop: 0,
+        marginBottom: 6,
+        paddingLeft: 18,
+      },
+      ol: {
+        marginTop: 0,
+        marginBottom: 6,
+        paddingLeft: 18,
+      },
+      li: { marginBottom: 3 },
+      blockquote: {
+        borderLeftWidth: 3,
+        borderLeftColor: theme.tabBorder,
+        color: theme.textSecondary,
+        marginTop: 0,
+        marginBottom: 6,
+        marginLeft: 0,
+        paddingLeft: 10,
+      },
+      a: {
+        color: theme.primary,
+        textDecorationLine: "underline",
+      },
+      code: {
+        fontFamily: Fonts.mono,
+        backgroundColor: theme.backgroundElement,
+      },
+      pre: {
+        fontFamily: Fonts.mono,
+        backgroundColor: theme.backgroundElement,
+        borderRadius: 8,
+        marginTop: 0,
+        marginBottom: 6,
+        padding: 10,
+      },
+    }),
+    [
+      theme.backgroundElement,
+      theme.primary,
+      theme.tabBorder,
+      theme.textSecondary,
+    ],
+  );
+
+  return (
+    <View style={styles.richNote}>
+      <View
+        style={
+          isLong && !expanded
+            ? { maxHeight: JOURNAL_COLLAPSE_HEIGHT, overflow: "hidden" }
+            : undefined
+        }
+      >
+        <RenderHTML
+          baseStyle={{
+            color: theme.text,
+            fontSize: 14,
+            fontWeight: "500",
+            lineHeight: 21,
+          }}
+          contentWidth={contentWidth}
+          defaultTextProps={{ selectable: true }}
+          enableCSSInlineProcessing={false}
+          ignoredDomTags={["script", "style", "iframe", "img", "video"]}
+          source={{ html }}
+          tagsStyles={tagsStyles}
+        />
+      </View>
+      {isLong ? (
+        <Pressable
+          onPress={() => setExpanded((x) => !x)}
+          style={styles.showMoreButton}
+        >
+          <Text style={[styles.showMoreText, { color: theme.primary }]}>
+            {expanded ? "Show less" : "Show more"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function EmptyState({
+  goalName,
+  dateLabel,
+}: {
+  goalName: string | null;
+  dateLabel: string | null;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.centerState}>
+      <View
+        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
+      >
+        <SymbolView
+          name={sym("book", "menu_book")}
+          size={28}
+          tintColor={theme.primary}
+        />
+      </View>
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        No journal entries
+      </Text>
+      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
+        {goalName ? `${goalName} has` : "No goals have"} notes or photos from
+        completed days{dateLabel ? ` in ${dateLabel}` : ""}.
+      </Text>
+    </View>
+  );
+}
+
+function GoalPickerModal({
+  isOpen,
+  sections,
+  selectedGoalId,
+  onClose,
+  onSelect,
+}: {
+  isOpen: boolean;
+  sections: GoalSection[];
+  selectedGoalId: string | null;
+  onClose: () => void;
+  onSelect: (goalId: string | null) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <PickerSheet isOpen={isOpen} title="Select goal" onClose={onClose}>
+      <PickerRow
+        icon={sym("book", "menu_book")}
+        label="All goals"
+        selected={selectedGoalId === null}
+        onPress={() => onSelect(null)}
+      />
+      {sections.map((section) => (
+        <View key={section.categoryId}>
+          <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
+            {section.categoryName}
+          </Text>
+          {section.goals.map((goal) => (
+            <PickerRow
+              key={goal.id}
+              iconKey={goal.iconKey}
+              label={goal.name}
+              selected={selectedGoalId === goal.id}
+              onPress={() => onSelect(goal.id)}
+            />
+          ))}
+        </View>
+      ))}
+    </PickerSheet>
+  );
+}
+
+function MonthYearPickerModal({
+  isOpen,
+  selectedMonth,
+  selectedYear,
+  onClose,
+  onSelect,
+}: {
+  isOpen: boolean;
+  selectedMonth: number | null;
+  selectedYear: number | null;
+  onClose: () => void;
+  onSelect: (month: number | null, year: number | null) => void;
+}) {
+  const theme = useTheme();
+  const [displayYear, setDisplayYear] = useState(
+    selectedYear ?? new Date().getFullYear(),
+  );
+
+  useEffect(() => {
+    if (isOpen) setDisplayYear(selectedYear ?? new Date().getFullYear());
+  }, [isOpen, selectedYear]);
+
+  return (
+    <PickerSheet isOpen={isOpen} title="Filter by date" onClose={onClose}>
+      <PickerRow
+        icon={sym("calendar", "calendar_month")}
+        label="All dates"
+        selected={selectedMonth === null && selectedYear === null}
+        onPress={() => onSelect(null, null)}
+      />
+      <View style={styles.yearNavigator}>
+        <Pressable
+          accessibilityLabel="Previous year"
+          onPress={() => setDisplayYear((year) => year - 1)}
+          style={({ pressed }) => [
+            styles.yearArrow,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("chevron.left", "chevron_left")}
+            size={17}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+        <Text style={[styles.yearLabel, { color: theme.text }]}>
+          {displayYear}
+        </Text>
+        <Pressable
+          accessibilityLabel="Next year"
+          onPress={() => setDisplayYear((year) => year + 1)}
+          style={({ pressed }) => [
+            styles.yearArrow,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("chevron.right", "chevron_right")}
+            size={17}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      </View>
+      <View style={styles.monthGrid}>
+        {MONTHS.map((month, index) => {
+          const selected =
+            index === selectedMonth && displayYear === selectedYear;
+          return (
+            <Pressable
+              key={month}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              onPress={() => onSelect(index, displayYear)}
+              style={({ pressed }) => [
+                styles.monthOption,
+                {
+                  backgroundColor: selected
+                    ? theme.primary
+                    : theme.backgroundElement,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.monthOptionText,
+                  {
+                    color: selected ? theme.primaryForeground : theme.text,
+                  },
+                ]}
+              >
+                {month.slice(0, 3)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </PickerSheet>
+  );
+}
+
+function PickerSheet({
+  children,
+  isOpen,
+  title,
+  onClose,
+}: {
+  children: React.ReactNode;
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      transparent
+      visible={isOpen}
+    >
+      <View style={styles.sheetOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.sheet,
+            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+          ]}
+        >
+          <View style={styles.sheetHeader}>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>
+              {title}
+            </Text>
+            <Pressable
+              hitSlop={8}
+              onPress={onClose}
+              style={[
+                styles.closeButton,
+                { backgroundColor: theme.backgroundElement },
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {children}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PickerRow({
+  icon,
+  iconKey,
+  label,
+  selected,
+  disabled = false,
+  onPress,
+}: {
+  icon?: SymbolName;
+  iconKey?: string;
+  label: string;
+  selected: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.sheetRow,
+        selected && { backgroundColor: `${theme.primary}12` },
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}
+    >
+      {iconKey ? (
+        <GoalIcon
+          iconKey={iconKey}
+          size={18}
+          color={selected ? theme.primary : theme.tabIcon}
+        />
+      ) : (
+        <SymbolView
+          name={icon ?? sym("target", "target")}
+          size={18}
+          tintColor={selected ? theme.primary : theme.tabIcon}
+        />
+      )}
+      <Text
+        style={[
+          styles.sheetRowLabel,
+          { color: selected ? theme.primary : theme.text },
+        ]}
+      >
+        {label}
+      </Text>
+      {selected ? (
+        <SymbolView
+          name={sym("checkmark", "check")}
+          size={14}
+          weight="bold"
+          tintColor={theme.primary}
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+function PhotoViewer({
+  photo,
+  onClose,
+}: {
+  photo: GoalPhoto | null;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      transparent
+      visible={photo !== null}
+    >
+      <View style={styles.photoViewer}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        {photo ? (
+          <Image
+            contentFit="contain"
+            source={{ uri: photo.url }}
+            style={styles.fullPhoto}
+          />
+        ) : null}
+        <Pressable
+          accessibilityLabel="Close photo"
+          onPress={onClose}
+          style={styles.viewerClose}
+        >
+          <SymbolView
+            name={sym("xmark", "close")}
+            size={18}
+            weight="bold"
+            tintColor="#FFFFFF"
+          />
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  safeArea: { flex: 1 },
+  content: {
+    width: "100%",
+    maxWidth: MaxContentWidth,
+    alignSelf: "center",
+    gap: 18,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  header: { flexDirection: "row", alignItems: "center", gap: 11 },
+  headerIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  headerText: { flex: 1, gap: 1 },
+  title: {
+    fontSize: 25,
+    lineHeight: 29,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  subtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
+  filters: { flexDirection: "row", alignItems: "stretch", gap: 9 },
+  pickerButton: {
+    flex: 1,
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 17,
+    paddingHorizontal: 14,
+  },
+  pickerText: { flex: 1, gap: 1 },
+  pickerLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  pickerValue: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  monthButton: {
+    width: 70,
+    minHeight: 60,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 17,
+  },
+  monthButtonMonth: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  monthButtonYear: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: "#F3B7B933",
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+  },
+  errorText: { flex: 1, color: "#9D474D", fontSize: 12, fontWeight: "600" },
+  retryText: { color: "#9D474D", fontSize: 12, fontWeight: "800" },
+  centerState: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 30,
+    paddingVertical: 64,
+  },
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+    marginBottom: 2,
+  },
+  emptyTitle: { fontSize: 17, lineHeight: 22, fontWeight: "800" },
+  emptyDescription: {
+    maxWidth: 300,
+    textAlign: "center",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+  entryList: { gap: 12 },
+  card: {
+    gap: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    padding: 15,
+    overflow: "hidden",
+  },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  goalIcon: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  cardHeaderText: { flex: 1, gap: 1 },
+  cardDate: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
+  cardGoal: { fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  postMenuButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  richNote: { minWidth: 0 },
+  showMoreButton: { paddingTop: 4 },
+  showMoreText: { fontSize: 13, fontWeight: "500" },
+  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  singlePhotoGrid: { flexDirection: "column" },
+  photoButton: {
+    width: "48.8%",
+    aspectRatio: 1,
+    borderRadius: 13,
+    overflow: "hidden",
+  },
+  singlePhotoButton: { width: "100%", aspectRatio: 4 / 3 },
+  photo: { width: "100%", height: "100%" },
+  photoPlaceholder: {
+    minHeight: 100,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+  },
+  photoPlaceholderText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "#00000055",
+    padding: 12,
+  },
+  sheet: {
+    maxHeight: "82%",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 25,
+    padding: 8,
+    paddingBottom: 14,
+  },
+  sheetHeader: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+  },
+  sheetTitle: { fontSize: 17, lineHeight: 22, fontWeight: "800" },
+  closeButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  sheetSection: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 5,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  sheetRow: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  sheetRowLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  postActionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 14,
+    marginVertical: 8,
+  },
+  deleteLogRow: {
+    minHeight: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  deleteLogText: { flex: 1, gap: 1 },
+  deleteLogTitle: {
+    color: "#C84850",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  deleteLogDescription: { fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  disabled: { opacity: 0.5 },
+  yearNavigator: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 8,
+    marginBottom: 6,
+  },
+  yearArrow: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+  },
+  yearLabel: { fontSize: 19, lineHeight: 24, fontWeight: "800" },
+  monthGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 6,
+    paddingBottom: 6,
+  },
+  monthOption: {
+    width: "31.6%",
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  monthOptionText: { fontSize: 13, lineHeight: 17, fontWeight: "800" },
+  photoViewer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#000000E8",
+  },
+  fullPhoto: { width: "100%", height: "84%" },
+  viewerClose: {
+    position: "absolute",
+    top: 54,
+    right: 20,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF22",
+  },
+  pressed: { opacity: 0.72 },
+});

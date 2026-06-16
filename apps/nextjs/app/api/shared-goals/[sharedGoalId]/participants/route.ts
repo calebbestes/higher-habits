@@ -266,7 +266,8 @@ export async function PATCH(
             name: personalGoalName,
             period: "daily",
             categoryId,
-            priority: "medium",
+            priority: "low",
+            visibility: "goal_friends",
             iconKey:
               sharedGoal.mode === "collaborative"
                 ? "mdi:account-group-outline"
