@@ -24,6 +24,7 @@ import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { captureHandledError } from "@/lib/crash-reporting";
 import {
   type GoalLogStatus,
   type GoalLogsSnapshot,
@@ -593,6 +594,51 @@ export function MonthlyGoalsScreen() {
   const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
 
+  // Defensive, self-reporting derivation of the goal-actions modal props. Every
+  // snapshot sub-map and goal field is optional-chained with a fallback so a
+  // malformed/incomplete goal (e.g. missing visibility from the API) can't
+  // throw during render. If it somehow still does, we capture exactly which
+  // goal shape caused it instead of an opaque "convert undefined" crash.
+  let modalProps: {
+    hasNote: boolean;
+    hasPhoto: boolean;
+    visibility: GoalVisibility;
+    status: "complete" | "planned" | undefined;
+    isUpdating: boolean;
+  } = {
+    hasNote: false,
+    hasPhoto: false,
+    visibility: "only_me",
+    status: undefined,
+    isUpdating: false,
+  };
+  if (activeGoal) {
+    try {
+      const key = `${activeGoal.id}_${selectedDateKey}`;
+      modalProps = {
+        hasNote: Boolean(snapshot?.notesByGoalDate?.[key]?.trim()),
+        hasPhoto: (snapshot?.photoCountsByGoalDate?.[key] ?? 0) > 0,
+        visibility:
+          snapshot?.visibilityByGoalDate?.[key] ??
+          activeGoal.visibility ??
+          "only_me",
+        status: logsByGoalDate?.[key],
+        isUpdating: updatingKeys.has(key),
+      };
+    } catch (modalError) {
+      captureHandledError(modalError, {
+        goalId: activeGoal.id,
+        goalKeys: Object.keys(activeGoal).join(","),
+        hasNotesMap: Boolean(snapshot?.notesByGoalDate),
+        hasPhotoMap: Boolean(snapshot?.photoCountsByGoalDate),
+        hasSnapshot: Boolean(snapshot),
+        hasVisibilityMap: Boolean(snapshot?.visibilityByGoalDate),
+        phase: "compute-modal-props",
+        selectedDateKey,
+      });
+    }
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -766,40 +812,12 @@ export function MonthlyGoalsScreen() {
 
       <GoalActionsModal
         goal={activeGoal}
-        hasNote={
-          activeGoal
-            ? Boolean(
-                snapshot?.notesByGoalDate[
-                  `${activeGoal.id}_${selectedDateKey}`
-                ]?.trim(),
-              )
-            : false
-        }
-        hasPhoto={
-          activeGoal
-            ? (snapshot?.photoCountsByGoalDate[
-                `${activeGoal.id}_${selectedDateKey}`
-              ] ?? 0) > 0
-            : false
-        }
-        visibility={
-          activeGoal
-            ? (snapshot?.visibilityByGoalDate[
-                `${activeGoal.id}_${selectedDateKey}`
-              ] ?? activeGoal.visibility)
-            : "only_me"
-        }
+        hasNote={modalProps.hasNote}
+        hasPhoto={modalProps.hasPhoto}
+        visibility={modalProps.visibility}
         isUpdatingVisibility={isUpdatingVisibility}
-        status={
-          activeGoal
-            ? logsByGoalDate[`${activeGoal.id}_${selectedDateKey}`]
-            : undefined
-        }
-        isUpdating={
-          activeGoal
-            ? updatingKeys.has(`${activeGoal.id}_${selectedDateKey}`)
-            : false
-        }
+        status={modalProps.status}
+        isUpdating={modalProps.isUpdating}
         selectedDateKey={selectedDateKey}
         todayDateKey={todayDateKey}
         uploadingPhotoSource={uploadingPhotoSource}

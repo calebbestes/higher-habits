@@ -463,6 +463,51 @@ export function DailyGoalsScreen({
     [dateKey],
   );
 
+  // Defensive, self-reporting derivation of the goal-actions modal props. Every
+  // snapshot sub-map and goal field is optional-chained with a fallback so a
+  // malformed/incomplete goal (e.g. missing period/visibility from the API)
+  // can't throw during render. If it somehow still does, we capture exactly
+  // which goal shape caused it instead of an opaque "convert undefined" crash.
+  let modalProps: {
+    hasNote: boolean;
+    hasPhoto: boolean;
+    visibility: GoalVisibility;
+    status: "complete" | "planned" | undefined;
+    isUpdating: boolean;
+  } = {
+    hasNote: false,
+    hasPhoto: false,
+    visibility: "only_me",
+    status: undefined,
+    isUpdating: false,
+  };
+  if (activeGoal) {
+    try {
+      const key = `${activeGoal.id}_${dateKey}`;
+      modalProps = {
+        hasNote: Boolean(snapshot?.notesByGoalDate?.[key]?.trim()),
+        hasPhoto: (snapshot?.photoCountsByGoalDate?.[key] ?? 0) > 0,
+        visibility:
+          snapshot?.visibilityByGoalDate?.[key] ??
+          activeGoal.visibility ??
+          "only_me",
+        status: logsByGoalDate?.[key],
+        isUpdating: updatingKeys.has(key),
+      };
+    } catch (modalError) {
+      captureHandledError(modalError, {
+        dateKey,
+        goalId: activeGoal.id,
+        goalKeys: Object.keys(activeGoal).join(","),
+        hasNotesMap: Boolean(snapshot?.notesByGoalDate),
+        hasPhotoMap: Boolean(snapshot?.photoCountsByGoalDate),
+        hasSnapshot: Boolean(snapshot),
+        hasVisibilityMap: Boolean(snapshot?.visibilityByGoalDate),
+        phase: "compute-modal-props",
+      });
+    }
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -753,34 +798,12 @@ export function DailyGoalsScreen({
       />
       <GoalActionsModal
         goal={activeGoal}
-        hasNote={
-          activeGoal
-            ? Boolean(
-                snapshot?.notesByGoalDate[
-                  `${activeGoal.id}_${dateKey}`
-                ]?.trim(),
-              )
-            : false
-        }
-        hasPhoto={
-          activeGoal
-            ? (snapshot?.photoCountsByGoalDate[`${activeGoal.id}_${dateKey}`] ??
-                0) > 0
-            : false
-        }
-        visibility={
-          activeGoal
-            ? (snapshot?.visibilityByGoalDate[`${activeGoal.id}_${dateKey}`] ??
-              activeGoal.visibility)
-            : "only_me"
-        }
+        hasNote={modalProps.hasNote}
+        hasPhoto={modalProps.hasPhoto}
+        visibility={modalProps.visibility}
         isUpdatingVisibility={isUpdatingVisibility}
-        status={
-          activeGoal ? logsByGoalDate[`${activeGoal.id}_${dateKey}`] : undefined
-        }
-        isUpdating={
-          activeGoal ? updatingKeys.has(`${activeGoal.id}_${dateKey}`) : false
-        }
+        status={modalProps.status}
+        isUpdating={modalProps.isUpdating}
         uploadingPhotoSource={uploadingPhotoSource}
         visible={Boolean(activeGoal)}
         onAddPhoto={(source) => {
