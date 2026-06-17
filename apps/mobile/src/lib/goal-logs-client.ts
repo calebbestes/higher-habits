@@ -1,6 +1,12 @@
 import type { GoalVisibility } from "@/lib/goals-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
+export type LinkedSharedGoal = {
+  id: string;
+  name: string;
+  mode: "collaborative" | "competitive";
+};
+
 export type GoalInCategory = {
   id: string;
   name: string;
@@ -11,6 +17,16 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  sharedGoals?: LinkedSharedGoal[];
+};
+
+export type AcceptedGoalIncentive = {
+  id: string;
+  goalId: string;
+  body: string;
+  streakDays: number;
+  streakPercent: number;
+  createdAt: string;
 };
 
 export type CategoryWithGoals = {
@@ -38,6 +54,7 @@ export type PeriodicGoalInfo = {
 export type GoalLogsSnapshot = {
   categories: CategoryWithGoals[];
   periodicGoals: PeriodicGoalInfo[];
+  acceptedGoalIncentives?: AcceptedGoalIncentive[];
   logsByGoalDate: Record<string, "complete" | "planned">;
   notesByGoalDate: Record<string, string>;
   photoCountsByGoalDate: Record<string, number>;

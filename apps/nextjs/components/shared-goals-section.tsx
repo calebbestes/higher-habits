@@ -63,14 +63,15 @@ const SCORING_OPTIONS: Record<
 > = {
   collaborative: [
     {
+      value: "everyone_completes",
+      label: "Everyone completes",
+      description:
+        "Counts every day all participants complete the goal, adding up over time.",
+    },
+    {
       value: "combined_target",
       label: "Combined target",
       description: "Every completion moves the group toward one target.",
-    },
-    {
-      value: "shared_streak",
-      label: "Shared streak",
-      description: "The streak grows when everyone completes the goal.",
     },
   ],
   competitive: [
@@ -90,10 +91,8 @@ const SCORING_OPTIONS: Record<
 const SCORING_LABELS: Record<ScoringType, string> = {
   everyone_completes: "Everyone completes",
   combined_target: "Combined target",
-  shared_streak: "Shared streak",
   first_to_target: "First to target",
   highest_total: "Highest total",
-  best_consistency: "Best consistency",
   longest_streak: "Longest streak",
 };
 
@@ -833,16 +832,13 @@ export function SharedGoalsSection({
                       </button>
                     ))}
                   </div>
-                  {scoringType !== "highest_total" ? (
+                  {scoringType !== "highest_total" &&
+                  scoringType !== "everyone_completes" ? (
                     <Input
                       isRequired
                       type="number"
                       min={1}
-                      label={
-                        scoringType === "shared_streak"
-                          ? "Streak target"
-                          : "Completion target"
-                      }
+                      label="Completion target"
                       value={target}
                       onValueChange={setTarget}
                     />

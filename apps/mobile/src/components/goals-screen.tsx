@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { isRenderableIconKey } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -1495,11 +1496,14 @@ function IconSearchPicker({
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
+        // Restrict to icon sets GoalIcon can actually render (see goal-icon.tsx).
+        // Without this, searches surface icons from sets like boxicons/tdesign
+        // that fall back to the generic target icon once saved.
         const res = await fetch(
-          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24`,
+          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24&prefixes=mdi,fa6-solid`,
         );
         const data = (await res.json()) as { icons?: string[] };
-        setResults(data.icons ?? []);
+        setResults((data.icons ?? []).filter(isRenderableIconKey));
       } catch {
         setResults([]);
       } finally {
@@ -1545,13 +1549,7 @@ function IconSearchPicker({
           />
         ) : null}
       </View>
-      {value && !results.length ? (
-        <Text
-          style={[styles.iconSearchSelected, { color: theme.textSecondary }]}
-        >
-          {value}
-        </Text>
-      ) : null}
+
       {results.length > 0 ? (
         <View
           style={[

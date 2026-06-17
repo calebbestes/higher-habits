@@ -20,18 +20,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import {
   type GoalLogsSnapshot,
   deleteGoalLog,
   fetchAllGoalLogsSnapshot,
   fetchGoalLogsSnapshot,
   getMonthKey,
+  setGoalLogNote,
   setGoalLogVisibility,
 } from "@/lib/goal-logs-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import {
   type GoalPhoto,
   fetchAllGoalPhotos,
   fetchGoalPhotosForRange,
+  uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
 
@@ -145,6 +149,9 @@ export function JournalScreen() {
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
   const [activePost, setActivePost] = useState<JournalEntry | null>(null);
   const [isUpdatingPost, setIsUpdatingPost] = useState(false);
+  const [noteEditEntry, setNoteEditEntry] = useState<JournalEntry | null>(null);
+  const [uploadingPhotoSource, setUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
 
   const selectedDate = useMemo(
     () =>
@@ -372,6 +379,29 @@ export function JournalScreen() {
     [load],
   );
 
+  const handleAddPhoto = useCallback(
+    async (entry: JournalEntry, source: GoalPhotoSource) => {
+      if (uploadingPhotoSource) return;
+      setUploadingPhotoSource(source);
+      try {
+        const photo = await pickGoalPhoto(source);
+        if (!photo) return;
+        await uploadGoalPhoto(entry.goal.id, entry.dateKey, photo);
+        await load();
+      } catch (photoError) {
+        Alert.alert(
+          "Could not add photo",
+          photoError instanceof Error
+            ? photoError.message
+            : "The photo could not be uploaded.",
+        );
+      } finally {
+        setUploadingPhotoSource(null);
+      }
+    },
+    [load, uploadingPhotoSource],
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -479,12 +509,34 @@ export function JournalScreen() {
       <PostActionsSheet
         entry={activePost}
         isUpdating={isUpdatingPost}
+        uploadingPhotoSource={uploadingPhotoSource}
         onClose={() => setActivePost(null)}
         onDelete={confirmDeletePost}
         onSetVisibility={(entry, visibility) =>
           void handleSetPostVisibility(entry, visibility)
         }
+        onEditNote={(entry) => {
+          setActivePost(null);
+          setNoteEditEntry(entry);
+        }}
+        onAddPhoto={(entry, source) => void handleAddPhoto(entry, source)}
       />
+      {noteEditEntry ? (
+        <GoalNoteEditorModal
+          dateKey={noteEditEntry.dateKey}
+          goalName={noteEditEntry.goal.name}
+          initialValue={noteEditEntry.note?.trim() ? noteEditEntry.note : null}
+          onClose={() => setNoteEditEntry(null)}
+          onSave={async (notes) => {
+            await setGoalLogNote(
+              noteEditEntry.goal.id,
+              noteEditEntry.dateKey,
+              notes,
+            );
+            await load();
+          }}
+        />
+      ) : null}
       <PhotoViewer photo={activePhoto} onClose={() => setActivePhoto(null)} />
     </View>
   );
@@ -714,22 +766,59 @@ const VISIBILITY_OPTIONS: Array<{
 function PostActionsSheet({
   entry,
   isUpdating,
+  uploadingPhotoSource,
   onClose,
   onDelete,
   onSetVisibility,
+  onEditNote,
+  onAddPhoto,
 }: {
   entry: JournalEntry | null;
   isUpdating: boolean;
+  uploadingPhotoSource: GoalPhotoSource | null;
   onClose: () => void;
   onDelete: (entry: JournalEntry) => void;
   onSetVisibility: (entry: JournalEntry, visibility: GoalVisibility) => void;
+  onEditNote: (entry: JournalEntry) => void;
+  onAddPhoto: (entry: JournalEntry, source: GoalPhotoSource) => void;
 }) {
   const theme = useTheme();
+  const hasNote = Boolean(entry?.note?.trim());
+  const isUploadingPhoto = uploadingPhotoSource !== null;
 
   return (
     <PickerSheet isOpen={entry !== null} title="Post options" onClose={onClose}>
       {entry ? (
         <>
+          <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
+            Edit
+          </Text>
+          <PickerRow
+            disabled={isUpdating}
+            icon={sym("note.text", "notes")}
+            label={hasNote ? "Edit note" : "Add note"}
+            onPress={() => onEditNote(entry)}
+          />
+          <PickerRow
+            disabled={isUploadingPhoto}
+            loading={uploadingPhotoSource === "camera"}
+            icon={sym("camera.fill", "camera_alt")}
+            label="Take photo"
+            onPress={() => onAddPhoto(entry, "camera")}
+          />
+          <PickerRow
+            disabled={isUploadingPhoto}
+            loading={uploadingPhotoSource === "library"}
+            icon={sym("photo.fill", "photo_library")}
+            label="Add photo"
+            onPress={() => onAddPhoto(entry, "library")}
+          />
+          <View
+            style={[
+              styles.postActionDivider,
+              { backgroundColor: theme.tabBorder },
+            ]}
+          />
           <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
             Visibility
           </Text>
@@ -1148,15 +1237,17 @@ function PickerRow({
   icon,
   iconKey,
   label,
-  selected,
+  selected = false,
   disabled = false,
+  loading = false,
   onPress,
 }: {
   icon?: SymbolName;
   iconKey?: string;
   label: string;
-  selected: boolean;
+  selected?: boolean;
   disabled?: boolean;
+  loading?: boolean;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -1173,7 +1264,13 @@ function PickerRow({
         pressed && styles.pressed,
       ]}
     >
-      {iconKey ? (
+      {loading ? (
+        <ActivityIndicator
+          size="small"
+          color={theme.primary}
+          style={styles.pickerRowSpinner}
+        />
+      ) : iconKey ? (
         <GoalIcon
           iconKey={iconKey}
           size={18}
@@ -1447,6 +1544,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   sheetRowLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  pickerRowSpinner: { width: 18 },
   postActionDivider: {
     height: StyleSheet.hairlineWidth,
     marginHorizontal: 14,

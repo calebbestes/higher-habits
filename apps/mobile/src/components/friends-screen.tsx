@@ -1,5 +1,6 @@
+import * as Contacts from "expo-contacts";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -22,20 +23,23 @@ import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type ContactMatch,
   type FriendRow,
   acceptFriendRequest,
   addFriend,
   fetchFriends,
+  matchContacts,
 } from "@/lib/friends-client";
 
 type SymbolName = SymbolViewProps["name"];
+
+const INVITE_LINK = "https://higher-habits.vercel.app";
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
 export function FriendsScreen() {
-  const router = useRouter();
   const theme = useTheme();
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [search, setSearch] = useState("");
@@ -99,15 +103,20 @@ export function FriendsScreen() {
         friend.friendEmail.toLowerCase().includes(query),
     );
   }, [acceptedFriends, search]);
-  const averagePerformance =
-    acceptedFriends.length > 0
-      ? Math.round(
-          acceptedFriends.reduce(
-            (total, friend) => total + (friend.performance7Day?.percent ?? 0),
-            0,
-          ) / acceptedFriends.length,
-        )
-      : 0;
+
+  const messageFriend = (friend: FriendRow) => {
+    const phone = friend.friendPhoneNumber?.trim();
+    if (!phone) {
+      Alert.alert(
+        "No phone number",
+        `${friend.friendName} hasn't added a phone number yet.`,
+      );
+      return;
+    }
+    Linking.openURL(`sms:${encodeURIComponent(phone)}`).catch(() => {
+      Alert.alert("Could not open", "No messaging app is available.");
+    });
+  };
 
   const acceptRequest = async (friend: FriendRow) => {
     setAcceptingFriendshipId(friend.id);
@@ -142,11 +151,6 @@ export function FriendsScreen() {
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
                 <CollabHeaderMenu currentSection="friends" />
-                <Text
-                  style={[styles.pageSubtitle, { color: theme.textSecondary }]}
-                >
-                  Your accountability circle
-                </Text>
               </View>
             </View>
           </View>
@@ -217,24 +221,6 @@ export function FriendsScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.summaryRow}>
-            <SummaryCard
-              label="Friends"
-              value={String(acceptedFriends.length)}
-              icon={sym("person.2.fill", "groups")}
-            />
-            <SummaryCard
-              label="7-day average"
-              value={`${averagePerformance}%`}
-              icon={sym("chart.line.uptrend.xyaxis", "trending_up")}
-            />
-            <SummaryCard
-              label="Pending"
-              value={String(pendingFriends.length)}
-              icon={sym("clock.fill", "schedule")}
-            />
-          </View>
-
           {error ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{error}</Text>
@@ -280,7 +266,7 @@ export function FriendsScreen() {
                       <FriendCard
                         key={friend.id}
                         friend={friend}
-                        onMessage={() => router.navigate("/?section=messages")}
+                        onMessage={() => messageFriend(friend)}
                       />
                     ))}
                   </View>
@@ -304,44 +290,6 @@ export function FriendsScreen() {
           await load();
         }}
       />
-    </View>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: SymbolName;
-}) {
-  const theme = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.summaryCard,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.tabBorder,
-        },
-      ]}
-    >
-      <SymbolView
-        name={icon}
-        size={17}
-        weight="semibold"
-        tintColor={theme.primary}
-      />
-      <Text style={[styles.summaryValue, { color: theme.text }]}>{value}</Text>
-      <Text
-        numberOfLines={2}
-        style={[styles.summaryLabel, { color: theme.textSecondary }]}
-      >
-        {label}
-      </Text>
     </View>
   );
 }
@@ -595,26 +543,80 @@ function AddFriendModal({
   onAdded: () => Promise<void>;
 }) {
   const theme = useTheme();
-  const [email, setEmail] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const canSubmit = email.trim().length > 0 && !isSubmitting;
+  const [contactState, setContactState] = useState<
+    "idle" | "loading" | "granted" | "denied"
+  >("idle");
+  const [matches, setMatches] = useState<ContactMatch[]>([]);
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
+  const [invite, setInvite] = useState("");
 
-  const submit = async () => {
-    if (!canSubmit) return;
-    setIsSubmitting(true);
+  const findFromContacts = async () => {
+    setContactState("loading");
     try {
-      await addFriend(email.trim());
-      setEmail("");
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        setContactState("denied");
+        return;
+      }
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers],
+      });
+      const emails: string[] = [];
+      const phones: string[] = [];
+      for (const contact of data) {
+        for (const entry of contact.emails ?? []) {
+          if (entry.email) emails.push(entry.email);
+        }
+        for (const entry of contact.phoneNumbers ?? []) {
+          if (entry.number) phones.push(entry.number);
+        }
+      }
+      setMatches(await matchContacts(emails, phones));
+      setContactState("granted");
+    } catch {
+      setContactState("granted");
+      setMatches([]);
+    }
+  };
+
+  const addMatch = async (match: ContactMatch) => {
+    if (addingIds.has(match.userId) || addedIds.has(match.userId)) return;
+    setAddingIds((prev) => new Set(prev).add(match.userId));
+    try {
+      await addFriend(match.email);
+      setAddedIds((prev) => new Set(prev).add(match.userId));
       await onAdded();
-      Alert.alert("Friend request sent");
-    } catch (submitError) {
+    } catch (addError) {
       Alert.alert(
         "Could not add friend",
-        submitError instanceof Error ? submitError.message : "Try again.",
+        addError instanceof Error ? addError.message : "Try again.",
       );
     } finally {
-      setIsSubmitting(false);
+      setAddingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(match.userId);
+        return next;
+      });
     }
+  };
+
+  const inviteBy = (channel: "email" | "sms") => {
+    const value = invite.trim();
+    const body = `Hey! I'm using an app called Abi to build my habits. You should mak a goal with me!`;
+    let url: string;
+    if (channel === "email") {
+      const query = `subject=${encodeURIComponent(
+        "Join me on Higher Habits",
+      )}&body=${encodeURIComponent(body)}`;
+      url = `mailto:${encodeURIComponent(value)}?${query}`;
+    } else {
+      const separator = Platform.OS === "ios" ? "&" : "?";
+      url = `sms:${encodeURIComponent(value)}${separator}body=${encodeURIComponent(body)}`;
+    }
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Could not open", "No app available to send the invite.");
+    });
   };
 
   return (
@@ -638,7 +640,6 @@ function AddFriendModal({
             >
               <Pressable
                 accessibilityLabel="Cancel"
-                disabled={isSubmitting}
                 hitSlop={12}
                 onPress={onClose}
               >
@@ -649,43 +650,178 @@ function AddFriendModal({
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 Add Friend
               </Text>
-              <Pressable
-                accessibilityLabel="Send friend request"
-                disabled={!canSubmit}
-                hitSlop={12}
-                onPress={() => void submit()}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color={theme.primary} size="small" />
-                ) : (
+              <View style={styles.modalHeaderSpacer} />
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.addFriendContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Section 1: contacts already on the app */}
+              <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                On Higher Habits
+              </Text>
+              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
+                Friends from your contacts who already use the app.
+              </Text>
+
+              {contactState === "idle" ? (
+                <Pressable
+                  onPress={() => void findFromContacts()}
+                  style={({ pressed }) => [
+                    styles.contactsButton,
+                    { backgroundColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym(
+                      "person.crop.circle.badge.magnifyingglass",
+                      "contacts",
+                    )}
+                    size={18}
+                    weight="semibold"
+                    tintColor={theme.primaryForeground}
+                  />
                   <Text
                     style={[
-                      styles.modalAdd,
-                      {
-                        color: canSubmit ? theme.primary : theme.textSecondary,
-                      },
+                      styles.contactsButtonText,
+                      { color: theme.primaryForeground },
                     ]}
                   >
-                    Add
+                    Find friends from contacts
                   </Text>
-                )}
-              </Pressable>
-            </View>
-            <View style={styles.modalContent}>
-              <Text style={[styles.modalLabel, { color: theme.textSecondary }]}>
-                Email address
+                </Pressable>
+              ) : null}
+
+              {contactState === "loading" ? (
+                <View style={styles.contactsLoading}>
+                  <ActivityIndicator color={theme.primary} />
+                </View>
+              ) : null}
+
+              {contactState === "denied" ? (
+                <Text
+                  style={[styles.modalHint, { color: theme.textSecondary }]}
+                >
+                  Contacts access is off. Enable it in Settings to find friends
+                  who are already here.
+                </Text>
+              ) : null}
+
+              {contactState === "granted" && matches.length === 0 ? (
+                <Text
+                  style={[styles.modalHint, { color: theme.textSecondary }]}
+                >
+                  None of your contacts are on Higher Habits yet — invite them
+                  below.
+                </Text>
+              ) : null}
+
+              {matches.map((match) => {
+                const added = addedIds.has(match.userId);
+                const adding = addingIds.has(match.userId);
+                return (
+                  <View key={match.userId} style={styles.matchRow}>
+                    <View
+                      style={[
+                        styles.avatar,
+                        {
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: theme.backgroundSelected,
+                        },
+                      ]}
+                    >
+                      {match.image ? (
+                        <Image
+                          contentFit="cover"
+                          source={{ uri: match.image }}
+                          style={StyleSheet.absoluteFill}
+                        />
+                      ) : (
+                        <Text
+                          style={[styles.avatarText, { color: theme.primary }]}
+                        >
+                          {match.name.slice(0, 1).toUpperCase()}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={styles.matchInfo}>
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.friendName, { color: theme.text }]}
+                      >
+                        {match.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.friendEmail,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {match.email}
+                      </Text>
+                    </View>
+                    <Pressable
+                      disabled={added || adding}
+                      onPress={() => void addMatch(match)}
+                      style={({ pressed }) => [
+                        styles.matchAddButton,
+                        {
+                          backgroundColor: added
+                            ? theme.backgroundElement
+                            : theme.primary,
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      {adding ? (
+                        <ActivityIndicator
+                          color={theme.primaryForeground}
+                          size="small"
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.matchAddText,
+                            {
+                              color: added
+                                ? theme.textSecondary
+                                : theme.primaryForeground,
+                            },
+                          ]}
+                        >
+                          {added ? "Requested" : "Add"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                );
+              })}
+
+              {/* Section 2: invite by email or phone */}
+              <Text
+                style={[
+                  styles.addSectionTitle,
+                  { color: theme.text, marginTop: 28 },
+                ]}
+              >
+                Invite to Higher Habits
+              </Text>
+              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
+                Send a friend an email or text with a link to join.
               </Text>
               <TextInput
                 autoCapitalize="none"
-                autoComplete="email"
                 autoCorrect={false}
-                autoFocus
                 keyboardType="email-address"
-                onChangeText={setEmail}
-                onSubmitEditing={() => void submit()}
-                placeholder="friend@example.com"
+                onChangeText={setInvite}
+                placeholder="Email or phone number"
                 placeholderTextColor={theme.textSecondary}
-                returnKeyType="send"
                 style={[
                   styles.emailInput,
                   {
@@ -694,12 +830,51 @@ function AddFriendModal({
                     color: theme.text,
                   },
                 ]}
-                value={email}
+                value={invite}
               />
-              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-                They will appear as pending until the request is accepted.
-              </Text>
-            </View>
+              <View style={styles.inviteButtonRow}>
+                <Pressable
+                  onPress={() => inviteBy("email")}
+                  style={({ pressed }) => [
+                    styles.inviteButton,
+                    { borderColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("envelope.fill", "mail")}
+                    size={17}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inviteButtonText, { color: theme.primary }]}
+                  >
+                    Email
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => inviteBy("sms")}
+                  style={({ pressed }) => [
+                    styles.inviteButton,
+                    { borderColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("message.fill", "sms")}
+                    size={17}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inviteButtonText, { color: theme.primary }]}
+                  >
+                    Message
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </View>
@@ -794,23 +969,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addButtonText: { fontSize: 14, fontWeight: "800" },
-  summaryRow: { flexDirection: "row", gap: 8 },
-  summaryCard: {
-    minWidth: 0,
-    flex: 1,
-    alignItems: "flex-start",
-    gap: 3,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    padding: 12,
-  },
-  summaryValue: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4 },
-  summaryLabel: {
-    minHeight: 30,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-  },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -941,4 +1099,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   modalHint: { paddingHorizontal: 4, fontSize: 12, lineHeight: 17 },
+  modalHeaderSpacer: { width: 52 },
+  addFriendContent: {
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 40,
+    gap: 10,
+  },
+  addSectionTitle: {
+    paddingHorizontal: 4,
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  contactsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  contactsButtonText: { fontSize: 15, fontWeight: "700" },
+  contactsLoading: { paddingVertical: 20, alignItems: "center" },
+  matchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+  },
+  matchInfo: { flex: 1, gap: 2 },
+  matchAddButton: {
+    minWidth: 84,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  matchAddText: { fontSize: 14, fontWeight: "800" },
+  inviteButtonRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  inviteButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  inviteButtonText: { fontSize: 15, fontWeight: "700" },
 });

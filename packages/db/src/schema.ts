@@ -28,10 +28,8 @@ export const SHARED_GOAL_MODES = ["collaborative", "competitive"] as const;
 export const SHARED_GOAL_SCORING_TYPES = [
   "everyone_completes",
   "combined_target",
-  "shared_streak",
   "first_to_target",
   "highest_total",
-  "best_consistency",
   "longest_streak",
 ] as const;
 export const SHARED_GOAL_STATUSES = [
@@ -39,6 +37,7 @@ export const SHARED_GOAL_STATUSES = [
   "completed",
   "archived",
 ] as const;
+export const SHARED_GOAL_STAKE_TYPES = ["none", "carrot", "stick"] as const;
 export const SHARED_GOAL_PARTICIPANT_STATUSES = [
   "invited",
   "accepted",
@@ -67,6 +66,10 @@ export const sharedGoalScoringTypeEnum = pgEnum(
 export const sharedGoalStatusEnum = pgEnum(
   "shared_goal_status",
   SHARED_GOAL_STATUSES,
+);
+export const sharedGoalStakeTypeEnum = pgEnum(
+  "shared_goal_stake_type",
+  SHARED_GOAL_STAKE_TYPES,
 );
 export const sharedGoalParticipantStatusEnum = pgEnum(
   "shared_goal_participant_status",
@@ -435,6 +438,8 @@ export const sharedGoals = pgTable(
     startsOn: date("starts_on", { mode: "string" }),
     endsOn: date("ends_on", { mode: "string" }),
     status: sharedGoalStatusEnum("status").default("active").notNull(),
+    stakeType: sharedGoalStakeTypeEnum("stake_type").default("none").notNull(),
+    stakeDescription: text("stake_description"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -533,6 +538,7 @@ export type NewSharedGoalParticipant =
 export type SharedGoalMode = (typeof SHARED_GOAL_MODES)[number];
 export type SharedGoalScoringType = (typeof SHARED_GOAL_SCORING_TYPES)[number];
 export type SharedGoalStatus = (typeof SHARED_GOAL_STATUSES)[number];
+export type SharedGoalStakeType = (typeof SHARED_GOAL_STAKE_TYPES)[number];
 export type SharedGoalParticipantStatus =
   (typeof SHARED_GOAL_PARTICIPANT_STATUSES)[number];
 

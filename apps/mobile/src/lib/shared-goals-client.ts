@@ -1,12 +1,12 @@
 import { mobileApiFetch } from "@/lib/mobile-api";
 
+export type SharedGoalStakeType = "none" | "carrot" | "stick";
+
 export type SharedGoalScoringType =
   | "everyone_completes"
   | "combined_target"
-  | "shared_streak"
   | "first_to_target"
   | "highest_total"
-  | "best_consistency"
   | "longest_streak";
 
 export type SharedGoalParticipantSnapshot = {
@@ -34,6 +34,8 @@ export type SharedGoalSnapshot = {
   startsOn: string | null;
   endsOn: string | null;
   status: "active" | "completed" | "archived";
+  stakeType: SharedGoalStakeType;
+  stakeDescription: string | null;
   canManage: boolean;
   currentUserParticipant: SharedGoalParticipantSnapshot | null;
   participants: SharedGoalParticipantSnapshot[];
@@ -63,6 +65,8 @@ export type CreateSharedGoalInput = {
   endsOn: string | null;
   personalGoalId: string | null;
   invitedUserIds: string[];
+  stakeType: SharedGoalStakeType;
+  stakeDescription: string | null;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

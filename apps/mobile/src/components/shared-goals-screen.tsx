@@ -17,15 +17,30 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { useTheme } from "@/hooks/use-theme";
 import { type FriendRow, fetchFriends } from "@/lib/friends-client";
-import { setGoalLog, toDateKey } from "@/lib/goal-logs-client";
-import { type Goal, fetchGoals } from "@/lib/goals-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import {
+  type GoalLogStatus,
+  type GoalLogsSnapshot,
+  fetchGoalLogsSnapshot,
+  getMonthKey,
+  setGoalLog,
+  setGoalLogNote,
+  setGoalLogVisibility,
+  toDateKey,
+} from "@/lib/goal-logs-client";
+import { type Goal, type GoalVisibility, fetchGoals } from "@/lib/goals-client";
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import type { ActionGoal } from "@/components/daily-goals/shared";
 import {
   type CreateSharedGoalInput,
   type SharedGoalParticipantSnapshot,
   type SharedGoalScoringType,
   type SharedGoalSnapshot,
+  type SharedGoalStakeType,
   createSharedGoal,
   fetchSharedGoals,
   respondToSharedGoal,
@@ -35,23 +50,32 @@ import {
 const SCORING_LABELS: Record<SharedGoalScoringType, string> = {
   everyone_completes: "Everyone Completes",
   combined_target: "Combined Target",
-  shared_streak: "Shared Streak",
   first_to_target: "First to Target",
   highest_total: "Highest Total",
-  best_consistency: "Best Consistency",
   longest_streak: "Longest Streak",
 };
+
+const SCORING_EXPLAINERS: { label: string; description: string }[] = [
+  {
+    label: "Everyone Completes",
+    description:
+      "Counts every day on which all participants complete the goal. That total adds up over time — one point for each day you all do it — until the end date (if you set one).",
+  },
+  {
+    label: "Combined Target",
+    description:
+      "Pools everyone's completions into one shared number and races toward a target you set (e.g. 100 workouts as a group). Each person's completion pushes the same bar forward.",
+  },
+];
 
 const COLLAB_SCORING: SharedGoalScoringType[] = [
   "everyone_completes",
   "combined_target",
-  "shared_streak",
 ];
 
 const COMP_SCORING: SharedGoalScoringType[] = [
   "first_to_target",
   "highest_total",
-  "best_consistency",
   "longest_streak",
 ];
 
@@ -59,6 +83,28 @@ const NEEDS_TARGET = new Set<SharedGoalScoringType>([
   "combined_target",
   "first_to_target",
 ]);
+
+const STAKE_OPTIONS: {
+  type: SharedGoalStakeType;
+  label: string;
+  description: string;
+}[] = [
+  {
+    type: "none",
+    label: "No consequence",
+    description: "Keep it pressure-free",
+  },
+  {
+    type: "carrot",
+    label: "Carrot",
+    description: "A reward for finishing",
+  },
+  {
+    type: "stick",
+    label: "Stick",
+    description: "A consequence for falling short",
+  },
+];
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -283,11 +329,13 @@ function GoalCard({
   onDetails,
   onReport,
   onRelink,
+  onMenu,
 }: {
   goal: SharedGoalSnapshot;
   onDetails: () => void;
   onReport: () => void;
   onRelink: () => void;
+  onMenu: () => void;
 }) {
   const theme = useTheme();
   const cur = goal.currentUserParticipant;
@@ -305,10 +353,25 @@ function GoalCard({
 
   return (
     <View style={[styles.card, { backgroundColor: theme.background }]}>
-      {/* Badges */}
-      <View style={styles.badgeRow}>
-        <ModeBadge mode={goal.mode} />
-        <ScoringBadge type={goal.scoringType} />
+      {/* Badges + menu */}
+      <View style={styles.cardHeaderRow}>
+        <View style={styles.badgeRow}>
+          <ModeBadge mode={goal.mode} />
+          <ScoringBadge type={goal.scoringType} />
+        </View>
+        <Pressable
+          onPress={onMenu}
+          hitSlop={8}
+          accessibilityLabel="Shared goal options"
+          style={styles.cardMenuButton}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
       </View>
 
       {/* Goal name */}
@@ -508,7 +571,6 @@ function GoalDetailsSheet({
   onReportToday,
   onRelink,
   onLeave,
-  onMarkComplete,
   onArchive,
 }: {
   goal: SharedGoalSnapshot;
@@ -516,7 +578,6 @@ function GoalDetailsSheet({
   onReportToday: () => void;
   onRelink: () => void;
   onLeave: () => void;
-  onMarkComplete: () => void;
   onArchive: () => void;
 }) {
   const theme = useTheme();
@@ -524,6 +585,42 @@ function GoalDetailsSheet({
   const cur = goal.currentUserParticipant;
   const accepted = goal.participants.filter((p) => p.status === "accepted");
   const showProgress = goal.mode === "collaborative";
+  const isStreakType = goal.scoringType === "longest_streak";
+
+  // Header stats are tailored to the scoring type.
+  const statCells: { value: string; label: string }[] = [];
+  if (goal.mode === "collaborative") {
+    // Everyone completes / combined target: progress toward the goal.
+    statCells.push({
+      value: `${goal.progress.completedToday}/${goal.progress.acceptedParticipants}`,
+      label: "Done today",
+    });
+    statCells.push(
+      goal.progress.target !== null
+        ? {
+            value: `${goal.progress.value}/${goal.progress.target}`,
+            label: "Progress",
+          }
+        : { value: `${goal.progress.value}`, label: "Total" },
+    );
+  } else if (isStreakType) {
+    // Longest streak: current streaks only.
+    if (cur)
+      statCells.push({ value: `${cur.currentStreak}`, label: "My streak" });
+    statCells.push({
+      value: `${goal.progress.value}`,
+      label: "Longest streak",
+    });
+  } else {
+    // First to target / highest total: raw totals.
+    if (cur)
+      statCells.push({ value: `${cur.completedCount}`, label: "My total" });
+    if (goal.scoringType === "first_to_target" && goal.target !== null) {
+      statCells.push({ value: `${goal.target}`, label: "Target" });
+    } else {
+      statCells.push({ value: `${goal.progress.value}`, label: "Leader" });
+    }
+  }
 
   return (
     <View
@@ -583,47 +680,23 @@ function GoalDetailsSheet({
             { backgroundColor: theme.backgroundElement },
           ]}
         >
-          <View style={styles.statItem}>
-            <Text style={[styles.statValue, { color: theme.text }]}>
-              {goal.progress.completedToday}/
-              {goal.progress.acceptedParticipants}
-            </Text>
-            <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-              Done today
-            </Text>
-          </View>
-          {goal.target !== null && (
+          {statCells.map((cell, index) => (
             <View
+              key={cell.label}
               style={[
                 styles.statItem,
-                styles.statItemBorder,
-                { borderColor: theme.tabBorder },
+                index > 0 && styles.statItemBorder,
+                index > 0 && { borderColor: theme.tabBorder },
               ]}
             >
               <Text style={[styles.statValue, { color: theme.text }]}>
-                {goal.progress.value}/{goal.target}
+                {cell.value}
               </Text>
               <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-                Progress
+                {cell.label}
               </Text>
             </View>
-          )}
-          {cur && (
-            <View
-              style={[
-                styles.statItem,
-                styles.statItemBorder,
-                { borderColor: theme.tabBorder },
-              ]}
-            >
-              <Text style={[styles.statValue, { color: theme.text }]}>
-                {cur.currentStreak}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-                My streak
-              </Text>
-            </View>
-          )}
+          ))}
         </View>
 
         {/* Progress bar */}
@@ -707,7 +780,9 @@ function GoalDetailsSheet({
                     { color: theme.textSecondary },
                   ]}
                 >
-                  {p.completedCount} total · {p.currentStreak} streak
+                  {isStreakType
+                    ? `${p.currentStreak} day streak`
+                    : `${p.completedCount} total`}
                 </Text>
               </View>
               {p.completedToday && (
@@ -781,28 +856,13 @@ function GoalDetailsSheet({
         )}
         <View style={styles.sheetSecondaryActions}>
           {goal.canManage && goal.status === "active" && (
-            <>
-              <Pressable onPress={onMarkComplete} style={styles.sheetSecBtn}>
-                <Text
-                  style={[
-                    styles.sheetSecBtnText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  Mark complete
-                </Text>
-              </Pressable>
-              <Pressable onPress={onArchive} style={styles.sheetSecBtn}>
-                <Text
-                  style={[
-                    styles.sheetSecBtnText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  Archive
-                </Text>
-              </Pressable>
-            </>
+            <Pressable onPress={onArchive} style={styles.sheetSecBtn}>
+              <Text
+                style={[styles.sheetSecBtnText, { color: theme.textSecondary }]}
+              >
+                Archive
+              </Text>
+            </Pressable>
           )}
           <Pressable onPress={onLeave} style={styles.sheetSecBtn}>
             <Text style={[styles.sheetSecBtnText, { color: "#EF4444" }]}>
@@ -974,6 +1034,8 @@ function RelinkModal({
 
 // ─── CreateGoalModal ──────────────────────────────────────────────────────────
 
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
+
 type CreateState = {
   mode: "collaborative" | "competitive" | null;
   name: string;
@@ -983,6 +1045,8 @@ type CreateState = {
   endsOn: string;
   personalGoalId: string | null;
   invitedUserIds: string[];
+  stakeType: SharedGoalStakeType;
+  stakeDescription: string;
 };
 
 function CreateGoalModal({
@@ -998,8 +1062,9 @@ function CreateGoalModal({
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
+  const [showScoringInfo, setShowScoringInfo] = useState(false);
   const [form, setForm] = useState<CreateState>({
     mode: null,
     name: "",
@@ -1009,6 +1074,8 @@ function CreateGoalModal({
     endsOn: "",
     personalGoalId: null,
     invitedUserIds: [],
+    stakeType: "none",
+    stakeDescription: "",
   });
 
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
@@ -1017,6 +1084,11 @@ function CreateGoalModal({
   const needsTarget = form.scoringType
     ? NEEDS_TARGET.has(form.scoringType)
     : false;
+
+  const stakeReady =
+    form.stakeType === "none" || form.stakeDescription.trim().length > 0;
+  // The consequence page (6) only exists when a carrot/stick is chosen.
+  const lastStep: Step = form.stakeType === "none" ? 5 : 6;
 
   function canProceed() {
     if (step === 1) return form.mode !== null;
@@ -1039,6 +1111,11 @@ function CreateGoalModal({
         endsOn: form.endsOn.trim() || null,
         personalGoalId: form.personalGoalId,
         invitedUserIds: form.invitedUserIds,
+        stakeType: form.stakeType,
+        stakeDescription:
+          form.stakeType === "none"
+            ? null
+            : form.stakeDescription.trim() || null,
       });
     } finally {
       setSubmitting(false);
@@ -1085,7 +1162,7 @@ function CreateGoalModal({
           <View style={styles.createHeaderLeft}>
             {step > 1 && (
               <Pressable
-                onPress={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
+                onPress={() => setStep((s) => (s - 1) as Step)}
                 hitSlop={12}
               >
                 <View style={styles.headerTextButton}>
@@ -1109,7 +1186,7 @@ function CreateGoalModal({
             <Text
               style={[styles.stepIndicator, { color: theme.textSecondary }]}
             >
-              {step}/3
+              {step}/{lastStep}
             </Text>
             <Pressable onPress={onClose} hitSlop={12}>
               <SymbolView
@@ -1297,14 +1374,28 @@ function CreateGoalModal({
                 returnKeyType="next"
               />
 
-              <Text
-                style={[
-                  styles.fieldLabel,
-                  { color: theme.text, marginTop: 16 },
-                ]}
-              >
-                Scoring type
-              </Text>
+              <View style={styles.scoringLabelRow}>
+                <Text
+                  style={[
+                    styles.fieldLabel,
+                    { color: theme.text, marginTop: 16 },
+                  ]}
+                >
+                  Scoring type
+                </Text>
+                <Pressable
+                  onPress={() => setShowScoringInfo(true)}
+                  hitSlop={10}
+                  accessibilityLabel="What do the scoring types mean?"
+                  style={{ marginTop: 16 }}
+                >
+                  <SymbolView
+                    name="info.circle"
+                    size={18}
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+              </View>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -1342,6 +1433,61 @@ function CreateGoalModal({
                   </Pressable>
                 ))}
               </ScrollView>
+
+              <Modal
+                visible={showScoringInfo}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowScoringInfo(false)}
+              >
+                <Pressable
+                  style={styles.infoBackdrop}
+                  onPress={() => setShowScoringInfo(false)}
+                >
+                  <Pressable
+                    style={[
+                      styles.infoCard,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                    onPress={(e) => e.stopPropagation()}
+                  >
+                    <Text style={[styles.infoTitle, { color: theme.text }]}>
+                      Scoring types
+                    </Text>
+                    {SCORING_EXPLAINERS.map((item) => (
+                      <View key={item.label} style={styles.infoBlock}>
+                        <Text style={[styles.infoLabel, { color: theme.text }]}>
+                          {item.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.infoBody,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {item.description}
+                        </Text>
+                      </View>
+                    ))}
+                    <Pressable
+                      onPress={() => setShowScoringInfo(false)}
+                      style={[
+                        styles.infoButton,
+                        { backgroundColor: theme.primary },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.infoButtonText,
+                          { color: theme.primaryForeground },
+                        ]}
+                      >
+                        Got it
+                      </Text>
+                    </Pressable>
+                  </Pressable>
+                </Pressable>
+              </Modal>
 
               {needsTarget && (
                 <>
@@ -1496,84 +1642,172 @@ function CreateGoalModal({
                   )}
                 </Pressable>
               ))}
+            </View>
+          )}
 
-              {acceptedFriends.length > 0 && (
-                <>
-                  <Text
-                    style={[
-                      styles.stepHeading,
-                      { color: theme.text, marginTop: 24 },
-                    ]}
-                  >
-                    Invite friends
-                  </Text>
-                  {acceptedFriends.map((f) => {
-                    const selected = form.invitedUserIds.includes(f.friendId);
-                    return (
-                      <Pressable
-                        key={f.friendId}
-                        onPress={() => toggleFriend(f.friendId)}
-                        style={[
-                          styles.friendRow,
-                          { borderBottomColor: theme.tabBorder },
-                        ]}
-                      >
-                        <Avatar
-                          image={f.friendImage}
-                          name={f.friendName}
-                          size={36}
-                        />
-                        <View style={styles.friendInfo}>
-                          <Text
-                            style={[styles.friendName, { color: theme.text }]}
-                          >
-                            {f.friendName}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.friendEmail,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            {f.friendEmail}
-                          </Text>
-                        </View>
-                        <View
+          {/* Step 4: Invite friends */}
+          {step === 4 && (
+            <View>
+              <Text style={[styles.stepHeading, { color: theme.text }]}>
+                Invite friends
+              </Text>
+              {acceptedFriends.length === 0 ? (
+                <Text style={[styles.stepHint, { color: theme.textSecondary }]}>
+                  You don't have any friends to invite yet. Add friends from the
+                  Collab tab — or create this goal now and invite people later.
+                </Text>
+              ) : (
+                acceptedFriends.map((f) => {
+                  const selected = form.invitedUserIds.includes(f.friendId);
+                  return (
+                    <Pressable
+                      key={f.friendId}
+                      onPress={() => toggleFriend(f.friendId)}
+                      style={[
+                        styles.friendRow,
+                        { borderBottomColor: theme.tabBorder },
+                      ]}
+                    >
+                      <Avatar
+                        image={f.friendImage}
+                        name={f.friendName}
+                        size={36}
+                      />
+                      <View style={styles.friendInfo}>
+                        <Text
+                          style={[styles.friendName, { color: theme.text }]}
+                        >
+                          {f.friendName}
+                        </Text>
+                        <Text
                           style={[
-                            styles.checkbox,
-                            {
-                              backgroundColor: selected
-                                ? theme.primary
-                                : "transparent",
-                              borderColor: selected
-                                ? theme.primary
-                                : theme.textSecondary,
-                            },
+                            styles.friendEmail,
+                            { color: theme.textSecondary },
                           ]}
                         >
-                          {selected && (
-                            <SymbolView
-                              name={sym("checkmark", "check")}
-                              size={11}
-                              weight="semibold"
-                              tintColor={theme.primaryForeground}
-                            />
-                          )}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </>
+                          {f.friendEmail}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.checkbox,
+                          {
+                            backgroundColor: selected
+                              ? theme.primary
+                              : "transparent",
+                            borderColor: selected
+                              ? theme.primary
+                              : theme.textSecondary,
+                          },
+                        ]}
+                      >
+                        {selected && (
+                          <SymbolView
+                            name={sym("checkmark", "check")}
+                            size={11}
+                            weight="semibold"
+                            tintColor={theme.primaryForeground}
+                          />
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })
               )}
+            </View>
+          )}
+
+          {/* Step 5: What's on the line */}
+          {step === 5 && (
+            <View>
+              <Text style={[styles.stepHeading, { color: theme.text }]}>
+                What's on the line?
+              </Text>
+              <Text style={[styles.stepHint, { color: theme.textSecondary }]}>
+                Add a reward or consequence to raise the stakes — or keep it
+                pressure-free.
+              </Text>
+              {STAKE_OPTIONS.map((option) => {
+                const selected = form.stakeType === option.type;
+                return (
+                  <Pressable
+                    key={option.type}
+                    onPress={() =>
+                      setForm((f) => ({ ...f, stakeType: option.type }))
+                    }
+                    style={[
+                      styles.goalOption,
+                      {
+                        backgroundColor: selected
+                          ? theme.backgroundSelected
+                          : theme.backgroundElement,
+                        borderColor: selected ? theme.primary : "transparent",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.goalOptionText, { color: theme.text }]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.goalOptionSub,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {option.description}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Step 6: Consequence detail (carrot/stick only) */}
+          {step === 6 && form.stakeType !== "none" && (
+            <View>
+              <Text style={[styles.stepHeading, { color: theme.text }]}>
+                {form.stakeType === "carrot"
+                  ? "What's the reward?"
+                  : "What's the consequence?"}
+              </Text>
+              <Text style={[styles.stepHint, { color: theme.textSecondary }]}>
+                {form.stakeType === "carrot"
+                  ? "Describe what everyone is working toward."
+                  : "Describe what happens to whoever falls short."}
+              </Text>
+              <TextInput
+                multiline
+                placeholder={
+                  form.stakeType === "carrot"
+                    ? "e.g. Winner gets dinner paid for"
+                    : "e.g. Loser does everyone's dishes for a week"
+                }
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.textInput,
+                  {
+                    minHeight: 96,
+                    textAlignVertical: "top",
+                    color: theme.text,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+                value={form.stakeDescription}
+                onChangeText={(text) =>
+                  setForm((f) => ({ ...f, stakeDescription: text }))
+                }
+              />
             </View>
           )}
         </ScrollView>
 
         {/* Footer */}
         <View style={[styles.sheetFooter, { borderTopColor: theme.tabBorder }]}>
-          {step < 3 ? (
+          {step < lastStep ? (
             <Pressable
-              onPress={() => canProceed() && setStep((s) => (s + 1) as 2 | 3)}
+              onPress={() => canProceed() && setStep((s) => (s + 1) as Step)}
               style={[
                 styles.sheetPrimaryBtn,
                 {
@@ -1599,13 +1833,14 @@ function CreateGoalModal({
           ) : (
             <Pressable
               onPress={handleCreate}
-              disabled={submitting}
+              disabled={submitting || !stakeReady}
               style={[
                 styles.sheetPrimaryBtn,
                 {
-                  backgroundColor: submitting
-                    ? theme.backgroundElement
-                    : theme.primary,
+                  backgroundColor:
+                    submitting || !stakeReady
+                      ? theme.backgroundElement
+                      : theme.primary,
                 },
               ]}
             >
@@ -1618,7 +1853,11 @@ function CreateGoalModal({
                 <Text
                   style={[
                     styles.sheetPrimaryBtnText,
-                    { color: theme.primaryForeground },
+                    {
+                      color: stakeReady
+                        ? theme.primaryForeground
+                        : theme.textSecondary,
+                    },
                   ]}
                 >
                   Create Shared Goal
@@ -1649,6 +1888,18 @@ export function SharedGoalsScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [relinkGoal, setRelinkGoal] = useState<SharedGoalSnapshot | null>(null);
 
+  // ─── Report-today action dialog (shared with daily/monthly goals) ──────────
+  const [menuGoal, setMenuGoal] = useState<SharedGoalSnapshot | null>(null);
+  const [actionGoal, setActionGoal] = useState<SharedGoalSnapshot | null>(null);
+  const [logsSnapshot, setLogsSnapshot] = useState<GoalLogsSnapshot | null>(
+    null,
+  );
+  const [noteEditGoal, setNoteEditGoal] = useState<ActionGoal | null>(null);
+  const [uploadingPhotoSource, setUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+
   const load = useCallback(async () => {
     try {
       const data = await fetchSharedGoals();
@@ -1672,30 +1923,120 @@ export function SharedGoalsScreen() {
     void loadAuxiliary();
   }, [load, loadAuxiliary]);
 
-  async function handleReport(goal: SharedGoalSnapshot) {
+  const refreshLogsSnapshot = useCallback(async () => {
+    try {
+      const snap = await fetchGoalLogsSnapshot(getMonthKey());
+      setLogsSnapshot(snap);
+    } catch {
+      // Non-fatal: the dialog still works off the shared-goal snapshot.
+    }
+  }, []);
+
+  // Opens the same action dialog daily/monthly goals use, targeting the
+  // participant's linked personal goal for today.
+  function openGoalActions(goal: SharedGoalSnapshot) {
     const cur = goal.currentUserParticipant;
     if (!cur?.personalGoalId) {
       setSelectedGoal(null);
       setRelinkGoal(goal);
       return;
     }
+    setSelectedGoal(null);
+    setActionGoal(goal);
+    void refreshLogsSnapshot();
+  }
+
+  // The linked personal goal for the open action dialog, shaped as an
+  // ActionGoal so the shared modal can render it.
+  const actionPersonalGoalId =
+    actionGoal?.currentUserParticipant?.personalGoalId ?? null;
+  const actionPersonalGoal = actionPersonalGoalId
+    ? personalGoals.find((g) => g.id === actionPersonalGoalId)
+    : undefined;
+  const actionGoalForModal: ActionGoal | null =
+    actionGoal && actionPersonalGoalId
+      ? {
+          id: actionPersonalGoalId,
+          name:
+            actionPersonalGoal?.name ??
+            actionGoal.currentUserParticipant?.personalGoalName ??
+            actionGoal.name,
+          iconKey: actionPersonalGoal?.iconKey ?? "target",
+          categoryId: actionPersonalGoal?.categoryId ?? "",
+          priority: actionPersonalGoal?.priority ?? "high",
+          hidden: actionPersonalGoal?.hidden ?? false,
+          visibility: actionPersonalGoal?.visibility ?? "only_me",
+          period: actionPersonalGoal?.period ?? "daily",
+          frequencyGoal: actionPersonalGoal?.frequencyGoal ?? null,
+        }
+      : null;
+
+  const actionLogKey = actionPersonalGoalId
+    ? `${actionPersonalGoalId}_${todayKey()}`
+    : "";
+  const actionStatus: "complete" | "planned" | undefined = actionLogKey
+    ? (logsSnapshot?.logsByGoalDate[actionLogKey] ??
+      (actionGoal?.currentUserParticipant?.completedToday
+        ? "complete"
+        : undefined))
+    : undefined;
+  const actionHasNote = Boolean(
+    actionLogKey && logsSnapshot?.notesByGoalDate[actionLogKey]?.trim(),
+  );
+  const actionHasPhoto = Boolean(
+    actionLogKey &&
+      (logsSnapshot?.photoCountsByGoalDate[actionLogKey] ?? 0) > 0,
+  );
+  const actionVisibility: GoalVisibility =
+    (actionLogKey && logsSnapshot?.visibilityByGoalDate[actionLogKey]) ||
+    actionPersonalGoal?.visibility ||
+    "only_me";
+
+  async function handleActionSetStatus(status: GoalLogStatus) {
+    if (!actionPersonalGoalId) return;
+    setIsUpdatingStatus(true);
     try {
-      await setGoalLog(cur.personalGoalId, todayKey(), "complete");
-      await load();
-      if (selectedGoal?.id === goal.id) {
-        setSelectedGoal((prev) =>
-          prev
-            ? {
-                ...prev,
-                currentUserParticipant: prev.currentUserParticipant
-                  ? { ...prev.currentUserParticipant, completedToday: true }
-                  : null,
-              }
-            : null,
-        );
-      }
+      await setGoalLog(actionPersonalGoalId, todayKey(), status);
+      await Promise.all([load(), refreshLogsSnapshot()]);
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setIsUpdatingStatus(false);
+      setActionGoal(null);
+    }
+  }
+
+  async function handleActionAddPhoto(source: GoalPhotoSource) {
+    if (!actionPersonalGoalId || uploadingPhotoSource) return;
+    setUploadingPhotoSource(source);
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+      await uploadGoalPhoto(actionPersonalGoalId, todayKey(), photo);
+      await refreshLogsSnapshot();
+    } catch (e) {
+      Alert.alert(
+        "Could not add photo",
+        e instanceof Error ? e.message : "The photo could not be uploaded.",
+      );
+    } finally {
+      setUploadingPhotoSource(null);
+    }
+  }
+
+  async function handleActionSetVisibility(visibility: GoalVisibility) {
+    if (!actionPersonalGoalId || isUpdatingVisibility) return;
+    setIsUpdatingVisibility(true);
+    try {
+      await setGoalLogVisibility(actionPersonalGoalId, todayKey(), visibility);
+      await refreshLogsSnapshot();
+    } catch (e) {
+      Alert.alert(
+        "Could not change visibility",
+        e instanceof Error ? e.message : "The visibility could not be changed.",
+      );
+    } finally {
+      setIsUpdatingVisibility(false);
     }
   }
 
@@ -1748,12 +2089,12 @@ export function SharedGoalsScreen() {
     ]);
   }
 
-  async function handleMarkComplete(goal: SharedGoalSnapshot) {
+  async function handleArchive(goal: SharedGoalSnapshot) {
     try {
       setSelectedGoal(null);
       await updateSharedGoal(goal.id, {
         action: "setStatus",
-        status: "completed",
+        status: "archived",
       });
       await load();
     } catch (e) {
@@ -1761,12 +2102,12 @@ export function SharedGoalsScreen() {
     }
   }
 
-  async function handleArchive(goal: SharedGoalSnapshot) {
+  async function handleComplete(goal: SharedGoalSnapshot) {
     try {
       setSelectedGoal(null);
       await updateSharedGoal(goal.id, {
         action: "setStatus",
-        status: "archived",
+        status: "completed",
       });
       await load();
     } catch (e) {
@@ -1921,8 +2262,9 @@ export function SharedGoalsScreen() {
                   key={g.id}
                   goal={g}
                   onDetails={() => setSelectedGoal(g)}
-                  onReport={() => handleReport(g)}
+                  onReport={() => openGoalActions(g)}
                   onRelink={() => setRelinkGoal(g)}
+                  onMenu={() => setMenuGoal(g)}
                 />
               ))}
             </View>
@@ -1938,8 +2280,9 @@ export function SharedGoalsScreen() {
                   key={g.id}
                   goal={g}
                   onDetails={() => setSelectedGoal(g)}
-                  onReport={() => handleReport(g)}
+                  onReport={() => openGoalActions(g)}
                   onRelink={() => setRelinkGoal(g)}
+                  onMenu={() => setMenuGoal(g)}
                 />
               ))}
             </View>
@@ -1958,13 +2301,12 @@ export function SharedGoalsScreen() {
           <GoalDetailsSheet
             goal={selectedGoal}
             onClose={() => setSelectedGoal(null)}
-            onReportToday={() => handleReport(selectedGoal)}
+            onReportToday={() => openGoalActions(selectedGoal)}
             onRelink={() => {
               setSelectedGoal(null);
               setRelinkGoal(selectedGoal);
             }}
             onLeave={() => handleLeave(selectedGoal)}
-            onMarkComplete={() => handleMarkComplete(selectedGoal)}
             onArchive={() => handleArchive(selectedGoal)}
           />
         )}
@@ -2002,6 +2344,154 @@ export function SharedGoalsScreen() {
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
         />
+      </Modal>
+
+      {/* Report-today action dialog (shared with daily/monthly goals) */}
+      <GoalActionsModal
+        goal={actionGoalForModal}
+        visible={actionGoal !== null}
+        hasNote={actionHasNote}
+        hasPhoto={actionHasPhoto}
+        visibility={actionVisibility}
+        status={actionStatus}
+        isUpdating={isUpdatingStatus}
+        isUpdatingVisibility={isUpdatingVisibility}
+        uploadingPhotoSource={uploadingPhotoSource}
+        onAddPhoto={(source) => void handleActionAddPhoto(source)}
+        onOpenNote={() => {
+          setNoteEditGoal(actionGoalForModal);
+          setActionGoal(null);
+        }}
+        onSetVisibility={(visibility) =>
+          void handleActionSetVisibility(visibility)
+        }
+        onSetStatus={(status) => void handleActionSetStatus(status)}
+        onDismiss={() => setActionGoal(null)}
+        onShown={() => {}}
+      />
+
+      {noteEditGoal ? (
+        <GoalNoteEditorModal
+          dateKey={todayKey()}
+          goalName={noteEditGoal.name}
+          initialValue={
+            logsSnapshot?.notesByGoalDate[`${noteEditGoal.id}_${todayKey()}`] ??
+            null
+          }
+          onClose={() => setNoteEditGoal(null)}
+          onSave={async (notes) => {
+            await setGoalLogNote(noteEditGoal.id, todayKey(), notes);
+            await refreshLogsSnapshot();
+          }}
+        />
+      ) : null}
+
+      {/* Card options menu */}
+      <Modal
+        visible={menuGoal !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuGoal(null)}
+      >
+        <Pressable
+          style={styles.menuBackdrop}
+          onPress={() => setMenuGoal(null)}
+        >
+          <Pressable
+            style={[
+              styles.menuSheet,
+              {
+                backgroundColor: theme.background,
+                paddingBottom: insets.bottom + 12,
+              },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {menuGoal ? (
+              <>
+                <Text style={[styles.menuTitle, { color: theme.text }]}>
+                  {menuGoal.name}
+                </Text>
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    const g = menuGoal;
+                    setMenuGoal(null);
+                    setRelinkGoal(g);
+                  }}
+                >
+                  <SymbolView
+                    name={sym("link", "link")}
+                    size={20}
+                    tintColor={theme.text}
+                  />
+                  <Text style={[styles.menuItemText, { color: theme.text }]}>
+                    Relink goal
+                  </Text>
+                </Pressable>
+                {menuGoal.canManage && menuGoal.status === "active" && (
+                  <>
+                    <Pressable
+                      style={styles.menuItem}
+                      onPress={() => {
+                        const g = menuGoal;
+                        setMenuGoal(null);
+                        void handleComplete(g);
+                      }}
+                    >
+                      <SymbolView
+                        name={sym("checkmark.circle", "check_circle")}
+                        size={20}
+                        tintColor={theme.text}
+                      />
+                      <Text
+                        style={[styles.menuItemText, { color: theme.text }]}
+                      >
+                        Mark completed
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.menuItem}
+                      onPress={() => {
+                        const g = menuGoal;
+                        setMenuGoal(null);
+                        void handleArchive(g);
+                      }}
+                    >
+                      <SymbolView
+                        name={sym("archivebox", "archive")}
+                        size={20}
+                        tintColor={theme.text}
+                      />
+                      <Text
+                        style={[styles.menuItemText, { color: theme.text }]}
+                      >
+                        Archive
+                      </Text>
+                    </Pressable>
+                  </>
+                )}
+                <Pressable
+                  style={styles.menuItem}
+                  onPress={() => {
+                    const g = menuGoal;
+                    setMenuGoal(null);
+                    void handleLeave(g);
+                  }}
+                >
+                  <SymbolView
+                    name={sym("rectangle.portrait.and.arrow.right", "logout")}
+                    size={20}
+                    tintColor="#EF4444"
+                  />
+                  <Text style={[styles.menuItemText, { color: "#EF4444" }]}>
+                    Leave
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -2101,11 +2591,57 @@ const styles = StyleSheet.create({
   inviteCard: {
     borderWidth: 1,
   },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 12,
+  },
+  cardMenuButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    marginTop: -4,
+    marginRight: -4,
+  },
   badgeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
+    alignItems: "center",
     gap: 14,
-    marginBottom: 12,
+    flexShrink: 1,
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  menuSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 14,
+    paddingHorizontal: 12,
+  },
+  menuTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    opacity: 0.6,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 15,
+    paddingHorizontal: 12,
+  },
+  menuItemText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
   badge: {
     flexDirection: "row",
@@ -2488,9 +3024,51 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
+  scoringLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   scoringRow: {
     gap: 8,
     paddingBottom: 4,
+  },
+  infoBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  infoCard: {
+    borderRadius: 16,
+    padding: 20,
+  },
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 14,
+  },
+  infoBlock: {
+    marginBottom: 14,
+  },
+  infoLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  infoBody: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  infoButton: {
+    marginTop: 4,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  infoButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
   },
   scoringChip: {
     paddingHorizontal: 14,

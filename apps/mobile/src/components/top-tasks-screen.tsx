@@ -106,7 +106,7 @@ function sym(ios: string, android: string): SymbolName {
 const IMPORTANCE_COLOR: Record<string, string> = {
   High: "#9D7474",
   Medium: "#B87D4D",
-  Low: "#6B8E6B",
+  Low: "#A0A0A0",
 };
 
 const URGENCY_COLOR: Record<string, string> = {

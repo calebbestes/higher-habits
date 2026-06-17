@@ -42,7 +42,6 @@ export type FriendRow = {
     percent: number;
   } | null;
   goalOptions: Array<{ id: string; name: string }>;
-  messages: FriendMessageRow[];
   incentives: FriendIncentiveRow[];
 };
 
@@ -106,6 +105,22 @@ export const addFriend = (email: string): Promise<FriendRow> =>
     method: "POST",
     body: JSON.stringify({ email }),
   }).then((r) => parseResponse<FriendRow>(r));
+
+export type ContactMatch = {
+  userId: string;
+  name: string;
+  email: string;
+  image: string | null;
+};
+
+export const matchContacts = (
+  emails: string[],
+  phones: string[],
+): Promise<ContactMatch[]> =>
+  mobileApiFetch("/api/friends/match", {
+    method: "POST",
+    body: JSON.stringify({ emails, phones }),
+  }).then((r) => parseResponse<ContactMatch[]>(r));
 
 export const acceptFriendRequest = (friendshipId: string) =>
   mobileApiFetch("/api/friends", {

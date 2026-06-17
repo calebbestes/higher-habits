@@ -48,6 +48,12 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Higher Habits to find friends who are already on the app."
+        }
+      ],
       "expo-font",
       "expo-image",
       "@sentry/react-native/expo"

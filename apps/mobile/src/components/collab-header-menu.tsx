@@ -5,40 +5,23 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 
-export type CollabSection =
-  | "feed"
-  | "messages"
-  | "incentives"
-  | "shared-goals"
-  | "friends";
+export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
 
 const MENU_ITEMS: {
   id: CollabSection;
   title: string;
   href:
     | "/?section=feed"
-    | "/?section=messages"
     | "/?section=incentives"
     | "/?section=shared-goals"
     | "/?section=friends";
-  image:
-    | "rectangle.stack"
-    | "message"
-    | "gift"
-    | "person.3.fill"
-    | "person.2.fill";
+  image: "rectangle.stack" | "gift" | "person.3.fill" | "person.2.fill";
 }[] = [
   {
     id: "feed",
     title: "Feed",
     href: "/?section=feed",
     image: "rectangle.stack",
-  },
-  {
-    id: "messages",
-    title: "Messages",
-    href: "/?section=messages",
-    image: "message",
   },
   {
     id: "incentives",
@@ -124,7 +107,6 @@ function isCollabSection(
 ): section is CollabSection {
   return (
     section === "feed" ||
-    section === "messages" ||
     section === "incentives" ||
     section === "shared-goals" ||
     section === "friends"
@@ -134,7 +116,6 @@ function isCollabSection(
 function getTriggerWidth(section: CollabSection): number {
   if (section === "shared-goals") return 190;
   if (section === "incentives") return 150;
-  if (section === "messages") return 145;
   if (section === "friends") return 115;
   return 85;
 }
