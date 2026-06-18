@@ -106,7 +106,7 @@ function sym(ios: string, android: string): SymbolName {
 const IMPORTANCE_COLOR: Record<string, string> = {
   High: "#9D7474",
   Medium: "#B87D4D",
-  Low: "#6B8E6B",
+  Low: "#A0A0A0",
 };
 
 const URGENCY_COLOR: Record<string, string> = {
@@ -193,6 +193,7 @@ export function TopTasksScreen() {
           dueDate: task.dueDate,
           completedAt: newCompletedAt,
           timeRequired: task.timeRequired,
+          projectId: task.projectId,
         });
         setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
       } catch (err) {
@@ -694,6 +695,7 @@ const EMPTY_TASK: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  projectId: null,
 };
 
 function toInput(task: Task): TaskInput {
@@ -703,6 +705,7 @@ function toInput(task: Task): TaskInput {
     dueDate: task.dueDate,
     completedAt: task.completedAt,
     timeRequired: task.timeRequired,
+    projectId: task.projectId,
   };
 }
 

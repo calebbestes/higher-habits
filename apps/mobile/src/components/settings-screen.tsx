@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { NotificationSettingsModal } from "@/components/notification-settings-screen";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
@@ -37,6 +38,7 @@ export function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [appearance, setAppearance] = useState<ThemePreference>("system");
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     void getThemePreference().then(setAppearance);
@@ -216,7 +218,8 @@ export function SettingsScreen() {
             <SettingsRow
               icon={sym("bell.fill", "notifications")}
               title="Notifications"
-              value="System settings"
+              value="Manage"
+              onPress={() => setShowNotifications(true)}
             />
           </SettingsGroup>
 
@@ -244,6 +247,11 @@ export function SettingsScreen() {
           </SettingsGroup>
         </ScrollView>
       </SafeAreaView>
+
+      <NotificationSettingsModal
+        visible={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
     </View>
   );
 }

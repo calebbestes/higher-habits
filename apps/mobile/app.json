@@ -48,8 +48,20 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Higher Habits to find friends who are already on the app."
+        }
+      ],
       "expo-font",
       "expo-image",
+      [
+        "expo-notifications",
+        {
+          "color": "#208AEF"
+        }
+      ],
       "@sentry/react-native/expo"
     ],
     "experiments": {

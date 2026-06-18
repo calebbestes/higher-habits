@@ -123,15 +123,6 @@ const TABS: TabItem[] = [
           },
         },
         {
-          label: "Messages",
-          href: "/?section=messages",
-          icon: {
-            ios: "message",
-            android: "message",
-            web: "message",
-          },
-        },
-        {
           label: "Incentives",
           href: "/?section=incentives",
           icon: {

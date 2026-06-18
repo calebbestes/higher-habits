@@ -20,6 +20,12 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type Project,
+  createProject,
+  deleteProject,
+  fetchProjects,
+} from "@/lib/projects-client";
+import {
   TASK_IMPORTANCES,
   TASK_TIME_OPTIONS,
   TASK_URGENCIES,
@@ -45,6 +51,7 @@ const EMPTY_TASK: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  projectId: null,
 };
 
 const URGENCY_LABELS: Record<TaskUrgency, string> = {
@@ -70,6 +77,7 @@ function toInput(task: Task): TaskInput {
     dueDate: task.dueDate,
     completedAt: task.completedAt,
     timeRequired: task.timeRequired,
+    projectId: task.projectId,
   };
 }
 
@@ -101,6 +109,7 @@ export function TasksScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -111,23 +120,35 @@ export function TasksScreen() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [actionTask, setActionTask] = useState<Task | null>(null);
 
-  const load = useCallback(async (refresh = false) => {
-    refresh ? setIsRefreshing(true) : setIsLoading(true);
-    setError(null);
-
+  const reloadProjects = useCallback(async () => {
     try {
-      setTasks(await fetchTasks());
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load tasks.",
-      );
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setProjects(await fetchProjects());
+    } catch {
+      // Progress bars are non-critical; ignore load failures here.
     }
   }, []);
+
+  const load = useCallback(
+    async (refresh = false) => {
+      refresh ? setIsRefreshing(true) : setIsLoading(true);
+      setError(null);
+
+      try {
+        const [nextTasks] = await Promise.all([fetchTasks(), reloadProjects()]);
+        setTasks(nextTasks);
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load tasks.",
+        );
+      } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [reloadProjects],
+  );
 
   useEffect(() => {
     void load();
@@ -199,6 +220,50 @@ export function TasksScreen() {
     );
     setFormOpen(false);
     setEditingTask(null);
+    void reloadProjects();
+  };
+
+  const handleCreateProject = async (name: string): Promise<Project> => {
+    const created = await createProject(name);
+    setProjects((current) =>
+      [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    return created;
+  };
+
+  const handleDeleteProject = (project: Project) => {
+    Alert.alert(
+      "Delete project?",
+      `"${project.name}" will be removed. Its tasks are kept but unlinked.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteProject(project.id);
+              setProjects((current) =>
+                current.filter((item) => item.id !== project.id),
+              );
+              setTasks((current) =>
+                current.map((task) =>
+                  task.projectId === project.id
+                    ? { ...task, projectId: null }
+                    : task,
+                ),
+              );
+            } catch (deleteError) {
+              setError(
+                deleteError instanceof Error
+                  ? deleteError.message
+                  : "Could not delete project.",
+              );
+            }
+          },
+        },
+      ],
+    );
   };
 
   const toggleComplete = async (task: Task) => {
@@ -215,6 +280,7 @@ export function TasksScreen() {
       setTasks((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
+      void reloadProjects();
     } catch (updateError) {
       setError(
         updateError instanceof Error
@@ -239,6 +305,7 @@ export function TasksScreen() {
             setTasks((current) =>
               current.filter((item) => item.id !== task.id),
             );
+            void reloadProjects();
           } catch (deleteError) {
             setError(
               deleteError instanceof Error
@@ -320,6 +387,21 @@ export function TasksScreen() {
             <Stat label="Due today" value={todayCount} accent="#9D7474" />
             <Stat label="Done today" value={completedCount} accent="#527B65" />
           </View>
+
+          {projects.length > 0 ? (
+            <View style={styles.projectsCard}>
+              <Text style={[styles.projectsTitle, { color: theme.text }]}>
+                Project progress
+              </Text>
+              {projects.map((project) => (
+                <ProjectProgressRow
+                  key={project.id}
+                  project={project}
+                  onLongPress={() => handleDeleteProject(project)}
+                />
+              ))}
+            </View>
+          ) : null}
 
           <View
             style={[
@@ -447,6 +529,8 @@ export function TasksScreen() {
       <TaskFormModal
         isOpen={formOpen}
         task={editingTask}
+        projects={projects}
+        onCreateProject={handleCreateProject}
         onClose={() => {
           setFormOpen(false);
           setEditingTask(null);
@@ -491,6 +575,53 @@ function Stat({
         {label}
       </Text>
     </View>
+  );
+}
+
+function ProjectProgressRow({
+  project,
+  onLongPress,
+}: {
+  project: Project;
+  onLongPress: () => void;
+}) {
+  const theme = useTheme();
+  const percent =
+    project.totalTasks > 0
+      ? Math.round((project.completedTasks / project.totalTasks) * 100)
+      : 0;
+  const barColor = project.color?.trim() || theme.primary;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${project.name}, ${percent}% complete. Long press to delete.`}
+      delayLongPress={400}
+      onLongPress={onLongPress}
+      style={styles.projectRow}
+    >
+      <View style={styles.projectRowHeader}>
+        <Text
+          style={[styles.projectName, { color: theme.text }]}
+          numberOfLines={1}
+        >
+          {project.name}
+        </Text>
+        <Text style={[styles.projectCount, { color: theme.textSecondary }]}>
+          {project.completedTasks}/{project.totalTasks} · {percent}%
+        </Text>
+      </View>
+      <View style={[styles.projectTrack, { backgroundColor: theme.tabBorder }]}>
+        {project.totalTasks > 0 ? (
+          <View
+            style={[
+              styles.projectFill,
+              { width: `${percent}%`, backgroundColor: barColor },
+            ]}
+          />
+        ) : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -808,22 +939,49 @@ function TaskFormModal({
   onClose,
   onSave,
   task,
+  projects,
+  onCreateProject,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSave: (input: TaskInput) => Promise<void>;
   task: Task | null;
+  projects: Project[];
+  onCreateProject: (name: string) => Promise<Project>;
 }) {
   const theme = useTheme();
   const [form, setForm] = useState<TaskInput>(EMPTY_TASK);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setForm(task ? toInput(task) : EMPTY_TASK);
     setError(null);
+    setNewProjectName("");
   }, [isOpen, task]);
+
+  const addProject = async () => {
+    const name = newProjectName.trim();
+    if (!name || isCreatingProject) return;
+    setIsCreatingProject(true);
+    setError(null);
+    try {
+      const created = await onCreateProject(name);
+      setForm((current) => ({ ...current, projectId: created.id }));
+      setNewProjectName("");
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Could not create project.",
+      );
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
 
   const dueDateValid =
     !form.dueDate || /^\d{4}-\d{2}-\d{2}$/.test(form.dueDate);
@@ -986,6 +1144,83 @@ function TaskFormModal({
                     }
                   />
                 ))}
+              </View>
+            </FormSection>
+
+            <FormSection title="Project">
+              <View style={styles.choiceWrap}>
+                <Choice
+                  label="None"
+                  selected={!form.projectId}
+                  onPress={() =>
+                    setForm((current) => ({ ...current, projectId: null }))
+                  }
+                />
+                {projects.map((project) => (
+                  <Choice
+                    key={project.id}
+                    label={project.name}
+                    selected={form.projectId === project.id}
+                    onPress={() =>
+                      setForm((current) => ({
+                        ...current,
+                        projectId: project.id,
+                      }))
+                    }
+                  />
+                ))}
+              </View>
+              <View style={styles.newProjectRow}>
+                <TextInput
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={setNewProjectName}
+                  onSubmitEditing={() => void addProject()}
+                  placeholder="New project name"
+                  placeholderTextColor={theme.textSecondary}
+                  returnKeyType="done"
+                  selectionColor={theme.primary}
+                  style={[
+                    styles.newProjectInput,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      color: theme.text,
+                    },
+                  ]}
+                  value={newProjectName}
+                />
+                <Pressable
+                  accessibilityLabel="Add project"
+                  disabled={!newProjectName.trim() || isCreatingProject}
+                  onPress={() => void addProject()}
+                  style={[
+                    styles.newProjectButton,
+                    {
+                      backgroundColor: newProjectName.trim()
+                        ? theme.primary
+                        : theme.backgroundElement,
+                    },
+                  ]}
+                >
+                  {isCreatingProject ? (
+                    <ActivityIndicator
+                      color={theme.primaryForeground}
+                      size="small"
+                    />
+                  ) : (
+                    <SymbolView
+                      name={symbol("plus", "add")}
+                      size={18}
+                      weight="semibold"
+                      tintColor={
+                        newProjectName.trim()
+                          ? theme.primaryForeground
+                          : theme.textSecondary
+                      }
+                    />
+                  )}
+                </Pressable>
               </View>
             </FormSection>
 
@@ -1169,6 +1404,48 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 19, lineHeight: 23, fontWeight: "800" },
   statLabel: { fontSize: 10, lineHeight: 14, fontWeight: "700" },
+  projectsCard: { gap: 12 },
+  projectsTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  projectRow: { gap: 6 },
+  projectRowHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  projectName: { flex: 1, fontSize: 14, fontWeight: "700" },
+  projectCount: {
+    fontSize: 12,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  projectTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  projectFill: { height: "100%", borderRadius: 999 },
+  newProjectRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  newProjectInput: {
+    flex: 1,
+    height: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    fontSize: 15,
+  },
+  newProjectButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   search: {
     minHeight: 48,
     flexDirection: "row",

@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
 
 const createFriendSchema = z.object({
@@ -502,6 +503,12 @@ export async function POST(request: Request) {
       })
       .returning();
 
+    void sendPushToUser(friendUser.id, "notifyFriendRequests", {
+      title: "New friend request",
+      body: `${user.name} sent you a friend request.`,
+      data: { type: "friend_request" },
+    });
+
     return NextResponse.json({
       ...row,
       friendId: friendUser.id,
@@ -551,7 +558,7 @@ export async function PATCH(request: Request) {
     }
 
     const [friendship] = await db
-      .select({ id: friends.id })
+      .select({ id: friends.id, requesterId: friends.userId1 })
       .from(friends)
       .where(
         and(
@@ -573,6 +580,12 @@ export async function PATCH(request: Request) {
       .update(friends)
       .set({ status: "accepted" })
       .where(eq(friends.id, friendship.id));
+
+    void sendPushToUser(friendship.requesterId, "notifyFriendRequestAccepted", {
+      title: "Friend request accepted",
+      body: `${user.name} accepted your friend request.`,
+      data: { type: "friend_request_accepted" },
+    });
 
     return NextResponse.json({ id: friendship.id, status: "accepted" });
   } catch (error) {

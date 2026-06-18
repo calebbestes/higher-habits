@@ -171,7 +171,7 @@ const normalizeEntry = (entry: PortableCalendarEntry): NormalizedCalendarEntry =
     ...entry,
     start,
     end,
-    color: entry.color ?? "#3b82f6",
+    color: entry.color ?? "#A0A0A0",
   };
 };
 

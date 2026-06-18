@@ -11,6 +11,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  CelebrationOverlay,
+  confettiSource,
+  fireSource,
+} from "@/components/celebration-overlay";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
@@ -22,6 +27,7 @@ import {
   setCrashContext,
 } from "@/lib/crash-reporting";
 import {
+  type CategoryWithGoals,
   type GoalInCategory,
   type GoalLogStatus,
   type GoalLogsSnapshot,
@@ -61,6 +67,14 @@ import {
   sym,
 } from "./daily-goals/shared";
 
+// Synthetic category used to group shared/incentive goals under high priority.
+const SHARED_GOALS_CATEGORY: CategoryWithGoals = {
+  id: "__shared_goals__",
+  name: "Shared Goals",
+  icon: "",
+  goals: [],
+};
+
 export function DailyGoalsScreen({
   initialDateKey,
 }: {
@@ -99,6 +113,11 @@ export function DailyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [celebrate, setCelebrate] = useState(false);
+  const [fireCelebrate, setFireCelebrate] = useState(false);
+  const allHighDoneRef = useRef(false);
+  const highGoalIdsRef = useRef<Set<string>>(new Set());
+  const highProgressRef = useRef({ completed: 0, total: 0 });
   const updatingKeysRef = useRef(updatingKeys);
   updatingKeysRef.current = updatingKeys;
   const isLoadingRef = useRef(false);
@@ -188,6 +207,21 @@ export function DailyGoalsScreen({
       });
       if (updatingKeysRef.current.has(key)) return;
       const current = logsByGoalDate[key];
+
+      // Completing the last remaining high-priority goal triggers the fire
+      // celebration instead, so suppress confetti for that final completion.
+      const high = highProgressRef.current;
+      const willFinishAllHigh =
+        highGoalIdsRef.current.has(goalId) &&
+        high.total > 0 &&
+        high.completed + 1 >= high.total;
+      if (
+        status === "complete" &&
+        current !== "complete" &&
+        !willFinishAllHigh
+      ) {
+        setCelebrate(true);
+      }
 
       setUpdatingKeys((prev) => new Set(prev).add(key));
       setLogsByGoalDate((prev) => {
@@ -325,6 +359,22 @@ export function DailyGoalsScreen({
     [snapshot],
   );
 
+  // Goals tied to a shared goal or an accepted incentive are surfaced together
+  // under high priority, regardless of their own category/priority.
+  const incentiveGoalIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const inc of snapshot?.acceptedGoalIncentives ?? []) {
+      ids.add(inc.goalId);
+    }
+    return ids;
+  }, [snapshot]);
+
+  const isSharedOrIncentive = useCallback(
+    (goal: GoalInCategory) =>
+      (goal.sharedGoals?.length ?? 0) > 0 || incentiveGoalIds.has(goal.id),
+    [incentiveGoalIds],
+  );
+
   const priorityProgress = useMemo(() => {
     const progress = {
       high: { completed: 0, total: 0 },
@@ -333,15 +383,42 @@ export function DailyGoalsScreen({
 
     for (const cat of categoriesWithGoals) {
       for (const goal of cat.goals) {
-        progress[goal.priority].total++;
+        const pr = isSharedOrIncentive(goal) ? "high" : goal.priority;
+        progress[pr].total++;
         if (logsByGoalDate[`${goal.id}_${dateKey}`] === "complete") {
-          progress[goal.priority].completed++;
+          progress[pr].completed++;
         }
       }
     }
 
     return progress;
-  }, [categoriesWithGoals, dateKey, logsByGoalDate]);
+  }, [categoriesWithGoals, dateKey, logsByGoalDate, isSharedOrIncentive]);
+
+  const highGoalIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const cat of categoriesWithGoals) {
+      for (const goal of cat.goals) {
+        if (isSharedOrIncentive(goal) || goal.priority === "high") {
+          ids.add(goal.id);
+        }
+      }
+    }
+    return ids;
+  }, [categoriesWithGoals, isSharedOrIncentive]);
+  highGoalIdsRef.current = highGoalIds;
+  highProgressRef.current = priorityProgress.high;
+
+  // Fire celebration when the last remaining high-priority goal is completed.
+  // Tracks the previous "all done" state so it only triggers on the transition,
+  // not on every render while everything stays complete.
+  useEffect(() => {
+    const { completed, total } = priorityProgress.high;
+    const allHighDone = total > 0 && completed === total;
+    if (allHighDone && !allHighDoneRef.current) {
+      setFireCelebrate(true);
+    }
+    allHighDoneRef.current = allHighDone;
+  }, [priorityProgress]);
 
   const monthlyPlannedGoals = useMemo(
     () =>
@@ -368,7 +445,9 @@ export function DailyGoalsScreen({
     [monthlyPlannedGoals],
   );
 
-  // Goals grouped by priority, excluding completed goals
+  // Goals grouped by priority, excluding completed goals. Shared/incentive
+  // goals are pulled out of their own category into a single "Shared Goals"
+  // group shown at the top of high priority.
   const priorityGroups = useMemo(() => {
     const make = (p: "high" | "low") =>
       categoriesWithGoals
@@ -376,13 +455,30 @@ export function DailyGoalsScreen({
           category: cat,
           goals: cat.goals.filter(
             (g) =>
+              !isSharedOrIncentive(g) &&
               g.priority === p &&
               logsByGoalDate[`${g.id}_${dateKey}`] !== "complete",
           ),
         }))
         .filter((g) => g.goals.length > 0);
-    return { high: make("high"), low: make("low") };
-  }, [categoriesWithGoals, logsByGoalDate, dateKey]);
+
+    const sharedGoals = categoriesWithGoals
+      .flatMap((cat) => cat.goals)
+      .filter(
+        (g) =>
+          isSharedOrIncentive(g) &&
+          logsByGoalDate[`${g.id}_${dateKey}`] !== "complete",
+      );
+
+    const high = sharedGoals.length
+      ? [
+          { category: SHARED_GOALS_CATEGORY, goals: sharedGoals },
+          ...make("high"),
+        ]
+      : make("high");
+
+    return { high, low: make("low") };
+  }, [categoriesWithGoals, logsByGoalDate, dateKey, isSharedOrIncentive]);
 
   // All completed goals for this date
   const completedList = useMemo(
@@ -888,6 +984,17 @@ export function DailyGoalsScreen({
           }}
         />
       ) : null}
+      <CelebrationOverlay
+        visible={celebrate}
+        source={confettiSource}
+        onDone={() => setCelebrate(false)}
+      />
+      <CelebrationOverlay
+        visible={fireCelebrate}
+        source={fireSource}
+        withHaptics={false}
+        onDone={() => setFireCelebrate(false)}
+      />
     </View>
   );
 }

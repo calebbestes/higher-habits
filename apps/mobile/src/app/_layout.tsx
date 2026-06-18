@@ -20,6 +20,7 @@ import {
   applyThemePreference,
   getThemePreference,
 } from "@/lib/theme-preference";
+import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
 import { recordAppOpened } from "@/lib/user-activity-client";
 
 function RootLayout() {
@@ -56,6 +57,7 @@ function AuthNavigator() {
     };
 
     record();
+    void registerForPushNotificationsAsync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") record();
     });

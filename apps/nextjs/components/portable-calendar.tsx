@@ -3016,7 +3016,7 @@ const DayView = ({
                     <button
                       type="button"
                       onClick={() => setShowCompleted((c) => !c)}
-                      className="flex w-full items-center gap-2 rounded-xl py-2 text-xs font-semibold uppercase tracking-widest text-foreground-400 transition-colors hover:text-foreground-600"
+                      className="flex w-full items-center gap-2 rounded-xl py-1.5 text-left text-[11px] font-semibold uppercase tracking-widest text-foreground-500 transition-colors hover:text-foreground sm:text-xs"
                     >
                       <Icon
                         icon={
@@ -3026,7 +3026,7 @@ const DayView = ({
                         }
                         className="h-3 w-3"
                       />
-                      Show completed ({totalCompleted})
+                      Completed ({totalCompleted})
                     </button>
                     {showCompleted && (
                       <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:mt-3 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">

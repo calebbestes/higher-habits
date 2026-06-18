@@ -7,7 +7,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -20,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { isRenderableIconKey } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -1115,7 +1115,7 @@ export function GoalFormModal({
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>
                     Repeat every
                   </Text>
-                  <VerticalNumberSlider
+                  <VerticalNumberStepper
                     value={form.repeatInterval ?? 1}
                     onChange={(repeatInterval) =>
                       setForm((current) => ({ ...current, repeatInterval }))
@@ -1388,7 +1388,7 @@ function Choice({
   );
 }
 
-function VerticalNumberSlider({
+function VerticalNumberStepper({
   value,
   onChange,
 }: {
@@ -1396,34 +1396,14 @@ function VerticalNumberSlider({
   onChange: (value: number) => void;
 }) {
   const theme = useTheme();
-  const valueRef = useRef(value);
-  const onChangeRef = useRef(onChange);
-  const dragStartValueRef = useRef(value);
-  valueRef.current = value;
-  onChangeRef.current = onChange;
 
-  const setValue = useCallback((nextValue: number) => {
-    const clampedValue = Math.min(99, Math.max(1, Math.round(nextValue)));
-    if (clampedValue === valueRef.current) return;
-    valueRef.current = clampedValue;
-    onChangeRef.current(clampedValue);
-  }, []);
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dy) > 4 &&
-          Math.abs(gesture.dy) > Math.abs(gesture.dx),
-        onPanResponderGrant: () => {
-          dragStartValueRef.current = valueRef.current;
-        },
-        onPanResponderMove: (_, gesture) => {
-          setValue(dragStartValueRef.current - gesture.dy / 14);
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [setValue],
+  const setValue = useCallback(
+    (nextValue: number) => {
+      const clampedValue = Math.min(99, Math.max(1, Math.round(nextValue)));
+      if (clampedValue === value) return;
+      onChange(clampedValue);
+    },
+    [value, onChange],
   );
 
   return (
@@ -1436,25 +1416,54 @@ function VerticalNumberSlider({
       accessibilityRole="adjustable"
       accessibilityValue={{ min: 1, max: 99, now: value }}
       onAccessibilityAction={({ nativeEvent }) => {
-        if (nativeEvent.actionName === "increment") {
-          setValue(valueRef.current + 1);
-        }
-        if (nativeEvent.actionName === "decrement") {
-          setValue(valueRef.current - 1);
-        }
+        if (nativeEvent.actionName === "increment") setValue(value + 1);
+        if (nativeEvent.actionName === "decrement") setValue(value - 1);
       }}
       style={[
-        styles.verticalNumberSlider,
+        styles.verticalNumberStepper,
         {
           backgroundColor: theme.backgroundElement,
           borderColor: theme.tabBorder,
         },
       ]}
-      {...panResponder.panHandlers}
     >
-      <Text style={[styles.verticalNumberSliderValue, { color: theme.text }]}>
+      <Pressable
+        accessibilityLabel="Increase repeat interval"
+        accessibilityRole="button"
+        disabled={value >= 99}
+        hitSlop={6}
+        onPress={() => setValue(value + 1)}
+        style={styles.stepperButton}
+      >
+        <Text
+          style={[
+            styles.stepperButtonLabel,
+            { color: value >= 99 ? theme.textSecondary : theme.text },
+          ]}
+        >
+          +
+        </Text>
+      </Pressable>
+      <Text style={[styles.verticalNumberStepperValue, { color: theme.text }]}>
         {value}
       </Text>
+      <Pressable
+        accessibilityLabel="Decrease repeat interval"
+        accessibilityRole="button"
+        disabled={value <= 1}
+        hitSlop={6}
+        onPress={() => setValue(value - 1)}
+        style={styles.stepperButton}
+      >
+        <Text
+          style={[
+            styles.stepperButtonLabel,
+            { color: value <= 1 ? theme.textSecondary : theme.text },
+          ]}
+        >
+          −
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -1487,11 +1496,14 @@ function IconSearchPicker({
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
+        // Restrict to icon sets GoalIcon can actually render (see goal-icon.tsx).
+        // Without this, searches surface icons from sets like boxicons/tdesign
+        // that fall back to the generic target icon once saved.
         const res = await fetch(
-          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24`,
+          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24&prefixes=mdi,fa6-solid`,
         );
         const data = (await res.json()) as { icons?: string[] };
-        setResults(data.icons ?? []);
+        setResults((data.icons ?? []).filter(isRenderableIconKey));
       } catch {
         setResults([]);
       } finally {
@@ -1537,13 +1549,7 @@ function IconSearchPicker({
           />
         ) : null}
       </View>
-      {value && !results.length ? (
-        <Text
-          style={[styles.iconSearchSelected, { color: theme.textSecondary }]}
-        >
-          {value}
-        </Text>
-      ) : null}
+
       {results.length > 0 ? (
         <View
           style={[
@@ -1923,15 +1929,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  verticalNumberSlider: {
+  verticalNumberStepper: {
     width: 54,
-    minHeight: 66,
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 4,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
   },
-  verticalNumberSliderValue: {
+  stepperButton: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+  },
+  stepperButtonLabel: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: "600",
+  },
+  verticalNumberStepperValue: {
     fontSize: 24,
     lineHeight: 30,
     fontWeight: "600",

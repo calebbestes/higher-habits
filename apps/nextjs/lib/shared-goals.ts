@@ -16,15 +16,15 @@ export type SharedGoalSnapshot = {
   scoringType:
     | "everyone_completes"
     | "combined_target"
-    | "shared_streak"
     | "first_to_target"
     | "highest_total"
-    | "best_consistency"
     | "longest_streak";
   target: number | null;
   startsOn: string | null;
   endsOn: string | null;
   status: "active" | "completed" | "archived";
+  stakeType: "none" | "carrot" | "stick";
+  stakeDescription: string | null;
   createdAt: string;
   updatedAt: string;
   canManage: boolean;
@@ -249,12 +249,6 @@ export async function getSharedGoalSnapshots(
         0,
         ...acceptedSnapshots.map((participant) => participant.completedCount),
       );
-      const maxConsistency = Math.max(
-        0,
-        ...acceptedSnapshots.map(
-          (participant) => participant.consistencyPercent,
-        ),
-      );
       const maxStreak = Math.max(
         0,
         ...acceptedSnapshots.map((participant) => participant.currentStreak),
@@ -279,11 +273,6 @@ export async function getSharedGoalSnapshots(
         }
       }
 
-      const sharedStreak = calculateStreak(
-        sharedCompletedDates,
-        startDateKey,
-        endDateKey,
-      );
       let progressValue = totalCompletions;
       let progressTarget: number | null = sharedGoal.target;
       let leaderMetric:
@@ -292,20 +281,17 @@ export async function getSharedGoalSnapshots(
         | "currentStreak" = "completedCount";
 
       if (sharedGoal.scoringType === "everyone_completes") {
-        progressValue = completedToday;
-        progressTarget = acceptedSnapshots.length;
-      } else if (sharedGoal.scoringType === "shared_streak") {
-        progressValue = sharedStreak;
-        progressTarget = sharedGoal.target ?? 7;
+        // Count every day on which all accepted participants completed,
+        // accumulating across the goal's window (capped by the end date).
+        progressValue = sharedCompletedDates.size;
+        progressTarget = sharedGoal.endsOn
+          ? daysInclusive(startDateKey, sharedGoal.endsOn)
+          : null;
       } else if (sharedGoal.scoringType === "first_to_target") {
         progressValue = maxCompletions;
         progressTarget = sharedGoal.target ?? 7;
       } else if (sharedGoal.scoringType === "highest_total") {
         progressValue = maxCompletions;
-      } else if (sharedGoal.scoringType === "best_consistency") {
-        progressValue = maxConsistency;
-        progressTarget = 100;
-        leaderMetric = "consistencyPercent";
       } else if (sharedGoal.scoringType === "longest_streak") {
         progressValue = maxStreak;
         progressTarget = sharedGoal.target ?? 7;
@@ -365,6 +351,8 @@ export async function getSharedGoalSnapshots(
         startsOn: sharedGoal.startsOn,
         endsOn: sharedGoal.endsOn,
         status: sharedGoal.status,
+        stakeType: sharedGoal.stakeType,
+        stakeDescription: sharedGoal.stakeDescription,
         createdAt: sharedGoal.createdAt.toISOString(),
         updatedAt: sharedGoal.updatedAt.toISOString(),
         canManage: sharedGoal.ownerId === userId,

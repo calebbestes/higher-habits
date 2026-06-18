@@ -17,6 +17,10 @@ import ReanimatedSwipeable, {
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  CelebrationOverlay,
+  confettiSource,
+} from "@/components/celebration-overlay";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
@@ -286,6 +290,7 @@ export function MonthlyGoalsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [celebrate, setCelebrate] = useState(false);
   const [sort, setSort] = useState<SortKey>("priority");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -392,6 +397,10 @@ export function MonthlyGoalsScreen() {
       const key = `${goalId}_${selectedDateKey}`;
       if (updatingKeysRef.current.has(key)) return;
       const current = logsByGoalDateRef.current[key];
+
+      if (status === "complete" && current !== "complete") {
+        setCelebrate(true);
+      }
 
       setUpdatingKeys((prev) => new Set(prev).add(key));
       setLogsByGoalDate((prev) => {
@@ -876,6 +885,11 @@ export function MonthlyGoalsScreen() {
         }}
         onSortChange={setSort}
       />
+      <CelebrationOverlay
+        visible={celebrate}
+        source={confettiSource}
+        onDone={() => setCelebrate(false)}
+      />
     </View>
   );
 }
@@ -1258,7 +1272,7 @@ const DayCell = memo(function DayCell({
         <View style={styles.tilesRow}>
           {visibleGoals.map((goal) => {
             const status = logsByGoalDate[`${goal.id}_${dateKey}`];
-            const bg = status === "complete" ? theme.primary : "#3B82F6";
+            const bg = status === "complete" ? theme.primary : "#A0A0A0";
             return (
               <View
                 key={goal.id}
@@ -1490,6 +1504,7 @@ function SwipeableGoalRow({
         monthKey={monthKey}
         status={status}
         isUpdating={isUpdating}
+        onEdit={onEdit}
         onPress={onPress}
       />
     </ReanimatedSwipeable>
@@ -1566,6 +1581,7 @@ function GoalListRow({
   monthKey,
   status,
   isUpdating,
+  onEdit,
   onPress,
 }: {
   goal: PeriodicGoalInfo;
@@ -1573,6 +1589,7 @@ function GoalListRow({
   monthKey: string;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
+  onEdit: () => void;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -1591,17 +1608,17 @@ function GoalListRow({
   const rowBg = isComplete
     ? `${theme.primary}12`
     : isPlanned
-      ? "#3B82F60E"
+      ? "#A0A0A00E"
       : "transparent";
   const statusBg = isComplete
     ? theme.primary
     : isPlanned
-      ? "#3B82F6"
+      ? "#A0A0A0"
       : "transparent";
   const statusBorder = isComplete
     ? theme.primary
     : isPlanned
-      ? "#3B82F6"
+      ? "#A0A0A0"
       : theme.tabBorder;
 
   return (
@@ -1615,6 +1632,35 @@ function GoalListRow({
         pressed && styles.pressed,
       ]}
     >
+      {/* Status box */}
+      <View
+        style={[
+          styles.statusBox,
+          { backgroundColor: statusBg, borderColor: statusBorder },
+        ]}
+      >
+        {isUpdating ? (
+          <ActivityIndicator
+            size="small"
+            color={isComplete || isPlanned ? "#FFFFFF" : theme.primary}
+          />
+        ) : isComplete ? (
+          <SymbolView
+            name={sym("checkmark", "check")}
+            size={13}
+            weight="bold"
+            tintColor="#FFFFFF"
+          />
+        ) : isPlanned ? (
+          <SymbolView
+            name={sym("clock", "schedule")}
+            size={13}
+            weight="semibold"
+            tintColor="#FFFFFF"
+          />
+        ) : null}
+      </View>
+
       {/* Goal icon */}
       <View
         style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
@@ -1668,34 +1714,28 @@ function GoalListRow({
         </View>
       </View>
 
-      {/* Status circle */}
-      <View
-        style={[
-          styles.statusCircle,
-          { backgroundColor: statusBg, borderColor: statusBorder },
+      {/* Edit menu */}
+      <Pressable
+        accessibilityLabel={`Edit ${goal.name}`}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={(event) => {
+          event.stopPropagation();
+          onEdit();
+        }}
+        style={({ pressed }) => [
+          styles.goalMenuButton,
+          { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
         ]}
       >
-        {isUpdating ? (
-          <ActivityIndicator
-            size="small"
-            color={isComplete || isPlanned ? "#FFFFFF" : theme.primary}
-          />
-        ) : isComplete ? (
-          <SymbolView
-            name={sym("checkmark", "check")}
-            size={13}
-            weight="bold"
-            tintColor="#FFFFFF"
-          />
-        ) : isPlanned ? (
-          <SymbolView
-            name={sym("clock", "schedule")}
-            size={13}
-            weight="semibold"
-            tintColor="#FFFFFF"
-          />
-        ) : null}
-      </View>
+        <SymbolView
+          name={sym("ellipsis", "more_horiz")}
+          size={17}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </Pressable>
     </Pressable>
   );
 }
@@ -1843,7 +1883,7 @@ function GoalActionsModal({
                     ]}
                   >
                     {isUpdating ? (
-                      <ActivityIndicator size="small" color="#3B82F6" />
+                      <ActivityIndicator size="small" color="#A0A0A0" />
                     ) : (
                       <SymbolView
                         name={
@@ -1852,7 +1892,7 @@ function GoalActionsModal({
                             : sym("calendar.badge.plus", "event_available")
                         }
                         size={26}
-                        tintColor={isPlanned ? theme.textSecondary : "#3B82F6"}
+                        tintColor={isPlanned ? theme.textSecondary : "#A0A0A0"}
                       />
                     )}
                     <Text
@@ -2226,12 +2266,12 @@ const styles = StyleSheet.create({
   },
   goalProgressCompleted: {
     height: "100%",
-    backgroundColor: "#6B8E6B",
+    backgroundColor: "#2C5352",
   },
   goalProgressPlanned: {
     height: "100%",
     overflow: "hidden",
-    backgroundColor: "#93C5FD",
+    backgroundColor: "#2C5352",
   },
   plannedStripeRow: {
     position: "absolute",
@@ -2245,17 +2285,24 @@ const styles = StyleSheet.create({
   plannedStripe: {
     width: 3,
     height: 24,
-    backgroundColor: "#3B82F699",
+    backgroundColor: "#A0A0A0",
     transform: [{ rotate: "32deg" }],
   },
   completedText: { textDecorationLine: "line-through" },
-  statusCircle: {
+  statusBox: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
+  },
+  goalMenuButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
   },
   // Empty state
   emptyState: {

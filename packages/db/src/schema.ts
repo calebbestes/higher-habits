@@ -28,10 +28,8 @@ export const SHARED_GOAL_MODES = ["collaborative", "competitive"] as const;
 export const SHARED_GOAL_SCORING_TYPES = [
   "everyone_completes",
   "combined_target",
-  "shared_streak",
   "first_to_target",
   "highest_total",
-  "best_consistency",
   "longest_streak",
 ] as const;
 export const SHARED_GOAL_STATUSES = [
@@ -39,6 +37,7 @@ export const SHARED_GOAL_STATUSES = [
   "completed",
   "archived",
 ] as const;
+export const SHARED_GOAL_STAKE_TYPES = ["none", "carrot", "stick"] as const;
 export const SHARED_GOAL_PARTICIPANT_STATUSES = [
   "invited",
   "accepted",
@@ -67,6 +66,10 @@ export const sharedGoalScoringTypeEnum = pgEnum(
 export const sharedGoalStatusEnum = pgEnum(
   "shared_goal_status",
   SHARED_GOAL_STATUSES,
+);
+export const sharedGoalStakeTypeEnum = pgEnum(
+  "shared_goal_stake_type",
+  SHARED_GOAL_STAKE_TYPES,
 );
 export const sharedGoalParticipantStatusEnum = pgEnum(
   "shared_goal_participant_status",
@@ -240,6 +243,28 @@ export const friends = pgTable(
   ],
 );
 
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("projects_user_id_idx").on(table.userId),
+    unique("projects_user_id_name_uidx").on(table.userId, table.name),
+  ],
+);
+
 export const tasks = pgTable(
   "tasks",
   {
@@ -247,6 +272,9 @@ export const tasks = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
     importance: text("importance").default("").notNull(),
     dueDate: date("due_date", { mode: "string" }),
@@ -258,11 +286,15 @@ export const tasks = pgTable(
   },
   (table) => [
     index("tasks_user_id_idx").on(table.userId),
+    index("tasks_project_id_idx").on(table.projectId),
     index("tasks_due_date_idx").on(table.dueDate),
     index("tasks_completed_at_idx").on(table.completedAt),
     index("tasks_created_at_idx").on(table.createdAt),
   ],
 );
+
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
 
 export const categories = pgTable(
   "categories",
@@ -435,6 +467,8 @@ export const sharedGoals = pgTable(
     startsOn: date("starts_on", { mode: "string" }),
     endsOn: date("ends_on", { mode: "string" }),
     status: sharedGoalStatusEnum("status").default("active").notNull(),
+    stakeType: sharedGoalStakeTypeEnum("stake_type").default("none").notNull(),
+    stakeDescription: text("stake_description"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -533,6 +567,7 @@ export type NewSharedGoalParticipant =
 export type SharedGoalMode = (typeof SHARED_GOAL_MODES)[number];
 export type SharedGoalScoringType = (typeof SHARED_GOAL_SCORING_TYPES)[number];
 export type SharedGoalStatus = (typeof SHARED_GOAL_STATUSES)[number];
+export type SharedGoalStakeType = (typeof SHARED_GOAL_STAKE_TYPES)[number];
 export type SharedGoalParticipantStatus =
   (typeof SHARED_GOAL_PARTICIPANT_STATUSES)[number];
 
@@ -585,6 +620,92 @@ export const calendarSettings = pgTable("calendar_settings", {
     .notNull()
     .defaultNow(),
 });
+
+export const userSettings = pgTable("user_settings", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // Notification preferences.
+  notifyFriendRequests: boolean("notify_friend_requests")
+    .notNull()
+    .default(true),
+  notifyMonthlyGoalToday: boolean("notify_monthly_goal_today")
+    .notNull()
+    .default(true),
+  notifyTasksDueToday: boolean("notify_tasks_due_today")
+    .notNull()
+    .default(true),
+  notifyInactivityReminder: boolean("notify_inactivity_reminder")
+    .notNull()
+    .default(true),
+  notifySharedGoalInvites: boolean("notify_shared_goal_invites")
+    .notNull()
+    .default(true),
+  // Streaks & progress.
+  notifyStreakAtRisk: boolean("notify_streak_at_risk").notNull().default(true),
+  notifyStreakMilestone: boolean("notify_streak_milestone")
+    .notNull()
+    .default(true),
+  notifyEndOfDayNudge: boolean("notify_end_of_day_nudge")
+    .notNull()
+    .default(true),
+  // Friends & social.
+  notifyPostProps: boolean("notify_post_props").notNull().default(true),
+  notifyPostComments: boolean("notify_post_comments").notNull().default(true),
+  notifyFriendRequestAccepted: boolean("notify_friend_request_accepted")
+    .notNull()
+    .default(true),
+  notifyFriendMilestone: boolean("notify_friend_milestone")
+    .notNull()
+    .default(true),
+  // Shared goals & incentives.
+  notifySharedGoalResponses: boolean("notify_shared_goal_responses")
+    .notNull()
+    .default(true),
+  notifyLastToComplete: boolean("notify_last_to_complete")
+    .notNull()
+    .default(true),
+  notifySharedGoalEnding: boolean("notify_shared_goal_ending")
+    .notNull()
+    .default(true),
+  notifyStakesReminder: boolean("notify_stakes_reminder")
+    .notNull()
+    .default(true),
+  notifyIncentiveEarned: boolean("notify_incentive_earned")
+    .notNull()
+    .default(true),
+  // Planning & recap.
+  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(true),
+  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type UserSettings = typeof userSettings.$inferSelect;
+
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    platform: text("platform"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("push_tokens_user_id_idx").on(table.userId)],
+);
+
+export type PushToken = typeof pushTokens.$inferSelect;
 
 export type CalendarSettings = typeof calendarSettings.$inferSelect;
 export type FriendMessage = typeof friendMessages.$inferSelect;

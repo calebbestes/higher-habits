@@ -13,6 +13,7 @@ const taskFields = {
   dueDate: dateKeySchema.nullable().default(null),
   completedAt: dateKeySchema.nullable().default(null),
   timeRequired: z.string().default(""),
+  projectId: z.string().uuid().nullable().default(null),
 };
 
 const createSchema = z.object({ type: z.literal("create"), ...taskFields });
@@ -123,6 +124,7 @@ export async function POST(request: Request) {
       dueDate: d.dueDate,
       completedAt: d.completedAt,
       timeRequired: d.timeRequired,
+      projectId: d.projectId,
     });
 
     if (data.type === "create") {

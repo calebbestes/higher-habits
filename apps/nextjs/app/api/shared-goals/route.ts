@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 import { getSharedGoalSnapshots } from "@/lib/shared-goals";
 
 const createSharedGoalSchema = z
@@ -20,10 +21,8 @@ const createSharedGoalSchema = z
     scoringType: z.enum([
       "everyone_completes",
       "combined_target",
-      "shared_streak",
       "first_to_target",
       "highest_total",
-      "best_consistency",
       "longest_streak",
     ]),
     target: z.number().int().positive().nullable().default(null),
@@ -31,10 +30,20 @@ const createSharedGoalSchema = z
     endsOn: z.string().date().nullable().default(null),
     personalGoalId: z.string().uuid().nullable().default(null),
     invitedUserIds: z.array(z.string().min(1)).max(25).default([]),
+    stakeType: z.enum(["none", "carrot", "stick"]).default("none"),
+    stakeDescription: z.string().trim().max(500).nullable().default(null),
   })
   .refine(
     ({ startsOn, endsOn }) => !startsOn || !endsOn || endsOn >= startsOn,
     { message: "End date must be on or after the start date." },
+  )
+  .refine(
+    ({ stakeType, stakeDescription }) =>
+      stakeType === "none" || Boolean(stakeDescription?.trim()),
+    {
+      message: "Describe the reward or consequence.",
+      path: ["stakeDescription"],
+    },
   );
 
 const getDatabase = () => getDb() ?? null;
@@ -218,6 +227,9 @@ export async function POST(request: Request) {
           target: data.target,
           startsOn: data.startsOn,
           endsOn: data.endsOn,
+          stakeType: data.stakeType,
+          stakeDescription:
+            data.stakeType === "none" ? null : data.stakeDescription,
         })
         .returning({ id: sharedGoals.id });
 
@@ -242,6 +254,14 @@ export async function POST(request: Request) {
       return created.id;
     });
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
+
+    for (const friendId of uniqueInvitedUserIds) {
+      void sendPushToUser(friendId, "notifySharedGoalInvites", {
+        title: "New shared goal",
+        body: `${user.name} invited you to "${data.name}".`,
+        data: { type: "shared_goal_invite", sharedGoalId },
+      });
+    }
 
     return NextResponse.json(snapshot, { status: 201 });
   } catch (error) {

@@ -7,6 +7,7 @@ export type Task = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  projectId: string | null;
   createdAt: string;
 };
 
@@ -16,6 +17,7 @@ export type TaskInput = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  projectId: string | null;
 };
 
 export type TaskUrgency = "today" | "soon" | "later";

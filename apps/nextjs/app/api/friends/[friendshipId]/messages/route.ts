@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 
 const sendMessageSchema = z.discriminatedUnion("type", [
   z.object({
@@ -95,6 +96,14 @@ export async function POST(
 
     const [row] = await db.insert(friendMessages).values(values).returning();
 
+    if (parsed.data.type === "incentive") {
+      void sendPushToUser(recipientId, "notifySharedGoalInvites", {
+        title: "New incentive",
+        body: `${user.name} sent you an incentive challenge.`,
+        data: { type: "incentive", friendshipId },
+      });
+    }
+
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
@@ -169,6 +178,7 @@ export async function PATCH(
       .returning({
         id: friendMessages.id,
         accepted: friendMessages.accepted,
+        senderId: friendMessages.senderId,
       });
 
     if (!row) {
@@ -178,7 +188,13 @@ export async function PATCH(
       );
     }
 
-    return NextResponse.json(row);
+    void sendPushToUser(row.senderId, "notifyIncentiveEarned", {
+      title: "Incentive accepted",
+      body: `${user.name} accepted your incentive challenge.`,
+      data: { type: "incentive_accepted", friendshipId },
+    });
+
+    return NextResponse.json({ id: row.id, accepted: row.accepted });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

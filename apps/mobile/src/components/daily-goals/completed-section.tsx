@@ -41,18 +41,20 @@ function CompletedSectionImpl({
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
       >
-        <SymbolView
-          name={sym(
-            isOpen ? "chevron.down" : "chevron.right",
-            isOpen ? "expand_more" : "chevron_right",
-          )}
-          size={13}
-          weight="bold"
-          tintColor={theme.textSecondary}
-        />
-        <Text style={[styles.priorityLabel, { color: theme.textSecondary }]}>
-          {`SHOW COMPLETED (${completedList.length})`}
-        </Text>
+        <View style={styles.priorityHeaderLabelRow}>
+          <SymbolView
+            name={sym(
+              isOpen ? "chevron.down" : "chevron.right",
+              isOpen ? "expand_more" : "chevron_right",
+            )}
+            size={13}
+            weight="bold"
+            tintColor={theme.textSecondary}
+          />
+          <Text style={[styles.priorityLabel, { color: theme.textSecondary }]}>
+            {`SHOW COMPLETED (${completedList.length})`}
+          </Text>
+        </View>
       </Pressable>
       {isOpen ? (
         <View
