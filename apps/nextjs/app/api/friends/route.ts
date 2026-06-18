@@ -4,7 +4,7 @@ import {
   friends,
   getDb,
   goalLogs,
-  goals,
+  habits,
   users,
 } from "@habit/db";
 import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
@@ -126,15 +126,15 @@ async function getIncentiveProgress(
 
   const applicableGoals = await db
     .select({
-      id: goals.id,
-      priority: goals.priority,
+      id: habits.id,
+      priority: habits.priority,
     })
-    .from(goals)
+    .from(habits)
     .where(
       and(
-        eq(goals.userId, incentive.recipientId),
-        eq(goals.period, "daily"),
-        eq(goals.hidden, false),
+        eq(habits.userId, incentive.recipientId),
+        eq(habits.period, "daily"),
+        eq(habits.hidden, false),
       ),
     );
 
@@ -209,18 +209,18 @@ async function getFriendActivitySummary(
 
   const allDailyGoals = await db
     .select({
-      id: goals.id,
-      name: goals.name,
-      priority: goals.priority,
-      visibility: goals.visibility,
-      period: goals.period,
+      id: habits.id,
+      name: habits.name,
+      priority: habits.priority,
+      visibility: habits.visibility,
+      period: habits.period,
     })
-    .from(goals)
+    .from(habits)
     .where(
       and(
-        eq(goals.userId, friendId),
-        eq(goals.period, "daily"),
-        eq(goals.hidden, false),
+        eq(habits.userId, friendId),
+        eq(habits.period, "daily"),
+        eq(habits.hidden, false),
       ),
     );
   const visibleGoalIds = await getVisibleGoalIdsForFriend(
@@ -334,12 +334,12 @@ export async function GET(request: Request) {
               streakPercent: friendMessages.streakPercent,
               goalScope: friendMessages.goalScope,
               goalId: friendMessages.goalId,
-              goalName: goals.name,
+              goalName: habits.name,
               createdAt: friendMessages.createdAt,
               readAt: friendMessages.readAt,
             })
             .from(friendMessages)
-            .leftJoin(goals, eq(friendMessages.goalId, goals.id))
+            .leftJoin(habits, eq(friendMessages.goalId, habits.id))
             .where(inArray(friendMessages.friendshipId, friendshipIds))
             .orderBy(asc(friendMessages.createdAt))
         : [];

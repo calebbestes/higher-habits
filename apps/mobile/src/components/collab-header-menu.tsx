@@ -4,8 +4,9 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
+import { type CollabSection, setCollabSection } from "@/lib/tab-view-store";
 
-export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
+export type { CollabSection };
 
 const MENU_ITEMS: {
   id: CollabSection;
@@ -77,7 +78,10 @@ export function CollabHeaderMenu({
         const selectedItem = MENU_ITEMS.find(
           (item) => item.id === nativeEvent.event,
         );
-        if (selectedItem) router.navigate(selectedItem.href);
+        if (selectedItem) {
+          setCollabSection(selectedItem.id);
+          router.navigate(selectedItem.href);
+        }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
       title="Collab sections"

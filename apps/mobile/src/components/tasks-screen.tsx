@@ -3,9 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,18 +13,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ProjectProgressCard } from "@/components/tasks/project-progress";
+import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
+import { TaskFormModal } from "@/components/tasks/task-form-modal";
+import { toInput } from "@/components/tasks/shared";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
+import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
 import {
-  type Project,
-  createProject,
-  deleteProject,
-  fetchProjects,
-} from "@/lib/projects-client";
-import {
-  TASK_IMPORTANCES,
-  TASK_TIME_OPTIONS,
   TASK_URGENCIES,
   type Task,
   type TaskInput,
@@ -35,7 +29,6 @@ import {
   createTask,
   deleteTask,
   fetchTasks,
-  getTaskDueDateForUrgency,
   getTaskPriorityLevel,
   getTaskUrgency,
   todayDateKey,
@@ -44,15 +37,6 @@ import {
 
 type SymbolName = SymbolViewProps["name"];
 type TaskFilter = "all" | "today" | "soon" | "completed";
-
-const EMPTY_TASK: TaskInput = {
-  name: "",
-  importance: "Medium",
-  dueDate: null,
-  completedAt: null,
-  timeRequired: "~1 hr",
-  projectId: null,
-};
 
 const URGENCY_LABELS: Record<TaskUrgency, string> = {
   today: "Today",
@@ -68,17 +52,6 @@ const URGENCY_SYMBOLS: Record<TaskUrgency, SymbolName> = {
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
-}
-
-function toInput(task: Task): TaskInput {
-  return {
-    name: task.name,
-    importance: task.importance,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    timeRequired: task.timeRequired,
-    projectId: task.projectId,
-  };
 }
 
 function compareTasks(left: Task, right: Task) {
@@ -101,15 +74,10 @@ function formatDueDate(dateKey: string | null) {
   }).format(new Date(year, month - 1, day));
 }
 
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 export function TasksScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -120,12 +88,15 @@ export function TasksScreen() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [actionTask, setActionTask] = useState<Task | null>(null);
 
-  const reloadProjects = useCallback(async () => {
-    try {
-      setProjects(await fetchProjects());
-    } catch {
-      // Progress bars are non-critical; ignore load failures here.
-    }
+  const { projects, reloadProjects, createProject, confirmDeleteProject } =
+    useTaskProjects();
+
+  const unlinkTasksFromProject = useCallback((projectId: string) => {
+    setTasks((current) =>
+      current.map((task) =>
+        task.projectId === projectId ? { ...task, projectId: null } : task,
+      ),
+    );
   }, []);
 
   const load = useCallback(
@@ -221,49 +192,6 @@ export function TasksScreen() {
     setFormOpen(false);
     setEditingTask(null);
     void reloadProjects();
-  };
-
-  const handleCreateProject = async (name: string): Promise<Project> => {
-    const created = await createProject(name);
-    setProjects((current) =>
-      [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
-    );
-    return created;
-  };
-
-  const handleDeleteProject = (project: Project) => {
-    Alert.alert(
-      "Delete project?",
-      `"${project.name}" will be removed. Its tasks are kept but unlinked.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteProject(project.id);
-              setProjects((current) =>
-                current.filter((item) => item.id !== project.id),
-              );
-              setTasks((current) =>
-                current.map((task) =>
-                  task.projectId === project.id
-                    ? { ...task, projectId: null }
-                    : task,
-                ),
-              );
-            } catch (deleteError) {
-              setError(
-                deleteError instanceof Error
-                  ? deleteError.message
-                  : "Could not delete project.",
-              );
-            }
-          },
-        },
-      ],
-    );
   };
 
   const toggleComplete = async (task: Task) => {
@@ -388,20 +316,12 @@ export function TasksScreen() {
             <Stat label="Done today" value={completedCount} accent="#527B65" />
           </View>
 
-          {projects.length > 0 ? (
-            <View style={styles.projectsCard}>
-              <Text style={[styles.projectsTitle, { color: theme.text }]}>
-                Project progress
-              </Text>
-              {projects.map((project) => (
-                <ProjectProgressRow
-                  key={project.id}
-                  project={project}
-                  onLongPress={() => handleDeleteProject(project)}
-                />
-              ))}
-            </View>
-          ) : null}
+          <ProjectProgressCard
+            projects={projects}
+            onDeleteProject={(project) =>
+              confirmDeleteProject(project, unlinkTasksFromProject)
+            }
+          />
 
           <View
             style={[
@@ -530,7 +450,7 @@ export function TasksScreen() {
         isOpen={formOpen}
         task={editingTask}
         projects={projects}
-        onCreateProject={handleCreateProject}
+        onCreateProject={createProject}
         onClose={() => {
           setFormOpen(false);
           setEditingTask(null);
@@ -575,53 +495,6 @@ function Stat({
         {label}
       </Text>
     </View>
-  );
-}
-
-function ProjectProgressRow({
-  project,
-  onLongPress,
-}: {
-  project: Project;
-  onLongPress: () => void;
-}) {
-  const theme = useTheme();
-  const percent =
-    project.totalTasks > 0
-      ? Math.round((project.completedTasks / project.totalTasks) * 100)
-      : 0;
-  const barColor = project.color?.trim() || theme.primary;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${project.name}, ${percent}% complete. Long press to delete.`}
-      delayLongPress={400}
-      onLongPress={onLongPress}
-      style={styles.projectRow}
-    >
-      <View style={styles.projectRowHeader}>
-        <Text
-          style={[styles.projectName, { color: theme.text }]}
-          numberOfLines={1}
-        >
-          {project.name}
-        </Text>
-        <Text style={[styles.projectCount, { color: theme.textSecondary }]}>
-          {project.completedTasks}/{project.totalTasks} · {percent}%
-        </Text>
-      </View>
-      <View style={[styles.projectTrack, { backgroundColor: theme.tabBorder }]}>
-        {project.totalTasks > 0 ? (
-          <View
-            style={[
-              styles.projectFill,
-              { width: `${percent}%`, backgroundColor: barColor },
-            ]}
-          />
-        ) : null}
-      </View>
-    </Pressable>
   );
 }
 
@@ -853,500 +726,6 @@ function EmptyState({
   );
 }
 
-function TaskActionsModal({
-  onClose,
-  onDelete,
-  onEdit,
-  onToggle,
-  task,
-}: {
-  onClose: () => void;
-  onDelete: (task: Task) => void;
-  onEdit: (task: Task) => void;
-  onToggle: (task: Task) => void;
-  task: Task | null;
-}) {
-  const theme = useTheme();
-  if (!task) return null;
-
-  const actions = [
-    {
-      label: "Edit task",
-      icon: symbol("pencil", "edit"),
-      onPress: () => onEdit(task),
-    },
-    {
-      label: task.completedAt ? "Reopen task" : "Complete today",
-      icon: symbol(
-        task.completedAt ? "arrow.uturn.backward.circle" : "checkmark.circle",
-        task.completedAt ? "undo" : "check_circle",
-      ),
-      onPress: () => void onToggle(task),
-    },
-    {
-      label: "Delete task",
-      icon: symbol("trash", "delete"),
-      danger: true,
-      onPress: () => onDelete(task),
-    },
-  ];
-
-  return (
-    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
-          style={[
-            styles.actionSheet,
-            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-          ]}
-        >
-          <Text style={[styles.actionTitle, { color: theme.text }]}>
-            {task.name}
-          </Text>
-          {actions.map((action) => (
-            <Pressable
-              key={action.label}
-              onPress={action.onPress}
-              style={({ pressed }) => [
-                styles.actionRow,
-                pressed && { backgroundColor: theme.backgroundElement },
-              ]}
-            >
-              <SymbolView
-                name={action.icon}
-                size={20}
-                tintColor={action.danger ? "#B84D54" : theme.tabIcon}
-              />
-              <Text
-                style={[
-                  styles.actionLabel,
-                  { color: action.danger ? "#B84D54" : theme.text },
-                ]}
-              >
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function TaskFormModal({
-  isOpen,
-  onClose,
-  onSave,
-  task,
-  projects,
-  onCreateProject,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (input: TaskInput) => Promise<void>;
-  task: Task | null;
-  projects: Project[];
-  onCreateProject: (name: string) => Promise<Project>;
-}) {
-  const theme = useTheme();
-  const [form, setForm] = useState<TaskInput>(EMPTY_TASK);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setForm(task ? toInput(task) : EMPTY_TASK);
-    setError(null);
-    setNewProjectName("");
-  }, [isOpen, task]);
-
-  const addProject = async () => {
-    const name = newProjectName.trim();
-    if (!name || isCreatingProject) return;
-    setIsCreatingProject(true);
-    setError(null);
-    try {
-      const created = await onCreateProject(name);
-      setForm((current) => ({ ...current, projectId: created.id }));
-      setNewProjectName("");
-    } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Could not create project.",
-      );
-    } finally {
-      setIsCreatingProject(false);
-    }
-  };
-
-  const dueDateValid =
-    !form.dueDate || /^\d{4}-\d{2}-\d{2}$/.test(form.dueDate);
-
-  const save = async () => {
-    if (!form.name.trim() || !dueDateValid || isSaving) return;
-    setIsSaving(true);
-    setError(null);
-    try {
-      await onSave({ ...form, name: form.name.trim() });
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error ? saveError.message : "Could not save task.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <Modal
-      animationType="slide"
-      presentationStyle="pageSheet"
-      visible={isOpen}
-      onRequestClose={onClose}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={[styles.formScreen, { backgroundColor: theme.background }]}
-      >
-        <SafeAreaView style={styles.formSafeArea}>
-          <View
-            style={[
-              styles.formHeader,
-              {
-                backgroundColor: theme.tabBar,
-                borderBottomColor: theme.tabBorder,
-              },
-            ]}
-          >
-            <Pressable onPress={onClose} style={styles.formHeaderButton}>
-              <Text
-                style={[styles.formHeaderButtonText, { color: theme.primary }]}
-              >
-                Cancel
-              </Text>
-            </Pressable>
-            <Text style={[styles.formTitle, { color: theme.text }]}>
-              {task ? "Edit Task" : "New Task"}
-            </Text>
-            <Pressable
-              disabled={!form.name.trim() || !dueDateValid || isSaving}
-              onPress={() => void save()}
-              style={styles.formHeaderButton}
-            >
-              {isSaving ? (
-                <ActivityIndicator color={theme.primary} size="small" />
-              ) : (
-                <Text
-                  style={[
-                    styles.formHeaderButtonText,
-                    {
-                      color:
-                        form.name.trim() && dueDateValid
-                          ? theme.primary
-                          : theme.textSecondary,
-                    },
-                  ]}
-                >
-                  Save
-                </Text>
-              )}
-            </Pressable>
-          </View>
-
-          <ScrollView
-            contentContainerStyle={styles.formContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <FormSection title="Task">
-              <LabeledInput
-                autoFocus
-                label="Name"
-                onChangeText={(name) =>
-                  setForm((current) => ({ ...current, name }))
-                }
-                placeholder="What needs to get done?"
-                returnKeyType="done"
-                value={form.name}
-              />
-            </FormSection>
-
-            <FormSection title="Priority">
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Importance
-              </Text>
-              <View style={styles.choiceWrap}>
-                {TASK_IMPORTANCES.map((importance) => (
-                  <Choice
-                    key={importance}
-                    label={importance}
-                    selected={form.importance === importance}
-                    tone={importance === "High" ? "blush" : undefined}
-                    onPress={() =>
-                      setForm((current) => ({ ...current, importance }))
-                    }
-                  />
-                ))}
-              </View>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Urgency
-              </Text>
-              <View style={styles.choiceWrap}>
-                {TASK_URGENCIES.map((urgency) => (
-                  <Choice
-                    key={urgency}
-                    label={capitalize(urgency)}
-                    selected={getTaskUrgency(form) === urgency}
-                    tone={urgency === "today" ? "blush" : undefined}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        dueDate: getTaskDueDateForUrgency(urgency),
-                      }))
-                    }
-                  />
-                ))}
-              </View>
-            </FormSection>
-
-            <FormSection title="Schedule">
-              <LabeledInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                label="Exact due date"
-                onChangeText={(dueDate) =>
-                  setForm((current) => ({
-                    ...current,
-                    dueDate: dueDate.trim() || null,
-                  }))
-                }
-                placeholder="YYYY-MM-DD"
-                value={form.dueDate ?? ""}
-              />
-              {!dueDateValid ? (
-                <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
-              ) : null}
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Time required
-              </Text>
-              <View style={styles.choiceWrap}>
-                {TASK_TIME_OPTIONS.map((timeRequired) => (
-                  <Choice
-                    key={timeRequired}
-                    label={timeRequired}
-                    selected={form.timeRequired === timeRequired}
-                    onPress={() =>
-                      setForm((current) => ({ ...current, timeRequired }))
-                    }
-                  />
-                ))}
-              </View>
-            </FormSection>
-
-            <FormSection title="Project">
-              <View style={styles.choiceWrap}>
-                <Choice
-                  label="None"
-                  selected={!form.projectId}
-                  onPress={() =>
-                    setForm((current) => ({ ...current, projectId: null }))
-                  }
-                />
-                {projects.map((project) => (
-                  <Choice
-                    key={project.id}
-                    label={project.name}
-                    selected={form.projectId === project.id}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        projectId: project.id,
-                      }))
-                    }
-                  />
-                ))}
-              </View>
-              <View style={styles.newProjectRow}>
-                <TextInput
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  onChangeText={setNewProjectName}
-                  onSubmitEditing={() => void addProject()}
-                  placeholder="New project name"
-                  placeholderTextColor={theme.textSecondary}
-                  returnKeyType="done"
-                  selectionColor={theme.primary}
-                  style={[
-                    styles.newProjectInput,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                      color: theme.text,
-                    },
-                  ]}
-                  value={newProjectName}
-                />
-                <Pressable
-                  accessibilityLabel="Add project"
-                  disabled={!newProjectName.trim() || isCreatingProject}
-                  onPress={() => void addProject()}
-                  style={[
-                    styles.newProjectButton,
-                    {
-                      backgroundColor: newProjectName.trim()
-                        ? theme.primary
-                        : theme.backgroundElement,
-                    },
-                  ]}
-                >
-                  {isCreatingProject ? (
-                    <ActivityIndicator
-                      color={theme.primaryForeground}
-                      size="small"
-                    />
-                  ) : (
-                    <SymbolView
-                      name={symbol("plus", "add")}
-                      size={18}
-                      weight="semibold"
-                      tintColor={
-                        newProjectName.trim()
-                          ? theme.primaryForeground
-                          : theme.textSecondary
-                      }
-                    />
-                  )}
-                </Pressable>
-              </View>
-            </FormSection>
-
-            <FormSection title="Status">
-              <View style={styles.statusChoices}>
-                <Choice
-                  label="Active"
-                  selected={!form.completedAt}
-                  onPress={() =>
-                    setForm((current) => ({ ...current, completedAt: null }))
-                  }
-                />
-                <Choice
-                  label="Completed today"
-                  selected={Boolean(form.completedAt)}
-                  onPress={() =>
-                    setForm((current) => ({
-                      ...current,
-                      completedAt: todayDateKey(),
-                    }))
-                  }
-                />
-              </View>
-            </FormSection>
-
-            {error ? <Text style={styles.formError}>{error}</Text> : null}
-          </ScrollView>
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
-
-function FormSection({
-  children,
-  title,
-}: {
-  children: React.ReactNode;
-  title: string;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={styles.formSection}>
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        {title}
-      </Text>
-      <View
-        style={[
-          styles.sectionSurface,
-          { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-        ]}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function LabeledInput({
-  label,
-  style,
-  ...props
-}: React.ComponentProps<typeof TextInput> & { label: string }) {
-  const theme = useTheme();
-  return (
-    <View style={styles.inputField}>
-      <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
-      <TextInput
-        placeholderTextColor={theme.textSecondary}
-        selectionColor={theme.primary}
-        style={[
-          styles.input,
-          {
-            backgroundColor: theme.backgroundElement,
-            borderColor: theme.tabBorder,
-            color: theme.text,
-          },
-          style,
-        ]}
-        {...props}
-      />
-    </View>
-  );
-}
-
-function Choice({
-  label,
-  onPress,
-  selected,
-  tone,
-}: {
-  label: string;
-  onPress: () => void;
-  selected: boolean;
-  tone?: "blush";
-}) {
-  const theme = useTheme();
-  const selectedBackground = tone === "blush" ? "#9D7474" : theme.primary;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.choice,
-        {
-          backgroundColor: selected
-            ? selectedBackground
-            : theme.backgroundElement,
-          borderColor: selected ? selectedBackground : theme.tabBorder,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text
-        style={[
-          styles.choiceLabel,
-          { color: selected ? "#FFFFFF" : theme.textSecondary },
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   safeArea: { flex: 1 },
@@ -1404,48 +783,6 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 19, lineHeight: 23, fontWeight: "800" },
   statLabel: { fontSize: 10, lineHeight: 14, fontWeight: "700" },
-  projectsCard: { gap: 12 },
-  projectsTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  projectRow: { gap: 6 },
-  projectRowHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  projectName: { flex: 1, fontSize: 14, fontWeight: "700" },
-  projectCount: {
-    fontSize: 12,
-    fontWeight: "700",
-    fontVariant: ["tabular-nums"],
-  },
-  projectTrack: {
-    height: 8,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  projectFill: { height: "100%", borderRadius: 999 },
-  newProjectRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  newProjectInput: {
-    flex: 1,
-    height: 44,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    fontSize: 15,
-  },
-  newProjectButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   search: {
     minHeight: 48,
     flexDirection: "row",
@@ -1565,110 +902,5 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   emptyButtonLabel: { fontSize: 14, fontWeight: "800" },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "#00000055",
-    padding: 12,
-  },
-  actionSheet: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 25,
-    padding: 8,
-    paddingBottom: 12,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  actionTitle: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "800",
-  },
-  actionRow: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-  },
-  actionLabel: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
-  formScreen: { flex: 1 },
-  formSafeArea: { flex: 1 },
-  formHeader: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-  },
-  formHeaderButton: {
-    minWidth: 64,
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  formHeaderButtonText: { fontSize: 15, fontWeight: "700" },
-  formTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
-  formContent: {
-    width: "100%",
-    maxWidth: 620,
-    alignSelf: "center",
-    gap: 22,
-    padding: 18,
-    paddingBottom: 48,
-  },
-  formSection: { gap: 7 },
-  sectionTitle: {
-    paddingHorizontal: 4,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-  },
-  sectionSurface: {
-    gap: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
-    padding: 16,
-  },
-  inputField: { gap: 7 },
-  fieldLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
-  input: {
-    minHeight: 49,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 15,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  fieldError: {
-    color: "#B84D54",
-    marginTop: -9,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "600",
-  },
-  choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  choice: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-  },
-  choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
-  statusChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  formError: {
-    color: "#B84D54",
-    paddingHorizontal: 4,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-  },
   pressed: { opacity: 0.72 },
 });

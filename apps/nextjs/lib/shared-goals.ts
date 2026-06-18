@@ -1,7 +1,7 @@
 import {
   type HabitDb,
   goalLogs,
-  goals,
+  habits,
   sharedGoalParticipants,
   sharedGoals,
   users,
@@ -147,14 +147,14 @@ export async function getSharedGoalSnapshots(
         userImage: users.image,
         personalGoalId: sharedGoalParticipants.personalGoalId,
         personalGoalAutoCreated: sharedGoalParticipants.personalGoalAutoCreated,
-        personalGoalName: goals.name,
+        personalGoalName: habits.name,
         status: sharedGoalParticipants.status,
         joinedAt: sharedGoalParticipants.joinedAt,
         leftAt: sharedGoalParticipants.leftAt,
       })
       .from(sharedGoalParticipants)
       .innerJoin(users, eq(sharedGoalParticipants.userId, users.id))
-      .leftJoin(goals, eq(sharedGoalParticipants.personalGoalId, goals.id))
+      .leftJoin(habits, eq(sharedGoalParticipants.personalGoalId, habits.id))
       .where(inArray(sharedGoalParticipants.sharedGoalId, accessibleIds)),
   ]);
 

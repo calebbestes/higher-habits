@@ -2,7 +2,7 @@ import {
   categories,
   friends,
   getDb,
-  goals,
+  habits,
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
@@ -94,10 +94,10 @@ export async function POST(request: Request) {
     const data = parsed.data;
     if (data.personalGoalId) {
       const [personalGoal] = await db
-        .select({ id: goals.id })
-        .from(goals)
+        .select({ id: habits.id })
+        .from(habits)
         .where(
-          and(eq(goals.id, data.personalGoalId), eq(goals.userId, user.id)),
+          and(eq(habits.id, data.personalGoalId), eq(habits.userId, user.id)),
         )
         .limit(1);
 
@@ -181,10 +181,10 @@ export async function POST(request: Request) {
         if (!categoryId) throw new Error("Shared goal category insert failed.");
 
         const existingNames = await tx
-          .select({ name: goals.name })
-          .from(goals)
+          .select({ name: habits.name })
+          .from(habits)
           .where(
-            and(eq(goals.userId, user.id), eq(goals.categoryId, categoryId)),
+            and(eq(habits.userId, user.id), eq(habits.categoryId, categoryId)),
           );
         const usedNames = new Set(existingNames.map((goal) => goal.name));
         let personalGoalName = data.name;
@@ -196,7 +196,7 @@ export async function POST(request: Request) {
         }
 
         const [createdPersonalGoal] = await tx
-          .insert(goals)
+          .insert(habits)
           .values({
             userId: user.id,
             name: personalGoalName,
@@ -209,7 +209,7 @@ export async function POST(request: Request) {
                 ? "mdi:account-group-outline"
                 : "mdi:trophy-outline",
           })
-          .returning({ id: goals.id });
+          .returning({ id: habits.id });
 
         if (!createdPersonalGoal) {
           throw new Error("Personal goal insert failed.");

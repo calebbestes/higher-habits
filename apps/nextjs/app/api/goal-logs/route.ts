@@ -4,7 +4,7 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
-  goals,
+  habits,
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
@@ -91,18 +91,19 @@ export async function GET(request: Request) {
         );
 
     const periodicFields = {
-      id: goals.id,
-      name: goals.name,
-      iconKey: goals.iconKey,
-      categoryId: goals.categoryId,
-      priority: goals.priority,
-      visibility: goals.visibility,
-      period: goals.period,
-      frequencyGoal: goals.frequencyGoal,
-      repeatInterval: goals.repeatInterval,
-      repeatDays: goals.repeatDays,
-      repeatMonthlyType: goals.repeatMonthlyType,
-      createdAt: goals.createdAt,
+      id: habits.id,
+      name: habits.name,
+      iconKey: habits.iconKey,
+      categoryId: habits.categoryId,
+      goalId: habits.goalId,
+      priority: habits.priority,
+      visibility: habits.visibility,
+      period: habits.period,
+      frequencyGoal: habits.frequencyGoal,
+      repeatInterval: habits.repeatInterval,
+      repeatDays: habits.repeatDays,
+      repeatMonthlyType: habits.repeatMonthlyType,
+      createdAt: habits.createdAt,
     };
 
     const [
@@ -122,31 +123,31 @@ export async function GET(request: Request) {
         .orderBy(asc(categories.name)),
       db
         .select()
-        .from(goals)
+        .from(habits)
         .where(
           and(
-            eq(goals.userId, user.id),
-            eq(goals.period, "daily"),
-            eq(goals.hidden, false),
+            eq(habits.userId, user.id),
+            eq(habits.period, "daily"),
+            eq(habits.hidden, false),
           ),
         )
-        .orderBy(asc(goals.priority), asc(goals.name)),
+        .orderBy(asc(habits.priority), asc(habits.name)),
       db
         .select(periodicFields)
-        .from(goals)
+        .from(habits)
         .where(
           and(
-            eq(goals.userId, user.id),
-            ne(goals.period, "daily"),
-            eq(goals.hidden, false),
+            eq(habits.userId, user.id),
+            ne(habits.period, "daily"),
+            eq(habits.hidden, false),
           ),
         )
-        .orderBy(asc(goals.priority), asc(goals.name)),
+        .orderBy(asc(habits.priority), asc(habits.name)),
       db
         .select(periodicFields)
-        .from(goals)
-        .where(and(eq(goals.userId, user.id), eq(goals.hidden, true)))
-        .orderBy(asc(goals.priority), asc(goals.name)),
+        .from(habits)
+        .where(and(eq(habits.userId, user.id), eq(habits.hidden, true)))
+        .orderBy(asc(habits.priority), asc(habits.name)),
       db
         .select({
           goalId: goalLogs.goalId,
@@ -250,29 +251,38 @@ export async function GET(request: Request) {
       return acc;
     }, {});
 
-    const categoriesWithGoals = cats.map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      icon: cat.icon,
-      goals: (goalsByCategoryId[cat.id] ?? []).map((g) => ({
+    const categoriesWithGoals = cats.map((cat) => {
+      const categoryHabits = (goalsByCategoryId[cat.id] ?? []).map((g) => ({
         id: g.id,
         name: g.name,
         iconKey: g.iconKey,
         categoryId: g.categoryId,
+        goalId: g.goalId ?? null,
+        goalTitle: null,
         priority: g.priority as "high" | "low",
         hidden: g.hidden,
         visibility: g.visibility,
         period: g.period,
         frequencyGoal: g.frequencyGoal,
         sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
-      })),
-    }));
+      }));
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        icon: cat.icon,
+        habits: categoryHabits,
+        goals: categoryHabits,
+      };
+    });
 
     const mapPeriodic = (g: (typeof periodicGoals)[number]) => ({
       id: g.id,
       name: g.name,
       iconKey: g.iconKey,
       categoryId: g.categoryId,
+      goalId: g.goalId ?? null,
+      goalTitle: null,
       priority: g.priority as "high" | "low",
       visibility: g.visibility,
       period: g.period,
@@ -284,41 +294,57 @@ export async function GET(request: Request) {
       sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
     });
 
-    return NextResponse.json({
-      categories: categoriesWithGoals,
-      periodicGoals: periodicGoals.map(mapPeriodic),
-      hiddenGoals: hiddenGoals.map(mapPeriodic),
-      acceptedGoalIncentives: acceptedGoalIncentives.map((incentive) => ({
+    const periodicHabitRows = periodicGoals.map(mapPeriodic);
+    const hiddenHabitRows = hiddenGoals.map(mapPeriodic);
+    const acceptedHabitIncentiveRows = acceptedGoalIncentives.map(
+      (incentive) => ({
         id: incentive.id,
         goalId: incentive.goalId as string,
+        habitId: incentive.goalId as string,
         body: incentive.body,
         streakDays: incentive.streakDays as number,
         streakPercent: incentive.streakPercent as number,
         createdAt: incentive.createdAt.toISOString(),
-      })),
-      logsByGoalDate: Object.fromEntries(
-        logs
-          .filter(
-            (log) => log.status === "complete" || log.status === "planned",
-          )
-          .map((log) => [`${log.goalId}_${log.date}`, log.status]),
-      ),
-      notesByGoalDate: Object.fromEntries(
-        logs
-          .filter((log) => log.notes?.trim())
-          .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
-      ),
-      visibilityByGoalDate: Object.fromEntries(
-        logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
-      ),
-      photoCountsByGoalDate: photos.reduce<Record<string, number>>(
-        (counts, photo) => {
-          const key = `${photo.goalId}_${photo.date}`;
-          counts[key] = (counts[key] ?? 0) + 1;
-          return counts;
-        },
-        {},
-      ),
+      }),
+    );
+    const logsByHabitDate = Object.fromEntries(
+      logs
+        .filter((log) => log.status === "complete" || log.status === "planned")
+        .map((log) => [`${log.goalId}_${log.date}`, log.status]),
+    );
+    const notesByHabitDate = Object.fromEntries(
+      logs
+        .filter((log) => log.notes?.trim())
+        .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
+    );
+    const visibilityByHabitDate = Object.fromEntries(
+      logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
+    );
+    const photoCountsByHabitDate = photos.reduce<Record<string, number>>(
+      (counts, photo) => {
+        const key = `${photo.goalId}_${photo.date}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      },
+      {},
+    );
+
+    return NextResponse.json({
+      categories: categoriesWithGoals,
+      periodicGoals: periodicHabitRows,
+      periodicHabits: periodicHabitRows,
+      hiddenGoals: hiddenHabitRows,
+      hiddenHabits: hiddenHabitRows,
+      acceptedGoalIncentives: acceptedHabitIncentiveRows,
+      acceptedHabitIncentives: acceptedHabitIncentiveRows,
+      logsByGoalDate: logsByHabitDate,
+      logsByHabitDate,
+      notesByGoalDate: notesByHabitDate,
+      notesByHabitDate,
+      visibilityByGoalDate: visibilityByHabitDate,
+      visibilityByHabitDate,
+      photoCountsByGoalDate: photoCountsByHabitDate,
+      photoCountsByHabitDate,
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
@@ -353,13 +379,13 @@ export async function POST(request: Request) {
     const data = bodySchema.parse(await request.json());
 
     const [goal] = await db
-      .select({ id: goals.id, visibility: goals.visibility })
-      .from(goals)
-      .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)))
+      .select({ id: habits.id, visibility: habits.visibility })
+      .from(habits)
+      .where(and(eq(habits.id, data.goalId), eq(habits.userId, user.id)))
       .limit(1);
 
     if (!goal) {
-      return NextResponse.json({ error: "Goal not found" }, { status: 404 });
+      return NextResponse.json({ error: "Habit not found" }, { status: 404 });
     }
 
     if (data.type === "setLog") {
@@ -453,7 +479,7 @@ export async function POST(request: Request) {
 
       if (!updatedLog) {
         return NextResponse.json(
-          { error: "Goal report not found" },
+          { error: "Habit report not found" },
           { status: 404 },
         );
       }
@@ -513,9 +539,9 @@ export async function POST(request: Request) {
     }
 
     await db
-      .update(goals)
+      .update(habits)
       .set({ hidden: data.hidden, updatedAt: new Date() })
-      .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)));
+      .where(and(eq(habits.id, data.goalId), eq(habits.userId, user.id)));
 
     return NextResponse.json({ ok: true });
   } catch (error) {

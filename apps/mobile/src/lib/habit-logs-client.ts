@@ -1,4 +1,4 @@
-import type { GoalVisibility } from "@/lib/goals-client";
+import type { HabitVisibility } from "@/lib/habits-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type LinkedSharedGoal = {
@@ -7,7 +7,7 @@ export type LinkedSharedGoal = {
   mode: "collaborative" | "competitive";
 };
 
-export type GoalInCategory = {
+export type HabitInCategory = {
   id: string;
   name: string;
   iconKey: string;
@@ -16,29 +16,31 @@ export type GoalInCategory = {
   goalTitle: string | null;
   priority: "high" | "low";
   hidden: boolean;
-  visibility: GoalVisibility;
+  visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   sharedGoals?: LinkedSharedGoal[];
 };
 
-export type AcceptedGoalIncentive = {
+export type AcceptedHabitIncentive = {
   id: string;
   goalId: string;
+  habitId: string;
   body: string;
   streakDays: number;
   streakPercent: number;
   createdAt: string;
 };
 
-export type CategoryWithGoals = {
+export type CategoryWithHabits = {
   id: string;
   name: string;
   icon: string;
-  goals: GoalInCategory[];
+  habits: HabitInCategory[];
+  goals: HabitInCategory[];
 };
 
-export type PeriodicGoalInfo = {
+export type PeriodicHabitInfo = {
   id: string;
   name: string;
   iconKey: string;
@@ -46,7 +48,7 @@ export type PeriodicGoalInfo = {
   goalId: string | null;
   goalTitle: string | null;
   priority: "high" | "low";
-  visibility: GoalVisibility;
+  visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatInterval: number | null;
@@ -55,17 +57,24 @@ export type PeriodicGoalInfo = {
   createdAt: string;
 };
 
-export type GoalLogsSnapshot = {
-  categories: CategoryWithGoals[];
-  periodicGoals: PeriodicGoalInfo[];
-  acceptedGoalIncentives?: AcceptedGoalIncentive[];
-  logsByGoalDate: Record<string, "complete" | "planned">;
-  notesByGoalDate: Record<string, string>;
-  photoCountsByGoalDate: Record<string, number>;
-  visibilityByGoalDate: Record<string, GoalVisibility>;
+export type HabitLogsSnapshot = {
+  categories: CategoryWithHabits[];
+  periodicHabits: PeriodicHabitInfo[];
+  acceptedHabitIncentives?: AcceptedHabitIncentive[];
+  logsByHabitDate: Record<string, "complete" | "planned">;
+  notesByHabitDate: Record<string, string>;
+  photoCountsByHabitDate: Record<string, number>;
+  visibilityByHabitDate: Record<string, HabitVisibility>;
 };
 
-export type GoalLogStatus = "complete" | "planned" | null;
+export type HabitLogStatus = "complete" | "planned" | null;
+
+export type GoalInCategory = HabitInCategory;
+export type AcceptedGoalIncentive = AcceptedHabitIncentive;
+export type CategoryWithGoals = CategoryWithHabits;
+export type PeriodicGoalInfo = PeriodicHabitInfo;
+export type GoalLogsSnapshot = HabitLogsSnapshot;
+export type GoalLogStatus = HabitLogStatus;
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -92,58 +101,58 @@ export function toDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export const fetchGoalLogsSnapshot = (
+export const fetchHabitLogsSnapshot = (
   monthKey: string,
-): Promise<GoalLogsSnapshot> =>
+): Promise<HabitLogsSnapshot> =>
   mobileApiFetch(`/api/goal-logs?month=${monthKey}`).then((r) =>
-    parseResponse<GoalLogsSnapshot>(r),
+    parseResponse<HabitLogsSnapshot>(r),
   );
 
-export const fetchAllGoalLogsSnapshot = (): Promise<GoalLogsSnapshot> =>
+export const fetchAllHabitLogsSnapshot = (): Promise<HabitLogsSnapshot> =>
   mobileApiFetch(`/api/goal-logs?all=true&month=${getMonthKey()}`).then((r) =>
-    parseResponse<GoalLogsSnapshot>(r),
+    parseResponse<HabitLogsSnapshot>(r),
   );
 
-export const setGoalLog = (
-  goalId: string,
+export const setHabitLog = (
+  habitId: string,
   dateKey: string,
-  status: GoalLogStatus,
+  status: HabitLogStatus,
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
-    body: JSON.stringify({ type: "setLog", goalId, dateKey, status }),
+    body: JSON.stringify({ type: "setLog", goalId: habitId, dateKey, status }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
-export const setGoalLogNote = (
-  goalId: string,
+export const setHabitLogNote = (
+  habitId: string,
   dateKey: string,
   notes: string,
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
-    body: JSON.stringify({ type: "setNote", goalId, dateKey, notes }),
+    body: JSON.stringify({ type: "setNote", goalId: habitId, dateKey, notes }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
-export const setGoalLogVisibility = (
-  goalId: string,
+export const setHabitLogVisibility = (
+  habitId: string,
   dateKey: string,
-  visibility: GoalVisibility,
+  visibility: HabitVisibility,
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
     body: JSON.stringify({
       type: "setVisibility",
-      goalId,
+      goalId: habitId,
       dateKey,
       visibility,
     }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
-export const deleteGoalLog = (
-  goalId: string,
+export const deleteHabitLog = (
+  habitId: string,
   dateKey: string,
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
-    body: JSON.stringify({ type: "deleteLog", goalId, dateKey }),
+    body: JSON.stringify({ type: "deleteLog", goalId: habitId, dateKey }),
   }).then((r) => parseResponse<{ ok: true }>(r));

@@ -147,8 +147,7 @@ export function DashboardScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [monthlyOpen, setMonthlyOpen] = useState(true);
-  const [dailyOpen, setDailyOpen] = useState(true);
+  const [dashTab, setDashTab] = useState<"daily" | "monthly">("daily");
   const [lowerOpen, setLowerOpen] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareFriends, setShareFriends] = useState<FriendRow[]>([]);
@@ -360,62 +359,77 @@ export function DashboardScreen() {
             </View>
           ) : snapshot ? (
             <View style={styles.sections}>
-              {highPriorityCats.length > 0 ? (
-                <DashSection
-                  title="DAILY GOALS (LAST 10 DAYS)"
-                  isOpen={dailyOpen}
-                  onToggle={() => setDailyOpen((v) => !v)}
-                >
-                  {highPriorityCats.map((cat, i) => (
-                    <CategoryHeatmap
-                      key={cat.id}
-                      category={cat}
-                      goals={cat.goals}
-                      days={last10Days}
-                      logsByGoalDate={snapshot.logsByGoalDate}
-                      showDivider={i > 0}
-                    />
-                  ))}
-                </DashSection>
-              ) : null}
+              <DashboardTabs value={dashTab} onChange={setDashTab} />
 
-              {monthlyGoals.length > 0 ? (
-                <DashSection
-                  title="MONTHLY GOAL PROGRESS"
-                  isOpen={monthlyOpen}
-                  onToggle={() => setMonthlyOpen((v) => !v)}
-                >
-                  {monthlyGoals.map((goal, i) => (
-                    <MonthlyGoalRow
-                      key={goal.id}
-                      goal={goal}
-                      currentMonthKey={currentMonthKey}
-                      logsByGoalDate={snapshot.logsByGoalDate}
-                      showDivider={i > 0}
-                    />
-                  ))}
-                </DashSection>
-              ) : null}
+              {dashTab === "daily" ? (
+                <>
+                  <DashCard>
+                    {highPriorityCats.length > 0 ? (
+                      highPriorityCats.map((cat, i) => (
+                        <CategoryHeatmap
+                          key={cat.id}
+                          category={cat}
+                          goals={cat.goals}
+                          days={last10Days}
+                          logsByGoalDate={snapshot.logsByGoalDate}
+                          showDivider={i > 0}
+                        />
+                      ))
+                    ) : (
+                      <Text
+                        style={[
+                          styles.emptyHint,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        No daily goals yet.
+                      </Text>
+                    )}
+                  </DashCard>
 
-              {lowerPriorityGoals.length > 0 ? (
-                <DashSection
-                  title="SHOW LOWER PRIORITY GOALS"
-                  isOpen={lowerOpen}
-                  onToggle={() => setLowerOpen((v) => !v)}
-                  collapsedContent={<IconPreview goals={lowerPriorityGoals} />}
-                >
-                  {lowerPriorityCats.map((cat, i) => (
-                    <CategoryHeatmap
-                      key={cat.id}
-                      category={cat}
-                      goals={cat.goals}
-                      days={last10Days}
-                      logsByGoalDate={snapshot.logsByGoalDate}
-                      showDivider={i > 0}
-                    />
-                  ))}
-                </DashSection>
-              ) : null}
+                  {lowerPriorityGoals.length > 0 ? (
+                    <DashSection
+                      title="SHOW LOWER PRIORITY GOALS"
+                      isOpen={lowerOpen}
+                      onToggle={() => setLowerOpen((v) => !v)}
+                      collapsedContent={
+                        <IconPreview goals={lowerPriorityGoals} />
+                      }
+                    >
+                      {lowerPriorityCats.map((cat, i) => (
+                        <CategoryHeatmap
+                          key={cat.id}
+                          category={cat}
+                          goals={cat.goals}
+                          days={last10Days}
+                          logsByGoalDate={snapshot.logsByGoalDate}
+                          showDivider={i > 0}
+                        />
+                      ))}
+                    </DashSection>
+                  ) : null}
+                </>
+              ) : (
+                <DashCard>
+                  {monthlyGoals.length > 0 ? (
+                    monthlyGoals.map((goal, i) => (
+                      <MonthlyGoalRow
+                        key={goal.id}
+                        goal={goal}
+                        currentMonthKey={currentMonthKey}
+                        logsByGoalDate={snapshot.logsByGoalDate}
+                        showDivider={i > 0}
+                      />
+                    ))
+                  ) : (
+                    <Text
+                      style={[styles.emptyHint, { color: theme.textSecondary }]}
+                    >
+                      No monthly goals yet.
+                    </Text>
+                  )}
+                </DashCard>
+              )}
             </View>
           ) : null}
         </ScrollView>
@@ -562,6 +576,68 @@ function ShareResultsModal({
         </View>
       </View>
     </Modal>
+  );
+}
+
+function DashboardTabs({
+  value,
+  onChange,
+}: {
+  value: "daily" | "monthly";
+  onChange: (value: "daily" | "monthly") => void;
+}) {
+  const theme = useTheme();
+  const tabs: { key: "daily" | "monthly"; label: string }[] = [
+    { key: "daily", label: "Daily" },
+    { key: "monthly", label: "Monthly" },
+  ];
+
+  return (
+    <View
+      style={[
+        styles.tabBar,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+      ]}
+    >
+      {tabs.map((tab) => {
+        const active = value === tab.key;
+        return (
+          <Pressable
+            key={tab.key}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(tab.key)}
+            style={[styles.tab, active && { backgroundColor: theme.tabBar }]}
+          >
+            <Text
+              style={[
+                styles.tabLabel,
+                { color: active ? theme.text : theme.textSecondary },
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function DashCard({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[
+        styles.section,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
+      <View style={styles.cardContent}>{children}</View>
+    </View>
   );
 }
 
@@ -848,10 +924,32 @@ const styles = StyleSheet.create({
     paddingVertical: 64,
   },
   sections: { gap: 14 },
+  tabBar: {
+    flexDirection: "row",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    padding: 3,
+    gap: 3,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 9,
+    borderRadius: 11,
+  },
+  tabLabel: { fontSize: 14, fontWeight: "700" },
   section: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 20,
     overflow: "hidden",
+  },
+  cardContent: { paddingHorizontal: 14, paddingVertical: 8 },
+  emptyHint: {
+    fontSize: 13,
+    fontWeight: "500",
+    textAlign: "center",
+    paddingVertical: 24,
   },
   sectionHeader: {
     flexDirection: "row",

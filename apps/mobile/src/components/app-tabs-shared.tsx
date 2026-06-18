@@ -23,6 +23,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/hooks/use-theme";
+import {
+  type CollabSection,
+  type PlanReportView,
+  setCollabSection,
+  setPlanReportView,
+} from "@/lib/tab-view-store";
 
 const HOLD_HAPTIC_DELAY_MS = 220;
 const HOLD_HAPTIC_INTERVAL_MS = 120;
@@ -58,24 +64,24 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "left",
-      width: 202,
+      width: 178,
       items: [
         {
-          label: "Daily Goals",
-          href: "/plan-report?view=daily",
+          label: "Habits",
+          href: "/plan-report?view=habits",
           icon: {
-            ios: "calendar",
-            android: "calendar_today",
-            web: "calendar_today",
+            ios: "repeat",
+            android: "repeat",
+            web: "repeat",
           },
         },
         {
-          label: "Monthly Goals",
-          href: "/plan-report?view=monthly",
+          label: "Goals",
+          href: "/plan-report?view=goals",
           icon: {
-            ios: "calendar",
-            android: "calendar_month",
-            web: "calendar_month",
+            ios: "target",
+            android: "target",
+            web: "target",
           },
         },
         {
@@ -211,7 +217,10 @@ export default function AppTabs() {
                     current === tab.name ? null : tab.name,
                   );
                 }}
-                onSelectMenuItem={(href) => router.navigate(href)}
+                onSelectMenuItem={(href) => {
+                  rememberSubmenuSelection(href);
+                  router.navigate(href);
+                }}
               />
             </TabTrigger>
           ))}
@@ -224,6 +233,7 @@ export default function AppTabs() {
           onClose={() => setOpenMenuName(null)}
           onSelect={(href) => {
             setOpenMenuName(null);
+            rememberSubmenuSelection(href);
             router.navigate(href);
           }}
         />
@@ -432,6 +442,28 @@ function playMenuOpenHaptic() {
       : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
 
   void haptic.catch(() => undefined);
+}
+
+function rememberSubmenuSelection(href: Href) {
+  if (typeof href !== "string") return;
+
+  const planReportViews: Record<string, PlanReportView> = {
+    "/plan-report?view=habits": "habits",
+    "/plan-report?view=goals": "goals",
+    "/plan-report?view=top-tasks": "top-tasks",
+  };
+  const collabSections: Record<string, CollabSection> = {
+    "/?section=feed": "feed",
+    "/?section=incentives": "incentives",
+    "/?section=shared-goals": "shared-goals",
+    "/?section=friends": "friends",
+  };
+
+  const planReportView = planReportViews[href];
+  if (planReportView) setPlanReportView(planReportView);
+
+  const collabSection = collabSections[href];
+  if (collabSection) setCollabSection(collabSection);
 }
 
 function SubmenuPopover({

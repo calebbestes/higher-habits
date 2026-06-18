@@ -6,7 +6,7 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
-  goals,
+  habits,
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
@@ -48,18 +48,18 @@ const getGoalLogsSnapshotForMonth = async (
   const { startDateKey, endDateKeyExclusive } = getMonthDateRange(month);
 
   const periodicFields = {
-    id: goals.id,
-    name: goals.name,
-    iconKey: goals.iconKey,
-    categoryId: goals.categoryId,
-    priority: goals.priority,
-    visibility: goals.visibility,
-    period: goals.period,
-    frequencyGoal: goals.frequencyGoal,
-    repeatInterval: goals.repeatInterval,
-    repeatDays: goals.repeatDays,
-    repeatMonthlyType: goals.repeatMonthlyType,
-    createdAt: goals.createdAt,
+    id: habits.id,
+    name: habits.name,
+    iconKey: habits.iconKey,
+    categoryId: habits.categoryId,
+    priority: habits.priority,
+    visibility: habits.visibility,
+    period: habits.period,
+    frequencyGoal: habits.frequencyGoal,
+    repeatInterval: habits.repeatInterval,
+    repeatDays: habits.repeatDays,
+    repeatMonthlyType: habits.repeatMonthlyType,
+    createdAt: habits.createdAt,
   };
 
   const [
@@ -79,31 +79,31 @@ const getGoalLogsSnapshotForMonth = async (
       .orderBy(asc(categories.name)),
     db
       .select()
-      .from(goals)
+      .from(habits)
       .where(
         and(
-          eq(goals.userId, userId),
-          eq(goals.period, "daily"),
-          eq(goals.hidden, false),
+          eq(habits.userId, userId),
+          eq(habits.period, "daily"),
+          eq(habits.hidden, false),
         ),
       )
-      .orderBy(asc(goals.priority), asc(goals.name)),
+      .orderBy(asc(habits.priority), asc(habits.name)),
     db
       .select(periodicFields)
-      .from(goals)
+      .from(habits)
       .where(
         and(
-          eq(goals.userId, userId),
-          ne(goals.period, "daily"),
-          eq(goals.hidden, false),
+          eq(habits.userId, userId),
+          ne(habits.period, "daily"),
+          eq(habits.hidden, false),
         ),
       )
-      .orderBy(asc(goals.priority), asc(goals.name)),
+      .orderBy(asc(habits.priority), asc(habits.name)),
     db
       .select(periodicFields)
-      .from(goals)
-      .where(and(eq(goals.userId, userId), eq(goals.hidden, true)))
-      .orderBy(asc(goals.priority), asc(goals.name)),
+      .from(habits)
+      .where(and(eq(habits.userId, userId), eq(habits.hidden, true)))
+      .orderBy(asc(habits.priority), asc(habits.name)),
     db
       .select({
         goalId: goalLogs.goalId,

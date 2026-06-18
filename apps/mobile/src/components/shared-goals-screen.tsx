@@ -17,11 +17,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import type { ActionGoal } from "@/components/daily-goals/shared";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { useTheme } from "@/hooks/use-theme";
 import { type FriendRow, fetchFriends } from "@/lib/friends-client";
-import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
-import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
   type GoalLogStatus,
   type GoalLogsSnapshot,
@@ -32,9 +32,9 @@ import {
   setGoalLogVisibility,
   toDateKey,
 } from "@/lib/goal-logs-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import { type Goal, type GoalVisibility, fetchGoals } from "@/lib/goals-client";
-import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
-import type { ActionGoal } from "@/components/daily-goals/shared";
 import {
   type CreateSharedGoalInput,
   type SharedGoalParticipantSnapshot,
@@ -1963,6 +1963,8 @@ export function SharedGoalsScreen() {
             actionGoal.name,
           iconKey: actionPersonalGoal?.iconKey ?? "target",
           categoryId: actionPersonalGoal?.categoryId ?? "",
+          goalId: actionPersonalGoal?.goalId ?? null,
+          goalTitle: actionPersonalGoal?.goalTitle ?? null,
           priority: actionPersonalGoal?.priority ?? "high",
           hidden: actionPersonalGoal?.hidden ?? false,
           visibility: actionPersonalGoal?.visibility ?? "only_me",

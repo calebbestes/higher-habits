@@ -5,7 +5,7 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
-  goals,
+  habits,
   users,
 } from "@habit/db";
 import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
@@ -79,23 +79,23 @@ export async function GET(request: Request) {
       .select({
         entryId: goalLogs.id,
         friendId: goalLogs.userId,
-        goalId: goals.id,
-        goalName: goals.name,
-        goalIcon: goals.iconKey,
+        goalId: habits.id,
+        goalName: habits.name,
+        goalIcon: habits.iconKey,
         visibility: goalLogs.visibility,
-        goalPeriod: goals.period,
-        goalPriority: goals.priority,
+        goalPeriod: habits.period,
+        goalPriority: habits.priority,
         dateKey: goalLogs.date,
         notes: goalLogs.notes,
         updatedAt: goalLogs.updatedAt,
       })
       .from(goalLogs)
-      .innerJoin(goals, eq(goalLogs.goalId, goals.id))
+      .innerJoin(habits, eq(goalLogs.goalId, habits.id))
       .where(
         and(
           inArray(goalLogs.userId, friendIds),
           eq(goalLogs.status, "complete"),
-          eq(goals.userId, goalLogs.userId),
+          eq(habits.userId, goalLogs.userId),
         ),
       )
       .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.date));
@@ -106,8 +106,8 @@ export async function GET(request: Request) {
         string,
         {
           id: string;
-          period: (typeof goals.period.enumValues)[number];
-          priority: (typeof goals.priority.enumValues)[number];
+          period: (typeof habits.period.enumValues)[number];
+          priority: (typeof habits.priority.enumValues)[number];
         }
       >
     >();
@@ -118,8 +118,8 @@ export async function GET(request: Request) {
           string,
           {
             id: string;
-            period: (typeof goals.period.enumValues)[number];
-            priority: (typeof goals.priority.enumValues)[number];
+            period: (typeof habits.period.enumValues)[number];
+            priority: (typeof habits.priority.enumValues)[number];
           }
         >();
       goalsById.set(row.goalId, {

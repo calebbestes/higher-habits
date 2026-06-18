@@ -4,29 +4,28 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-
-type PlanReportView = "daily" | "monthly" | "top-tasks";
+import { type PlanReportView, setPlanReportView } from "@/lib/tab-view-store";
 
 const MENU_ITEMS: {
   id: PlanReportView;
   title: string;
   href:
-    | "/plan-report?view=daily"
-    | "/plan-report?view=monthly"
+    | "/plan-report?view=habits"
+    | "/plan-report?view=goals"
     | "/plan-report?view=top-tasks";
-  image: "calendar" | "calendar.badge.clock" | "checklist";
+  image: "repeat" | "target" | "checklist";
 }[] = [
   {
-    id: "daily",
-    title: "Daily Goals",
-    href: "/plan-report?view=daily",
-    image: "calendar.badge.clock",
+    id: "habits",
+    title: "Habits",
+    href: "/plan-report?view=habits",
+    image: "repeat",
   },
   {
-    id: "monthly",
-    title: "Monthly Goals",
-    href: "/plan-report?view=monthly",
-    image: "calendar",
+    id: "goals",
+    title: "Goals",
+    href: "/plan-report?view=goals",
+    image: "target",
   },
   {
     id: "top-tasks",
@@ -47,8 +46,7 @@ export function PlanReportHeaderMenu({
   const selectedView = isPlanReportView(view) ? view : currentView;
   const selectedItem =
     MENU_ITEMS.find((item) => item.id === selectedView) ?? MENU_ITEMS[0];
-  const triggerWidth =
-    selectedView === "monthly" ? 190 : selectedView === "top-tasks" ? 140 : 160;
+  const triggerWidth = selectedView === "top-tasks" ? 140 : 120;
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -71,7 +69,10 @@ export function PlanReportHeaderMenu({
         const selectedItem = MENU_ITEMS.find(
           (item) => item.id === nativeEvent.event,
         );
-        if (selectedItem) router.navigate(selectedItem.href);
+        if (selectedItem) {
+          setPlanReportView(selectedItem.id);
+          router.navigate(selectedItem.href);
+        }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
       title="Plan/Report views"
@@ -97,7 +98,7 @@ export function PlanReportHeaderMenu({
 }
 
 function isPlanReportView(view: string | undefined): view is PlanReportView {
-  return view === "daily" || view === "monthly" || view === "top-tasks";
+  return view === "habits" || view === "goals" || view === "top-tasks";
 }
 
 const styles = StyleSheet.create({
