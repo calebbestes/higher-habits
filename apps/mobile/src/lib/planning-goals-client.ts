@@ -3,12 +3,30 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type Goal = {
   id: string;
   title: string;
+  checkpoints: GoalCheckpoint[];
   createdAt: string;
   updatedAt: string;
 };
 
+export type GoalCheckpoint = {
+  id: string;
+  title: string;
+  targetDate: string | null;
+  sortOrder: number;
+  completed: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GoalCheckpointInput = {
+  title: string;
+  targetDate: string | null;
+  completed: boolean;
+};
+
 export type GoalInput = {
   title: string;
+  checkpoints: GoalCheckpointInput[];
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

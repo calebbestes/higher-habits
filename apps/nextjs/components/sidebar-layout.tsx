@@ -41,7 +41,7 @@ const CALENDAR_NAV_ITEMS = [
     href: "/calendar/month",
   },
   {
-    label: "Top Tasks",
+    label: "Tasks",
     icon: "mdi:format-list-checks",
     href: "/calendar/top-tasks",
   },

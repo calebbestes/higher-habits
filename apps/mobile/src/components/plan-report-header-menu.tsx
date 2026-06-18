@@ -29,7 +29,7 @@ const MENU_ITEMS: {
   },
   {
     id: "top-tasks",
-    title: "Top Tasks",
+    title: "Tasks",
     href: "/plan-report?view=top-tasks",
     image: "checklist",
   },

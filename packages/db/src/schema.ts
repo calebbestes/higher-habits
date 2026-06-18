@@ -336,6 +336,34 @@ export const goals = pgTable(
   ],
 );
 
+export const goalCheckpoints = pgTable(
+  "goal_checkpoints",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalId: uuid("goal_id")
+      .notNull()
+      .references(() => goals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    targetDate: date("target_date", { mode: "string" }),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_checkpoints_goal_id_idx").on(table.goalId),
+    index("goal_checkpoints_user_id_idx").on(table.userId),
+    index("goal_checkpoints_target_date_idx").on(table.targetDate),
+  ],
+);
+
 export const habits = pgTable(
   "habits",
   {
@@ -576,6 +604,8 @@ export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
+export type GoalCheckpoint = typeof goalCheckpoints.$inferSelect;
+export type NewGoalCheckpoint = typeof goalCheckpoints.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;

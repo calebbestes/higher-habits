@@ -38,10 +38,6 @@ import {
   fetchHabits,
   updateHabit,
 } from "@/lib/habits-client";
-import {
-  type Goal as PlanGoal,
-  fetchPlanGoals,
-} from "@/lib/planning-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 type HabitFilter = "all" | "high" | "hidden";
@@ -196,7 +192,6 @@ export function HabitsManagerScreen() {
   const tabBarHeight = useTabBarHeight();
   const [habits, setHabits] = useState<Habit[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [goals, setGoals] = useState<PlanGoal[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<HabitFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -211,14 +206,12 @@ export function HabitsManagerScreen() {
     setError(null);
 
     try {
-      const [nextHabits, nextCategories, nextGoals] = await Promise.all([
+      const [nextHabits, nextCategories] = await Promise.all([
         fetchHabits(),
         fetchCategories(),
-        fetchPlanGoals(),
       ]);
       setHabits(nextHabits);
       setCategories(nextCategories);
-      setGoals(nextGoals);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -536,7 +529,6 @@ export function HabitsManagerScreen() {
 
       <HabitFormModal
         categories={categories}
-        goals={goals}
         habit={editingHabit}
         isOpen={formOpen}
         onAddCategory={addCategory}
@@ -884,7 +876,6 @@ function HabitActionsModal({
 
 export function HabitFormModal({
   categories,
-  goals = [],
   habit,
   initialValues,
   isOpen,
@@ -893,7 +884,6 @@ export function HabitFormModal({
   onSave,
 }: {
   categories: Category[];
-  goals?: PlanGoal[];
   habit: Habit | null;
   initialValues?: Partial<HabitInput>;
   isOpen: boolean;
@@ -1120,31 +1110,6 @@ export function HabitFormModal({
                   </Text>
                 </Pressable>
               )}
-            </FormSection>
-
-            <FormSection title="Linked Goal">
-              <View style={styles.choiceWrap}>
-                <Choice
-                  label="No goal"
-                  selected={!form.goalId}
-                  onPress={() =>
-                    setForm((current) => ({ ...current, goalId: null }))
-                  }
-                />
-                {goals.map((goal) => (
-                  <Choice
-                    key={goal.id}
-                    label={goal.title}
-                    selected={form.goalId === goal.id}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        goalId: goal.id,
-                      }))
-                    }
-                  />
-                ))}
-              </View>
             </FormSection>
 
             <FormSection title="Schedule">

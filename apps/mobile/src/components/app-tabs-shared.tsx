@@ -85,7 +85,7 @@ const TABS: TabItem[] = [
           },
         },
         {
-          label: "Top Tasks",
+          label: "Tasks",
           href: "/plan-report?view=top-tasks",
           icon: {
             ios: "checklist",

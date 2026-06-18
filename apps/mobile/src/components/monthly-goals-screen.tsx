@@ -54,10 +54,6 @@ import {
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
-import {
-  type Goal as PlanGoal,
-  fetchPlanGoals,
-} from "@/lib/planning-goals-client";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 type SymbolName = SymbolViewProps["name"];
@@ -302,7 +298,6 @@ export function MonthlyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [goals, setGoals] = useState<PlanGoal[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [sort, setSort] = useState<SortKey>("priority");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
@@ -323,15 +318,13 @@ export function MonthlyGoalsScreen({
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const [snap, cats, nextGoals] = await Promise.all([
+        const [snap, cats] = await Promise.all([
           fetchHabitLogsSnapshot(monthKey),
           fetchCategories(),
-          fetchPlanGoals(),
         ]);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
         setCategories(cats);
-        setGoals(nextGoals);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load habits.");
       } finally {
@@ -829,7 +822,6 @@ export function MonthlyGoalsScreen({
 
       <HabitFormModal
         categories={categories}
-        goals={goals}
         habit={editingGoal}
         initialValues={{ period: "monthly" }}
         isOpen={formOpen}
