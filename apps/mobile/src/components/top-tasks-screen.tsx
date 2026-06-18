@@ -193,6 +193,7 @@ export function TopTasksScreen() {
           dueDate: task.dueDate,
           completedAt: newCompletedAt,
           timeRequired: task.timeRequired,
+          projectId: task.projectId,
         });
         setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
       } catch (err) {
@@ -694,6 +695,7 @@ const EMPTY_TASK: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  projectId: null,
 };
 
 function toInput(task: Task): TaskInput {
@@ -703,6 +705,7 @@ function toInput(task: Task): TaskInput {
     dueDate: task.dueDate,
     completedAt: task.completedAt,
     timeRequired: task.timeRequired,
+    projectId: task.projectId,
   };
 }
 

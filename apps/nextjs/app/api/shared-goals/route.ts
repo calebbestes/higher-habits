@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 import { getSharedGoalSnapshots } from "@/lib/shared-goals";
 
 const createSharedGoalSchema = z
@@ -253,6 +254,14 @@ export async function POST(request: Request) {
       return created.id;
     });
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
+
+    for (const friendId of uniqueInvitedUserIds) {
+      void sendPushToUser(friendId, "notifySharedGoalInvites", {
+        title: "New shared goal",
+        body: `${user.name} invited you to "${data.name}".`,
+        data: { type: "shared_goal_invite", sharedGoalId },
+      });
+    }
 
     return NextResponse.json(snapshot, { status: 201 });
   } catch (error) {

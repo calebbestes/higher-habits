@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
+import { sendPushToUser } from "@/lib/push";
 
 const interactionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -171,6 +172,12 @@ export async function POST(
         .values({ goalLogId, userId: user.id })
         .onConflictDoNothing();
 
+      void sendPushToUser(entry.ownerId, "notifyPostProps", {
+        title: "Someone propped your post",
+        body: `${user.name} gave you props.`,
+        data: { type: "post_prop", goalLogId },
+      });
+
       return NextResponse.json({ hasPropped: true });
     }
 
@@ -183,6 +190,12 @@ export async function POST(
           body: interaction.body,
         })
         .returning({ id: feedComments.id });
+
+      void sendPushToUser(entry.ownerId, "notifyPostComments", {
+        title: "New comment on your post",
+        body: `${user.name} commented: ${interaction.body.slice(0, 100)}`,
+        data: { type: "post_comment", goalLogId },
+      });
 
       return NextResponse.json(comment, { status: 201 });
     }

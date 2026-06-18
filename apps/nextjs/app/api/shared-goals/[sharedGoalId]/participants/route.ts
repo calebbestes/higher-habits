@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 import { getSharedGoalSnapshots } from "@/lib/shared-goals";
 
 const participantActionSchema = z.discriminatedUnion("action", [
@@ -52,7 +53,7 @@ export async function POST(
       return NextResponse.json({ error: "Choose a friend." }, { status: 400 });
     }
     const [ownedGoal] = await db
-      .select({ id: sharedGoals.id })
+      .select({ id: sharedGoals.id, name: sharedGoals.name })
       .from(sharedGoals)
       .where(
         and(eq(sharedGoals.id, sharedGoalId), eq(sharedGoals.ownerId, user.id)),
@@ -127,6 +128,14 @@ export async function POST(
           updatedAt: new Date(),
         },
       });
+
+    for (const friendId of userIds) {
+      void sendPushToUser(friendId, "notifySharedGoalInvites", {
+        title: "New shared goal",
+        body: `${user.name} invited you to "${ownedGoal.name}".`,
+        data: { type: "shared_goal_invite", sharedGoalId },
+      });
+    }
 
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
     return NextResponse.json(snapshot);
@@ -339,6 +348,20 @@ export async function PATCH(
     }
 
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
+
+    if (
+      snapshot &&
+      snapshot.ownerId !== user.id &&
+      (parsed.data.action === "accept" || parsed.data.action === "decline")
+    ) {
+      const joined = parsed.data.action === "accept";
+      void sendPushToUser(snapshot.ownerId, "notifySharedGoalResponses", {
+        title: joined ? "Shared goal joined" : "Invite declined",
+        body: `${user.name} ${joined ? "joined" : "declined"} "${snapshot.name}".`,
+        data: { type: "shared_goal_response", sharedGoalId },
+      });
+    }
+
     return NextResponse.json(snapshot);
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
