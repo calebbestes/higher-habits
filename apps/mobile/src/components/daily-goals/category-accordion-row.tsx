@@ -60,7 +60,7 @@ function CategoryAccordionRowImpl({
             {category.name}
           </Text>
           <Text style={[styles.catCount, { color: theme.textSecondary }]}>
-            {goals.length} {goals.length === 1 ? "goal" : "goals"}
+            {goals.length} {goals.length === 1 ? "habit" : "habits"}
           </Text>
         </View>
         <SymbolView

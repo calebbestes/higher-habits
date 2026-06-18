@@ -1,4 +1,4 @@
-import { getDb, goalLogPhotos, goalLogs, goals } from "@habit/db";
+import { getDb, goalLogPhotos, goalLogs, habits } from "@habit/db";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -244,13 +244,13 @@ export async function POST(request: Request) {
     }
 
     const [goal] = await db
-      .select({ id: goals.id, visibility: goals.visibility })
-      .from(goals)
-      .where(and(eq(goals.id, goalId), eq(goals.userId, user.id)))
+      .select({ id: habits.id, visibility: habits.visibility })
+      .from(habits)
+      .where(and(eq(habits.id, goalId), eq(habits.userId, user.id)))
       .limit(1);
 
     if (!goal) {
-      return NextResponse.json({ error: "Goal not found" }, { status: 404 });
+      return NextResponse.json({ error: "Habit not found" }, { status: 404 });
     }
 
     const [goalLog] = await db

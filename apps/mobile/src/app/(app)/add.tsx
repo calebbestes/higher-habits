@@ -1,14 +1,14 @@
 import { useLocalSearchParams } from "expo-router";
 
-import { GoalsScreen } from "@/components/goals-screen";
+import { HabitsManagerScreen } from "@/components/habits-manager-screen";
 import { TabPlaceholderScreen } from "@/components/tab-placeholder-screen";
 import { TasksScreen } from "@/components/tasks-screen";
 
 export default function AddScreen() {
   const { type } = useLocalSearchParams<{ type?: string }>();
 
-  if (type === "goals") {
-    return <GoalsScreen />;
+  if (type === "habits" || type === "goals") {
+    return <HabitsManagerScreen />;
   }
 
   if (type === "tasks") {
@@ -18,7 +18,7 @@ export default function AddScreen() {
   return (
     <TabPlaceholderScreen
       title="Add"
-      description="Create a goal, task, journal entry, or collaboration."
+      description="Create a habit, task, journal entry, or collaboration."
       icon={{ ios: "plus", android: "add", web: "add" }}
     />
   );

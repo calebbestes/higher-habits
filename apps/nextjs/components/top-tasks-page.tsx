@@ -69,7 +69,7 @@ export function TopTasksPage() {
           description:
             error instanceof Error
               ? error.message
-              : "We couldn't load your top tasks.",
+              : "We couldn't load your Tasks.",
           color: "warning",
         });
       })
@@ -131,7 +131,7 @@ export function TopTasksPage() {
     <main className="mx-auto flex h-full w-full max-w-3xl flex-col px-3 py-5 sm:px-6 sm:py-8">
       <header className="mb-4 flex items-center gap-3">
         <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">
-          Top Tasks
+          Tasks
         </h1>
         <span className="ml-auto rounded-full bg-default-100 px-3 py-1 text-xs font-semibold tabular-nums text-foreground-500">
           {topTasks.length}/10
@@ -139,7 +139,7 @@ export function TopTasksPage() {
         <SettingsLink />
       </header>
 
-      <section aria-label="Top tasks" className="space-y-2">
+      <section aria-label="Tasks" className="space-y-2">
         {isLoading ? (
           <div className="flex min-h-20 items-center gap-3 rounded-xl border border-default-200/60 bg-content1/50 px-4 text-sm text-foreground-400">
             <Icon icon="mdi:loading" className="h-5 w-5 animate-spin" />

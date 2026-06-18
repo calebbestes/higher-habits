@@ -5,7 +5,7 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
-  goals,
+  habits,
 } from "@habit/db";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -41,19 +41,19 @@ async function findAccessibleFeedEntry(
     .select({
       id: goalLogs.id,
       ownerId: goalLogs.userId,
-      goalId: goals.id,
+      goalId: habits.id,
       visibility: goalLogs.visibility,
-      period: goals.period,
-      priority: goals.priority,
+      period: habits.period,
+      priority: habits.priority,
       notes: goalLogs.notes,
     })
     .from(goalLogs)
-    .innerJoin(goals, eq(goalLogs.goalId, goals.id))
+    .innerJoin(habits, eq(goalLogs.goalId, habits.id))
     .where(
       and(
         eq(goalLogs.id, goalLogId),
         eq(goalLogs.status, "complete"),
-        eq(goals.userId, goalLogs.userId),
+        eq(habits.userId, goalLogs.userId),
       ),
     )
     .limit(1);

@@ -4,23 +4,23 @@ import { FeedScreen } from "@/components/feed-screen";
 import { FriendsScreen } from "@/components/friends-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
+import { isCollabSection, useCollabSection } from "@/lib/tab-view-store";
 
 export default function CollabScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>();
+  // Fall back to the remembered section so returning to this tab restores it.
+  const rememberedSection = useCollabSection();
+  const activeSection = isCollabSection(section) ? section : rememberedSection;
 
-  if (!section || section === "feed") {
-    return <FeedScreen />;
-  }
-
-  if (section === "shared-goals") {
+  if (activeSection === "shared-goals") {
     return <SharedGoalsScreen />;
   }
 
-  if (section === "incentives") {
+  if (activeSection === "incentives") {
     return <IncentivesScreen />;
   }
 
-  if (section === "friends") {
+  if (activeSection === "friends") {
     return <FriendsScreen />;
   }
 

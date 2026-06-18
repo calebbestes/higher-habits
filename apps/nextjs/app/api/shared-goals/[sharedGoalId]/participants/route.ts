@@ -2,7 +2,7 @@ import {
   categories,
   friends,
   getDb,
-  goals,
+  habits,
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
@@ -176,12 +176,12 @@ export async function PATCH(
       parsed.data.personalGoalId
     ) {
       const [personalGoal] = await db
-        .select({ id: goals.id })
-        .from(goals)
+        .select({ id: habits.id })
+        .from(habits)
         .where(
           and(
-            eq(goals.id, parsed.data.personalGoalId),
-            eq(goals.userId, user.id),
+            eq(habits.id, parsed.data.personalGoalId),
+            eq(habits.userId, user.id),
           ),
         )
         .limit(1);
@@ -254,10 +254,10 @@ export async function PATCH(
         if (!categoryId) throw new Error("Shared goal category insert failed.");
 
         const existingNames = await tx
-          .select({ name: goals.name })
-          .from(goals)
+          .select({ name: habits.name })
+          .from(habits)
           .where(
-            and(eq(goals.userId, user.id), eq(goals.categoryId, categoryId)),
+            and(eq(habits.userId, user.id), eq(habits.categoryId, categoryId)),
           );
         const usedNames = new Set(existingNames.map((goal) => goal.name));
         let personalGoalName = sharedGoal.name;
@@ -269,7 +269,7 @@ export async function PATCH(
         }
 
         const [createdPersonalGoal] = await tx
-          .insert(goals)
+          .insert(habits)
           .values({
             userId: user.id,
             name: personalGoalName,
@@ -282,7 +282,7 @@ export async function PATCH(
                 ? "mdi:account-group-outline"
                 : "mdi:trophy-outline",
           })
-          .returning({ id: goals.id });
+          .returning({ id: habits.id });
 
         if (!createdPersonalGoal) {
           throw new Error("Personal goal insert failed.");
@@ -328,11 +328,11 @@ export async function PATCH(
         existingParticipant.personalGoalId !== personalGoalId
       ) {
         await tx
-          .delete(goals)
+          .delete(habits)
           .where(
             and(
-              eq(goals.id, existingParticipant.personalGoalId),
-              eq(goals.userId, user.id),
+              eq(habits.id, existingParticipant.personalGoalId),
+              eq(habits.userId, user.id),
             ),
           );
       }

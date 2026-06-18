@@ -23,36 +23,38 @@ import {
 } from "@/components/celebration-overlay";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
-import { GoalFormModal } from "@/components/goals-screen";
+import { HabitFormModal } from "@/components/habits-manager-screen";
+import { HabitsTabs } from "@/components/habits-tabs";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import { captureHandledError } from "@/lib/crash-reporting";
-import {
-  type GoalLogStatus,
-  type GoalLogsSnapshot,
-  type PeriodicGoalInfo,
-  fetchGoalLogsSnapshot,
-  getMonthKey,
-  setGoalLog,
-  setGoalLogNote,
-  setGoalLogVisibility,
-  toDateKey,
-} from "@/lib/goal-logs-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
+  type HabitLogStatus,
+  type HabitLogsSnapshot,
+  type PeriodicHabitInfo,
+  fetchHabitLogsSnapshot,
+  getMonthKey,
+  setHabitLog,
+  setHabitLogNote,
+  setHabitLogVisibility,
+  toDateKey,
+} from "@/lib/habit-logs-client";
+import {
   type Category,
-  type Goal,
-  type GoalInput,
-  type GoalVisibility,
+  type Habit,
+  type HabitInput,
+  type HabitVisibility,
   createCategory,
-  createGoal,
-  deleteGoal,
+  createHabit,
+  deleteHabit,
   fetchCategories,
-  updateGoal,
-} from "@/lib/goals-client";
+  updateHabit,
+} from "@/lib/habits-client";
+import type { HabitsTab } from "@/lib/tab-view-store";
 
 type SymbolName = SymbolViewProps["name"];
 type SortKey = "priority" | "frequency" | "remaining";
@@ -183,7 +185,7 @@ function weekOfMonth(d: Date): number {
 }
 
 function isGoalScheduledForDate(
-  goal: import("@/lib/goal-logs-client").PeriodicGoalInfo,
+  goal: import("@/lib/habit-logs-client").PeriodicHabitInfo,
   date: Date,
 ): boolean {
   if (goal.period === "daily") return true;
@@ -242,16 +244,16 @@ function formatDayHeader(date: Date): string {
 }
 
 function getGoalMonthProgress(
-  goal: PeriodicGoalInfo,
+  goal: PeriodicHabitInfo,
   monthKey: string,
-  logsByGoalDate: Record<string, "complete" | "planned">,
+  logsByHabitDate: Record<string, "complete" | "planned">,
 ): { completed: number; planned: number; target: number } {
   const target = goal.frequencyGoal ?? 1;
   const keyPrefix = `${goal.id}_${monthKey}`;
   let completed = 0;
   let planned = 0;
 
-  for (const [key, status] of Object.entries(logsByGoalDate)) {
+  for (const [key, status] of Object.entries(logsByHabitDate)) {
     if (!key.startsWith(keyPrefix)) continue;
     if (status === "complete") completed++;
     if (status === "planned") planned++;
@@ -260,7 +262,13 @@ function getGoalMonthProgress(
   return { completed, planned, target };
 }
 
-export function MonthlyGoalsScreen() {
+export function MonthlyGoalsScreen({
+  habitsTab,
+  onHabitsTabChange,
+}: {
+  habitsTab?: HabitsTab;
+  onHabitsTabChange?: (tab: HabitsTab) => void;
+}) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [displayMonth, setDisplayMonth] = useState(() => {
@@ -274,21 +282,21 @@ export function MonthlyGoalsScreen() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
   const today = useMemo(() => new Date(), [displayMonth]);
   const todayDateKey = useMemo(() => toDateKey(today), [today]);
-  const [snapshot, setSnapshot] = useState<GoalLogsSnapshot | null>(null);
-  const [logsByGoalDate, setLogsByGoalDate] = useState<
+  const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
+  const [logsByHabitDate, setLogsByGoalDate] = useState<
     Record<string, "complete" | "planned">
   >({});
   const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeGoal, setActiveGoal] = useState<PeriodicGoalInfo | null>(null);
-  const [noteGoal, setNoteGoal] = useState<PeriodicGoalInfo | null>(null);
+  const [activeGoal, setActiveGoal] = useState<PeriodicHabitInfo | null>(null);
+  const [noteGoal, setNoteGoal] = useState<PeriodicHabitInfo | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
-  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [sort, setSort] = useState<SortKey>("priority");
@@ -297,8 +305,8 @@ export function MonthlyGoalsScreen() {
   const [sortFilterOpen, setSortFilterOpen] = useState(false);
   const updatingKeysRef = useRef(updatingKeys);
   updatingKeysRef.current = updatingKeys;
-  const logsByGoalDateRef = useRef(logsByGoalDate);
-  logsByGoalDateRef.current = logsByGoalDate;
+  const logsByHabitDateRef = useRef(logsByHabitDate);
+  logsByHabitDateRef.current = logsByHabitDate;
   const isLoadingRef = useRef(false);
 
   const monthKey = useMemo(() => getMonthKey(displayMonth), [displayMonth]);
@@ -311,14 +319,14 @@ export function MonthlyGoalsScreen() {
       setError(null);
       try {
         const [snap, cats] = await Promise.all([
-          fetchGoalLogsSnapshot(monthKey),
+          fetchHabitLogsSnapshot(monthKey),
           fetchCategories(),
         ]);
         setSnapshot(snap);
-        setLogsByGoalDate(snap.logsByGoalDate);
+        setLogsByGoalDate(snap.logsByHabitDate);
         setCategories(cats);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load goals.");
+        setError(err instanceof Error ? err.message : "Could not load habits.");
       } finally {
         isLoadingRef.current = false;
         setIsLoading(false);
@@ -328,11 +336,11 @@ export function MonthlyGoalsScreen() {
     [monthKey],
   );
 
-  const saveGoal = async (input: GoalInput) => {
+  const saveGoal = async (input: HabitInput) => {
     if (editingGoal) {
-      await updateGoal(editingGoal.id, input);
+      await updateHabit(editingGoal.id, input);
     } else {
-      await createGoal(input);
+      await createHabit(input);
     }
     await load();
     setFormOpen(false);
@@ -345,12 +353,14 @@ export function MonthlyGoalsScreen() {
     return cat;
   };
 
-  const openEdit = (goal: PeriodicGoalInfo) => {
+  const openEdit = (goal: PeriodicHabitInfo) => {
     const category = categories.find((item) => item.id === goal.categoryId);
     setEditingGoal({
       ...goal,
       categoryName: category?.name ?? "",
       categoryIcon: category?.icon ?? "",
+      goalId: goal.goalId,
+      goalTitle: goal.goalTitle,
       hidden: false,
       repeatInterval: null,
       repeatDays: null,
@@ -362,9 +372,9 @@ export function MonthlyGoalsScreen() {
     setFormOpen(true);
   };
 
-  const confirmDelete = (goal: PeriodicGoalInfo) => {
+  const confirmDelete = (goal: PeriodicHabitInfo) => {
     Alert.alert(
-      "Delete goal?",
+      "Delete habit?",
       `"${goal.name}" and its history will be permanently deleted.`,
       [
         { text: "Cancel", style: "cancel" },
@@ -373,13 +383,13 @@ export function MonthlyGoalsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteGoal(goal.id);
+              await deleteHabit(goal.id);
               await load();
             } catch (deleteError) {
               setError(
                 deleteError instanceof Error
                   ? deleteError.message
-                  : "Could not delete goal.",
+                  : "Could not delete habit.",
               );
             }
           },
@@ -393,10 +403,10 @@ export function MonthlyGoalsScreen() {
   }, [load]);
 
   const handleSetStatus = useCallback(
-    async (goalId: string, status: GoalLogStatus) => {
+    async (goalId: string, status: HabitLogStatus) => {
       const key = `${goalId}_${selectedDateKey}`;
       if (updatingKeysRef.current.has(key)) return;
-      const current = logsByGoalDateRef.current[key];
+      const current = logsByHabitDateRef.current[key];
 
       if (status === "complete" && current !== "complete") {
         setCelebrate(true);
@@ -411,7 +421,7 @@ export function MonthlyGoalsScreen() {
       });
 
       try {
-        await setGoalLog(goalId, selectedDateKey, status);
+        await setHabitLog(goalId, selectedDateKey, status);
       } catch (err) {
         setLogsByGoalDate((prev) => {
           const reverted = { ...prev };
@@ -433,10 +443,10 @@ export function MonthlyGoalsScreen() {
 
   const handleSaveNote = useCallback(
     async (goalId: string, notes: string) => {
-      await setGoalLogNote(goalId, selectedDateKey, notes);
-      const snap = await fetchGoalLogsSnapshot(monthKey);
+      await setHabitLogNote(goalId, selectedDateKey, notes);
+      const snap = await fetchHabitLogsSnapshot(monthKey);
       setSnapshot(snap);
-      setLogsByGoalDate(snap.logsByGoalDate);
+      setLogsByGoalDate(snap.logsByHabitDate);
     },
     [monthKey, selectedDateKey],
   );
@@ -451,9 +461,9 @@ export function MonthlyGoalsScreen() {
         if (!photo) return;
 
         await uploadGoalPhoto(goalId, selectedDateKey, photo);
-        const snap = await fetchGoalLogsSnapshot(monthKey);
+        const snap = await fetchHabitLogsSnapshot(monthKey);
         setSnapshot(snap);
-        setLogsByGoalDate(snap.logsByGoalDate);
+        setLogsByGoalDate(snap.logsByHabitDate);
       } catch (photoError) {
         Alert.alert(
           "Could not add photo",
@@ -469,19 +479,19 @@ export function MonthlyGoalsScreen() {
   );
 
   const handleSetVisibility = useCallback(
-    async (goalId: string, visibility: GoalVisibility) => {
+    async (goalId: string, visibility: HabitVisibility) => {
       if (isUpdatingVisibility) return;
       const key = `${goalId}_${selectedDateKey}`;
       setIsUpdatingVisibility(true);
 
       try {
-        await setGoalLogVisibility(goalId, selectedDateKey, visibility);
+        await setHabitLogVisibility(goalId, selectedDateKey, visibility);
         setSnapshot((current) =>
           current
             ? {
                 ...current,
-                visibilityByGoalDate: {
-                  ...current.visibilityByGoalDate,
+                visibilityByHabitDate: {
+                  ...current.visibilityByHabitDate,
                   [key]: visibility,
                 },
               }
@@ -507,33 +517,33 @@ export function MonthlyGoalsScreen() {
     [displayMonth],
   );
 
-  const periodicGoals = useMemo(
-    () => snapshot?.periodicGoals ?? [],
+  const periodicHabits = useMemo(
+    () => snapshot?.periodicHabits ?? [],
     [snapshot],
   );
 
   const filterCategories = useMemo(() => {
-    const categoryIds = new Set(periodicGoals.map((goal) => goal.categoryId));
+    const categoryIds = new Set(periodicHabits.map((goal) => goal.categoryId));
     return categories
       .filter((category) => categoryIds.has(category.id))
       .sort((left, right) => left.name.localeCompare(right.name));
-  }, [categories, periodicGoals]);
+  }, [categories, periodicHabits]);
 
   const monthProgressByGoal = useMemo(() => {
     const map: Record<string, ReturnType<typeof getGoalMonthProgress>> = {};
-    for (const goal of periodicGoals) {
-      map[goal.id] = getGoalMonthProgress(goal, monthKey, logsByGoalDate);
+    for (const goal of periodicHabits) {
+      map[goal.id] = getGoalMonthProgress(goal, monthKey, logsByHabitDate);
     }
     return map;
-  }, [periodicGoals, monthKey, logsByGoalDate]);
+  }, [periodicHabits, monthKey, logsByHabitDate]);
 
   const visiblePeriodicGoals = useMemo(() => {
-    const remaining = (goal: PeriodicGoalInfo) => {
+    const remaining = (goal: PeriodicHabitInfo) => {
       const progress = monthProgressByGoal[goal.id];
       return Math.max(progress.target - progress.completed, 0);
     };
 
-    return periodicGoals
+    return periodicHabits
       .filter(
         (goal) =>
           (categoryFilter === null || goal.categoryId === categoryFilter) &&
@@ -568,20 +578,20 @@ export function MonthlyGoalsScreen() {
           left.name.localeCompare(right.name)
         );
       });
-  }, [categoryFilter, monthProgressByGoal, periodFilter, periodicGoals, sort]);
+  }, [categoryFilter, monthProgressByGoal, periodFilter, periodicHabits, sort]);
 
   const dayLoggedMap = useMemo(() => {
-    const map: Record<string, PeriodicGoalInfo[]> = {};
+    const map: Record<string, PeriodicHabitInfo[]> = {};
     for (const { date } of calendarDays) {
       const dk = toDateKey(date);
-      map[dk] = periodicGoals.filter(
+      map[dk] = periodicHabits.filter(
         (goal) =>
-          !!logsByGoalDate[`${goal.id}_${dk}`] ||
+          !!logsByHabitDate[`${goal.id}_${dk}`] ||
           isGoalScheduledForDate(goal, date),
       );
     }
     return map;
-  }, [calendarDays, periodicGoals, logsByGoalDate]);
+  }, [calendarDays, periodicHabits, logsByHabitDate]);
 
   const selectedDate = dateFromKey(selectedDateKey);
 
@@ -598,7 +608,7 @@ export function MonthlyGoalsScreen() {
     setSelectedDateKey(todayDateKey);
   }, [today, todayDateKey]);
 
-  const openGoalActions = (goal: PeriodicGoalInfo) => setActiveGoal(goal);
+  const openGoalActions = (goal: PeriodicHabitInfo) => setActiveGoal(goal);
 
   const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
@@ -611,7 +621,7 @@ export function MonthlyGoalsScreen() {
   let modalProps: {
     hasNote: boolean;
     hasPhoto: boolean;
-    visibility: GoalVisibility;
+    visibility: HabitVisibility;
     status: "complete" | "planned" | undefined;
     isUpdating: boolean;
   } = {
@@ -625,23 +635,23 @@ export function MonthlyGoalsScreen() {
     try {
       const key = `${activeGoal.id}_${selectedDateKey}`;
       modalProps = {
-        hasNote: Boolean(snapshot?.notesByGoalDate?.[key]?.trim()),
-        hasPhoto: (snapshot?.photoCountsByGoalDate?.[key] ?? 0) > 0,
+        hasNote: Boolean(snapshot?.notesByHabitDate?.[key]?.trim()),
+        hasPhoto: (snapshot?.photoCountsByHabitDate?.[key] ?? 0) > 0,
         visibility:
-          snapshot?.visibilityByGoalDate?.[key] ??
+          snapshot?.visibilityByHabitDate?.[key] ??
           activeGoal.visibility ??
           "only_me",
-        status: logsByGoalDate?.[key],
+        status: logsByHabitDate?.[key],
         isUpdating: updatingKeys.has(key),
       };
     } catch (modalError) {
       captureHandledError(modalError, {
         goalId: activeGoal.id,
         goalKeys: Object.keys(activeGoal).join(","),
-        hasNotesMap: Boolean(snapshot?.notesByGoalDate),
-        hasPhotoMap: Boolean(snapshot?.photoCountsByGoalDate),
+        hasNotesMap: Boolean(snapshot?.notesByHabitDate),
+        hasPhotoMap: Boolean(snapshot?.photoCountsByHabitDate),
         hasSnapshot: Boolean(snapshot),
-        hasVisibilityMap: Boolean(snapshot?.visibilityByGoalDate),
+        hasVisibilityMap: Boolean(snapshot?.visibilityByHabitDate),
         phase: "compute-modal-props",
         selectedDateKey,
       });
@@ -668,10 +678,10 @@ export function MonthlyGoalsScreen() {
           {/* Page header */}
           <View style={styles.pageHeader}>
             <View style={[styles.pageHeaderText, { flex: 1 }]}>
-              <PlanReportHeaderMenu currentView="monthly" />
+              <PlanReportHeaderMenu currentView="habits" />
             </View>
             <Pressable
-              accessibilityLabel="Add goal"
+              accessibilityLabel="Add habit"
               accessibilityRole="button"
               onPress={() => setFormOpen(true)}
               style={({ pressed }) => [
@@ -689,6 +699,10 @@ export function MonthlyGoalsScreen() {
               />
             </Pressable>
           </View>
+
+          {habitsTab && onHabitsTabChange ? (
+            <HabitsTabs value={habitsTab} onChange={onHabitsTabChange} />
+          ) : null}
 
           {/* Month navigator */}
           <View
@@ -774,7 +788,7 @@ export function MonthlyGoalsScreen() {
             <CalendarGrid
               days={calendarDays}
               dayLoggedMap={dayLoggedMap}
-              logsByGoalDate={logsByGoalDate}
+              logsByHabitDate={logsByHabitDate}
               todayDateKey={todayDateKey}
               selectedDateKey={selectedDateKey}
               onDayPress={setSelectedDateKey}
@@ -787,15 +801,15 @@ export function MonthlyGoalsScreen() {
               selectedDate={selectedDate}
               selectedDateKey={selectedDateKey}
               monthKey={monthKey}
-              periodicGoals={visiblePeriodicGoals}
-              hasMonthlyGoals={periodicGoals.length > 0}
+              periodicHabits={visiblePeriodicGoals}
+              hasMonthlyGoals={periodicHabits.length > 0}
               isFilterActive={
                 sort !== "priority" ||
                 periodFilter !== "all" ||
                 categoryFilter !== null
               }
               isFilterOpen={sortFilterOpen}
-              logsByGoalDate={logsByGoalDate}
+              logsByHabitDate={logsByHabitDate}
               updatingKeys={updatingKeys}
               onDeleteGoal={confirmDelete}
               onEditGoal={openEdit}
@@ -806,9 +820,9 @@ export function MonthlyGoalsScreen() {
         </ScrollView>
       </SafeAreaView>
 
-      <GoalFormModal
+      <HabitFormModal
         categories={categories}
-        goal={editingGoal}
+        habit={editingGoal}
         initialValues={{ period: "monthly" }}
         isOpen={formOpen}
         onAddCategory={addCategory}
@@ -846,7 +860,7 @@ export function MonthlyGoalsScreen() {
             void handleSetVisibility(activeGoal.id, visibility);
           }
         }}
-        onSetStatus={(newStatus: GoalLogStatus) => {
+        onSetStatus={(newStatus: HabitLogStatus) => {
           if (!activeGoal) return;
           void handleSetStatus(activeGoal.id, newStatus);
           setActiveGoal(null);
@@ -858,7 +872,7 @@ export function MonthlyGoalsScreen() {
           dateKey={selectedDateKey}
           goalName={noteGoal.name}
           initialValue={
-            snapshot?.notesByGoalDate[`${noteGoal.id}_${selectedDateKey}`] ??
+            snapshot?.notesByHabitDate[`${noteGoal.id}_${selectedDateKey}`] ??
             null
           }
           onClose={() => setNoteGoal(null)}
@@ -1114,14 +1128,14 @@ function FilterOption({
 function CalendarGrid({
   days,
   dayLoggedMap,
-  logsByGoalDate,
+  logsByHabitDate,
   todayDateKey,
   selectedDateKey,
   onDayPress,
 }: {
   days: { date: Date; isOutside: boolean }[];
-  dayLoggedMap: Record<string, PeriodicGoalInfo[]>;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  dayLoggedMap: Record<string, PeriodicHabitInfo[]>;
+  logsByHabitDate: Record<string, "complete" | "planned">;
   todayDateKey: string;
   selectedDateKey: string;
   onDayPress: (dateKey: string) => void;
@@ -1186,7 +1200,7 @@ function CalendarGrid({
                 isToday={dk === todayDateKey}
                 isSelected={dk === selectedDateKey}
                 loggedGoals={dayLoggedMap[dk] ?? []}
-                logsByGoalDate={logsByGoalDate}
+                logsByHabitDate={logsByHabitDate}
                 isLastInRow={di === 6}
                 onPress={onDayPress}
               />
@@ -1205,7 +1219,7 @@ const DayCell = memo(function DayCell({
   isToday,
   isSelected,
   loggedGoals,
-  logsByGoalDate,
+  logsByHabitDate,
   isLastInRow,
   onPress,
 }: {
@@ -1214,8 +1228,8 @@ const DayCell = memo(function DayCell({
   isOutside: boolean;
   isToday: boolean;
   isSelected: boolean;
-  loggedGoals: PeriodicGoalInfo[];
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  loggedGoals: PeriodicHabitInfo[];
+  logsByHabitDate: Record<string, "complete" | "planned">;
   isLastInRow: boolean;
   onPress: (dateKey: string) => void;
 }) {
@@ -1267,11 +1281,11 @@ const DayCell = memo(function DayCell({
         </Text>
       </View>
 
-      {/* Icon tiles for logged goals */}
+      {/* Icon tiles for logged habits */}
       {visibleGoals.length > 0 ? (
         <View style={styles.tilesRow}>
           {visibleGoals.map((goal) => {
-            const status = logsByGoalDate[`${goal.id}_${dateKey}`];
+            const status = logsByHabitDate[`${goal.id}_${dateKey}`];
             const bg = status === "complete" ? theme.primary : "#A0A0A0";
             return (
               <View
@@ -1307,11 +1321,11 @@ function DayDetailPanel({
   selectedDate,
   selectedDateKey,
   monthKey,
-  periodicGoals,
+  periodicHabits,
   hasMonthlyGoals,
   isFilterActive,
   isFilterOpen,
-  logsByGoalDate,
+  logsByHabitDate,
   updatingKeys,
   onDeleteGoal,
   onEditGoal,
@@ -1321,16 +1335,16 @@ function DayDetailPanel({
   selectedDate: Date;
   selectedDateKey: string;
   monthKey: string;
-  periodicGoals: PeriodicGoalInfo[];
+  periodicHabits: PeriodicHabitInfo[];
   hasMonthlyGoals: boolean;
   isFilterActive: boolean;
   isFilterOpen: boolean;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, "complete" | "planned">;
   updatingKeys: Set<string>;
-  onDeleteGoal: (goal: PeriodicGoalInfo) => void;
-  onEditGoal: (goal: PeriodicGoalInfo) => void;
+  onDeleteGoal: (goal: PeriodicHabitInfo) => void;
+  onEditGoal: (goal: PeriodicHabitInfo) => void;
   onOpenSortFilter: () => void;
-  onPressGoal: (goal: PeriodicGoalInfo) => void;
+  onPressGoal: (goal: PeriodicHabitInfo) => void;
 }) {
   const theme = useTheme();
 
@@ -1350,10 +1364,10 @@ function DayDetailPanel({
           />
         </View>
         <Text style={[styles.emptyTitle, { color: theme.text }]}>
-          No monthly goals yet
+          No monthly habits yet
         </Text>
         <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-          Add monthly goals from the Goals section to track them here.
+          Add monthly habits from the Habits section to track them here.
         </Text>
       </View>
     );
@@ -1373,7 +1387,7 @@ function DayDetailPanel({
             {formatDayHeader(selectedDate)}
           </Text>
           <Text style={[styles.detailHint, { color: theme.textSecondary }]}>
-            Tap a goal to update its report
+            Tap a habit to update its report
           </Text>
         </View>
       </View>
@@ -1381,10 +1395,10 @@ function DayDetailPanel({
       {/* Section label */}
       <View style={styles.sectionLabelRow}>
         <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>
-          Monthly Goals
+          Monthly Habits
         </Text>
         <Pressable
-          accessibilityLabel="Sort and filter monthly goals list"
+          accessibilityLabel="Sort and filter monthly habits list"
           accessibilityRole="button"
           accessibilityState={{
             expanded: isFilterOpen,
@@ -1412,7 +1426,7 @@ function DayDetailPanel({
         </Pressable>
       </View>
 
-      {/* Goal list */}
+      {/* Habit list */}
       <View
         style={[
           styles.goalList,
@@ -1422,8 +1436,8 @@ function DayDetailPanel({
           },
         ]}
       >
-        {periodicGoals.length > 0 ? (
-          periodicGoals.map((goal, index) => (
+        {periodicHabits.length > 0 ? (
+          periodicHabits.map((goal, index) => (
             <View key={goal.id}>
               {index > 0 ? (
                 <View
@@ -1432,9 +1446,9 @@ function DayDetailPanel({
               ) : null}
               <SwipeableGoalRow
                 goal={goal}
-                logsByGoalDate={logsByGoalDate}
+                logsByHabitDate={logsByHabitDate}
                 monthKey={monthKey}
-                status={logsByGoalDate[`${goal.id}_${selectedDateKey}`]}
+                status={logsByHabitDate[`${goal.id}_${selectedDateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${selectedDateKey}`)}
                 onDelete={() => onDeleteGoal(goal)}
                 onEdit={() => onEditGoal(goal)}
@@ -1445,7 +1459,7 @@ function DayDetailPanel({
         ) : (
           <View style={styles.filteredEmptyState}>
             <Text style={[styles.filteredEmptyTitle, { color: theme.text }]}>
-              No goals match these filters
+              No habits match these filters
             </Text>
             <Text
               style={[
@@ -1464,7 +1478,7 @@ function DayDetailPanel({
 
 function SwipeableGoalRow({
   goal,
-  logsByGoalDate,
+  logsByHabitDate,
   monthKey,
   status,
   isUpdating,
@@ -1472,8 +1486,8 @@ function SwipeableGoalRow({
   onEdit,
   onPress,
 }: {
-  goal: PeriodicGoalInfo;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  goal: PeriodicHabitInfo;
+  logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
@@ -1500,7 +1514,7 @@ function SwipeableGoalRow({
     >
       <GoalListRow
         goal={goal}
-        logsByGoalDate={logsByGoalDate}
+        logsByHabitDate={logsByHabitDate}
         monthKey={monthKey}
         status={status}
         isUpdating={isUpdating}
@@ -1530,7 +1544,7 @@ function GoalSwipeActions({
   return (
     <View style={styles.swipeActions}>
       <Pressable
-        accessibilityLabel="Edit goal"
+        accessibilityLabel="Edit habit"
         accessibilityRole="button"
         onPress={() => runAction(onEdit)}
         style={({ pressed }) => [
@@ -1552,7 +1566,7 @@ function GoalSwipeActions({
         </Text>
       </Pressable>
       <Pressable
-        accessibilityLabel="Delete goal"
+        accessibilityLabel="Delete habit"
         accessibilityRole="button"
         onPress={() => runAction(onDelete)}
         style={({ pressed }) => [
@@ -1577,15 +1591,15 @@ function GoalSwipeActions({
 
 function GoalListRow({
   goal,
-  logsByGoalDate,
+  logsByHabitDate,
   monthKey,
   status,
   isUpdating,
   onEdit,
   onPress,
 }: {
-  goal: PeriodicGoalInfo;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  goal: PeriodicHabitInfo;
+  logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
@@ -1598,7 +1612,7 @@ function GoalListRow({
   const { completed, planned, target } = getGoalMonthProgress(
     goal,
     monthKey,
-    logsByGoalDate,
+    logsByHabitDate,
   );
   const completedSlots = Math.min(completed, target);
   const plannedSlots = Math.min(planned, Math.max(target - completedSlots, 0));
@@ -1661,7 +1675,7 @@ function GoalListRow({
         ) : null}
       </View>
 
-      {/* Goal icon */}
+      {/* Habit icon */}
       <View
         style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
       >
@@ -1758,11 +1772,11 @@ function GoalActionsModal({
   onSetStatus,
   onDismiss,
 }: {
-  goal: PeriodicGoalInfo | null;
+  goal: PeriodicHabitInfo | null;
   visible: boolean;
   hasNote: boolean;
   hasPhoto: boolean;
-  visibility: GoalVisibility;
+  visibility: HabitVisibility;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
   isUpdatingVisibility: boolean;
@@ -1771,8 +1785,8 @@ function GoalActionsModal({
   uploadingPhotoSource: GoalPhotoSource | null;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
-  onSetVisibility: (visibility: GoalVisibility) => void;
-  onSetStatus: (status: GoalLogStatus) => void;
+  onSetVisibility: (visibility: HabitVisibility) => void;
+  onSetStatus: (status: HabitLogStatus) => void;
   onDismiss: () => void;
 }) {
   const theme = useTheme();

@@ -322,6 +322,55 @@ export const goals = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goals_user_id_idx").on(table.userId),
+    index("goals_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const goalCheckpoints = pgTable(
+  "goal_checkpoints",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalId: uuid("goal_id")
+      .notNull()
+      .references(() => goals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    targetDate: date("target_date", { mode: "string" }),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_checkpoints_goal_id_idx").on(table.goalId),
+    index("goal_checkpoints_user_id_idx").on(table.userId),
+    index("goal_checkpoints_target_date_idx").on(table.targetDate),
+  ],
+);
+
+export const habits = pgTable(
+  "habits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     frequencyGoal: integer("frequency_goal"),
     period: goalPeriodEnum("period").default("daily").notNull(),
@@ -331,6 +380,9 @@ export const goals = pgTable(
     categoryId: uuid("category_id")
       .notNull()
       .references(() => categories.id),
+    goalId: uuid("goal_id").references(() => goals.id, {
+      onDelete: "set null",
+    }),
     priority: goalPriorityEnum("priority").notNull(),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     iconKey: text("icon_key").default("").notNull(),
@@ -343,10 +395,11 @@ export const goals = pgTable(
       .notNull(),
   },
   (table) => [
-    index("goals_user_id_idx").on(table.userId),
-    index("goals_category_id_idx").on(table.categoryId),
-    index("goals_priority_idx").on(table.priority),
-    unique("goals_user_category_name_uidx").on(
+    index("habits_user_id_idx").on(table.userId),
+    index("habits_category_id_idx").on(table.categoryId),
+    index("habits_goal_id_idx").on(table.goalId),
+    index("habits_priority_idx").on(table.priority),
+    unique("habits_user_category_name_uidx").on(
       table.userId,
       table.categoryId,
       table.name,
@@ -363,7 +416,7 @@ export const goalLogs = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     goalId: uuid("goal_id")
       .notNull()
-      .references(() => goals.id, { onDelete: "cascade" }),
+      .references(() => habits.id, { onDelete: "cascade" }),
     date: date("date", { mode: "string" }).notNull(),
     status: logStatusEnum("status").notNull(),
     notes: text("notes").default("").notNull(),
@@ -492,7 +545,7 @@ export const sharedGoalParticipants = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    personalGoalId: uuid("personal_goal_id").references(() => goals.id, {
+    personalGoalId: uuid("personal_goal_id").references(() => habits.id, {
       onDelete: "set null",
     }),
     personalGoalAutoCreated: boolean("personal_goal_auto_created")
@@ -551,6 +604,10 @@ export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
+export type GoalCheckpoint = typeof goalCheckpoints.$inferSelect;
+export type NewGoalCheckpoint = typeof goalCheckpoints.$inferInsert;
+export type Habit = typeof habits.$inferSelect;
+export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
 export type GoalLogPhoto = typeof goalLogPhotos.$inferSelect;
@@ -590,7 +647,7 @@ export const friendMessages = pgTable(
     streakDays: integer("streak_days"),
     streakPercent: integer("streak_percent"),
     goalScope: friendGoalScopeEnum("goal_scope"),
-    goalId: uuid("goal_id").references(() => goals.id, {
+    goalId: uuid("goal_id").references(() => habits.id, {
       onDelete: "set null",
     }),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -20,10 +20,10 @@ function EmptyStateImpl() {
         />
       </View>
       <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        No daily goals yet
+        No daily habits yet
       </Text>
       <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        Add daily goals from the Goals section to track them here.
+        Add daily habits from the Habits section to track them here.
       </Text>
     </View>
   );
