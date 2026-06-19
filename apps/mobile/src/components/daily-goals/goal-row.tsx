@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
@@ -39,6 +40,7 @@ function GoalRowImpl({
     : isPlanned
       ? "#B87D4D0E"
       : "transparent";
+  const sharedFriends = getSharedFriends(goal).slice(0, 3);
 
   return (
     <Pressable
@@ -103,6 +105,41 @@ function GoalRowImpl({
         {goal.name}
       </Text>
 
+      {sharedFriends.length ? (
+        <View style={styles.sharedFriendBadgeStack}>
+          {sharedFriends.map((friend, index) => (
+            <View
+              key={friend.userId}
+              style={[
+                styles.sharedFriendBadge,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.tabBar,
+                  marginLeft: index === 0 ? 0 : -8,
+                  zIndex: sharedFriends.length - index,
+                },
+              ]}
+            >
+              {friend.image ? (
+                <Image
+                  source={{ uri: friend.image }}
+                  style={styles.sharedFriendBadgeImage}
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.sharedFriendBadgeText,
+                    { color: theme.primary },
+                  ]}
+                >
+                  {getInitials(friend.name)}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {onEdit ? (
         <Pressable
           accessibilityLabel={`Edit ${goal.name}`}
@@ -128,6 +165,30 @@ function GoalRowImpl({
       ) : null}
     </Pressable>
   );
+}
+
+function getSharedFriends(goal: ActionGoal) {
+  const friendsById = new Map<
+    string,
+    { userId: string; name: string; image: string | null }
+  >();
+
+  for (const sharedGoal of goal.sharedGoals ?? []) {
+    for (const friend of sharedGoal.friends ?? []) {
+      friendsById.set(friend.userId, friend);
+    }
+  }
+
+  return [...friendsById.values()];
+}
+
+function getInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 export const GoalRow = withErrorTrace(GoalRowImpl, "GoalRow");

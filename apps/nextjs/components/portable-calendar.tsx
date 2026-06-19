@@ -980,6 +980,21 @@ const MonthView = ({
             ...(prevGoalsSnap.visibilityByGoalDate ?? {}),
             ...(goalsSnap.visibilityByGoalDate ?? {}),
           },
+          plannedTimesByGoalDate: {
+            ...Object.fromEntries(
+              Object.entries(previous.plannedTimesByGoalDate).filter(
+                ([key]) => {
+                  const dateKey = key.slice(-10);
+                  return (
+                    !dateKey.startsWith(currentMonthKey) &&
+                    !dateKey.startsWith(prevMonthKey)
+                  );
+                },
+              ),
+            ),
+            ...(prevGoalsSnap.plannedTimesByGoalDate ?? {}),
+            ...(goalsSnap.plannedTimesByGoalDate ?? {}),
+          },
         }));
       } catch (error) {
         if (cancelled) {

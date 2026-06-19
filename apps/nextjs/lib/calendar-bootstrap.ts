@@ -262,6 +262,7 @@ const getGoalLogsSnapshotForMonth = async (
     visibilityByGoalDate: Object.fromEntries(
       logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
     ),
+    plannedTimesByGoalDate: {},
     photoCountsByGoalDate: photos.reduce<Record<string, number>>(
       (counts, photo) => {
         const key = `${photo.goalId}_${photo.date}`;

@@ -5,6 +5,11 @@ export type LinkedSharedGoal = {
   id: string;
   name: string;
   mode: "collaborative" | "competitive";
+  friends?: Array<{
+    userId: string;
+    name: string;
+    image: string | null;
+  }>;
 };
 
 export type HabitInCategory = {
@@ -55,6 +60,7 @@ export type PeriodicHabitInfo = {
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
   createdAt: string;
+  sharedGoals?: LinkedSharedGoal[];
 };
 
 export type HabitLogsSnapshot = {
@@ -65,6 +71,10 @@ export type HabitLogsSnapshot = {
   notesByHabitDate: Record<string, string>;
   photoCountsByHabitDate: Record<string, number>;
   visibilityByHabitDate: Record<string, HabitVisibility>;
+  plannedTimesByHabitDate: Record<
+    string,
+    { startTime: string | null; endTime: string | null }
+  >;
 };
 
 export type HabitLogStatus = "complete" | "planned" | null;
@@ -117,10 +127,23 @@ export const setHabitLog = (
   habitId: string,
   dateKey: string,
   status: HabitLogStatus,
+  options?: {
+    endTime?: string | null;
+    startTime?: string | null;
+    timeZone?: string | null;
+  },
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/goal-logs", {
     method: "POST",
-    body: JSON.stringify({ type: "setLog", goalId: habitId, dateKey, status }),
+    body: JSON.stringify({
+      type: "setLog",
+      goalId: habitId,
+      dateKey,
+      status,
+      plannedStartTime: options?.startTime ?? null,
+      plannedEndTime: options?.endTime ?? null,
+      plannedTimeZone: options?.timeZone ?? null,
+    }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
 export const setHabitLogNote = (

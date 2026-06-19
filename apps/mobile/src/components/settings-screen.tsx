@@ -2,7 +2,7 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,10 @@ import { NotificationSettingsModal } from "@/components/notification-settings-sc
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import {
+  type GoogleCalendarStatus,
+  fetchGoogleCalendarStatus,
+} from "@/lib/google-calendar-client";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
   type ThemePreference,
@@ -37,12 +41,27 @@ export function SettingsScreen() {
   const { data: session, refetch } = authClient.useSession();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
   const [appearance, setAppearance] = useState<ThemePreference>("system");
+  const [googleCalendarStatus, setGoogleCalendarStatus] =
+    useState<GoogleCalendarStatus | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     void getThemePreference().then(setAppearance);
   }, []);
+
+  const loadGoogleCalendarStatus = useCallback(async () => {
+    try {
+      setGoogleCalendarStatus(await fetchGoogleCalendarStatus());
+    } catch {
+      setGoogleCalendarStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGoogleCalendarStatus();
+  }, [loadGoogleCalendarStatus]);
 
   const signOut = async () => {
     setIsSigningOut(true);
@@ -108,7 +127,50 @@ export function SettingsScreen() {
     }
   };
 
+  const connectGoogleCalendar = async () => {
+    if (isGoogleConnecting) return;
+
+    setIsGoogleConnecting(true);
+    try {
+      const response = await authClient.linkSocial({
+        provider: "google",
+        callbackURL: "/",
+        scopes: ["https://www.googleapis.com/auth/calendar.events"],
+      });
+
+      if (response.error) {
+        Alert.alert(
+          "Google Calendar",
+          response.error.message ?? "Could not connect Google Calendar.",
+        );
+        return;
+      }
+
+      await loadGoogleCalendarStatus();
+    } catch (connectError) {
+      Alert.alert(
+        "Google Calendar",
+        connectError instanceof Error
+          ? connectError.message
+          : "Could not connect Google Calendar.",
+      );
+    } finally {
+      setIsGoogleConnecting(false);
+    }
+  };
+
   const profileImageUrl = session?.user.image;
+  const googleCalendarValue = isGoogleConnecting
+    ? "Connecting"
+    : googleCalendarStatus
+      ? googleCalendarStatus.configured
+        ? googleCalendarStatus.connected
+          ? "Connected"
+          : googleCalendarStatus.hasGoogleAccount
+            ? "Reconnect"
+            : "Connect"
+        : "Not configured"
+      : "Checking";
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -220,6 +282,19 @@ export function SettingsScreen() {
               title="Notifications"
               value="Manage"
               onPress={() => setShowNotifications(true)}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="Integrations">
+            <SettingsRow
+              icon={sym("calendar.badge.plus", "event_available")}
+              title="Google Calendar"
+              value={googleCalendarValue}
+              onPress={
+                googleCalendarStatus?.configured && !isGoogleConnecting
+                  ? () => void connectGoogleCalendar()
+                  : undefined
+              }
             />
           </SettingsGroup>
 

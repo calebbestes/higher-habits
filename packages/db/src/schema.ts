@@ -420,6 +420,9 @@ export const goalLogs = pgTable(
     date: date("date", { mode: "string" }).notNull(),
     status: logStatusEnum("status").notNull(),
     notes: text("notes").default("").notNull(),
+    plannedStartTime: text("planned_start_time"),
+    plannedEndTime: text("planned_end_time"),
+    googleCalendarEventId: text("google_calendar_event_id"),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
