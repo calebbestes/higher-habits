@@ -46,6 +46,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [isPickingPhoto, setIsPickingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [shouldEnterApp, setShouldEnterApp] = useState(false);
   const isSignUp = mode === "sign-up";
   const canSubmit =
@@ -108,7 +109,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   };
 
   const submit = async () => {
-    if (!canSubmit || isSubmitting) return;
+    if (!canSubmit || isSubmitting || isGoogleSubmitting) return;
 
     setError(null);
     setIsSubmitting(true);
@@ -154,6 +155,43 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const continueWithGoogle = async () => {
+    if (isSubmitting || isGoogleSubmitting) return;
+
+    setError(null);
+    setIsGoogleSubmitting(true);
+
+    try {
+      const response = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/",
+      });
+
+      if (response.error) {
+        setError(response.error.message ?? "Unable to continue with Google.");
+        return;
+      }
+
+      await refetchSession();
+      const sessionResponse = await authClient.getSession();
+      if (!sessionResponse.data) {
+        setShouldEnterApp(false);
+        setError(
+          "Signed in, but the session could not be saved. Please try again.",
+        );
+        return;
+      }
+      setShouldEnterApp(true);
+    } catch {
+      setShouldEnterApp(false);
+      setError(
+        "Could not reach the auth server. Check EXPO_PUBLIC_AUTH_URL and try again.",
+      );
+    } finally {
+      setIsGoogleSubmitting(false);
     }
   };
 
@@ -220,6 +258,71 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                 </View>
 
                 <View style={styles.form}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isSubmitting || isGoogleSubmitting}
+                    onPress={() => void continueWithGoogle()}
+                    style={({ pressed }) => [
+                      styles.googleButton,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                      (isSubmitting || isGoogleSubmitting) && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isGoogleSubmitting ? (
+                      <ActivityIndicator color={theme.primary} />
+                    ) : (
+                      <>
+                        <View
+                          style={[
+                            styles.googleMark,
+                            { backgroundColor: theme.tabBar },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.googleMarkText,
+                              { color: theme.primary },
+                            ]}
+                          >
+                            G
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.googleLabel, { color: theme.text }]}
+                        >
+                          Continue with Google
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  <View style={styles.dividerRow}>
+                    <View
+                      style={[
+                        styles.dividerLine,
+                        { backgroundColor: theme.tabBorder },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.dividerText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      or
+                    </Text>
+                    <View
+                      style={[
+                        styles.dividerLine,
+                        { backgroundColor: theme.tabBorder },
+                      ]}
+                    />
+                  </View>
+
                   {isSignUp ? (
                     <>
                       <Pressable
@@ -383,12 +486,13 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
 
                   <Pressable
                     accessibilityRole="button"
-                    disabled={!canSubmit || isSubmitting}
+                    disabled={!canSubmit || isSubmitting || isGoogleSubmitting}
                     onPress={submit}
                     style={({ pressed }) => [
                       styles.submitButton,
                       { backgroundColor: theme.primary },
-                      (!canSubmit || isSubmitting) && styles.disabled,
+                      (!canSubmit || isSubmitting || isGoogleSubmitting) &&
+                        styles.disabled,
                       pressed && canSubmit && styles.pressed,
                     ]}
                   >
@@ -562,6 +666,48 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 16,
+  },
+  googleButton: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 17,
+    paddingHorizontal: 16,
+  },
+  googleMark: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+  },
+  googleMarkText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "900",
+  },
+  googleLabel: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  dividerText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   photoPicker: {
     minHeight: 82,

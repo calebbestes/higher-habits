@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import ReanimatedSwipeable, {
@@ -32,6 +33,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { captureHandledError } from "@/lib/crash-reporting";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import {
   type HabitLogStatus,
   type HabitLogsSnapshot,
@@ -403,7 +405,15 @@ export function MonthlyGoalsScreen({
   }, [load]);
 
   const handleSetStatus = useCallback(
-    async (goalId: string, status: HabitLogStatus) => {
+    async (
+      goalId: string,
+      status: HabitLogStatus,
+      options?: {
+        endTime?: string | null;
+        startTime?: string | null;
+        timeZone?: string | null;
+      },
+    ) => {
       const key = `${goalId}_${selectedDateKey}`;
       if (updatingKeysRef.current.has(key)) return;
       const current = logsByHabitDateRef.current[key];
@@ -421,7 +431,25 @@ export function MonthlyGoalsScreen({
       });
 
       try {
-        await setHabitLog(goalId, selectedDateKey, status);
+        await setHabitLog(goalId, selectedDateKey, status, options);
+        setSnapshot((currentSnapshot) => {
+          if (!currentSnapshot) return currentSnapshot;
+
+          const plannedTimesByHabitDate = {
+            ...(currentSnapshot.plannedTimesByHabitDate ?? {}),
+          };
+
+          if (status === "planned") {
+            plannedTimesByHabitDate[key] = {
+              startTime: options?.startTime ?? null,
+              endTime: options?.endTime ?? null,
+            };
+          } else {
+            delete plannedTimesByHabitDate[key];
+          }
+
+          return { ...currentSnapshot, plannedTimesByHabitDate };
+        });
       } catch (err) {
         setLogsByGoalDate((prev) => {
           const reverted = { ...prev };
@@ -621,12 +649,14 @@ export function MonthlyGoalsScreen({
   let modalProps: {
     hasNote: boolean;
     hasPhoto: boolean;
+    plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
     status: "complete" | "planned" | undefined;
     isUpdating: boolean;
   } = {
     hasNote: false,
     hasPhoto: false,
+    plannedTime: null,
     visibility: "only_me",
     status: undefined,
     isUpdating: false,
@@ -637,6 +667,7 @@ export function MonthlyGoalsScreen({
       modalProps = {
         hasNote: Boolean(snapshot?.notesByHabitDate?.[key]?.trim()),
         hasPhoto: (snapshot?.photoCountsByHabitDate?.[key] ?? 0) > 0,
+        plannedTime: snapshot?.plannedTimesByHabitDate?.[key] ?? null,
         visibility:
           snapshot?.visibilityByHabitDate?.[key] ??
           activeGoal.visibility ??
@@ -839,6 +870,7 @@ export function MonthlyGoalsScreen({
         hasPhoto={modalProps.hasPhoto}
         visibility={modalProps.visibility}
         isUpdatingVisibility={isUpdatingVisibility}
+        plannedTime={modalProps.plannedTime ?? undefined}
         status={modalProps.status}
         isUpdating={modalProps.isUpdating}
         selectedDateKey={selectedDateKey}
@@ -860,9 +892,9 @@ export function MonthlyGoalsScreen({
             void handleSetVisibility(activeGoal.id, visibility);
           }
         }}
-        onSetStatus={(newStatus: HabitLogStatus) => {
+        onSetStatus={(newStatus: HabitLogStatus, planOptions) => {
           if (!activeGoal) return;
-          void handleSetStatus(activeGoal.id, newStatus);
+          void handleSetStatus(activeGoal.id, newStatus, planOptions);
           setActiveGoal(null);
         }}
         onDismiss={() => setActiveGoal(null)}
@@ -1759,6 +1791,7 @@ function GoalActionsModal({
   visible,
   hasNote,
   hasPhoto,
+  plannedTime,
   visibility,
   status,
   isUpdating,
@@ -1776,6 +1809,7 @@ function GoalActionsModal({
   visible: boolean;
   hasNote: boolean;
   hasPhoto: boolean;
+  plannedTime?: { startTime: string | null; endTime: string | null };
   visibility: HabitVisibility;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
@@ -1786,7 +1820,14 @@ function GoalActionsModal({
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
-  onSetStatus: (status: HabitLogStatus) => void;
+  onSetStatus: (
+    status: HabitLogStatus,
+    options?: {
+      endTime?: string | null;
+      startTime?: string | null;
+      timeZone?: string | null;
+    },
+  ) => void;
   onDismiss: () => void;
 }) {
   const theme = useTheme();
@@ -1797,6 +1838,14 @@ function GoalActionsModal({
   const showCompleteAction = !isFuture || isComplete;
   const showPlanAction = !isPast && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
+  const [planStartTime, setPlanStartTime] = useState("");
+  const [planEndTime, setPlanEndTime] = useState("");
+
+  useEffect(() => {
+    if (!visible) return;
+    setPlanStartTime(plannedTime?.startTime ?? "");
+    setPlanEndTime(plannedTime?.endTime ?? "");
+  }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
 
   return (
     <Modal
@@ -1888,33 +1937,113 @@ function GoalActionsModal({
                 ) : null}
 
                 {showPlanAction ? (
-                  <Pressable
-                    onPress={() => onSetStatus(isPlanned ? null : "planned")}
-                    style={({ pressed }) => [
-                      modalStyles.actionRow,
-                      { backgroundColor: theme.backgroundElement },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    {isUpdating ? (
-                      <ActivityIndicator size="small" color="#A0A0A0" />
-                    ) : (
-                      <SymbolView
-                        name={
-                          isPlanned
-                            ? sym("calendar.badge.minus", "event_busy")
-                            : sym("calendar.badge.plus", "event_available")
-                        }
-                        size={26}
-                        tintColor={isPlanned ? theme.textSecondary : "#A0A0A0"}
-                      />
-                    )}
-                    <Text
-                      style={[modalStyles.actionText, { color: theme.text }]}
+                  <>
+                    <Pressable
+                      onPress={() =>
+                        onSetStatus(isPlanned ? null : "planned", {
+                          startTime: planStartTime.trim() || null,
+                          endTime: planEndTime.trim() || null,
+                          timeZone: getLocalTimeZone(),
+                        })
+                      }
+                      style={({ pressed }) => [
+                        modalStyles.actionRow,
+                        { backgroundColor: theme.backgroundElement },
+                        pressed && styles.pressed,
+                      ]}
                     >
-                      {isPlanned ? "Remove plan" : "Plan"}
-                    </Text>
-                  </Pressable>
+                      {isUpdating ? (
+                        <ActivityIndicator size="small" color="#A0A0A0" />
+                      ) : (
+                        <SymbolView
+                          name={
+                            isPlanned
+                              ? sym("calendar.badge.minus", "event_busy")
+                              : sym("calendar.badge.plus", "event_available")
+                          }
+                          size={26}
+                          tintColor={
+                            isPlanned ? theme.textSecondary : "#A0A0A0"
+                          }
+                        />
+                      )}
+                      <Text
+                        style={[modalStyles.actionText, { color: theme.text }]}
+                      >
+                        {isPlanned ? "Remove plan" : "Plan"}
+                      </Text>
+                    </Pressable>
+
+                    <View
+                      style={[
+                        modalStyles.planTimeSection,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          modalStyles.planTimeSectionTitle,
+                          { color: theme.text },
+                        ]}
+                      >
+                        Time range
+                      </Text>
+                      <View style={modalStyles.planTimeFields}>
+                        <View style={modalStyles.planTimeField}>
+                          <Text
+                            style={[
+                              modalStyles.planTimeLabel,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            Start
+                          </Text>
+                          <TextInput
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            onChangeText={setPlanStartTime}
+                            placeholder="09:00"
+                            placeholderTextColor={theme.textSecondary}
+                            selectionColor={theme.primary}
+                            style={[
+                              modalStyles.planTimeInput,
+                              {
+                                borderColor: theme.tabBorder,
+                                color: theme.text,
+                              },
+                            ]}
+                            value={planStartTime}
+                          />
+                        </View>
+                        <View style={modalStyles.planTimeField}>
+                          <Text
+                            style={[
+                              modalStyles.planTimeLabel,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            End
+                          </Text>
+                          <TextInput
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            onChangeText={setPlanEndTime}
+                            placeholder="10:00"
+                            placeholderTextColor={theme.textSecondary}
+                            selectionColor={theme.primary}
+                            style={[
+                              modalStyles.planTimeInput,
+                              {
+                                borderColor: theme.tabBorder,
+                                color: theme.text,
+                              },
+                            ]}
+                            value={planEndTime}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </>
                 ) : null}
 
                 {/* Add note */}
@@ -2477,6 +2606,39 @@ const modalStyles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     fontWeight: "600",
+  },
+  planTimeSection: {
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  planTimeSectionTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  planTimeFields: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  planTimeField: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  planTimeLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  planTimeInput: {
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: "700",
   },
   photoRow: {
     flexDirection: "row",

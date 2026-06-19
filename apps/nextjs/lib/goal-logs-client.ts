@@ -19,6 +19,11 @@ export type SharedGoalLink = {
   id: string;
   name: string;
   mode: "collaborative" | "competitive";
+  friends?: Array<{
+    userId: string;
+    name: string;
+    image: string | null;
+  }>;
 };
 
 export type CategoryWithGoals = {
@@ -77,6 +82,11 @@ export type GoalLogsSnapshot = {
   photoCountsByGoalDate: Record<string, number>;
   /** key: `${goalId}_${dateKey}` */
   visibilityByGoalDate: Record<string, GoalVisibility>;
+  /** key: `${goalId}_${dateKey}` */
+  plannedTimesByGoalDate: Record<
+    string,
+    { startTime: string | null; endTime: string | null }
+  >;
 };
 
 export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
@@ -88,6 +98,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   notesByGoalDate: {},
   photoCountsByGoalDate: {},
   visibilityByGoalDate: {},
+  plannedTimesByGoalDate: {},
 };
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -106,11 +117,24 @@ export const setGoalLog = (
   goalId: string,
   dateKey: string,
   status: "complete" | "planned" | null,
+  options?: {
+    endTime?: string | null;
+    startTime?: string | null;
+    timeZone?: string | null;
+  },
 ): Promise<{ ok: true }> =>
   fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "setLog", goalId, dateKey, status }),
+    body: JSON.stringify({
+      type: "setLog",
+      goalId,
+      dateKey,
+      status,
+      plannedStartTime: options?.startTime ?? null,
+      plannedEndTime: options?.endTime ?? null,
+      plannedTimeZone: options?.timeZone ?? null,
+    }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
 export const setGoalHidden = (

@@ -17,6 +17,10 @@ export function createAuth() {
     process.env.BETTER_AUTH_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
     "http://localhost:3000";
+  const googleClientId =
+    process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const googleClientSecret =
+    process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 
   if (!db || !secret) {
     return null;
@@ -39,11 +43,30 @@ export function createAuth() {
     emailAndPassword: {
       enabled: true,
     },
+    socialProviders:
+      googleClientId && googleClientSecret
+        ? {
+            google: {
+              clientId: googleClientId,
+              clientSecret: googleClientSecret,
+              accessType: "offline",
+              prompt: "consent",
+              scope: ["https://www.googleapis.com/auth/calendar.events"],
+            },
+          }
+        : {},
+    account: {
+      accountLinking: {
+        enabled: true,
+        requireLocalEmailVerified: false,
+        trustedProviders: ["google"],
+      },
+    },
     user: {
       additionalFields: {
         phoneNumber: {
           type: "string",
-          required: true,
+          required: false,
         },
       },
     },
@@ -62,19 +85,24 @@ export function createAuth() {
                 : "";
             const phoneDigits = phoneNumber.replace(/\D/g, "");
 
-            if (phoneDigits.length < 10 || phoneDigits.length > 15) {
-              throw APIError.from("BAD_REQUEST", {
-                code: "INVALID_PHONE_NUMBER",
-                message: "Enter a valid phone number.",
-              });
-            }
-
             const image =
               typeof user.image === "string" ? user.image.trim() : "";
             const hasProfilePicture =
               image.startsWith("data:image/") ||
               image.startsWith("https://") ||
               image.startsWith("http://");
+            const isVerifiedOAuthProfile =
+              user.emailVerified === true && hasProfilePicture;
+
+            if (
+              !isVerifiedOAuthProfile &&
+              (phoneDigits.length < 10 || phoneDigits.length > 15)
+            ) {
+              throw APIError.from("BAD_REQUEST", {
+                code: "INVALID_PHONE_NUMBER",
+                message: "Enter a valid phone number.",
+              });
+            }
 
             if (!hasProfilePicture) {
               throw APIError.from("BAD_REQUEST", {
@@ -86,7 +114,7 @@ export function createAuth() {
             return {
               data: {
                 ...user,
-                phoneNumber,
+                phoneNumber: phoneNumber || null,
               },
             };
           },

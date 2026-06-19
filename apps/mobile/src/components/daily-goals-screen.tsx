@@ -30,7 +30,6 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
-  type CategoryWithGoals,
   type HabitInCategory,
   type HabitLogStatus,
   type HabitLogsSnapshot,
@@ -68,15 +67,6 @@ import {
   styles,
   sym,
 } from "./daily-goals/shared";
-
-// Synthetic category used to group shared/incentive habits under high priority.
-const SHARED_GOALS_CATEGORY: CategoryWithGoals = {
-  id: "__shared_goals__",
-  name: "Shared Goals",
-  icon: "",
-  habits: [],
-  goals: [],
-};
 
 export function DailyGoalsScreen({
   initialDateKey,
@@ -133,7 +123,9 @@ export function DailyGoalsScreen({
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the selected date changes (e.g. across midnight)
   const today = useMemo(() => new Date(), [dateKey]);
+  const todayKey = useMemo(() => toDateKey(today), [today]);
   const isToday = isSameDay(selectedDate, today);
+  const isFutureDate = dateKey > todayKey;
 
   const load = useCallback(
     async (refresh = false) => {
@@ -207,7 +199,15 @@ export function DailyGoalsScreen({
   };
 
   const handleSetStatus = useCallback(
-    async (goalId: string, status: HabitLogStatus) => {
+    async (
+      goalId: string,
+      status: HabitLogStatus,
+      options?: {
+        endTime?: string | null;
+        startTime?: string | null;
+        timeZone?: string | null;
+      },
+    ) => {
       const key = `${goalId}_${dateKey}`;
       addCrashBreadcrumb("handleSetStatus", {
         dateKey,
@@ -241,7 +241,25 @@ export function DailyGoalsScreen({
       });
 
       try {
-        await setHabitLog(goalId, dateKey, status);
+        await setHabitLog(goalId, dateKey, status, options);
+        setSnapshot((currentSnapshot) => {
+          if (!currentSnapshot) return currentSnapshot;
+
+          const plannedTimesByHabitDate = {
+            ...(currentSnapshot.plannedTimesByHabitDate ?? {}),
+          };
+
+          if (status === "planned") {
+            plannedTimesByHabitDate[key] = {
+              startTime: options?.startTime ?? null,
+              endTime: options?.endTime ?? null,
+            };
+          } else {
+            delete plannedTimesByHabitDate[key];
+          }
+
+          return { ...currentSnapshot, plannedTimesByHabitDate };
+        });
       } catch (err) {
         captureHandledError(err, {
           dateKey,
@@ -368,8 +386,8 @@ export function DailyGoalsScreen({
     [snapshot],
   );
 
-  // Habits tied to a shared goal or an accepted incentive are surfaced together
-  // under high priority, regardless of their own category/priority.
+  // Habits tied to a shared goal or accepted incentive stay in their category,
+  // but still count as high priority for the daily focus flow.
   const incentiveGoalIds = useMemo(() => {
     const ids = new Set<string>();
     for (const inc of snapshot?.acceptedHabitIncentives ?? []) {
@@ -455,8 +473,8 @@ export function DailyGoalsScreen({
   );
 
   // Habits grouped by priority, excluding completed habits. Shared/incentive
-  // habits are pulled out of their own category into a single "Shared Goals"
-  // group shown at the top of high priority.
+  // habits stay in their actual category; only auto-created "Shared Goals"
+  // category habits show in that section.
   const priorityGroups = useMemo(() => {
     const make = (p: "high" | "low") =>
       categoriesWithGoals
@@ -464,36 +482,13 @@ export function DailyGoalsScreen({
           category: cat,
           goals: cat.habits.filter(
             (g) =>
-              !isSharedOrIncentive(g) &&
-              g.priority === p &&
+              (isSharedOrIncentive(g) ? "high" : g.priority) === p &&
               logsByHabitDate[`${g.id}_${dateKey}`] !== "complete",
           ),
         }))
         .filter((g) => g.goals.length > 0);
 
-    const sharedGoals = categoriesWithGoals
-      .flatMap((cat) => cat.habits)
-      .filter(
-        (g) =>
-          isSharedOrIncentive(g) &&
-          logsByHabitDate[`${g.id}_${dateKey}`] !== "complete",
-      );
-
-    const high = sharedGoals.length
-      ? [
-          {
-            category: {
-              ...SHARED_GOALS_CATEGORY,
-              habits: sharedGoals,
-              goals: sharedGoals,
-            },
-            goals: sharedGoals,
-          },
-          ...make("high"),
-        ]
-      : make("high");
-
-    return { high, low: make("low") };
+    return { high: make("high"), low: make("low") };
   }, [categoriesWithGoals, logsByHabitDate, dateKey, isSharedOrIncentive]);
 
   // All completed habits for this date
@@ -583,12 +578,14 @@ export function DailyGoalsScreen({
   let modalProps: {
     hasNote: boolean;
     hasPhoto: boolean;
+    plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
     status: "complete" | "planned" | undefined;
     isUpdating: boolean;
   } = {
     hasNote: false,
     hasPhoto: false,
+    plannedTime: null,
     visibility: "only_me",
     status: undefined,
     isUpdating: false,
@@ -599,6 +596,7 @@ export function DailyGoalsScreen({
       modalProps = {
         hasNote: Boolean(snapshot?.notesByHabitDate?.[key]?.trim()),
         hasPhoto: (snapshot?.photoCountsByHabitDate?.[key] ?? 0) > 0,
+        plannedTime: snapshot?.plannedTimesByHabitDate?.[key] ?? null,
         visibility:
           snapshot?.visibilityByHabitDate?.[key] ??
           activeGoal.visibility ??
@@ -917,6 +915,8 @@ export function DailyGoalsScreen({
         hasNote={modalProps.hasNote}
         hasPhoto={modalProps.hasPhoto}
         visibility={modalProps.visibility}
+        isFutureDate={isFutureDate}
+        plannedTime={modalProps.plannedTime ?? undefined}
         isUpdatingVisibility={isUpdatingVisibility}
         status={modalProps.status}
         isUpdating={modalProps.isUpdating}
@@ -964,7 +964,7 @@ export function DailyGoalsScreen({
           });
           void handleSetVisibility(activeGoal.id, visibility);
         }}
-        onSetStatus={(newStatus: HabitLogStatus) => {
+        onSetStatus={(newStatus: HabitLogStatus, planOptions) => {
           if (!activeGoal) return;
           setCrashContext("goal_actions_modal", {
             dateKey,
@@ -976,7 +976,7 @@ export function DailyGoalsScreen({
             goalId: activeGoal.id,
             status: newStatus,
           });
-          void handleSetStatus(activeGoal.id, newStatus);
+          void handleSetStatus(activeGoal.id, newStatus, planOptions);
           handleGoalActionsDismiss(activeGoal, "set-status");
         }}
         onDismiss={() => {

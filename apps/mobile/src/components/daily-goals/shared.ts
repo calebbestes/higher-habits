@@ -320,6 +320,29 @@ export const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "600",
   },
+  sharedFriendBadgeStack: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 2,
+  },
+  sharedFriendBadge: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 2,
+    borderRadius: 13,
+  },
+  sharedFriendBadgeImage: {
+    width: "100%",
+    height: "100%",
+  },
+  sharedFriendBadgeText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+  },
   completedText: { textDecorationLine: "line-through" },
   goalMenuButton: {
     width: 30,
@@ -384,6 +407,39 @@ export const modalStyles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     fontWeight: "600",
+  },
+  planTimeSection: {
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  planTimeSectionTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  planTimeFields: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  planTimeField: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  planTimeLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  planTimeInput: {
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    fontWeight: "700",
   },
   photoRow: {
     flexDirection: "row",

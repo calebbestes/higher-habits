@@ -7,12 +7,28 @@ import {
   habits,
   sharedGoalParticipants,
   sharedGoals,
+  users,
 } from "@habit/db";
-import { and, asc, desc, eq, gte, isNotNull, lt, ne } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  ne,
+} from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  deleteGoogleCalendarHabitPlan,
+  updateGoogleCalendarHabitPlanDescription,
+  upsertGoogleCalendarHabitPlan,
+} from "@/lib/google-calendar";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -30,6 +46,7 @@ function getMonthDateRange(month: string) {
 
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_KEY_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
 
 const monthQuerySchema = z.object({
   month: z.string().regex(MONTH_KEY_REGEX, "Month must be YYYY-MM"),
@@ -41,6 +58,9 @@ const bodySchema = z.discriminatedUnion("type", [
     goalId: z.string().uuid(),
     dateKey: z.string().regex(DATE_KEY_REGEX),
     status: z.enum(["complete", "incomplete", "planned"]).nullable(),
+    plannedStartTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
+    plannedEndTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
+    plannedTimeZone: z.string().min(1).max(100).nullable().optional(),
   }),
   z.object({
     type: z.literal("setHidden"),
@@ -154,6 +174,8 @@ export async function GET(request: Request) {
           date: goalLogs.date,
           status: goalLogs.status,
           notes: goalLogs.notes,
+          plannedStartTime: goalLogs.plannedStartTime,
+          plannedEndTime: goalLogs.plannedEndTime,
           visibility: goalLogs.visibility,
         })
         .from(goalLogs)
@@ -223,6 +245,42 @@ export async function GET(request: Request) {
         ),
     ]);
 
+    const sharedGoalIds = [
+      ...new Set(sharedGoalLinks.map((link) => link.sharedGoalId)),
+    ];
+    const sharedGoalFriendRows = sharedGoalIds.length
+      ? await db
+          .select({
+            sharedGoalId: sharedGoalParticipants.sharedGoalId,
+            userId: users.id,
+            name: users.name,
+            image: users.image,
+          })
+          .from(sharedGoalParticipants)
+          .innerJoin(users, eq(sharedGoalParticipants.userId, users.id))
+          .where(
+            and(
+              inArray(sharedGoalParticipants.sharedGoalId, sharedGoalIds),
+              eq(sharedGoalParticipants.status, "accepted"),
+              ne(sharedGoalParticipants.userId, user.id),
+            ),
+          )
+      : [];
+    const sharedGoalFriendsById = sharedGoalFriendRows.reduce<
+      Record<
+        string,
+        Array<{ userId: string; name: string; image: string | null }>
+      >
+    >((friends, row) => {
+      friends[row.sharedGoalId] ??= [];
+      friends[row.sharedGoalId].push({
+        userId: row.userId,
+        name: row.name,
+        image: row.image,
+      });
+      return friends;
+    }, {});
+
     const sharedGoalsByPersonalGoalId = sharedGoalLinks.reduce<
       Record<
         string,
@@ -230,6 +288,11 @@ export async function GET(request: Request) {
           id: string;
           name: string;
           mode: "collaborative" | "competitive";
+          friends: Array<{
+            userId: string;
+            name: string;
+            image: string | null;
+          }>;
         }>
       >
     >((links, link) => {
@@ -239,6 +302,7 @@ export async function GET(request: Request) {
         id: link.sharedGoalId,
         name: link.sharedGoalName,
         mode: link.mode,
+        friends: sharedGoalFriendsById[link.sharedGoalId] ?? [],
       });
       return links;
     }, {});
@@ -320,6 +384,17 @@ export async function GET(request: Request) {
     const visibilityByHabitDate = Object.fromEntries(
       logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
     );
+    const plannedTimesByHabitDate = Object.fromEntries(
+      logs
+        .filter((log) => log.plannedStartTime || log.plannedEndTime)
+        .map((log) => [
+          `${log.goalId}_${log.date}`,
+          {
+            startTime: log.plannedStartTime ?? null,
+            endTime: log.plannedEndTime ?? null,
+          },
+        ]),
+    );
     const photoCountsByHabitDate = photos.reduce<Record<string, number>>(
       (counts, photo) => {
         const key = `${photo.goalId}_${photo.date}`;
@@ -343,6 +418,8 @@ export async function GET(request: Request) {
       notesByHabitDate,
       visibilityByGoalDate: visibilityByHabitDate,
       visibilityByHabitDate,
+      plannedTimesByGoalDate: plannedTimesByHabitDate,
+      plannedTimesByHabitDate,
       photoCountsByGoalDate: photoCountsByHabitDate,
       photoCountsByHabitDate,
     });
@@ -379,7 +456,11 @@ export async function POST(request: Request) {
     const data = bodySchema.parse(await request.json());
 
     const [goal] = await db
-      .select({ id: habits.id, visibility: habits.visibility })
+      .select({
+        id: habits.id,
+        name: habits.name,
+        visibility: habits.visibility,
+      })
       .from(habits)
       .where(and(eq(habits.id, data.goalId), eq(habits.userId, user.id)))
       .limit(1);
@@ -389,11 +470,118 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "setLog") {
+      const [existingLog] = await db
+        .select({
+          googleCalendarEventId: goalLogs.googleCalendarEventId,
+          notes: goalLogs.notes,
+          status: goalLogs.status,
+        })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .limit(1);
+
       if (!data.status) {
+        const shouldDeletePlanEvent = existingLog?.status === "planned";
+        const calendarSync = shouldDeletePlanEvent
+          ? await deleteGoogleCalendarHabitPlan({
+              eventId: existingLog?.googleCalendarEventId,
+              userId: user.id,
+            })
+          : { status: "skipped" as const };
+        const updateValues: {
+          googleCalendarEventId?: null;
+          plannedEndTime: null;
+          plannedStartTime: null;
+          status: "incomplete";
+          updatedAt: Date;
+        } = {
+          status: "incomplete",
+          plannedStartTime: null,
+          plannedEndTime: null,
+          updatedAt: new Date(),
+        };
+
+        if (shouldDeletePlanEvent) {
+          updateValues.googleCalendarEventId = null;
+        }
+
+        await db
+          .update(goalLogs)
+          .set(updateValues)
+          .where(
+            and(
+              eq(goalLogs.goalId, data.goalId),
+              eq(goalLogs.date, data.dateKey),
+              eq(goalLogs.userId, user.id),
+            ),
+          );
+
+        return NextResponse.json({ ok: true, calendarSync });
+      }
+
+      const [savedLog] = await db
+        .insert(goalLogs)
+        .values({
+          userId: user.id,
+          goalId: data.goalId,
+          date: data.dateKey,
+          status: data.status,
+          plannedStartTime:
+            data.status === "planned" ? (data.plannedStartTime ?? null) : null,
+          plannedEndTime:
+            data.status === "planned" ? (data.plannedEndTime ?? null) : null,
+          visibility: goal.visibility,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [goalLogs.goalId, goalLogs.date],
+          set: {
+            status: data.status,
+            plannedStartTime:
+              data.status === "planned"
+                ? (data.plannedStartTime ?? null)
+                : null,
+            plannedEndTime:
+              data.status === "planned" ? (data.plannedEndTime ?? null) : null,
+            updatedAt: new Date(),
+            userId: user.id,
+          },
+        })
+        .returning({
+          googleCalendarEventId: goalLogs.googleCalendarEventId,
+          notes: goalLogs.notes,
+        });
+
+      if (data.status !== "planned") {
+        return NextResponse.json({ ok: true });
+      }
+
+      const calendarSync = await upsertGoogleCalendarHabitPlan({
+        dateKey: data.dateKey,
+        description: savedLog?.notes ?? existingLog?.notes ?? null,
+        existingEventId:
+          savedLog?.googleCalendarEventId ??
+          existingLog?.googleCalendarEventId ??
+          null,
+        goalId: data.goalId,
+        habitName: goal.name,
+        plannedEndTime: data.plannedEndTime ?? null,
+        plannedStartTime: data.plannedStartTime ?? null,
+        timeZone: data.plannedTimeZone ?? null,
+        userId: user.id,
+      });
+
+      if (calendarSync.status === "synced" && calendarSync.eventId) {
         await db
           .update(goalLogs)
           .set({
-            status: "incomplete",
+            googleCalendarEventId: calendarSync.eventId,
             updatedAt: new Date(),
           })
           .where(
@@ -403,28 +591,9 @@ export async function POST(request: Request) {
               eq(goalLogs.userId, user.id),
             ),
           );
-      } else {
-        await db
-          .insert(goalLogs)
-          .values({
-            userId: user.id,
-            goalId: data.goalId,
-            date: data.dateKey,
-            status: data.status,
-            visibility: goal.visibility,
-            updatedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [goalLogs.goalId, goalLogs.date],
-            set: {
-              status: data.status,
-              updatedAt: new Date(),
-              userId: user.id,
-            },
-          });
       }
 
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, calendarSync });
     }
 
     if (data.type === "setNote") {
@@ -461,7 +630,26 @@ export async function POST(request: Request) {
           );
       }
 
-      return NextResponse.json({ ok: true });
+      const [syncedLog] = await db
+        .select({ googleCalendarEventId: goalLogs.googleCalendarEventId })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .limit(1);
+      const calendarSync = syncedLog?.googleCalendarEventId
+        ? await updateGoogleCalendarHabitPlanDescription({
+            description: data.notes,
+            eventId: syncedLog.googleCalendarEventId,
+            userId: user.id,
+          })
+        : { status: "skipped" as const };
+
+      return NextResponse.json({ ok: true, calendarSync });
     }
 
     if (data.type === "setVisibility") {
