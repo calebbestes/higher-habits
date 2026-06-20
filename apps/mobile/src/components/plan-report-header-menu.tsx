@@ -10,11 +10,18 @@ const MENU_ITEMS: {
   id: PlanReportView;
   title: string;
   href:
+    | "/plan-report?view=day-plan"
     | "/plan-report?view=habits"
     | "/plan-report?view=goals"
     | "/plan-report?view=top-tasks";
-  image: "repeat" | "target" | "checklist";
+  image: "repeat" | "target" | "checklist" | "calendar";
 }[] = [
+  {
+    id: "day-plan",
+    title: "Day Plan",
+    href: "/plan-report?view=day-plan",
+    image: "calendar",
+  },
   {
     id: "habits",
     title: "Habits",
@@ -46,7 +53,8 @@ export function PlanReportHeaderMenu({
   const selectedView = isPlanReportView(view) ? view : currentView;
   const selectedItem =
     MENU_ITEMS.find((item) => item.id === selectedView) ?? MENU_ITEMS[0];
-  const triggerWidth = selectedView === "top-tasks" ? 140 : 120;
+  const triggerWidth =
+    selectedView === "top-tasks" || selectedView === "day-plan" ? 140 : 120;
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -98,7 +106,12 @@ export function PlanReportHeaderMenu({
 }
 
 function isPlanReportView(view: string | undefined): view is PlanReportView {
-  return view === "habits" || view === "goals" || view === "top-tasks";
+  return (
+    view === "day-plan" ||
+    view === "habits" ||
+    view === "goals" ||
+    view === "top-tasks"
+  );
 }
 
 const styles = StyleSheet.create({

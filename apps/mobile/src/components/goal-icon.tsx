@@ -20,9 +20,13 @@ const FALLBACK: SymbolName = {
 const MCI_GLYPHS = MaterialCommunityIcons.glyphMap as Record<string, number>;
 const FA6_GLYPHS = FontAwesome6.glyphMap as Record<string, number>;
 
-function mdiGlyph(iconKey: string): MCIName | null {
+function mdiGlyph(iconKey: string, filled = false): MCIName | null {
   if (!iconKey.startsWith("mdi:")) return null;
   const name = iconKey.slice(4);
+  if (filled && name.endsWith("-outline")) {
+    const filledName = name.replace(/-outline$/, "");
+    if (filledName in MCI_GLYPHS) return filledName as MCIName;
+  }
   return name in MCI_GLYPHS ? (name as MCIName) : null;
 }
 
@@ -38,6 +42,7 @@ export type GoalIconProps = {
   iconKey: string;
   size: number;
   color: string;
+  filled?: boolean;
 };
 
 // True only when the icon will actually draw with the bundled fonts. Keep the
@@ -47,12 +52,10 @@ export function isRenderableIconKey(iconKey: string): boolean {
   return mdiGlyph(iconKey) !== null || fa6Glyph(iconKey) !== null;
 }
 
-export function GoalIcon({ iconKey, size, color }: GoalIconProps) {
-  const mdiName = mdiGlyph(iconKey);
+export function GoalIcon({ iconKey, size, color, filled }: GoalIconProps) {
+  const mdiName = mdiGlyph(iconKey, filled);
   if (mdiName) {
-    return (
-      <MaterialCommunityIcons name={mdiName} size={size} color={color} />
-    );
+    return <MaterialCommunityIcons name={mdiName} size={size} color={color} />;
   }
   const fa6Name = fa6Glyph(iconKey);
   if (fa6Name) {

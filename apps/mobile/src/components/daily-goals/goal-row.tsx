@@ -5,18 +5,21 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
+import { getPlanTimeInput } from "@/lib/plan-time";
 
 import { type ActionGoal, styles, sym } from "./shared";
 
 function GoalRowImpl({
   goal,
   status,
+  plannedTime,
   isUpdating,
   onEdit,
   onPress,
 }: {
   goal: ActionGoal;
   status: "complete" | "planned" | undefined;
+  plannedTime?: { startTime: string | null; endTime: string | null } | null;
   isUpdating: boolean;
   onEdit?: () => void;
   onPress: () => void;
@@ -24,22 +27,14 @@ function GoalRowImpl({
   const theme = useTheme();
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
+  const plannedTimeDisplay = isPlanned
+    ? getPlanTimeInput(plannedTime?.startTime)
+    : null;
+  const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
 
-  const statusBg = isComplete
-    ? theme.primary
-    : isPlanned
-      ? "#B87D4D"
-      : "transparent";
-  const statusBorder = isComplete
-    ? theme.primary
-    : isPlanned
-      ? "#B87D4D"
-      : theme.tabBorder;
-  const rowBg = isComplete
-    ? `${theme.primary}12`
-    : isPlanned
-      ? "#B87D4D0E"
-      : "transparent";
+  const statusBg = isComplete ? theme.primary : "transparent";
+  const statusBorder = isComplete ? theme.primary : theme.tabBorder;
+  const rowBg = isComplete ? `${theme.primary}12` : "transparent";
   const sharedFriends = getSharedFriends(goal).slice(0, 3);
 
   return (
@@ -53,43 +48,36 @@ function GoalRowImpl({
         pressed && styles.pressed,
       ]}
     >
-      {/* Status toggle */}
-      <View
-        style={[
-          styles.statusButton,
-          { backgroundColor: statusBg, borderColor: statusBorder },
-        ]}
-      >
-        {isUpdating ? (
-          <ActivityIndicator
-            size="small"
-            color={isComplete || isPlanned ? "#FFFFFF" : theme.primary}
-          />
-        ) : isComplete ? (
-          <SymbolView
-            name={sym("checkmark", "check")}
-            size={13}
-            weight="bold"
-            tintColor="#FFFFFF"
-          />
-        ) : isPlanned ? (
-          <SymbolView
-            name={sym("clock", "schedule")}
-            size={13}
-            weight="semibold"
-            tintColor="#FFFFFF"
-          />
-        ) : null}
-      </View>
+      {isUpdating || isComplete || (!isPlanned && !hasPlannedTime) ? (
+        <View
+          style={[
+            styles.statusButton,
+            { backgroundColor: statusBg, borderColor: statusBorder },
+          ]}
+        >
+          {isUpdating ? (
+            <ActivityIndicator
+              size="small"
+              color={isComplete ? "#FFFFFF" : theme.primary}
+            />
+          ) : isComplete ? (
+            <SymbolView
+              name={sym("checkmark", "check")}
+              size={13}
+              weight="bold"
+              tintColor="#FFFFFF"
+            />
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Goal icon */}
-      <View
-        style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
-      >
+      <View style={styles.goalIcon}>
         <GoalIcon
+          filled
           iconKey={goal.iconKey}
           size={17}
-          color={isComplete ? theme.primary : theme.tabIcon}
+          color={theme.primary}
         />
       </View>
 
@@ -140,6 +128,17 @@ function GoalRowImpl({
         </View>
       ) : null}
 
+      {hasPlannedTime && plannedTimeDisplay ? (
+        <View style={styles.planTimeBadge}>
+          <Text style={[styles.planTimeBadgeTime, { color: theme.primary }]}>
+            {plannedTimeDisplay.time}
+          </Text>
+          <Text style={[styles.planTimeBadgePeriod, { color: theme.text }]}>
+            {plannedTimeDisplay.period}
+          </Text>
+        </View>
+      ) : null}
+
       {onEdit ? (
         <Pressable
           accessibilityLabel={`Edit ${goal.name}`}
@@ -151,7 +150,6 @@ function GoalRowImpl({
           }}
           style={({ pressed }) => [
             styles.goalMenuButton,
-            { backgroundColor: theme.backgroundElement },
             pressed && styles.pressed,
           ]}
         >

@@ -28,6 +28,31 @@ type GoogleCalendarEventResponse = {
   id?: string;
 };
 
+type GoogleCalendarEventsListResponse = {
+  items?: GoogleCalendarApiEvent[];
+};
+
+type GoogleCalendarApiEvent = {
+  id?: string;
+  status?: string;
+  summary?: string;
+  description?: string;
+  start?: { date?: string; dateTime?: string; timeZone?: string };
+  end?: { date?: string; dateTime?: string; timeZone?: string };
+  extendedProperties?: {
+    private?: Record<string, string | undefined>;
+  };
+};
+
+export type GoogleCalendarEvent = {
+  id: string;
+  title: string;
+  description: string | null;
+  start: { date?: string; dateTime?: string; timeZone?: string };
+  end: { date?: string; dateTime?: string; timeZone?: string };
+  allDay: boolean;
+};
+
 type GoogleCalendarEventBody = {
   summary: string;
   description: string;
@@ -37,6 +62,8 @@ type GoogleCalendarEventBody = {
     private: Record<string, string>;
   };
 };
+
+type HigherHabitsPlannedEventSource = "goal_checkpoint" | "habit" | "task";
 
 export function isGoogleAuthConfigured() {
   return Boolean(
@@ -112,6 +139,57 @@ export async function upsertGoogleCalendarHabitPlan({
     | "error";
   eventId?: string | null;
 }> {
+  return upsertGoogleCalendarPlannedEvent({
+    dateKey,
+    description,
+    existingEventId,
+    plannedEndTime,
+    plannedStartTime,
+    sourceId: goalId,
+    sourceType: "habit",
+    title: habitName,
+    timeZone,
+    userId,
+    extraPrivateProperties: {
+      higherHabitsGoalId: goalId,
+    },
+  });
+}
+
+export async function upsertGoogleCalendarPlannedEvent({
+  dateKey,
+  description,
+  existingEventId,
+  plannedEndTime,
+  plannedStartTime,
+  sourceId,
+  sourceType,
+  title,
+  timeZone,
+  userId,
+  extraPrivateProperties,
+}: {
+  dateKey: string;
+  description?: string | null;
+  existingEventId?: string | null;
+  plannedEndTime?: string | null;
+  plannedStartTime?: string | null;
+  sourceId: string;
+  sourceType: HigherHabitsPlannedEventSource;
+  title: string;
+  timeZone?: string | null;
+  userId: string;
+  extraPrivateProperties?: Record<string, string>;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  eventId?: string | null;
+}> {
   try {
     const token = await getGoogleCalendarAccessToken(userId);
     if (token.status !== "connected") {
@@ -121,11 +199,13 @@ export async function upsertGoogleCalendarHabitPlan({
     const body = buildGoogleCalendarEvent({
       dateKey,
       description,
-      goalId,
-      habitName,
       plannedEndTime,
       plannedStartTime,
+      sourceId,
+      sourceType,
+      title,
       timeZone,
+      extraPrivateProperties,
     });
 
     if (existingEventId) {
@@ -174,6 +254,25 @@ export async function upsertGoogleCalendarHabitPlan({
 }
 
 export async function deleteGoogleCalendarHabitPlan({
+  eventId,
+  userId,
+}: {
+  eventId?: string | null;
+  userId: string;
+}): Promise<{
+  status:
+    | "deleted"
+    | "skipped"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+}> {
+  return deleteGoogleCalendarPlannedEvent({ eventId, userId });
+}
+
+export async function deleteGoogleCalendarPlannedEvent({
   eventId,
   userId,
 }: {
@@ -264,6 +363,63 @@ export async function updateGoogleCalendarHabitPlanDescription({
   }
 }
 
+export async function listGoogleCalendarPrimaryEventsForRange({
+  timeMax,
+  timeMin,
+  timeZone,
+  userId,
+}: {
+  timeMax: string;
+  timeMin: string;
+  timeZone?: string | null;
+  userId: string;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  events: GoogleCalendarEvent[];
+}> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return { status: token.status, events: [] };
+    }
+
+    const params = new URLSearchParams({
+      orderBy: "startTime",
+      singleEvents: "true",
+      timeMax,
+      timeMin,
+    });
+    if (timeZone) params.set("timeZone", timeZone);
+
+    const response = await googleCalendarFetch(
+      `/calendars/primary/events?${params.toString()}`,
+      token.accessToken,
+      { method: "GET" },
+    );
+    await throwIfGoogleCalendarError(response);
+
+    const body = (await response
+      .json()
+      .catch(() => null)) as GoogleCalendarEventsListResponse | null;
+    const events = (body?.items ?? [])
+      .filter((event) => event.status !== "cancelled")
+      .filter((event) => !isHigherHabitsCalendarEvent(event))
+      .map(normalizeGoogleCalendarEvent)
+      .filter((event): event is GoogleCalendarEvent => Boolean(event));
+
+    return { status: "synced", events };
+  } catch (error) {
+    console.error("Google Calendar event list failed", error);
+    return { status: "error", events: [] };
+  }
+}
+
 async function getGoogleCalendarAccessToken(
   userId: string,
 ): Promise<GoogleTokenResult> {
@@ -277,15 +433,14 @@ async function getGoogleCalendarAccessToken(
   }
 
   try {
-    // better-auth's getAccessToken returns the granted scopes as a single
-    // comma/space-separated `scope` string, not a `scopes` array.
     const token = (await auth.api.getAccessToken({
       body: { providerId: "google", userId },
     })) as {
       accessToken?: string;
       scope?: string;
+      scopes?: string[];
     };
-    const scopes = parseOAuthScopes(token.scope);
+    const scopes = parseGoogleTokenScopes(token);
 
     if (!token.accessToken) {
       return { status: "not_connected", scopes };
@@ -305,25 +460,40 @@ async function getGoogleCalendarAccessToken(
   }
 }
 
+function parseGoogleTokenScopes(token: {
+  scope?: string;
+  scopes?: string[];
+}): string[] {
+  if (token.scopes?.length) {
+    return token.scopes.flatMap(parseOAuthScopes);
+  }
+
+  return parseOAuthScopes(token.scope);
+}
+
 function buildGoogleCalendarEvent({
   dateKey,
   description,
-  goalId,
-  habitName,
+  extraPrivateProperties,
   plannedEndTime,
   plannedStartTime,
+  sourceId,
+  sourceType,
+  title,
   timeZone,
 }: {
   dateKey: string;
   description?: string | null;
-  goalId: string;
-  habitName: string;
+  extraPrivateProperties?: Record<string, string>;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  sourceId: string;
+  sourceType: HigherHabitsPlannedEventSource;
+  title: string;
   timeZone?: string | null;
 }): GoogleCalendarEventBody {
   return {
-    summary: habitName,
+    summary: title,
     description: buildGoogleCalendarEventDescription(description),
     ...buildGoogleCalendarEventTime({
       dateKey,
@@ -333,8 +503,10 @@ function buildGoogleCalendarEvent({
     }),
     extendedProperties: {
       private: {
-        higherHabitsGoalId: goalId,
+        higherHabitsSourceId: sourceId,
+        higherHabitsSourceType: sourceType,
         higherHabitsDate: dateKey,
+        ...extraPrivateProperties,
       },
     },
   };
@@ -346,6 +518,35 @@ function buildGoogleCalendarEventDescription(description?: string | null) {
   return trimmedDescription
     ? `${trimmedDescription}\n\nPlanned from Higher Habits.`
     : "Planned from Higher Habits.";
+}
+
+function isHigherHabitsCalendarEvent(event: GoogleCalendarApiEvent) {
+  const privateProperties = event.extendedProperties?.private;
+  return Boolean(
+    privateProperties?.higherHabitsSourceId ||
+      privateProperties?.higherHabitsSourceType ||
+      privateProperties?.higherHabitsGoalId ||
+      privateProperties?.higherHabitsDate,
+  );
+}
+
+function normalizeGoogleCalendarEvent(
+  event: GoogleCalendarApiEvent,
+): GoogleCalendarEvent | null {
+  const id = event.id;
+  const start = event.start;
+  const end = event.end;
+
+  if (!id || !start || !end) return null;
+
+  return {
+    id,
+    title: event.summary?.trim() || "Untitled event",
+    description: event.description?.trim() || null,
+    start,
+    end,
+    allDay: Boolean(start.date && end.date),
+  };
 }
 
 function buildGoogleCalendarEventTime({
@@ -360,18 +561,20 @@ function buildGoogleCalendarEventTime({
   timeZone?: string | null;
 }): Pick<GoogleCalendarEventBody, "start" | "end"> {
   if (plannedStartTime && plannedEndTime) {
+    const normalizedStartTime = normalizeGoogleCalendarTime(plannedStartTime);
+    const normalizedEndTime = normalizeGoogleCalendarTime(plannedEndTime);
     const endDateKey =
-      timeToMinutes(plannedEndTime) <= timeToMinutes(plannedStartTime)
+      timeToMinutes(normalizedEndTime) <= timeToMinutes(normalizedStartTime)
         ? addDaysToDateKey(dateKey, 1)
         : dateKey;
 
     return {
       start: {
-        dateTime: `${dateKey}T${plannedStartTime}:00`,
+        dateTime: `${dateKey}T${normalizedStartTime}:00`,
         timeZone: timeZone || "UTC",
       },
       end: {
-        dateTime: `${endDateKey}T${plannedEndTime}:00`,
+        dateTime: `${endDateKey}T${normalizedEndTime}:00`,
         timeZone: timeZone || "UTC",
       },
     };
@@ -381,6 +584,12 @@ function buildGoogleCalendarEventTime({
     start: { date: dateKey },
     end: { date: addDaysToDateKey(dateKey, 1) },
   };
+}
+
+function normalizeGoogleCalendarTime(time: string) {
+  const [hours = "0", minutes = "00"] = time.split(":");
+
+  return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}`;
 }
 
 function addDaysToDateKey(dateKey: string, days: number) {

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { deletePlannedEventsForSources } from "@/lib/planned-events";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -145,6 +146,12 @@ export async function POST(request: Request) {
 
       return NextResponse.json(row);
     }
+
+    await deletePlannedEventsForSources(db, {
+      sourceIds: data.ids,
+      sourceType: "task",
+      userId: user.id,
+    });
 
     await db
       .delete(tasks)

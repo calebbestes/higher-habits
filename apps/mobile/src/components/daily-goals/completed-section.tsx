@@ -12,6 +12,7 @@ function CompletedSectionImpl({
   completedList,
   dateKey,
   logsByGoalDate,
+  plannedTimesByGoalDate,
   updatingKeys,
   isOpen,
   onToggle,
@@ -21,6 +22,10 @@ function CompletedSectionImpl({
   completedList: { goal: GoalInCategory; category: CategoryWithGoals }[];
   dateKey: string;
   logsByGoalDate: Record<string, "complete" | "planned">;
+  plannedTimesByGoalDate?: Record<
+    string,
+    { startTime: string | null; endTime: string | null }
+  >;
   updatingKeys: Set<string>;
   isOpen: boolean;
   onToggle: () => void;
@@ -73,6 +78,7 @@ function CompletedSectionImpl({
               <GoalRow
                 goal={goal}
                 status={logsByGoalDate[`${goal.id}_${dateKey}`]}
+                plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}

@@ -16,11 +16,13 @@ import {
   setCrashReportingUser,
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
+import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
 import {
+  applyColorThemePreference,
   applyThemePreference,
+  getColorThemePreference,
   getThemePreference,
 } from "@/lib/theme-preference";
-import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
 import { recordAppOpened } from "@/lib/user-activity-client";
 
 function RootLayout() {
@@ -28,6 +30,7 @@ function RootLayout() {
 
   useEffect(() => {
     void getThemePreference().then(applyThemePreference);
+    void getColorThemePreference().then(applyColorThemePreference);
   }, []);
 
   return (

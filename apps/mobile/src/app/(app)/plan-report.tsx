@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
+import { DayPlanScreen } from "@/components/day-plan-screen";
 import { GoalsScreen } from "@/components/goals-screen";
 import { HabitsScreen } from "@/components/habits-screen";
 import { TopTasksScreen } from "@/components/top-tasks-screen";
@@ -41,6 +42,14 @@ export default function PlanReportScreen() {
       setPlanReportView(view);
     }
   }, [legacyHabitsTab, router, view]);
+
+  if (activeView === "day-plan") {
+    return (
+      <ComponentErrorBoundary name="DayPlanScreen">
+        <DayPlanScreen initialDateKey={date} />
+      </ComponentErrorBoundary>
+    );
+  }
 
   if (activeView === "top-tasks") {
     return (

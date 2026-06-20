@@ -26,7 +26,6 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
   deleteGoogleCalendarHabitPlan,
-  updateGoogleCalendarHabitPlanDescription,
   upsertGoogleCalendarHabitPlan,
 } from "@/lib/google-calendar";
 import {
@@ -47,6 +46,13 @@ function getMonthDateRange(month: string) {
 const MONTH_KEY_REGEX = /^\d{4}-\d{2}$/;
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_KEY_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+function normalizeTimeKey(time: string | null | undefined) {
+  if (!time) return null;
+
+  const [hours = "0", minutes = "00"] = time.split(":");
+  return `${hours.padStart(2, "0")}:${minutes}`;
+}
 
 const monthQuerySchema = z.object({
   month: z.string().regex(MONTH_KEY_REGEX, "Month must be YYYY-MM"),
@@ -470,6 +476,14 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "setLog") {
+      const plannedStartTime =
+        data.status === "planned"
+          ? normalizeTimeKey(data.plannedStartTime)
+          : null;
+      const plannedEndTime =
+        data.status === "planned"
+          ? normalizeTimeKey(data.plannedEndTime)
+          : null;
       const [existingLog] = await db
         .select({
           googleCalendarEventId: goalLogs.googleCalendarEventId,
@@ -532,10 +546,8 @@ export async function POST(request: Request) {
           goalId: data.goalId,
           date: data.dateKey,
           status: data.status,
-          plannedStartTime:
-            data.status === "planned" ? (data.plannedStartTime ?? null) : null,
-          plannedEndTime:
-            data.status === "planned" ? (data.plannedEndTime ?? null) : null,
+          plannedStartTime,
+          plannedEndTime,
           visibility: goal.visibility,
           updatedAt: new Date(),
         })
@@ -543,12 +555,8 @@ export async function POST(request: Request) {
           target: [goalLogs.goalId, goalLogs.date],
           set: {
             status: data.status,
-            plannedStartTime:
-              data.status === "planned"
-                ? (data.plannedStartTime ?? null)
-                : null,
-            plannedEndTime:
-              data.status === "planned" ? (data.plannedEndTime ?? null) : null,
+            plannedStartTime,
+            plannedEndTime,
             updatedAt: new Date(),
             userId: user.id,
           },
@@ -571,8 +579,8 @@ export async function POST(request: Request) {
           null,
         goalId: data.goalId,
         habitName: goal.name,
-        plannedEndTime: data.plannedEndTime ?? null,
-        plannedStartTime: data.plannedStartTime ?? null,
+        plannedEndTime,
+        plannedStartTime,
         timeZone: data.plannedTimeZone ?? null,
         userId: user.id,
       });
@@ -631,7 +639,12 @@ export async function POST(request: Request) {
       }
 
       const [syncedLog] = await db
-        .select({ googleCalendarEventId: goalLogs.googleCalendarEventId })
+        .select({
+          googleCalendarEventId: goalLogs.googleCalendarEventId,
+          plannedEndTime: goalLogs.plannedEndTime,
+          plannedStartTime: goalLogs.plannedStartTime,
+          status: goalLogs.status,
+        })
         .from(goalLogs)
         .where(
           and(
@@ -641,13 +654,36 @@ export async function POST(request: Request) {
           ),
         )
         .limit(1);
-      const calendarSync = syncedLog?.googleCalendarEventId
-        ? await updateGoogleCalendarHabitPlanDescription({
-            description: data.notes,
-            eventId: syncedLog.googleCalendarEventId,
-            userId: user.id,
+      const calendarSync =
+        syncedLog?.status === "planned"
+          ? await upsertGoogleCalendarHabitPlan({
+              dateKey: data.dateKey,
+              description: data.notes,
+              existingEventId: syncedLog.googleCalendarEventId,
+              goalId: data.goalId,
+              habitName: goal.name,
+              plannedEndTime: syncedLog.plannedEndTime,
+              plannedStartTime: syncedLog.plannedStartTime,
+              timeZone: null,
+              userId: user.id,
+            })
+          : { status: "skipped" as const };
+
+      if (calendarSync.status === "synced" && calendarSync.eventId) {
+        await db
+          .update(goalLogs)
+          .set({
+            googleCalendarEventId: calendarSync.eventId,
+            updatedAt: new Date(),
           })
-        : { status: "skipped" as const };
+          .where(
+            and(
+              eq(goalLogs.goalId, data.goalId),
+              eq(goalLogs.date, data.dateKey),
+              eq(goalLogs.userId, user.id),
+            ),
+          );
+      }
 
       return NextResponse.json({ ok: true, calendarSync });
     }

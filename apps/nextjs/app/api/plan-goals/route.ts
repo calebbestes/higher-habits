@@ -4,6 +4,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  deletePlannedEventsForSources,
+  upsertPlannedEvent,
+} from "@/lib/planned-events";
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -124,6 +128,21 @@ async function syncGoalCheckpoints(
   goalId: string,
   checkpoints: CheckpointInput[],
 ) {
+  const existingCheckpoints = await db
+    .select({ id: goalCheckpoints.id })
+    .from(goalCheckpoints)
+    .where(
+      and(
+        eq(goalCheckpoints.goalId, goalId),
+        eq(goalCheckpoints.userId, userId),
+      ),
+    );
+  await deletePlannedEventsForSources(db, {
+    sourceIds: existingCheckpoints.map((checkpoint) => checkpoint.id),
+    sourceType: "goal_checkpoint",
+    userId,
+  });
+
   await db
     .delete(goalCheckpoints)
     .where(
@@ -143,7 +162,29 @@ async function syncGoalCheckpoints(
   }));
 
   if (values.length > 0) {
-    await db.insert(goalCheckpoints).values(values);
+    const insertedCheckpoints = await db
+      .insert(goalCheckpoints)
+      .values(values)
+      .returning(selectCheckpointShape);
+
+    await Promise.all(
+      insertedCheckpoints
+        .filter(
+          (checkpoint) => checkpoint.targetDate && !checkpoint.completedAt,
+        )
+        .map((checkpoint) =>
+          upsertPlannedEvent(db, {
+            dateKey: checkpoint.targetDate as string,
+            plannedEndTime: null,
+            plannedStartTime: null,
+            sourceId: checkpoint.id,
+            sourceType: "goal_checkpoint",
+            title: checkpoint.title,
+            timeZone: null,
+            userId,
+          }),
+        ),
+    );
   }
 }
 
@@ -256,6 +297,21 @@ export async function POST(request: Request) {
 
       return NextResponse.json(await getSerializedGoal(db, user.id, data.id));
     }
+
+    const checkpointRows = await db
+      .select({ id: goalCheckpoints.id })
+      .from(goalCheckpoints)
+      .where(
+        and(
+          eq(goalCheckpoints.goalId, data.id),
+          eq(goalCheckpoints.userId, user.id),
+        ),
+      );
+    await deletePlannedEventsForSources(db, {
+      sourceIds: checkpointRows.map((checkpoint) => checkpoint.id),
+      sourceType: "goal_checkpoint",
+      userId: user.id,
+    });
 
     await db
       .delete(goals)

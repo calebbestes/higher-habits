@@ -37,24 +37,8 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-type CategoryConfig = { color: string };
-
-const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
-  Spiritual: { color: "#2C5352" },
-  Physical: { color: "#9D7474" },
-  Work: { color: "#516162" },
-  Social: { color: "#5A8FA0" },
-  "Hobbies/Social": { color: "#5A8FA0" },
-  "Financial/Career": { color: "#B87D4D" },
-};
-
-const DEFAULT_CATEGORY_COLOR = "#516162";
 const COMPLETE_SHARE_TILE = "🟩";
 const EMPTY_SHARE_TILE = "⬜";
-
-function getCategoryColor(name: string): string {
-  return CATEGORY_CONFIG[name]?.color ?? DEFAULT_CATEGORY_COLOR;
-}
 
 function getLast10Days(today: Date): string[] {
   const days: string[] = [];
@@ -732,19 +716,12 @@ function MonthlyGoalRow({
       ) : null}
       <View style={styles.monthlyRow}>
         <View
-          style={[
-            styles.monthlyIcon,
-            {
-              backgroundColor: isComplete
-                ? `${theme.primary}22`
-                : theme.backgroundElement,
-            },
-          ]}
+          style={[styles.monthlyIcon, { backgroundColor: theme.secondary }]}
         >
           <GoalIcon
             iconKey={goal.iconKey}
             size={18}
-            color={isComplete ? theme.primary : theme.tabIcon}
+            color={theme.secondaryForeground}
           />
         </View>
         <View style={styles.progressBarWrap}>
@@ -789,7 +766,6 @@ function CategoryHeatmap({
   showDivider: boolean;
 }) {
   const theme = useTheme();
-  const color = getCategoryColor(category.name);
 
   return (
     <View style={styles.catHeatmap}>
@@ -798,7 +774,7 @@ function CategoryHeatmap({
           style={[styles.catDivider, { backgroundColor: theme.tabBorder }]}
         />
       ) : null}
-      <Text style={[styles.catLabel, { color }]}>
+      <Text style={[styles.catLabel, { color: theme.secondary }]}>
         {category.name.toUpperCase()}
       </Text>
       {goals.map((goal) => {
@@ -808,15 +784,12 @@ function CategoryHeatmap({
         return (
           <View key={goal.id} style={styles.heatmapRow}>
             <View
-              style={[
-                styles.heatmapIcon,
-                { backgroundColor: theme.backgroundElement },
-              ]}
+              style={[styles.heatmapIcon, { backgroundColor: theme.secondary }]}
             >
               <GoalIcon
                 iconKey={goal.iconKey}
                 size={13}
-                color={theme.tabIcon}
+                color={theme.secondaryForeground}
               />
             </View>
             <View style={styles.dayBlocks}>
@@ -825,7 +798,11 @@ function CategoryHeatmap({
                   key={d}
                   style={[
                     styles.dayBlock,
-                    { backgroundColor: dayStatuses[i] ? color : `${color}25` },
+                    {
+                      backgroundColor: dayStatuses[i]
+                        ? theme.primary
+                        : theme.backgroundElement,
+                    },
                   ]}
                 />
               ))}
@@ -844,15 +821,12 @@ function IconPreview({ goals }: { goals: GoalInCategory[] }) {
       {goals.map((goal) => (
         <View
           key={goal.id}
-          style={[
-            styles.iconPreviewItem,
-            { backgroundColor: theme.backgroundElement },
-          ]}
+          style={[styles.iconPreviewItem, { backgroundColor: theme.secondary }]}
         >
           <GoalIcon
             iconKey={goal.iconKey}
             size={16}
-            color={theme.textSecondary}
+            color={theme.secondaryForeground}
           />
         </View>
       ))}

@@ -16,7 +16,7 @@ function EmptyStateImpl() {
         <SymbolView
           name={sym("calendar", "calendar_today")}
           size={28}
-          tintColor={theme.primary}
+          tintColor={theme.secondary}
         />
       </View>
       <Text style={[styles.emptyTitle, { color: theme.text }]}>
