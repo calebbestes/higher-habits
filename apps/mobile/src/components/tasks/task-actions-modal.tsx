@@ -38,7 +38,7 @@ export function TaskActionsModal({
     ...(onPlan
       ? [
           {
-            label: plannedEvent ? "Edit plan" : "Add plan",
+            label: plannedEvent ? "Edit calendar plan" : "Plan to calendar",
             icon: sym("calendar.badge.plus", "event_available"),
             onPress: () => onPlan(task),
           },
@@ -47,7 +47,7 @@ export function TaskActionsModal({
     ...(plannedEvent && onClearPlan
       ? [
           {
-            label: "Clear plan",
+            label: "Clear calendar plan",
             icon: sym("calendar.badge.minus", "event_busy"),
             onPress: () => onClearPlan(task),
           },

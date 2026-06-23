@@ -11,7 +11,6 @@ import {
   isPlanReportView,
   setHabitsTab,
   setPlanReportView,
-  usePlanReportView,
 } from "@/lib/tab-view-store";
 
 export default function PlanReportScreen() {
@@ -20,15 +19,12 @@ export default function PlanReportScreen() {
     view?: string;
     date?: string;
   }>();
-  // Prefer the URL param (deep links / web), but fall back to the remembered
-  // view so switching tabs and returning restores where you were.
-  const rememberedView = usePlanReportView();
   const legacyHabitsTab = isLegacyHabitsTab(view) ? view : undefined;
   const activeView = legacyHabitsTab
     ? "habits"
     : isPlanReportView(view)
       ? view
-      : rememberedView;
+      : "day-plan";
 
   useEffect(() => {
     if (legacyHabitsTab) {

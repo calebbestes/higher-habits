@@ -5,6 +5,11 @@ import type React from "react";
 type SymbolName = SymbolViewProps["name"];
 type MCIName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
 type FA6Name = React.ComponentProps<typeof FontAwesome6>["name"];
+type GlyphMap = Record<string, number | string>;
+type GlyphSource = {
+  glyphMap?: unknown;
+  getRawGlyphMap?: () => unknown;
+};
 
 const FALLBACK: SymbolName = {
   ios: "target",
@@ -17,17 +22,28 @@ const FALLBACK: SymbolName = {
 // bundled MaterialCommunityIcons font does not). Validate the glyph name against
 // the actual bundled glyph map — not just the prefix — so we never render the
 // font's "missing glyph" (?) marker.
-const MCI_GLYPHS = MaterialCommunityIcons.glyphMap as Record<string, number>;
-const FA6_GLYPHS = FontAwesome6.glyphMap as Record<string, number>;
+function getGlyphMap(source: GlyphSource): GlyphMap {
+  const rawGlyphMap = source.glyphMap ?? source.getRawGlyphMap?.();
+  return rawGlyphMap && typeof rawGlyphMap === "object"
+    ? (rawGlyphMap as GlyphMap)
+    : {};
+}
+
+function hasGlyph(glyphMap: GlyphMap, name: string) {
+  return Object.prototype.hasOwnProperty.call(glyphMap, name);
+}
+
+const MCI_GLYPHS = getGlyphMap(MaterialCommunityIcons);
+const FA6_GLYPHS = getGlyphMap(FontAwesome6);
 
 function mdiGlyph(iconKey: string, filled = false): MCIName | null {
   if (!iconKey.startsWith("mdi:")) return null;
   const name = iconKey.slice(4);
   if (filled && name.endsWith("-outline")) {
     const filledName = name.replace(/-outline$/, "");
-    if (filledName in MCI_GLYPHS) return filledName as MCIName;
+    if (hasGlyph(MCI_GLYPHS, filledName)) return filledName as MCIName;
   }
-  return name in MCI_GLYPHS ? (name as MCIName) : null;
+  return hasGlyph(MCI_GLYPHS, name) ? (name as MCIName) : null;
 }
 
 function fa6Glyph(iconKey: string): FA6Name | null {
@@ -35,7 +51,7 @@ function fa6Glyph(iconKey: string): FA6Name | null {
     return null;
   }
   const name = iconKey.slice(10);
-  return name in FA6_GLYPHS ? (name as FA6Name) : null;
+  return hasGlyph(FA6_GLYPHS, name) ? (name as FA6Name) : null;
 }
 
 export type GoalIconProps = {

@@ -28,6 +28,11 @@ const updateSchema = z.object({
   id: z.string().uuid(),
   ...goalFields,
 });
+const updateCheckpointSchema = z.object({
+  type: z.literal("updateCheckpoint"),
+  id: z.string().uuid(),
+  completed: z.boolean(),
+});
 const deleteSchema = z.object({
   type: z.literal("delete"),
   id: z.string().uuid(),
@@ -36,6 +41,7 @@ const deleteSchema = z.object({
 const bodySchema = z.discriminatedUnion("type", [
   createSchema,
   updateSchema,
+  updateCheckpointSchema,
   deleteSchema,
 ]);
 
@@ -296,6 +302,49 @@ export async function POST(request: Request) {
       await syncGoalCheckpoints(db, user.id, data.id, data.checkpoints);
 
       return NextResponse.json(await getSerializedGoal(db, user.id, data.id));
+    }
+
+    if (data.type === "updateCheckpoint") {
+      const [checkpoint] = await db
+        .update(goalCheckpoints)
+        .set({
+          completedAt: data.completed ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(goalCheckpoints.id, data.id),
+            eq(goalCheckpoints.userId, user.id),
+          ),
+        )
+        .returning(selectCheckpointShape);
+
+      if (!checkpoint) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      if (data.completed) {
+        await deletePlannedEventsForSources(db, {
+          sourceIds: [checkpoint.id],
+          sourceType: "goal_checkpoint",
+          userId: user.id,
+        });
+      } else if (checkpoint.targetDate) {
+        await upsertPlannedEvent(db, {
+          dateKey: checkpoint.targetDate,
+          plannedEndTime: null,
+          plannedStartTime: null,
+          sourceId: checkpoint.id,
+          sourceType: "goal_checkpoint",
+          title: checkpoint.title,
+          timeZone: null,
+          userId: user.id,
+        });
+      }
+
+      return NextResponse.json(
+        await getSerializedGoal(db, user.id, checkpoint.goalId),
+      );
     }
 
     const checkpointRows = await db

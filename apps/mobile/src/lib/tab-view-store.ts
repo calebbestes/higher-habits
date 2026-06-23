@@ -30,7 +30,7 @@ export type PlanReportView = "day-plan" | "habits" | "goals" | "top-tasks";
 export type HabitsTab = "daily" | "monthly";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
 
-const planReportStore = createSelectionStore<PlanReportView>("habits");
+const planReportStore = createSelectionStore<PlanReportView>("day-plan");
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
 const collabStore = createSelectionStore<CollabSection>("feed");
 

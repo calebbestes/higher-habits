@@ -17,10 +17,17 @@ import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
+import { TaskPlanModal } from "@/components/tasks/task-plan-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  type PlannedEvent,
+  deletePlannedEvent,
+  fetchPlannedEvents,
+  upsertPlannedEvent,
+} from "@/lib/planned-events-client";
 import {
   type Task,
   type TaskInput,
@@ -139,6 +146,8 @@ export function TopTasksScreen() {
   const [sortPickerOpen, setSortPickerOpen] = useState(false);
   const [actionTask, setActionTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [planningTask, setPlanningTask] = useState<Task | null>(null);
+  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
   const [formOpen, setFormOpen] = useState(false);
 
   const { projects, reloadProjects, createProject, confirmDeleteProject } =
@@ -157,8 +166,13 @@ export function TopTasksScreen() {
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const [fetched] = await Promise.all([fetchTasks(), reloadProjects()]);
+        const [fetched, nextPlannedEvents] = await Promise.all([
+          fetchTasks(),
+          fetchPlannedEvents({ sourceType: "task" }),
+          reloadProjects(),
+        ]);
         setTasks(fetched);
+        setPlannedEvents(nextPlannedEvents);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load tasks.");
       } finally {
@@ -185,6 +199,13 @@ export function TopTasksScreen() {
     () => tasks.filter((t) => t.completedAt !== null),
     [tasks],
   );
+  const plannedEventsByTaskId = useMemo(() => {
+    const map = new Map<string, PlannedEvent>();
+    for (const event of plannedEvents) {
+      if (event.sourceType === "task") map.set(event.sourceId, event);
+    }
+    return map;
+  }, [plannedEvents]);
 
   const handleComplete = useCallback(
     async (task: Task) => {
@@ -241,14 +262,89 @@ export function TopTasksScreen() {
     const saved = editingTask
       ? await updateTask(editingTask.id, input)
       : await createTask(input);
+    const existingPlan = editingTask
+      ? plannedEventsByTaskId.get(editingTask.id)
+      : null;
+
     setTasks((current) =>
       editingTask
         ? current.map((t) => (t.id === saved.id ? saved : t))
         : [...current, saved],
     );
+    if (existingPlan) {
+      const result = await upsertPlannedEvent({
+        dateKey: existingPlan.date,
+        endTime: existingPlan.endTime,
+        sourceId: saved.id,
+        sourceType: "task",
+        startTime: existingPlan.startTime,
+        timeZone: null,
+        title: saved.name,
+      });
+      setPlannedEvents((current) =>
+        current.map((event) =>
+          event.id === result.event.id ? result.event : event,
+        ),
+      );
+    }
     setFormOpen(false);
     setEditingTask(null);
     void reloadProjects();
+  };
+
+  const openPlanTask = (task: Task) => {
+    setActionTask(null);
+    setPlanningTask(task);
+  };
+
+  const saveTaskPlan = async ({
+    dateKey,
+    endTime,
+    startTime,
+    timeZone,
+  }: {
+    dateKey: string;
+    endTime: string | null;
+    startTime: string | null;
+    timeZone: string | null;
+  }) => {
+    if (!planningTask) return;
+
+    const result = await upsertPlannedEvent({
+      dateKey,
+      endTime,
+      sourceId: planningTask.id,
+      sourceType: "task",
+      startTime,
+      timeZone,
+      title: planningTask.name,
+    });
+    setPlannedEvents((current) => {
+      const filtered = current.filter(
+        (event) =>
+          event.sourceType !== "task" || event.sourceId !== planningTask.id,
+      );
+      return [...filtered, result.event];
+    });
+  };
+
+  const clearTaskPlan = async (task: Task) => {
+    setActionTask(null);
+
+    try {
+      await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
+      setPlannedEvents((current) =>
+        current.filter(
+          (event) => event.sourceType !== "task" || event.sourceId !== task.id,
+        ),
+      );
+    } catch (clearError) {
+      setError(
+        clearError instanceof Error
+          ? clearError.message
+          : "Could not clear task plan.",
+      );
+    }
   };
 
   const confirmDelete = (task: Task) => {
@@ -262,6 +358,12 @@ export function TopTasksScreen() {
           try {
             await deleteTask(task.id);
             setTasks((current) => current.filter((t) => t.id !== task.id));
+            setPlannedEvents((current) =>
+              current.filter(
+                (event) =>
+                  event.sourceType !== "task" || event.sourceId !== task.id,
+              ),
+            );
             void reloadProjects();
           } catch (err) {
             setError(
@@ -470,9 +572,14 @@ export function TopTasksScreen() {
 
       <TaskActionsModal
         task={actionTask}
+        plannedEvent={
+          actionTask ? plannedEventsByTaskId.get(actionTask.id) : null
+        }
         onClose={() => setActionTask(null)}
+        onClearPlan={clearTaskPlan}
         onEdit={openEdit}
         onDelete={confirmDelete}
+        onPlan={openPlanTask}
         onToggle={(task) => void handleComplete(task)}
       />
       <TaskFormModal
@@ -485,6 +592,14 @@ export function TopTasksScreen() {
           setEditingTask(null);
         }}
         onSave={saveTask}
+      />
+      <TaskPlanModal
+        existingPlan={
+          planningTask ? plannedEventsByTaskId.get(planningTask.id) : null
+        }
+        task={planningTask}
+        onClose={() => setPlanningTask(null)}
+        onSave={saveTaskPlan}
       />
 
       <Modal

@@ -931,6 +931,7 @@ export function DailyGoalsScreen({
         noteText={modalProps.noteText}
         hasPhoto={modalProps.hasPhoto}
         visibility={modalProps.visibility}
+        canPlan={dateKey >= todayKey}
         isFutureDate={isFutureDate}
         plannedTime={modalProps.plannedTime ?? undefined}
         isUpdatingVisibility={isUpdatingVisibility}

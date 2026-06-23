@@ -42,6 +42,7 @@ function GoalActionsModalImpl({
   isUpdating,
   isUpdatingVisibility,
   isFutureDate = false,
+  canPlan = isFutureDate,
   plannedTime,
   uploadingPhotoSource,
   onAddPhoto,
@@ -60,6 +61,7 @@ function GoalActionsModalImpl({
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
   isUpdatingVisibility: boolean;
+  canPlan?: boolean;
   isFutureDate?: boolean;
   plannedTime?: { startTime: string | null; endTime: string | null };
   uploadingPhotoSource: GoalPhotoSource | null;
@@ -80,6 +82,8 @@ function GoalActionsModalImpl({
   const theme = useTheme();
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
+  const showCompleteAction = !isFutureDate || isComplete;
+  const showPlanAction = canPlan && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
   const [planStartTime, setPlanStartTime] = useState("");
   const [planEndTime, setPlanEndTime] = useState("");
@@ -102,7 +106,7 @@ function GoalActionsModalImpl({
 
   // A daily plan must carry something useful: a note or a valid time range.
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
-  const willSavePlan = isFutureDate && (!isPlanned || hasPlanTimeChanges);
+  const willSavePlan = showPlanAction && (!isPlanned || hasPlanTimeChanges);
   const isPlanActionDisabled =
     willSavePlan &&
     ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
@@ -211,225 +215,247 @@ function GoalActionsModalImpl({
                 contentContainerStyle={modalStyles.actions}
                 showsVerticalScrollIndicator={false}
               >
-                {/* Mark complete / Reopen / Plan */}
-                <Pressable
-                  disabled={isPlanActionDisabled}
-                  onPress={() => {
-                    if (isFutureDate) {
-                      const nextStatus =
-                        isPlanned && !hasPlanTimeChanges ? null : "planned";
-
-                      onSetStatus(
-                        nextStatus,
-                        nextStatus === "planned"
-                          ? {
-                              startTime: nextPlanStartTime,
-                              endTime: nextPlanEndTime,
-                              timeZone: getLocalTimeZone(),
-                            }
-                          : undefined,
-                      );
-                      return;
-                    }
-
-                    onSetStatus(isComplete ? null : "complete");
-                  }}
-                  style={({ pressed }) => [
-                    modalStyles.actionRow,
-                    { backgroundColor: theme.backgroundElement },
-                    isPlanActionDisabled && modalStyles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {isUpdating ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={isFutureDate ? theme.secondary : theme.primary}
-                    />
-                  ) : (
-                    <SymbolView
-                      name={
-                        isFutureDate
-                          ? isPlanned && !hasPlanTimeChanges
-                            ? sym("calendar.badge.minus", "event_busy")
-                            : sym("calendar.badge.plus", "event_available")
-                          : isComplete
+                {showCompleteAction ? (
+                  <Pressable
+                    onPress={() => onSetStatus(isComplete ? null : "complete")}
+                    style={({ pressed }) => [
+                      modalStyles.actionRow,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isUpdating ? (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    ) : (
+                      <SymbolView
+                        name={
+                          isComplete
                             ? sym("arrow.uturn.backward.circle.fill", "undo")
                             : sym("checkmark.circle.fill", "check_circle")
-                      }
-                      size={26}
-                      tintColor={
-                        isComplete && !isFutureDate
-                          ? theme.textSecondary
-                          : isFutureDate
-                            ? theme.secondary
-                            : theme.primary
-                      }
-                    />
-                  )}
-                  <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                    {isFutureDate
-                      ? isPlanned && !hasPlanTimeChanges
-                        ? "Clear plan"
-                        : isPlanned
-                          ? "Save plan"
-                          : "Plan"
-                      : isComplete
-                        ? "Reopen"
-                        : "Mark complete"}
-                  </Text>
-                </Pressable>
-
-                {isPlanActionDisabled ? (
-                  <Text
-                    style={[
-                      modalStyles.planHint,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    Add a note or a time range to plan this habit.
-                  </Text>
+                        }
+                        size={26}
+                        tintColor={
+                          isComplete ? theme.textSecondary : theme.primary
+                        }
+                      />
+                    )}
+                    <Text
+                      style={[modalStyles.actionText, { color: theme.text }]}
+                    >
+                      {isComplete ? "Reopen" : "Mark complete"}
+                    </Text>
+                  </Pressable>
                 ) : null}
 
-                {isFutureDate ? (
-                  <View
-                    style={[
-                      modalStyles.planTimeSection,
-                      { backgroundColor: theme.backgroundElement },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        modalStyles.planTimeSectionTitle,
-                        { color: theme.text },
+                {showPlanAction ? (
+                  <>
+                    <Pressable
+                      disabled={isPlanActionDisabled}
+                      onPress={() => {
+                        const nextStatus =
+                          isPlanned && !hasPlanTimeChanges ? null : "planned";
+
+                        onSetStatus(
+                          nextStatus,
+                          nextStatus === "planned"
+                            ? {
+                                startTime: nextPlanStartTime,
+                                endTime: nextPlanEndTime,
+                                timeZone: getLocalTimeZone(),
+                              }
+                            : undefined,
+                        );
+                      }}
+                      style={({ pressed }) => [
+                        modalStyles.actionRow,
+                        { backgroundColor: theme.backgroundElement },
+                        isPlanActionDisabled && modalStyles.disabled,
+                        pressed && styles.pressed,
                       ]}
                     >
-                      Time range
-                    </Text>
-                    <View style={modalStyles.planTimeFields}>
-                      <View style={modalStyles.planTimeField}>
-                        <Text
-                          style={[
-                            modalStyles.planTimeLabel,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          Start
-                        </Text>
-                        <TextInput
-                          autoCapitalize="none"
-                          keyboardType="numbers-and-punctuation"
-                          onChangeText={setPlanStartTime}
-                          placeholder="9:00"
-                          placeholderTextColor={theme.textSecondary}
-                          selectionColor={theme.primary}
-                          style={[
-                            modalStyles.planTimeInput,
-                            {
-                              borderColor: theme.tabBorder,
-                              color: theme.text,
-                            },
-                          ]}
-                          value={planStartTime}
+                      {isUpdating ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.secondary}
                         />
-                        <View style={modalStyles.planPeriodToggle}>
-                          {PLAN_PERIODS.map((period) => {
-                            const isSelected = planStartPeriod === period;
+                      ) : (
+                        <SymbolView
+                          name={
+                            isPlanned && !hasPlanTimeChanges
+                              ? sym("calendar.badge.minus", "event_busy")
+                              : sym("calendar.badge.plus", "event_available")
+                          }
+                          size={26}
+                          tintColor={
+                            isPlanned && !hasPlanTimeChanges
+                              ? theme.textSecondary
+                              : theme.secondary
+                          }
+                        />
+                      )}
+                      <Text
+                        style={[modalStyles.actionText, { color: theme.text }]}
+                      >
+                        {isPlanned && !hasPlanTimeChanges
+                          ? "Clear plan"
+                          : isPlanned
+                            ? "Save plan"
+                            : "Add plan"}
+                      </Text>
+                    </Pressable>
 
-                            return (
-                              <Pressable
-                                key={period}
-                                onPress={() => setPlanStartPeriod(period)}
-                                style={[
-                                  modalStyles.planPeriodOption,
-                                  {
-                                    backgroundColor: isSelected
-                                      ? theme.primary
-                                      : "transparent",
-                                    borderColor: theme.tabBorder,
-                                  },
-                                ]}
-                              >
-                                <Text
+                    {isPlanActionDisabled ? (
+                      <Text
+                        style={[
+                          modalStyles.planHint,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Add a note or a time range to plan this habit.
+                      </Text>
+                    ) : null}
+
+                    <View
+                      style={[
+                        modalStyles.planTimeSection,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          modalStyles.planTimeSectionTitle,
+                          { color: theme.text },
+                        ]}
+                      >
+                        Time range
+                      </Text>
+                      <View style={modalStyles.planTimeFields}>
+                        <View style={modalStyles.planTimeField}>
+                          <Text
+                            style={[
+                              modalStyles.planTimeLabel,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            Start
+                          </Text>
+                          <TextInput
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            onChangeText={setPlanStartTime}
+                            placeholder="9:00"
+                            placeholderTextColor={theme.textSecondary}
+                            selectionColor={theme.primary}
+                            style={[
+                              modalStyles.planTimeInput,
+                              {
+                                borderColor: theme.tabBorder,
+                                color: theme.text,
+                              },
+                            ]}
+                            value={planStartTime}
+                          />
+                          <View style={modalStyles.planPeriodToggle}>
+                            {PLAN_PERIODS.map((period) => {
+                              const isSelected = planStartPeriod === period;
+
+                              return (
+                                <Pressable
+                                  key={period}
+                                  onPress={() => setPlanStartPeriod(period)}
                                   style={[
-                                    modalStyles.planPeriodText,
+                                    modalStyles.planPeriodOption,
                                     {
-                                      color: isSelected
-                                        ? theme.primaryForeground
-                                        : theme.textSecondary,
+                                      backgroundColor: isSelected
+                                        ? theme.primary
+                                        : "transparent",
+                                      borderColor: theme.tabBorder,
                                     },
                                   ]}
                                 >
-                                  {period}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
+                                  <Text
+                                    style={[
+                                      modalStyles.planPeriodText,
+                                      {
+                                        color: isSelected
+                                          ? theme.primaryForeground
+                                          : theme.textSecondary,
+                                      },
+                                    ]}
+                                  >
+                                    {period}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                         </View>
-                      </View>
-                      <View style={modalStyles.planTimeField}>
-                        <Text
-                          style={[
-                            modalStyles.planTimeLabel,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          End
-                        </Text>
-                        <TextInput
-                          autoCapitalize="none"
-                          keyboardType="numbers-and-punctuation"
-                          onChangeText={setPlanEndTime}
-                          placeholder="10:00"
-                          placeholderTextColor={theme.textSecondary}
-                          selectionColor={theme.primary}
-                          style={[
-                            modalStyles.planTimeInput,
-                            {
-                              borderColor: theme.tabBorder,
-                              color: theme.text,
-                            },
-                          ]}
-                          value={planEndTime}
-                        />
-                        <View style={modalStyles.planPeriodToggle}>
-                          {PLAN_PERIODS.map((period) => {
-                            const isSelected = planEndPeriod === period;
+                        <View style={modalStyles.planTimeField}>
+                          <Text
+                            style={[
+                              modalStyles.planTimeLabel,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            End
+                          </Text>
+                          <TextInput
+                            autoCapitalize="none"
+                            keyboardType="numbers-and-punctuation"
+                            onChangeText={setPlanEndTime}
+                            placeholder="10:00"
+                            placeholderTextColor={theme.textSecondary}
+                            selectionColor={theme.primary}
+                            style={[
+                              modalStyles.planTimeInput,
+                              {
+                                borderColor: theme.tabBorder,
+                                color: theme.text,
+                              },
+                            ]}
+                            value={planEndTime}
+                          />
+                          <View style={modalStyles.planPeriodToggle}>
+                            {PLAN_PERIODS.map((period) => {
+                              const isSelected = planEndPeriod === period;
 
-                            return (
-                              <Pressable
-                                key={period}
-                                onPress={() => setPlanEndPeriod(period)}
-                                style={[
-                                  modalStyles.planPeriodOption,
-                                  {
-                                    backgroundColor: isSelected
-                                      ? theme.primary
-                                      : "transparent",
-                                    borderColor: theme.tabBorder,
-                                  },
-                                ]}
-                              >
-                                <Text
+                              return (
+                                <Pressable
+                                  key={period}
+                                  onPress={() => setPlanEndPeriod(period)}
                                   style={[
-                                    modalStyles.planPeriodText,
+                                    modalStyles.planPeriodOption,
                                     {
-                                      color: isSelected
-                                        ? theme.primaryForeground
-                                        : theme.textSecondary,
+                                      backgroundColor: isSelected
+                                        ? theme.primary
+                                        : "transparent",
+                                      borderColor: theme.tabBorder,
                                     },
                                   ]}
                                 >
-                                  {period}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
+                                  <Text
+                                    style={[
+                                      modalStyles.planPeriodText,
+                                      {
+                                        color: isSelected
+                                          ? theme.primaryForeground
+                                          : theme.textSecondary,
+                                      },
+                                    ]}
+                                  >
+                                    {period}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                         </View>
                       </View>
                     </View>
-                  </View>
-                ) : (
+                  </>
+                ) : null}
+
+                {!isFutureDate ? (
                   <View style={modalStyles.photoRow}>
                     <Pressable
                       disabled={isUploadingPhoto}
@@ -482,7 +508,7 @@ function GoalActionsModalImpl({
                       </Text>
                     </Pressable>
                   </View>
-                )}
+                ) : null}
 
                 {/* Add note */}
                 <Pressable
