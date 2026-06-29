@@ -29,6 +29,7 @@ import {
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
+import { sendTestNotificationAsync } from "@/lib/push-notifications";
 import {
   type ThemePreference,
   getColorThemePreference,
@@ -50,6 +51,8 @@ export function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] =
+    useState(false);
   const [appearance, setAppearance] = useState<ThemePreference>("system");
   const [colorTheme, setColorTheme] = useState<ColorThemePreference>(
     DefaultColorThemePreference,
@@ -173,6 +176,24 @@ export function SettingsScreen() {
       );
     } finally {
       setIsGoogleConnecting(false);
+    }
+  };
+
+  const sendTestNotification = async () => {
+    if (isSendingTestNotification) return;
+
+    setIsSendingTestNotification(true);
+    try {
+      await sendTestNotificationAsync();
+    } catch (notificationError) {
+      Alert.alert(
+        "Notifications",
+        notificationError instanceof Error
+          ? notificationError.message
+          : "Could not send a test notification.",
+      );
+    } finally {
+      setIsSendingTestNotification(false);
     }
   };
 
@@ -303,6 +324,16 @@ export function SettingsScreen() {
               title="Notifications"
               value="Manage"
               onPress={() => setShowNotifications(true)}
+            />
+            <SettingsRow
+              icon={sym("bell.badge.fill", "notifications_active")}
+              title="Test notification"
+              value={isSendingTestNotification ? "Sending" : "Send"}
+              onPress={
+                isSendingTestNotification
+                  ? undefined
+                  : () => void sendTestNotification()
+              }
             />
           </SettingsGroup>
 

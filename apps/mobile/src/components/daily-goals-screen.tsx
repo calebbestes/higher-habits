@@ -50,6 +50,7 @@ import {
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
+import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 import { CategoryAccordionRow } from "./daily-goals/category-accordion-row";
@@ -160,10 +161,18 @@ export function DailyGoalsScreen({
   const saveGoal = async (input: HabitInput) => {
     addCrashBreadcrumb("saveGoal", { editing: Boolean(editingGoal) });
     try {
-      if (editingGoal) {
-        await updateHabit(editingGoal.id, input);
-      } else {
-        await createHabit(input);
+      const saved = editingGoal
+        ? await updateHabit(editingGoal.id, input)
+        : await createHabit(input);
+      try {
+        await scheduleHabitReminderAsync(saved);
+      } catch (reminderError) {
+        Alert.alert(
+          "Reminder not scheduled",
+          reminderError instanceof Error
+            ? reminderError.message
+            : "Could not schedule this habit reminder.",
+        );
       }
       await load();
       setFormOpen(false);

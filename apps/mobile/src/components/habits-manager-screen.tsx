@@ -38,6 +38,10 @@ import {
   fetchHabits,
   updateHabit,
 } from "@/lib/habits-client";
+import {
+  cancelHabitReminderAsync,
+  scheduleHabitReminderAsync,
+} from "@/lib/push-notifications";
 
 type SymbolName = SymbolViewProps["name"];
 type HabitFilter = "all" | "high" | "hidden";
@@ -290,6 +294,16 @@ export function HabitsManagerScreen() {
     const saved = editingHabit
       ? await updateHabit(editingHabit.id, input)
       : await createHabit(input);
+    try {
+      await scheduleHabitReminderAsync(saved);
+    } catch (reminderError) {
+      Alert.alert(
+        "Reminder not scheduled",
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Could not schedule this habit reminder.",
+      );
+    }
 
     setHabits((current) =>
       editingHabit
@@ -317,6 +331,11 @@ export function HabitsManagerScreen() {
         ...toInput(habit),
         hidden: !habit.hidden,
       });
+      if (updated.hidden) {
+        await cancelHabitReminderAsync(updated.id);
+      } else {
+        await scheduleHabitReminderAsync(updated);
+      }
       setHabits((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -342,6 +361,7 @@ export function HabitsManagerScreen() {
           onPress: async () => {
             try {
               await deleteHabit(habit.id);
+              await cancelHabitReminderAsync(habit.id);
               setHabits((current) =>
                 current.filter((item) => item.id !== habit.id),
               );

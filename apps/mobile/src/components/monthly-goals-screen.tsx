@@ -63,6 +63,10 @@ import {
   normalizePlanTimeInput,
   normalizeStoredPlanTime,
 } from "@/lib/plan-time";
+import {
+  cancelHabitReminderAsync,
+  scheduleHabitReminderAsync,
+} from "@/lib/push-notifications";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 type SymbolName = SymbolViewProps["name"];
@@ -346,10 +350,18 @@ export function MonthlyGoalsScreen({
   );
 
   const saveGoal = async (input: HabitInput) => {
-    if (editingGoal) {
-      await updateHabit(editingGoal.id, input);
-    } else {
-      await createHabit(input);
+    const saved = editingGoal
+      ? await updateHabit(editingGoal.id, input)
+      : await createHabit(input);
+    try {
+      await scheduleHabitReminderAsync(saved);
+    } catch (reminderError) {
+      Alert.alert(
+        "Reminder not scheduled",
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Could not schedule this habit reminder.",
+      );
     }
     await load();
     setFormOpen(false);
@@ -393,6 +405,7 @@ export function MonthlyGoalsScreen({
           onPress: async () => {
             try {
               await deleteHabit(goal.id);
+              await cancelHabitReminderAsync(goal.id);
               await load();
             } catch (deleteError) {
               setError(

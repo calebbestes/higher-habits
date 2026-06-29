@@ -75,6 +75,7 @@ import {
   fetchTasks,
   updateTask,
 } from "@/lib/tasks-client";
+import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 
 type DayPlanEntry = {
   allDay: boolean;
@@ -997,7 +998,17 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   };
 
   const saveCreatedHabit = async (input: HabitInput) => {
-    await createHabit(input);
+    const saved = await createHabit(input);
+    try {
+      await scheduleHabitReminderAsync(saved);
+    } catch (reminderError) {
+      Alert.alert(
+        "Reminder not scheduled",
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Could not schedule this habit reminder.",
+      );
+    }
     snapshotCacheRef.current.clear();
     snapshotInFlightRef.current.clear();
     setCreatingTargetType(null);

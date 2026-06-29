@@ -16,7 +16,10 @@ import {
   setCrashReportingUser,
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
-import { registerForPushNotificationsAsync } from "@/lib/push-notifications";
+import {
+  registerForPushNotificationsAsync,
+  syncHabitRemindersFromServerAsync,
+} from "@/lib/push-notifications";
 import {
   applyColorThemePreference,
   applyThemePreference,
@@ -61,6 +64,7 @@ function AuthNavigator() {
 
     record();
     void registerForPushNotificationsAsync();
+    void syncHabitRemindersFromServerAsync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") record();
     });
