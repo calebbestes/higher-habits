@@ -1,5 +1,7 @@
 import {
   categories,
+  feedComments,
+  feedProps,
   friendMessages,
   getDb,
   goalLogPhotos,
@@ -94,6 +96,23 @@ const bodySchema = z.discriminatedUnion("type", [
 
 const getDatabase = () => getDb() ?? null;
 
+type GoalLogSocialSummary = {
+  props: {
+    count: number;
+    hasPropped: boolean;
+  };
+  comments: Array<{
+    id: string;
+    userId: string;
+    authorName: string;
+    authorImage: string | null;
+    body: string;
+    createdAt: string;
+    updatedAt: string;
+    canDelete: boolean;
+  }>;
+};
+
 export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
@@ -129,6 +148,8 @@ export async function GET(request: Request) {
       repeatInterval: habits.repeatInterval,
       repeatDays: habits.repeatDays,
       repeatMonthlyType: habits.repeatMonthlyType,
+      reminderEnabled: habits.reminderEnabled,
+      reminderTime: habits.reminderTime,
       createdAt: habits.createdAt,
     };
 
@@ -176,6 +197,7 @@ export async function GET(request: Request) {
         .orderBy(asc(habits.priority), asc(habits.name)),
       db
         .select({
+          id: goalLogs.id,
           goalId: goalLogs.goalId,
           date: goalLogs.date,
           status: goalLogs.status,
@@ -334,6 +356,8 @@ export async function GET(request: Request) {
         visibility: g.visibility,
         period: g.period,
         frequencyGoal: g.frequencyGoal,
+        reminderEnabled: g.reminderEnabled,
+        reminderTime: g.reminderTime,
         sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
       }));
 
@@ -360,6 +384,8 @@ export async function GET(request: Request) {
       repeatInterval: g.repeatInterval ?? null,
       repeatDays: (g.repeatDays as number[] | null) ?? null,
       repeatMonthlyType: g.repeatMonthlyType ?? null,
+      reminderEnabled: g.reminderEnabled,
+      reminderTime: g.reminderTime,
       createdAt: g.createdAt.toISOString(),
       sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
     });
@@ -409,6 +435,81 @@ export async function GET(request: Request) {
       },
       {},
     );
+    const socialLogKeysById = new Map(
+      logs
+        .filter((log) => log.status === "complete")
+        .map((log) => [log.id, `${log.goalId}_${log.date}`]),
+    );
+    const socialByHabitDate: Record<string, GoalLogSocialSummary> = {};
+    const ensureSocial = (key: string) => {
+      const existing = socialByHabitDate[key];
+      if (existing) return existing;
+
+      const next: GoalLogSocialSummary = {
+        props: {
+          count: 0,
+          hasPropped: false,
+        },
+        comments: [],
+      };
+      socialByHabitDate[key] = next;
+      return next;
+    };
+    const socialLogIds = [...socialLogKeysById.keys()];
+
+    if (socialLogIds.length > 0) {
+      const [propRows, commentRows] = await Promise.all([
+        db
+          .select({
+            goalLogId: feedProps.goalLogId,
+            userId: feedProps.userId,
+          })
+          .from(feedProps)
+          .where(inArray(feedProps.goalLogId, socialLogIds)),
+        db
+          .select({
+            id: feedComments.id,
+            goalLogId: feedComments.goalLogId,
+            userId: feedComments.userId,
+            authorName: users.name,
+            authorImage: users.image,
+            body: feedComments.body,
+            createdAt: feedComments.createdAt,
+            updatedAt: feedComments.updatedAt,
+          })
+          .from(feedComments)
+          .innerJoin(users, eq(feedComments.userId, users.id))
+          .where(inArray(feedComments.goalLogId, socialLogIds))
+          .orderBy(asc(feedComments.createdAt)),
+      ]);
+
+      for (const prop of propRows) {
+        const key = socialLogKeysById.get(prop.goalLogId);
+        if (!key) continue;
+
+        const social = ensureSocial(key);
+        social.props.count += 1;
+        if (prop.userId === user.id) {
+          social.props.hasPropped = true;
+        }
+      }
+
+      for (const comment of commentRows) {
+        const key = socialLogKeysById.get(comment.goalLogId);
+        if (!key) continue;
+
+        ensureSocial(key).comments.push({
+          id: comment.id,
+          userId: comment.userId,
+          authorName: comment.authorName,
+          authorImage: comment.authorImage,
+          body: comment.body,
+          createdAt: comment.createdAt.toISOString(),
+          updatedAt: comment.updatedAt.toISOString(),
+          canDelete: comment.userId === user.id,
+        });
+      }
+    }
 
     return NextResponse.json({
       categories: categoriesWithGoals,
@@ -428,6 +529,8 @@ export async function GET(request: Request) {
       plannedTimesByHabitDate,
       photoCountsByGoalDate: photoCountsByHabitDate,
       photoCountsByHabitDate,
+      socialByGoalDate: socialByHabitDate,
+      socialByHabitDate,
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);

@@ -63,6 +63,13 @@ type GoogleCalendarEventBody = {
   };
 };
 
+type GoogleCalendarDirectEventBody = {
+  summary: string;
+  description?: string;
+  start: { date: string } | { dateTime: string; timeZone: string };
+  end: { date: string } | { dateTime: string; timeZone: string };
+};
+
 type HigherHabitsPlannedEventSource = "goal_checkpoint" | "habit" | "task";
 
 export function isGoogleAuthConfigured() {
@@ -417,6 +424,73 @@ export async function listGoogleCalendarPrimaryEventsForRange({
   } catch (error) {
     console.error("Google Calendar event list failed", error);
     return { status: "error", events: [] };
+  }
+}
+
+export async function createGoogleCalendarPrimaryEvent({
+  dateKey,
+  description,
+  plannedEndTime,
+  plannedStartTime,
+  timeZone,
+  title,
+  userId,
+}: {
+  dateKey: string;
+  description?: string | null;
+  plannedEndTime?: string | null;
+  plannedStartTime?: string | null;
+  timeZone?: string | null;
+  title: string;
+  userId: string;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  event?: GoogleCalendarEvent | null;
+}> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return { status: token.status };
+    }
+
+    const trimmedDescription = description?.trim();
+    const body: GoogleCalendarDirectEventBody = {
+      summary: title,
+      ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      ...buildGoogleCalendarEventTime({
+        dateKey,
+        plannedEndTime,
+        plannedStartTime,
+        timeZone,
+      }),
+    };
+    const response = await googleCalendarFetch(
+      "/calendars/primary/events",
+      token.accessToken,
+      {
+        body: JSON.stringify(body),
+        method: "POST",
+      },
+    );
+    await throwIfGoogleCalendarError(response);
+
+    const inserted = (await response
+      .json()
+      .catch(() => null)) as GoogleCalendarApiEvent | null;
+
+    return {
+      status: "synced",
+      event: inserted ? normalizeGoogleCalendarEvent(inserted) : null,
+    };
+  } catch (error) {
+    console.error("Google Calendar event create failed", error);
+    return { status: "error" };
   }
 }
 

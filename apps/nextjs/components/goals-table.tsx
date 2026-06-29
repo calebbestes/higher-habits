@@ -14,6 +14,7 @@ import {
 } from "@/lib/goals-client";
 import {
   Button,
+  Checkbox,
   Chip,
   Dropdown,
   DropdownItem,
@@ -97,6 +98,8 @@ const EMPTY_FORM: GoalInput = {
   priority: "low",
   visibility: "only_me",
   iconKey: "",
+  reminderEnabled: false,
+  reminderTime: null,
   hidden: false,
 };
 
@@ -241,6 +244,8 @@ function GoalFormModal({
           priority: goal.priority,
           visibility: goal.visibility,
           iconKey: goal.iconKey,
+          reminderEnabled: goal.reminderEnabled,
+          reminderTime: goal.reminderTime,
           hidden: goal.hidden,
         }
       : EMPTY_FORM,
@@ -262,6 +267,8 @@ function GoalFormModal({
             priority: goal.priority,
             visibility: goal.visibility,
             iconKey: goal.iconKey,
+            reminderEnabled: goal.reminderEnabled,
+            reminderTime: goal.reminderTime,
             hidden: goal.hidden,
           }
         : EMPTY_FORM,
@@ -482,6 +489,40 @@ function GoalFormModal({
                 <SelectItem key={option.value}>{option.label}</SelectItem>
               ))}
             </Select>
+
+            <div className="sm:col-span-2">
+              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-default-50 px-3 py-2">
+                <Checkbox
+                  isSelected={form.reminderEnabled}
+                  onValueChange={(isSelected) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      reminderEnabled: isSelected,
+                      reminderTime: isSelected
+                        ? (previous.reminderTime ?? "09:00")
+                        : null,
+                    }))
+                  }
+                  size="sm"
+                >
+                  Notify me at
+                </Checkbox>
+                <Input
+                  aria-label="Reminder time"
+                  className="w-36"
+                  isDisabled={!form.reminderEnabled}
+                  type="time"
+                  value={form.reminderTime ?? "09:00"}
+                  onValueChange={(value) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      reminderTime: value || "09:00",
+                    }))
+                  }
+                  size="sm"
+                />
+              </div>
+            </div>
           </div>
 
           <Switch
@@ -500,7 +541,14 @@ function GoalFormModal({
             color="primary"
             isDisabled={!form.name.trim() || !form.categoryId}
             isLoading={isSaving}
-            onPress={() => onSave(form)}
+            onPress={() =>
+              onSave({
+                ...form,
+                reminderTime: form.reminderEnabled
+                  ? (form.reminderTime ?? "09:00")
+                  : null,
+              })
+            }
           >
             {goal ? "Save changes" : "Add goal"}
           </Button>
@@ -725,6 +773,8 @@ export function GoalsTable() {
         priority: goal.priority,
         visibility: goal.visibility,
         iconKey: goal.iconKey,
+        reminderEnabled: goal.reminderEnabled,
+        reminderTime: goal.reminderTime,
         hidden: goal.hidden,
         ...updates,
       },

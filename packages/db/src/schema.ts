@@ -420,6 +420,8 @@ export const habits = pgTable(
     priority: goalPriorityEnum("priority").notNull(),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     iconKey: text("icon_key").default("").notNull(),
+    reminderEnabled: boolean("reminder_enabled").default(false).notNull(),
+    reminderTime: text("reminder_time"),
     hidden: boolean("hidden").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

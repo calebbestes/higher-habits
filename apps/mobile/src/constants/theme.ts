@@ -40,7 +40,7 @@ export const ColorThemeOptions = {
         colors: {
             primary: "#7BC1AD",
             primaryForeground: "#1A1225",
-            secondary: "#C17B8F",
+            secondary: "#F5F0E8",
             secondaryForeground: "#1A1225",
         },
     },

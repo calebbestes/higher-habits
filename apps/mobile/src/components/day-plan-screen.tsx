@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,14 +18,20 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import { GoalFormModal } from "@/components/goals-screen";
+import { HabitFormModal } from "@/components/habits-manager-screen";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
+import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
+import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
   type GoogleCalendarDayEvent,
+  type GoogleCalendarEventsResponse,
+  createGoogleCalendarEvent,
   fetchGoogleCalendarEvents,
   getLocalTimeZone,
 } from "@/lib/google-calendar-client";
@@ -39,7 +46,14 @@ import {
   setHabitLogVisibility,
   toDateKey,
 } from "@/lib/habit-logs-client";
-import type { HabitVisibility } from "@/lib/habits-client";
+import {
+  type Category,
+  type HabitInput,
+  type HabitVisibility,
+  createCategory as createHabitCategory,
+  createHabit,
+  fetchCategories,
+} from "@/lib/habits-client";
 import {
   type PlannedEvent,
   deletePlannedEvent,
@@ -49,10 +63,18 @@ import {
 import {
   type Goal,
   type GoalCheckpoint,
+  type GoalInput,
+  createPlanGoal,
   fetchPlanGoals,
   updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
-import { type Task, fetchTasks, updateTask } from "@/lib/tasks-client";
+import {
+  type Task,
+  type TaskInput,
+  createTask,
+  fetchTasks,
+  updateTask,
+} from "@/lib/tasks-client";
 
 type DayPlanEntry = {
   allDay: boolean;
@@ -82,6 +104,14 @@ type PlanTargetOption = {
   id: string;
   subtitle?: string;
   title: string;
+};
+type CachedDayPlanData = {
+  googleResponse: GoogleCalendarEventsResponse;
+  habitCategories: Category[];
+  planGoals: Goal[];
+  plannedEvents: PlannedEvent[];
+  snapshot: HabitLogsSnapshot;
+  tasks: Task[];
 };
 
 const HOUR_HEIGHT = 48;
@@ -114,6 +144,7 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
+  const { projects, reloadProjects, createProject } = useTaskProjects();
   const timelineScrollRef = useRef<ScrollView>(null);
   const dragStartMinutesRef = useRef<number | null>(null);
   const [selectedDate, setSelectedDate] = useState(() =>
@@ -122,6 +153,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [planGoals, setPlanGoals] = useState<Goal[]>([]);
+  const [habitCategories, setHabitCategories] = useState<Category[]>([]);
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarDayEvent[]>(
     [],
   );
@@ -136,24 +168,392 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const [noteHabit, setNoteHabit] = useState<ActionHabit | null>(null);
   const [dragPlanRange, setDragPlanRange] = useState<PlanRange | null>(null);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
+  const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
+    null,
+  );
   const [selectedPlanTargetType, setSelectedPlanTargetType] =
     useState<PlanTargetType | null>(null);
+  const [creatingTargetType, setCreatingTargetType] =
+    useState<PlanTargetType | null>(null);
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
+  const [isCreatingOtherEvent, setIsCreatingOtherEvent] = useState(false);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
-  const dayRange = useMemo(() => getDayRange(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
+  const loadSequenceRef = useRef(0);
+  const snapshotCacheRef = useRef(new Map<string, HabitLogsSnapshot>());
+  const snapshotInFlightRef = useRef(
+    new Map<string, Promise<HabitLogsSnapshot>>(),
+  );
+  const tasksCacheRef = useRef(new Map<string, Task[]>());
+  const tasksInFlightRef = useRef(new Map<string, Promise<Task[]>>());
+  const googleEventsCacheRef = useRef(
+    new Map<string, GoogleCalendarEventsResponse>(),
+  );
+  const googleEventsInFlightRef = useRef(
+    new Map<string, Promise<GoogleCalendarEventsResponse>>(),
+  );
+  const plannedEventsCacheRef = useRef(new Map<string, PlannedEvent[]>());
+  const plannedEventsInFlightRef = useRef(
+    new Map<string, Promise<PlannedEvent[]>>(),
+  );
+  const planGoalsCacheRef = useRef<Goal[] | null>(null);
+  const planGoalsInFlightRef = useRef<Promise<Goal[]> | null>(null);
+  const habitCategoriesCacheRef = useRef<Category[] | null>(null);
+  const habitCategoriesInFlightRef = useRef<Promise<Category[]> | null>(null);
+  const projectsLoadedRef = useRef(false);
+  const projectsInFlightRef = useRef<Promise<void> | null>(null);
+
+  const readCachedDayPlanData = useCallback(
+    (
+      targetMonthKey: string,
+      targetDateKey: string,
+    ): CachedDayPlanData | null => {
+      const snapshot = snapshotCacheRef.current.get(targetMonthKey);
+      const tasksForDay = tasksCacheRef.current.get(targetDateKey);
+      const googleResponse = googleEventsCacheRef.current.get(targetDateKey);
+      const plannedEventsForDay =
+        plannedEventsCacheRef.current.get(targetDateKey);
+      const cachedPlanGoals = planGoalsCacheRef.current;
+      const cachedHabitCategories = habitCategoriesCacheRef.current;
+
+      if (
+        !snapshot ||
+        !tasksForDay ||
+        !googleResponse ||
+        !plannedEventsForDay ||
+        !cachedPlanGoals ||
+        !cachedHabitCategories
+      ) {
+        return null;
+      }
+
+      return {
+        googleResponse,
+        habitCategories: cachedHabitCategories,
+        planGoals: cachedPlanGoals,
+        plannedEvents: plannedEventsForDay,
+        snapshot,
+        tasks: tasksForDay,
+      };
+    },
+    [],
+  );
+
+  const applyDayPlanData = useCallback((data: CachedDayPlanData) => {
+    setSnapshot(data.snapshot);
+    setTasks(data.tasks);
+    setPlanGoals(data.planGoals);
+    setHabitCategories(data.habitCategories);
+    setGoogleEvents(data.googleResponse.events);
+    setPlannedEvents(data.plannedEvents);
+    setGoogleStatus(data.googleResponse.status);
+  }, []);
+
+  const getSnapshotForMonth = useCallback(
+    (targetMonthKey: string, force = false) => {
+      if (!force) {
+        const cached = snapshotCacheRef.current.get(targetMonthKey);
+        if (cached) return Promise.resolve(cached);
+
+        const inFlight = snapshotInFlightRef.current.get(targetMonthKey);
+        if (inFlight) return inFlight;
+      }
+
+      const request = fetchHabitLogsSnapshot(targetMonthKey)
+        .then((nextSnapshot) => {
+          if (snapshotInFlightRef.current.get(targetMonthKey) === request) {
+            snapshotCacheRef.current.set(targetMonthKey, nextSnapshot);
+          }
+          return nextSnapshot;
+        })
+        .finally(() => {
+          if (snapshotInFlightRef.current.get(targetMonthKey) === request) {
+            snapshotInFlightRef.current.delete(targetMonthKey);
+          }
+        });
+
+      snapshotInFlightRef.current.set(targetMonthKey, request);
+      return request;
+    },
+    [],
+  );
+
+  const getTasksForDate = useCallback((targetDateKey: string, force = false) => {
+    if (!force) {
+      const cached = tasksCacheRef.current.get(targetDateKey);
+      if (cached) return Promise.resolve(cached);
+
+      const inFlight = tasksInFlightRef.current.get(targetDateKey);
+      if (inFlight) return inFlight;
+    }
+
+    const request = fetchTasks(targetDateKey)
+      .then((nextTasks) => {
+        if (tasksInFlightRef.current.get(targetDateKey) === request) {
+          tasksCacheRef.current.set(targetDateKey, nextTasks);
+        }
+        return nextTasks;
+      })
+      .finally(() => {
+        if (tasksInFlightRef.current.get(targetDateKey) === request) {
+          tasksInFlightRef.current.delete(targetDateKey);
+        }
+      });
+
+    tasksInFlightRef.current.set(targetDateKey, request);
+    return request;
+  }, []);
+
+  const getGoogleEventsForDate = useCallback(
+    (targetDate: Date, targetDateKey: string, force = false) => {
+      if (!force) {
+        const cached = googleEventsCacheRef.current.get(targetDateKey);
+        if (cached) return Promise.resolve(cached);
+
+        const inFlight = googleEventsInFlightRef.current.get(targetDateKey);
+        if (inFlight) return inFlight;
+      }
+
+      const range = getDayRange(targetDate);
+      const request = fetchGoogleCalendarEvents({
+        timeMax: range.timeMax,
+        timeMin: range.timeMin,
+        timeZone,
+      })
+        .then((response) => {
+          if (googleEventsInFlightRef.current.get(targetDateKey) === request) {
+            googleEventsCacheRef.current.set(targetDateKey, response);
+          }
+          return response;
+        })
+        .finally(() => {
+          if (googleEventsInFlightRef.current.get(targetDateKey) === request) {
+            googleEventsInFlightRef.current.delete(targetDateKey);
+          }
+        });
+
+      googleEventsInFlightRef.current.set(targetDateKey, request);
+      return request;
+    },
+    [timeZone],
+  );
+
+  const getPlannedEventsForDate = useCallback(
+    (targetDateKey: string, force = false) => {
+      if (!force) {
+        const cached = plannedEventsCacheRef.current.get(targetDateKey);
+        if (cached) return Promise.resolve(cached);
+
+        const inFlight = plannedEventsInFlightRef.current.get(targetDateKey);
+        if (inFlight) return inFlight;
+      }
+
+      const request = fetchPlannedEvents({ dateKey: targetDateKey })
+        .then((nextPlannedEvents) => {
+          if (
+            plannedEventsInFlightRef.current.get(targetDateKey) === request
+          ) {
+            plannedEventsCacheRef.current.set(
+              targetDateKey,
+              nextPlannedEvents,
+            );
+          }
+          return nextPlannedEvents;
+        })
+        .finally(() => {
+          if (plannedEventsInFlightRef.current.get(targetDateKey) === request) {
+            plannedEventsInFlightRef.current.delete(targetDateKey);
+          }
+        });
+
+      plannedEventsInFlightRef.current.set(targetDateKey, request);
+      return request;
+    },
+    [],
+  );
+
+  const getPlanGoals = useCallback((force = false) => {
+    if (!force && planGoalsCacheRef.current) {
+      return Promise.resolve(planGoalsCacheRef.current);
+    }
+
+    if (!force && planGoalsInFlightRef.current) {
+      return planGoalsInFlightRef.current;
+    }
+
+    const request = fetchPlanGoals()
+      .then((nextPlanGoals) => {
+        if (planGoalsInFlightRef.current === request) {
+          planGoalsCacheRef.current = nextPlanGoals;
+        }
+        return nextPlanGoals;
+      })
+      .finally(() => {
+        if (planGoalsInFlightRef.current === request) {
+          planGoalsInFlightRef.current = null;
+        }
+      });
+
+    planGoalsInFlightRef.current = request;
+    return request;
+  }, []);
+
+  const getHabitCategories = useCallback((force = false) => {
+    if (!force && habitCategoriesCacheRef.current) {
+      return Promise.resolve(habitCategoriesCacheRef.current);
+    }
+
+    if (!force && habitCategoriesInFlightRef.current) {
+      return habitCategoriesInFlightRef.current;
+    }
+
+    const request = fetchCategories()
+      .then((nextHabitCategories) => {
+        if (habitCategoriesInFlightRef.current === request) {
+          habitCategoriesCacheRef.current = nextHabitCategories;
+        }
+        return nextHabitCategories;
+      })
+      .finally(() => {
+        if (habitCategoriesInFlightRef.current === request) {
+          habitCategoriesInFlightRef.current = null;
+        }
+      });
+
+    habitCategoriesInFlightRef.current = request;
+    return request;
+  }, []);
+
+  const ensureProjects = useCallback(
+    (force = false) => {
+      if (!force && projectsLoadedRef.current) return Promise.resolve();
+      if (!force && projectsInFlightRef.current) {
+        return projectsInFlightRef.current;
+      }
+
+      const request = reloadProjects()
+        .then(() => {
+          if (projectsInFlightRef.current === request) {
+            projectsLoadedRef.current = true;
+          }
+        })
+        .finally(() => {
+          if (projectsInFlightRef.current === request) {
+            projectsInFlightRef.current = null;
+          }
+        });
+
+      projectsInFlightRef.current = request;
+      return request;
+    },
+    [reloadProjects],
+  );
+
+  const prefetchDay = useCallback(
+    (targetDate: Date) => {
+      const targetDateKey = toDateKey(targetDate);
+      const targetMonthKey = getMonthKey(targetDate);
+
+      void Promise.allSettled([
+        getSnapshotForMonth(targetMonthKey),
+        getTasksForDate(targetDateKey),
+        getGoogleEventsForDate(targetDate, targetDateKey),
+        getPlannedEventsForDate(targetDateKey),
+      ]);
+    },
+    [
+      getGoogleEventsForDate,
+      getPlannedEventsForDate,
+      getSnapshotForMonth,
+      getTasksForDate,
+    ],
+  );
+
+  const prefetchAdjacentDays = useCallback(
+    (targetDate: Date) => {
+      prefetchDay(addDays(targetDate, -1));
+      prefetchDay(addDays(targetDate, 1));
+    },
+    [prefetchDay],
+  );
+
+  const invalidateCurrentCaches = useCallback(
+    ({
+      google = false,
+      habitCategories: shouldInvalidateHabitCategories = false,
+      planGoals: shouldInvalidatePlanGoals = false,
+      planned = false,
+      snapshot: shouldInvalidateSnapshot = false,
+      tasks: shouldInvalidateTasks = false,
+    }: {
+      google?: boolean;
+      habitCategories?: boolean;
+      planGoals?: boolean;
+      planned?: boolean;
+      snapshot?: boolean;
+      tasks?: boolean;
+    }) => {
+      if (shouldInvalidateSnapshot) {
+        snapshotCacheRef.current.delete(monthKey);
+        snapshotInFlightRef.current.delete(monthKey);
+      }
+
+      if (shouldInvalidateTasks) {
+        tasksCacheRef.current.clear();
+        tasksInFlightRef.current.clear();
+      }
+
+      if (google) {
+        googleEventsCacheRef.current.delete(dateKey);
+        googleEventsInFlightRef.current.delete(dateKey);
+      }
+
+      if (planned) {
+        plannedEventsCacheRef.current.delete(dateKey);
+        plannedEventsInFlightRef.current.delete(dateKey);
+      }
+
+      if (shouldInvalidatePlanGoals) {
+        planGoalsCacheRef.current = null;
+        planGoalsInFlightRef.current = null;
+      }
+
+      if (shouldInvalidateHabitCategories) {
+        habitCategoriesCacheRef.current = null;
+        habitCategoriesInFlightRef.current = null;
+      }
+    },
+    [dateKey, monthKey],
+  );
 
   const load = useCallback(
-    async ({ refreshing = false } = {}) => {
+    async ({ force = false, refreshing = false } = {}) => {
+      const targetDate = selectedDate;
+      const targetDateKey = dateKey;
+      const targetMonthKey = monthKey;
+      const sequence = (loadSequenceRef.current += 1);
+
       if (refreshing) {
         setIsRefreshing(true);
       } else {
-        setIsLoading(true);
+        const cached = force
+          ? null
+          : readCachedDayPlanData(targetMonthKey, targetDateKey);
+
+        if (cached) {
+          applyDayPlanData(cached);
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
       }
       setError(null);
+      if (!force && !refreshing) {
+        prefetchAdjacentDays(targetDate);
+      }
 
       try {
         const [
@@ -162,35 +562,57 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           nextPlanGoals,
           googleResponse,
           nextPlannedEvents,
+          nextHabitCategories,
         ] = await Promise.all([
-          fetchHabitLogsSnapshot(monthKey),
-          fetchTasks(dateKey),
-          fetchPlanGoals(),
-          fetchGoogleCalendarEvents({
-            timeMax: dayRange.timeMax,
-            timeMin: dayRange.timeMin,
-            timeZone,
-          }),
-          fetchPlannedEvents({ dateKey }),
+          getSnapshotForMonth(targetMonthKey, force),
+          getTasksForDate(targetDateKey, force),
+          getPlanGoals(force),
+          getGoogleEventsForDate(targetDate, targetDateKey, force),
+          getPlannedEventsForDate(targetDateKey, force),
+          getHabitCategories(force),
+          ensureProjects(force),
         ]);
+
+        if (sequence !== loadSequenceRef.current) return;
+
         setSnapshot(nextSnapshot);
         setTasks(nextTasks);
         setPlanGoals(nextPlanGoals);
+        setHabitCategories(nextHabitCategories);
         setGoogleEvents(googleResponse.events);
         setPlannedEvents(nextPlannedEvents);
         setGoogleStatus(googleResponse.status);
+        prefetchAdjacentDays(targetDate);
       } catch (loadError) {
+        if (sequence !== loadSequenceRef.current) return;
+
         setError(
           loadError instanceof Error
             ? loadError.message
             : "Could not load day plan.",
         );
       } finally {
+        if (sequence !== loadSequenceRef.current) return;
+
         setIsLoading(false);
         setIsRefreshing(false);
       }
     },
-    [dateKey, dayRange.timeMax, dayRange.timeMin, monthKey, timeZone],
+    [
+      applyDayPlanData,
+      dateKey,
+      ensureProjects,
+      getGoogleEventsForDate,
+      getHabitCategories,
+      getPlanGoals,
+      getPlannedEventsForDate,
+      getSnapshotForMonth,
+      getTasksForDate,
+      monthKey,
+      prefetchAdjacentDays,
+      readCachedDayPlanData,
+      selectedDate,
+    ],
   );
 
   useEffect(() => {
@@ -380,6 +802,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     setUpdatingKey(key);
     try {
       await setHabitLog(activeHabit.id, dateKey, status, options);
+      invalidateCurrentCaches({ google: true, snapshot: true });
       await load();
     } catch (updateError) {
       Alert.alert(
@@ -400,6 +823,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     setUpdatingKey(key);
     try {
       await setHabitLogVisibility(activeHabit.id, dateKey, visibility);
+      invalidateCurrentCaches({ snapshot: true });
       await load();
     } catch (updateError) {
       Alert.alert(
@@ -415,6 +839,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
 
   const saveNote = async (habitId: string, notes: string) => {
     await setHabitLogNote(habitId, dateKey, notes);
+    invalidateCurrentCaches({ snapshot: true });
     await load();
   };
 
@@ -427,6 +852,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
       if (!photo) return;
 
       await uploadGoalPhoto(habitId, dateKey, photo);
+      invalidateCurrentCaches({ snapshot: true });
       await load();
     } catch (photoError) {
       Alert.alert(
@@ -460,6 +886,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           projectId: task.projectId,
           timeRequired: task.timeRequired,
         });
+        invalidateCurrentCaches({ tasks: true });
       } else if (activeEntry.kind === "goal") {
         const checkpoint = checkpointById.get(activeEntry.sourceId);
         if (!checkpoint) {
@@ -471,6 +898,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           checkpoint.checkpoint.id,
           !checkpoint.checkpoint.completed,
         );
+        invalidateCurrentCaches({ planGoals: true });
       }
 
       setActiveEntry(null);
@@ -507,6 +935,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
                 sourceId,
                 sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
               });
+              invalidateCurrentCaches({ google: true, planned: true });
               setActiveEntry(null);
               await load();
             } catch (deleteError) {
@@ -537,7 +966,81 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const closeDraftPlan = () => {
     setDraftPlanRange(null);
     setSelectedPlanTargetType(null);
+    setCreatingTargetType(null);
     setIsCreatingPlan(false);
+  };
+
+  const openOtherEventForm = () => {
+    if (!draftPlanRange) return;
+    setOtherEventRange(draftPlanRange);
+    closeDraftPlan();
+  };
+
+  const createCategory = async (name: string, icon: string) => {
+    const category = await createHabitCategory({ icon, name });
+    setHabitCategories((current) => {
+      const nextCategories = [...current, category].sort((left, right) =>
+        left.name.localeCompare(right.name),
+      );
+      habitCategoriesCacheRef.current = nextCategories;
+      return nextCategories;
+    });
+    return category;
+  };
+
+  const saveCreatedTask = async (input: TaskInput) => {
+    const saved = await createTask(input);
+    invalidateCurrentCaches({ tasks: true });
+    setTasks((current) => [saved, ...current]);
+    setCreatingTargetType(null);
+    void ensureProjects(true);
+  };
+
+  const saveCreatedHabit = async (input: HabitInput) => {
+    await createHabit(input);
+    snapshotCacheRef.current.clear();
+    snapshotInFlightRef.current.clear();
+    setCreatingTargetType(null);
+    await load();
+  };
+
+  const saveCreatedGoal = async (input: GoalInput) => {
+    await createPlanGoal(input);
+    invalidateCurrentCaches({ planGoals: true });
+    setCreatingTargetType(null);
+    await load();
+  };
+
+  const saveOtherEvent = async (title: string) => {
+    if (!otherEventRange || isCreatingOtherEvent) return;
+
+    setIsCreatingOtherEvent(true);
+    try {
+      const response = await createGoogleCalendarEvent({
+        dateKey,
+        endTime: formatPlanApiTime(otherEventRange.endMinutes),
+        startTime: formatPlanApiTime(otherEventRange.startMinutes),
+        timeZone,
+        title,
+      });
+
+      if (response.status !== "synced") {
+        throw new Error(getGoogleCalendarStatusMessage(response.status));
+      }
+
+      setOtherEventRange(null);
+      invalidateCurrentCaches({ google: true });
+      await load();
+    } catch (eventError) {
+      Alert.alert(
+        "Could not add event",
+        eventError instanceof Error
+          ? eventError.message
+          : "The Google Calendar event could not be created.",
+      );
+    } finally {
+      setIsCreatingOtherEvent(false);
+    }
   };
 
   const createPlanFromDrag = async (
@@ -564,6 +1067,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           timeZone,
           title: task.name,
         });
+        invalidateCurrentCaches({ google: true, planned: true });
       } else if (targetType === "goal") {
         const checkpoint = checkpointById.get(targetId);
         if (!checkpoint) throw new Error("Could not find that checkpoint.");
@@ -577,6 +1081,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           timeZone,
           title: checkpoint.checkpoint.title,
         });
+        invalidateCurrentCaches({ google: true, planned: true });
       } else {
         const habit = habitById.get(targetId);
         if (!habit) throw new Error("Could not find that habit.");
@@ -586,6 +1091,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           startTime,
           timeZone,
         });
+        invalidateCurrentCaches({ google: true, snapshot: true });
       }
 
       closeDraftPlan();
@@ -615,7 +1121,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
               <RefreshControl
                 refreshing={isRefreshing}
                 tintColor={theme.primary}
-                onRefresh={() => void load({ refreshing: true })}
+                onRefresh={() => void load({ force: true, refreshing: true })}
               />
             }
             showsVerticalScrollIndicator={false}
@@ -724,7 +1230,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
             {error ? (
               <View style={styles.errorBanner}>
                 <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load()}>
+                <Pressable onPress={() => void load({ force: true })}>
                   <Text style={styles.retryText}>Retry</Text>
                 </Pressable>
               </View>
@@ -901,10 +1407,46 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           selectedType={selectedPlanTargetType}
           taskOptions={taskOptions}
           onClose={closeDraftPlan}
+          onCreate={(targetType) => setCreatingTargetType(targetType)}
+          onCreateOtherEvent={openOtherEventForm}
           onSelectOption={(targetType, targetId) =>
             void createPlanFromDrag(targetType, targetId)
           }
           onSelectType={setSelectedPlanTargetType}
+        />
+        <OtherEventFormModal
+          isSaving={isCreatingOtherEvent}
+          range={otherEventRange}
+          onClose={() => setOtherEventRange(null)}
+          onSave={(title) => void saveOtherEvent(title)}
+        />
+        <TaskFormModal
+          isOpen={creatingTargetType === "task"}
+          onClose={() => setCreatingTargetType(null)}
+          onCreateProject={createProject}
+          onSave={saveCreatedTask}
+          projects={projects}
+          task={null}
+        />
+        <HabitFormModal
+          categories={habitCategories}
+          habit={null}
+          initialValues={{
+            period: creatingTargetType === "monthlyHabit" ? "monthly" : "daily",
+          }}
+          isOpen={
+            creatingTargetType === "dailyHabit" ||
+            creatingTargetType === "monthlyHabit"
+          }
+          onAddCategory={createCategory}
+          onClose={() => setCreatingTargetType(null)}
+          onSave={saveCreatedHabit}
+        />
+        <GoalFormModal
+          goal={null}
+          isOpen={creatingTargetType === "goal"}
+          onClose={() => setCreatingTargetType(null)}
+          onSave={saveCreatedGoal}
         />
         {noteHabit ? (
           <GoalNoteEditorModal
@@ -1130,6 +1672,8 @@ function PlanSelectionModal({
   isSaving,
   monthlyHabitOptions,
   onClose,
+  onCreate,
+  onCreateOtherEvent,
   onSelectOption,
   onSelectType,
   range,
@@ -1141,6 +1685,8 @@ function PlanSelectionModal({
   isSaving: boolean;
   monthlyHabitOptions: PlanTargetOption[];
   onClose: () => void;
+  onCreate: (targetType: PlanTargetType) => void;
+  onCreateOtherEvent: () => void;
   onSelectOption: (targetType: PlanTargetType, targetId: string) => void;
   onSelectType: (targetType: PlanTargetType | null) => void;
   range: PlanRange | null;
@@ -1199,6 +1745,24 @@ function PlanSelectionModal({
                 {formatMinuteRange(range.startMinutes, range.endMinutes)}
               </Text>
             </View>
+            {selectedType ? (
+              <Pressable
+                accessibilityLabel={`Create ${selectedMeta?.label.toLowerCase()}`}
+                onPress={() => onCreate(selectedType)}
+                style={({ pressed }) => [
+                  styles.planPickerCreateButton,
+                  { backgroundColor: theme.primary },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("plus", "add")}
+                  size={19}
+                  tintColor={theme.primaryForeground}
+                  weight="bold"
+                />
+              </Pressable>
+            ) : null}
           </View>
 
           {selectedType ? (
@@ -1265,15 +1829,35 @@ function PlanSelectionModal({
             </ScrollView>
           ) : (
             <View style={styles.planPickerList}>
-              {(["task", "monthlyHabit", "dailyHabit", "goal"] as const).map(
+              {(
+                [
+                  "task",
+                  "monthlyHabit",
+                  "dailyHabit",
+                  "goal",
+                  "otherEvent",
+                ] as const
+              ).map(
                 (targetType) => {
-                  const meta = getPlanTargetMeta(targetType);
-                  const count = optionsByType[targetType].length;
+                  const isOtherEvent = targetType === "otherEvent";
+                  const meta = isOtherEvent
+                    ? {
+                        icon: sym("calendar.badge.plus", "event_available"),
+                        label: "Other event",
+                      }
+                    : getPlanTargetMeta(targetType);
+                  const count = isOtherEvent
+                    ? null
+                    : optionsByType[targetType].length;
 
                   return (
                     <Pressable
                       key={targetType}
-                      onPress={() => onSelectType(targetType)}
+                      onPress={() =>
+                        isOtherEvent
+                          ? onCreateOtherEvent()
+                          : onSelectType(targetType)
+                      }
                       style={({ pressed }) => [
                         styles.planPickerTypeRow,
                         { backgroundColor: theme.backgroundElement },
@@ -1308,7 +1892,9 @@ function PlanSelectionModal({
                             { color: theme.textSecondary },
                           ]}
                         >
-                          {count} available
+                          {isOtherEvent
+                            ? "Google Calendar"
+                            : `${count} available`}
                         </Text>
                       </View>
                       <SymbolView
@@ -1323,6 +1909,129 @@ function PlanSelectionModal({
               )}
             </View>
           )}
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function OtherEventFormModal({
+  isSaving,
+  onClose,
+  onSave,
+  range,
+}: {
+  isSaving: boolean;
+  onClose: () => void;
+  onSave: (title: string) => void;
+  range: PlanRange | null;
+}) {
+  const theme = useTheme();
+  const [title, setTitle] = useState("");
+
+  useEffect(() => {
+    if (range) setTitle("");
+  }, [range]);
+
+  if (!range) return null;
+
+  const trimmedTitle = title.trim();
+
+  return (
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.actionSheet, { backgroundColor: theme.background }]}
+        >
+          <View style={styles.otherEventHeader}>
+            <View style={styles.planPickerTitleBlock}>
+              <Text style={[styles.actionTitle, { color: theme.text }]}>
+                Other event
+              </Text>
+              <Text
+                style={[styles.actionSubtitle, { color: theme.textSecondary }]}
+              >
+                {formatMinuteRange(range.startMinutes, range.endMinutes)}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.planPickerBackButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={14}
+                tintColor={theme.tabIcon}
+                weight="bold"
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.otherEventForm}>
+            <TextInput
+              autoFocus
+              editable={!isSaving}
+              maxLength={200}
+              onChangeText={setTitle}
+              placeholder="Event title"
+              placeholderTextColor={theme.textSecondary}
+              returnKeyType="done"
+              selectionColor={theme.primary}
+              style={[
+                styles.otherEventInput,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  color: theme.text,
+                },
+              ]}
+              value={title}
+              onSubmitEditing={() => {
+                if (trimmedTitle && !isSaving) onSave(trimmedTitle);
+              }}
+            />
+            <Pressable
+              disabled={!trimmedTitle || isSaving}
+              onPress={() => onSave(trimmedTitle)}
+              style={({ pressed }) => [
+                styles.otherEventSaveButton,
+                {
+                  backgroundColor: trimmedTitle
+                    ? theme.primary
+                    : theme.backgroundElement,
+                },
+                (!trimmedTitle || isSaving) && styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              {isSaving ? (
+                <ActivityIndicator
+                  color={theme.primaryForeground}
+                  size="small"
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.otherEventSaveText,
+                    {
+                      color: trimmedTitle
+                        ? theme.primaryForeground
+                        : theme.textSecondary,
+                    },
+                  ]}
+                >
+                  Add event
+                </Text>
+              )}
+            </Pressable>
+          </View>
         </SafeAreaView>
       </View>
     </Modal>
@@ -1427,14 +2136,38 @@ function TimedEntryBlock({
   );
   const laneWidth = 100 / Math.max(entry.laneCount, 1);
   const left = laneWidth * entry.laneIndex;
+  const isCompact = height <= 38;
+  const timeLabel = isCompact
+    ? formatMinuteRangeCompact(entry.startMinutes, entry.endMinutes)
+    : formatMinuteRange(entry.startMinutes, entry.endMinutes);
 
-  const content = (
+  const content = isCompact ? (
+    <View
+      style={[styles.eventBlock, styles.eventBlockCompact, { backgroundColor }]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[styles.eventTitle, styles.eventTitleCompact, { color }]}
+      >
+        {entry.title}
+      </Text>
+      <Text
+        numberOfLines={1}
+        style={[styles.eventTime, styles.eventTimeCompact, { color }]}
+      >
+        {timeLabel}
+      </Text>
+    </View>
+  ) : (
     <View style={[styles.eventBlock, { backgroundColor }]}>
-      <Text numberOfLines={2} style={[styles.eventTitle, { color }]}>
+      <Text
+        numberOfLines={height >= 62 ? 2 : 1}
+        style={[styles.eventTitle, { color }]}
+      >
         {entry.title}
       </Text>
       <Text numberOfLines={1} style={[styles.eventTime, { color }]}>
-        {formatMinuteRange(entry.startMinutes, entry.endMinutes)}
+        {timeLabel}
       </Text>
     </View>
   );
@@ -1777,6 +2510,10 @@ function formatMinuteRange(startMinutes: number, endMinutes: number) {
   return `${formatMinutes(startMinutes)} - ${formatMinutes(endMinutes)}`;
 }
 
+function formatMinuteRangeCompact(startMinutes: number, endMinutes: number) {
+  return `${formatMinutes(startMinutes)}-${formatMinutes(endMinutes)}`;
+}
+
 function formatMinutes(minutes: number) {
   const hour = Math.floor(minutes / 60);
   const minute = minutes % 60;
@@ -1792,6 +2529,20 @@ function formatDisplayDate(dateKey: string) {
   if (Number.isNaN(date.getTime())) return dateKey;
 
   return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`;
+}
+
+function getGoogleCalendarStatusMessage(status: string) {
+  switch (status) {
+    case "not_connected":
+      return "Connect Google Calendar before adding other events.";
+    case "missing_scope":
+      return "Reconnect Google Calendar with calendar event permissions.";
+    case "not_configured":
+    case "auth_unavailable":
+      return "Google Calendar is not configured for this app.";
+    default:
+      return "The Google Calendar event could not be created.";
+  }
 }
 
 function getPlanTargetMeta(targetType: PlanTargetType) {
@@ -2029,10 +2780,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
+  eventBlockCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 3,
+  },
   eventTitle: {
     fontSize: 12,
     lineHeight: 14,
     fontWeight: "900",
+  },
+  eventTitleCompact: {
+    flex: 1,
+    minWidth: 0,
   },
   eventTime: {
     marginTop: 1,
@@ -2040,6 +2801,10 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     fontWeight: "700",
     opacity: 0.8,
+  },
+  eventTimeCompact: {
+    flexShrink: 0,
+    marginTop: 0,
   },
   draftPlanBlock: {
     position: "absolute",
@@ -2194,6 +2959,41 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  planPickerCreateButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+    marginTop: 1,
+  },
+  otherEventHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  otherEventForm: {
+    gap: 12,
+  },
+  otherEventInput: {
+    minHeight: 58,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
+  },
+  otherEventSaveButton: {
+    minHeight: 58,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
+  otherEventSaveText: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
   planPickerList: {
     gap: 10,
   },
@@ -2247,5 +3047,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "700",
   },
+  disabledButton: { opacity: 0.55 },
   pressed: { opacity: 0.65 },
 });

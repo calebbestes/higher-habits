@@ -45,6 +45,8 @@ type HabitFilter = "all" | "high" | "hidden";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const DEFAULT_REMINDER_TIME = "09:00";
+const REMINDER_TIME_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",
@@ -130,6 +132,8 @@ const EMPTY_HABIT: HabitInput = {
   priority: "low",
   visibility: "only_me",
   iconKey: HABIT_ICON_OPTIONS[0].key,
+  reminderEnabled: false,
+  reminderTime: null,
   hidden: false,
 };
 
@@ -167,6 +171,15 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function normalizeReminderTime(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_REMINDER_TIME;
+  if (!REMINDER_TIME_REGEX.test(trimmed)) return null;
+
+  const [hours = "0", minutes = "00"] = trimmed.split(":");
+  return `${hours.padStart(2, "0")}:${minutes}`;
+}
+
 function toInput(habit: Habit): HabitInput {
   return {
     name: habit.name,
@@ -182,6 +195,8 @@ function toInput(habit: Habit): HabitInput {
     priority: habit.priority,
     visibility: habit.visibility,
     iconKey: habit.iconKey,
+    reminderEnabled: habit.reminderEnabled ?? false,
+    reminderTime: habit.reminderTime ?? null,
     hidden: habit.hidden,
   };
 }
@@ -921,10 +936,22 @@ export function HabitFormModal({
 
   const save = async () => {
     if (!form.name.trim() || !form.categoryId || isSaving) return;
+    const reminderTime = form.reminderEnabled
+      ? normalizeReminderTime(form.reminderTime)
+      : null;
+    if (form.reminderEnabled && !reminderTime) {
+      setError("Enter a reminder time like 09:00.");
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
     try {
-      await onSave({ ...form, name: form.name.trim() });
+      await onSave({
+        ...form,
+        name: form.name.trim(),
+        reminderTime,
+      });
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -1274,6 +1301,77 @@ export function HabitFormModal({
                     }
                   />
                 ))}
+              </View>
+            </FormSection>
+
+            <FormSection title="Reminder">
+              <View style={styles.reminderRow}>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: form.reminderEnabled }}
+                  onPress={() =>
+                    setForm((current) => ({
+                      ...current,
+                      reminderEnabled: !current.reminderEnabled,
+                      reminderTime: current.reminderEnabled
+                        ? null
+                        : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
+                    }))
+                  }
+                  style={({ pressed }) => [
+                    styles.reminderToggle,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.checkboxBox,
+                      {
+                        backgroundColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.backgroundElement,
+                        borderColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    {form.reminderEnabled ? (
+                      <SymbolView
+                        name={symbol("checkmark", "check")}
+                        size={15}
+                        tintColor={theme.primaryForeground}
+                      />
+                    ) : null}
+                  </View>
+                  <Text style={[styles.reminderLabel, { color: theme.text }]}>
+                    Notify me at
+                  </Text>
+                </Pressable>
+                <TextInput
+                  accessibilityLabel="Reminder time"
+                  editable={form.reminderEnabled}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  onChangeText={(reminderTime) =>
+                    setForm((current) => ({ ...current, reminderTime }))
+                  }
+                  placeholder={DEFAULT_REMINDER_TIME}
+                  placeholderTextColor={theme.textSecondary}
+                  selectionColor={theme.primary}
+                  style={[
+                    styles.reminderTimeInput,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      color: form.reminderEnabled
+                        ? theme.text
+                        : theme.textSecondary,
+                    },
+                    !form.reminderEnabled && styles.disabled,
+                  ]}
+                  value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
+                />
               </View>
             </FormSection>
 
@@ -1993,6 +2091,39 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  reminderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  reminderToggle: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    gap: 10,
+  },
+  checkboxBox: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 7,
+  },
+  reminderLabel: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  reminderTimeInput: {
+    width: 92,
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
   newCategory: {
     gap: 13,
     borderWidth: StyleSheet.hairlineWidth,

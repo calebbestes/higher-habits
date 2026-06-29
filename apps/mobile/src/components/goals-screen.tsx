@@ -1149,7 +1149,7 @@ function EmptyState({
   );
 }
 
-function GoalFormModal({
+export function GoalFormModal({
   goal,
   isOpen,
   onClose,

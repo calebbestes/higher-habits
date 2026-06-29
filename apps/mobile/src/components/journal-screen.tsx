@@ -60,7 +60,11 @@ type JournalEntry = {
   note: string;
   photoCount: number;
   visibility: GoalVisibility;
+  social: JournalSocialSummary | null;
 };
+
+type JournalSocialSummary = GoalLogsSnapshot["socialByGoalDate"][string];
+type JournalSocialComment = JournalSocialSummary["comments"][number];
 
 const MONTHS = [
   "January",
@@ -224,13 +228,17 @@ export function JournalScreen() {
     const keys = new Set([
       ...Object.keys(snapshot.notesByGoalDate),
       ...Object.keys(snapshot.photoCountsByGoalDate ?? {}),
+      ...Object.keys(snapshot.socialByGoalDate ?? {}),
     ]);
 
     for (const key of keys) {
       if (snapshot.logsByGoalDate[key] !== "complete") continue;
       const note = snapshot.notesByGoalDate[key] ?? "";
       const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
-      if (note.trim() || photoCount > 0) {
+      const social = snapshot.socialByGoalDate?.[key] ?? null;
+      const hasSocial =
+        (social?.props.count ?? 0) > 0 || (social?.comments.length ?? 0) > 0;
+      if (note.trim() || photoCount > 0 || hasSocial) {
         ids.add(key.slice(0, key.indexOf("_")));
       }
     }
@@ -271,6 +279,7 @@ export function JournalScreen() {
     const keys = new Set([
       ...Object.keys(snapshot.notesByGoalDate),
       ...Object.keys(snapshot.photoCountsByGoalDate ?? {}),
+      ...Object.keys(snapshot.socialByGoalDate ?? {}),
     ]);
     const results: JournalEntry[] = [];
 
@@ -291,13 +300,17 @@ export function JournalScreen() {
 
       const note = snapshot.notesByGoalDate[key] ?? "";
       const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
-      if (!note.trim() && photoCount === 0) continue;
+      const social = snapshot.socialByGoalDate?.[key] ?? null;
+      const hasSocial =
+        (social?.props.count ?? 0) > 0 || (social?.comments.length ?? 0) > 0;
+      if (!note.trim() && photoCount === 0 && !hasSocial) continue;
       results.push({
         dateKey: entryDateKey,
         goal,
         note,
         photoCount,
         visibility: snapshot.visibilityByGoalDate?.[key] ?? "only_me",
+        social,
       });
     }
 
@@ -741,6 +754,138 @@ function JournalCard({
           </View>
         )
       ) : null}
+
+      <JournalSocialActivity social={entry.social} />
+    </View>
+  );
+}
+
+function JournalSocialActivity({
+  social,
+}: {
+  social: JournalSocialSummary | null;
+}) {
+  const theme = useTheme();
+  const propCount = social?.props.count ?? 0;
+  const comments = social?.comments ?? [];
+
+  if (propCount === 0 && comments.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={[styles.socialPanel, { borderTopColor: theme.tabBorder }]}>
+      <View style={styles.socialSummaryRow}>
+        {propCount > 0 ? (
+          <View
+            style={[
+              styles.socialPill,
+              { backgroundColor: `${theme.primary}18` },
+            ]}
+          >
+            <SymbolView
+              name={sym("hands.clap.fill", "volunteer_activism")}
+              size={15}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+            <Text style={[styles.socialPillText, { color: theme.primary }]}>
+              {propCount} {propCount === 1 ? "Prop" : "Props"}
+            </Text>
+          </View>
+        ) : null}
+        {comments.length > 0 ? (
+          <View
+            style={[
+              styles.socialPill,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <SymbolView
+              name={sym("bubble.left", "chat_bubble_outline")}
+              size={14}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
+            <Text
+              style={[styles.socialPillText, { color: theme.textSecondary }]}
+            >
+              {comments.length}{" "}
+              {comments.length === 1 ? "comment" : "comments"}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {comments.length > 0 ? (
+        <View style={styles.journalCommentsList}>
+          {comments.map((comment) => (
+            <JournalCommentRow key={comment.id} comment={comment} />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function JournalCommentRow({ comment }: { comment: JournalSocialComment }) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.journalCommentRow,
+        { backgroundColor: theme.backgroundElement },
+      ]}
+    >
+      <JournalCommentAvatar
+        image={comment.authorImage}
+        name={comment.authorName}
+      />
+      <View style={styles.journalCommentBody}>
+        <Text
+          numberOfLines={1}
+          style={[styles.journalCommentAuthor, { color: theme.text }]}
+        >
+          {comment.authorName}
+        </Text>
+        <Text style={[styles.journalCommentText, { color: theme.text }]}>
+          {comment.body}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function JournalCommentAvatar({
+  image,
+  name,
+}: {
+  image: string | null;
+  name: string;
+}) {
+  const theme = useTheme();
+
+  if (image) {
+    return (
+      <Image
+        contentFit="cover"
+        source={{ uri: image }}
+        style={styles.journalCommentAvatarImage}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.journalCommentAvatarFallback,
+        { backgroundColor: `${theme.primary}22` },
+      ]}
+    >
+      <Text style={[styles.journalCommentAvatarText, { color: theme.primary }]}>
+        {(name.trim().slice(0, 1) || "?").toUpperCase()}
+      </Text>
     </View>
   );
 }
@@ -1496,6 +1641,64 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",
+  },
+  socialPanel: {
+    gap: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 11,
+  },
+  socialSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  socialPill: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  socialPillText: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  journalCommentsList: { gap: 7 },
+  journalCommentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  journalCommentAvatarImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  journalCommentAvatarFallback: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  journalCommentAvatarText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+  },
+  journalCommentBody: { flex: 1, minWidth: 0, gap: 2 },
+  journalCommentAuthor: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  journalCommentText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   sheetOverlay: {
     flex: 1,

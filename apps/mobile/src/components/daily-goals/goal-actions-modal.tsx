@@ -89,6 +89,7 @@ function GoalActionsModalImpl({
   const [planEndTime, setPlanEndTime] = useState("");
   const [planStartPeriod, setPlanStartPeriod] = useState<PlanPeriod>("AM");
   const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
+  const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
   const notePreview = richTextToPlainText(noteText);
   const nextPlanStartTime = normalizePlanTimeInput(
     planStartTime,
@@ -97,6 +98,7 @@ function GoalActionsModalImpl({
   const nextPlanEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
   const currentPlanStartTime = normalizeStoredPlanTime(plannedTime?.startTime);
   const currentPlanEndTime = normalizeStoredPlanTime(plannedTime?.endTime);
+  const showPlanEditor = showPlanAction && isPlanEditorOpen;
   const hasAnyPlanTimeInput = Boolean(
     planStartTime.trim() || planEndTime.trim(),
   );
@@ -108,9 +110,16 @@ function GoalActionsModalImpl({
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
   const willSavePlan = showPlanAction && (!isPlanned || hasPlanTimeChanges);
   const isPlanActionDisabled =
+    showPlanEditor &&
     willSavePlan &&
     ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
       (!hasNote && !hasPlanTimeRange));
+  const planActionLabel =
+    isPlanned && !hasPlanTimeChanges
+      ? "Clear plan"
+      : showPlanEditor || isPlanned
+        ? "Save plan"
+        : "Add plan";
 
   useEffect(() => {
     if (!visible) return;
@@ -120,7 +129,8 @@ function GoalActionsModalImpl({
     setPlanStartPeriod(start.period);
     setPlanEndTime(end.time);
     setPlanEndPeriod(end.period);
-  }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
+    setIsPlanEditorOpen(isPlanned || Boolean(start.time || end.time));
+  }, [isPlanned, plannedTime?.endTime, plannedTime?.startTime, visible]);
 
   useEffect(() => {
     if (!goal || !visible) return;
@@ -252,6 +262,11 @@ function GoalActionsModalImpl({
                     <Pressable
                       disabled={isPlanActionDisabled}
                       onPress={() => {
+                        if (!showPlanEditor && !isPlanned) {
+                          setIsPlanEditorOpen(true);
+                          return;
+                        }
+
                         const nextStatus =
                           isPlanned && !hasPlanTimeChanges ? null : "planned";
 
@@ -296,15 +311,11 @@ function GoalActionsModalImpl({
                       <Text
                         style={[modalStyles.actionText, { color: theme.text }]}
                       >
-                        {isPlanned && !hasPlanTimeChanges
-                          ? "Clear plan"
-                          : isPlanned
-                            ? "Save plan"
-                            : "Add plan"}
+                        {planActionLabel}
                       </Text>
                     </Pressable>
 
-                    {isPlanActionDisabled ? (
+                    {showPlanEditor && isPlanActionDisabled ? (
                       <Text
                         style={[
                           modalStyles.planHint,
@@ -315,143 +326,145 @@ function GoalActionsModalImpl({
                       </Text>
                     ) : null}
 
-                    <View
-                      style={[
-                        modalStyles.planTimeSection,
-                        { backgroundColor: theme.backgroundElement },
-                      ]}
-                    >
-                      <Text
+                    {showPlanEditor ? (
+                      <View
                         style={[
-                          modalStyles.planTimeSectionTitle,
-                          { color: theme.text },
+                          modalStyles.planTimeSection,
+                          { backgroundColor: theme.backgroundElement },
                         ]}
                       >
-                        Time range
-                      </Text>
-                      <View style={modalStyles.planTimeFields}>
-                        <View style={modalStyles.planTimeField}>
-                          <Text
-                            style={[
-                              modalStyles.planTimeLabel,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            Start
-                          </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanStartTime}
-                            placeholder="9:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
-                            value={planStartTime}
-                          />
-                          <View style={modalStyles.planPeriodToggle}>
-                            {PLAN_PERIODS.map((period) => {
-                              const isSelected = planStartPeriod === period;
+                        <Text
+                          style={[
+                            modalStyles.planTimeSectionTitle,
+                            { color: theme.text },
+                          ]}
+                        >
+                          Time range
+                        </Text>
+                        <View style={modalStyles.planTimeFields}>
+                          <View style={modalStyles.planTimeField}>
+                            <Text
+                              style={[
+                                modalStyles.planTimeLabel,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              Start
+                            </Text>
+                            <TextInput
+                              autoCapitalize="none"
+                              keyboardType="numbers-and-punctuation"
+                              onChangeText={setPlanStartTime}
+                              placeholder="9:00"
+                              placeholderTextColor={theme.textSecondary}
+                              selectionColor={theme.primary}
+                              style={[
+                                modalStyles.planTimeInput,
+                                {
+                                  borderColor: theme.tabBorder,
+                                  color: theme.text,
+                                },
+                              ]}
+                              value={planStartTime}
+                            />
+                            <View style={modalStyles.planPeriodToggle}>
+                              {PLAN_PERIODS.map((period) => {
+                                const isSelected = planStartPeriod === period;
 
-                              return (
-                                <Pressable
-                                  key={period}
-                                  onPress={() => setPlanStartPeriod(period)}
-                                  style={[
-                                    modalStyles.planPeriodOption,
-                                    {
-                                      backgroundColor: isSelected
-                                        ? theme.primary
-                                        : "transparent",
-                                      borderColor: theme.tabBorder,
-                                    },
-                                  ]}
-                                >
-                                  <Text
+                                return (
+                                  <Pressable
+                                    key={period}
+                                    onPress={() => setPlanStartPeriod(period)}
                                     style={[
-                                      modalStyles.planPeriodText,
+                                      modalStyles.planPeriodOption,
                                       {
-                                        color: isSelected
-                                          ? theme.primaryForeground
-                                          : theme.textSecondary,
+                                        backgroundColor: isSelected
+                                          ? theme.primary
+                                          : "transparent",
+                                        borderColor: theme.tabBorder,
                                       },
                                     ]}
                                   >
-                                    {period}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
+                                    <Text
+                                      style={[
+                                        modalStyles.planPeriodText,
+                                        {
+                                          color: isSelected
+                                            ? theme.primaryForeground
+                                            : theme.textSecondary,
+                                        },
+                                      ]}
+                                    >
+                                      {period}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
                           </View>
-                        </View>
-                        <View style={modalStyles.planTimeField}>
-                          <Text
-                            style={[
-                              modalStyles.planTimeLabel,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            End
-                          </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanEndTime}
-                            placeholder="10:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
-                            value={planEndTime}
-                          />
-                          <View style={modalStyles.planPeriodToggle}>
-                            {PLAN_PERIODS.map((period) => {
-                              const isSelected = planEndPeriod === period;
+                          <View style={modalStyles.planTimeField}>
+                            <Text
+                              style={[
+                                modalStyles.planTimeLabel,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              End
+                            </Text>
+                            <TextInput
+                              autoCapitalize="none"
+                              keyboardType="numbers-and-punctuation"
+                              onChangeText={setPlanEndTime}
+                              placeholder="10:00"
+                              placeholderTextColor={theme.textSecondary}
+                              selectionColor={theme.primary}
+                              style={[
+                                modalStyles.planTimeInput,
+                                {
+                                  borderColor: theme.tabBorder,
+                                  color: theme.text,
+                                },
+                              ]}
+                              value={planEndTime}
+                            />
+                            <View style={modalStyles.planPeriodToggle}>
+                              {PLAN_PERIODS.map((period) => {
+                                const isSelected = planEndPeriod === period;
 
-                              return (
-                                <Pressable
-                                  key={period}
-                                  onPress={() => setPlanEndPeriod(period)}
-                                  style={[
-                                    modalStyles.planPeriodOption,
-                                    {
-                                      backgroundColor: isSelected
-                                        ? theme.primary
-                                        : "transparent",
-                                      borderColor: theme.tabBorder,
-                                    },
-                                  ]}
-                                >
-                                  <Text
+                                return (
+                                  <Pressable
+                                    key={period}
+                                    onPress={() => setPlanEndPeriod(period)}
                                     style={[
-                                      modalStyles.planPeriodText,
+                                      modalStyles.planPeriodOption,
                                       {
-                                        color: isSelected
-                                          ? theme.primaryForeground
-                                          : theme.textSecondary,
+                                        backgroundColor: isSelected
+                                          ? theme.primary
+                                          : "transparent",
+                                        borderColor: theme.tabBorder,
                                       },
                                     ]}
                                   >
-                                    {period}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
+                                    <Text
+                                      style={[
+                                        modalStyles.planPeriodText,
+                                        {
+                                          color: isSelected
+                                            ? theme.primaryForeground
+                                            : theme.textSecondary,
+                                        },
+                                      ]}
+                                    >
+                                      {period}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
                           </View>
                         </View>
                       </View>
-                    </View>
+                    ) : null}
                   </>
                 ) : null}
 

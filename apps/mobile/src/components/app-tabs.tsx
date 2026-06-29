@@ -2,6 +2,11 @@ import { NativeTabs } from "expo-router/unstable-native-tabs";
 
 import { useTheme } from "@/hooks/use-theme";
 
+const TAB_LABEL_STYLE = {
+  fontSize: 10,
+  fontWeight: "600" as const,
+};
+
 export default function AppTabs() {
   const theme = useTheme();
 
@@ -11,8 +16,8 @@ export default function AppTabs() {
       iconColor={{ default: theme.tabIcon, selected: theme.primary }}
       indicatorColor={theme.backgroundSelected}
       labelStyle={{
-        default: { color: theme.tabIcon },
-        selected: { color: theme.primary },
+        default: { ...TAB_LABEL_STYLE, color: theme.tabIcon },
+        selected: { ...TAB_LABEL_STYLE, color: theme.primary },
       }}
       labelVisibilityMode="labeled"
       minimizeBehavior="automatic"

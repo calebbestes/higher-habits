@@ -27,6 +27,20 @@ export type GoogleCalendarEventsResponse = {
   events: GoogleCalendarDayEvent[];
 };
 
+export type CreateGoogleCalendarEventInput = {
+  dateKey: string;
+  description?: string | null;
+  endTime?: string | null;
+  startTime?: string | null;
+  timeZone?: string | null;
+  title: string;
+};
+
+export type CreateGoogleCalendarEventResponse = {
+  status: GoogleCalendarEventsResponse["status"];
+  event?: GoogleCalendarDayEvent | null;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -60,6 +74,28 @@ export const fetchGoogleCalendarEvents = ({
     `/api/google-calendar/events?${params.toString()}`,
   ).then((response) => parseResponse<GoogleCalendarEventsResponse>(response));
 };
+
+export const createGoogleCalendarEvent = ({
+  dateKey,
+  description,
+  endTime,
+  startTime,
+  timeZone,
+  title,
+}: CreateGoogleCalendarEventInput): Promise<CreateGoogleCalendarEventResponse> =>
+  mobileApiFetch("/api/google-calendar/events", {
+    method: "POST",
+    body: JSON.stringify({
+      dateKey,
+      description: description ?? null,
+      plannedStartTime: startTime ?? null,
+      plannedEndTime: endTime ?? null,
+      plannedTimeZone: timeZone ?? null,
+      title,
+    }),
+  }).then((response) =>
+    parseResponse<CreateGoogleCalendarEventResponse>(response),
+  );
 
 export function getLocalTimeZone(): string | null {
   try {
