@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -73,14 +74,6 @@ function formatCommentTime(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
-}
-
-function iconSvgUrl(iconKey: string, color: string): string | null {
-  const colon = iconKey.indexOf(":");
-  if (colon === -1) return null;
-  const prefix = iconKey.slice(0, colon);
-  const name = iconKey.slice(colon + 1);
-  return `https://api.iconify.design/${prefix}/${name}.svg?color=${encodeURIComponent(color)}`;
 }
 
 export function FeedScreen() {
@@ -589,19 +582,14 @@ function FriendAvatar({
 
 function GoalPill({ goal }: { goal: FriendFeedEntry["goal"] }) {
   const theme = useTheme();
-  const svgUrl = iconSvgUrl(goal.icon, theme.textSecondary);
 
   return (
     <View
       style={[styles.goalPill, { backgroundColor: theme.backgroundElement }]}
     >
-      {svgUrl ? (
-        <Image
-          source={{ uri: svgUrl }}
-          style={styles.goalPillIcon}
-          contentFit="contain"
-        />
-      ) : null}
+      <View style={styles.goalPillIcon}>
+        <GoalIcon iconKey={goal.icon} size={14} color={theme.textSecondary} />
+      </View>
       <Text
         numberOfLines={1}
         style={[styles.goalPillText, { color: theme.textSecondary }]}

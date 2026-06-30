@@ -727,6 +727,9 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  onboardingCompleted: boolean("onboarding_completed")
+    .notNull()
+    .default(true),
   // Notification preferences.
   notifyFriendRequests: boolean("notify_friend_requests")
     .notNull()

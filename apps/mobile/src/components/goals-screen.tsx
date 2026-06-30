@@ -1,3 +1,4 @@
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -55,8 +56,25 @@ type ActiveCheckpoint = {
   goal: Goal;
   checkpoint: GoalCheckpoint;
 };
+type DateKeyParts = { year: number; month: number; day: number };
+type TargetDatePart = "year" | "month" | "day";
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
+const MONTH_OPTIONS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -68,6 +86,75 @@ function todayDateKey(date = new Date()) {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function parseDateKeyParts(dateKey: string): DateKeyParts | null {
+  if (!DATE_KEY_REGEX.test(dateKey)) return null;
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() + 1 !== month ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+}
+
+function getTodayDateParts(): DateKeyParts {
+  const date = new Date();
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+  };
+}
+
+function getDatePartsForPicker(dateKey: string): DateKeyParts {
+  return parseDateKeyParts(dateKey) ?? getTodayDateParts();
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function formatDateKey({ year, month, day }: DateKeyParts): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+    2,
+    "0",
+  )}`;
+}
+
+function updateDatePart(
+  dateKey: string,
+  part: TargetDatePart,
+  value: number,
+): string {
+  const base = getDatePartsForPicker(dateKey);
+  const next = { ...base, [part]: value };
+  const daysInMonth = getDaysInMonth(next.year, next.month);
+
+  return formatDateKey({ ...next, day: Math.min(next.day, daysInMonth) });
+}
+
+function getYearOptions(selectedYear: number | undefined): number[] {
+  const currentYear = new Date().getFullYear();
+  const years = Array.from(
+    { length: 26 },
+    (_, index) => currentYear - 5 + index,
+  );
+
+  if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);
+
+  return years.sort((left, right) => left - right);
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
 }
 
 function formatCheckpointDate(dateKey: string | null) {
@@ -1436,24 +1523,11 @@ export function GoalFormModal({
                         ]}
                         value={checkpoint.title}
                       />
-                      <TextInput
-                        autoCapitalize="none"
-                        keyboardType="numbers-and-punctuation"
-                        onChangeText={(targetDate) =>
+                      <TargetDateSelect
+                        value={checkpoint.targetDate}
+                        onChange={(targetDate) =>
                           updateCheckpoint(checkpoint.localId, { targetDate })
                         }
-                        placeholder="Target date (YYYY-MM-DD)"
-                        placeholderTextColor={theme.textSecondary}
-                        selectionColor={theme.primary}
-                        style={[
-                          styles.input,
-                          {
-                            backgroundColor: theme.backgroundElement,
-                            borderColor: theme.tabBorder,
-                            color: theme.text,
-                          },
-                        ]}
-                        value={checkpoint.targetDate}
                       />
                     </View>
                   </View>
@@ -1500,6 +1574,142 @@ function createEmptyCheckpoint(): CheckpointDraft {
     targetDate: "",
     completed: false,
   };
+}
+
+function TargetDateSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parseDateKeyParts(value);
+  const pickerParts = getDatePartsForPicker(value);
+  const daysInMonth = getDaysInMonth(pickerParts.year, pickerParts.month);
+
+  const yearActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...getYearOptions(selected?.year).map((year) => ({
+      id: String(year),
+      title: String(year),
+      state: menuSelectedState(selected?.year === year),
+    })),
+  ];
+  const monthActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...MONTH_OPTIONS.map((month, index) => ({
+      id: String(index + 1),
+      title: month,
+      state: menuSelectedState(selected?.month === index + 1),
+    })),
+  ];
+  const dayActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...Array.from({ length: daysInMonth }, (_, index) => index + 1).map(
+      (day) => ({
+        id: String(day),
+        title: String(day),
+        state: menuSelectedState(selected?.day === day),
+      }),
+    ),
+  ];
+
+  const selectPart = (part: TargetDatePart, actionId: string) => {
+    if (actionId === CLEAR_TARGET_DATE_ACTION) {
+      onChange("");
+      return;
+    }
+
+    onChange(updateDatePart(value, part, Number(actionId)));
+  };
+
+  return (
+    <View style={styles.targetDateRow}>
+      <TargetDatePartSelect
+        actions={yearActions}
+        label="Year"
+        onSelect={(actionId) => selectPart("year", actionId)}
+        value={selected ? String(selected.year) : null}
+      />
+      <TargetDatePartSelect
+        actions={monthActions}
+        label="Month"
+        onSelect={(actionId) => selectPart("month", actionId)}
+        value={selected ? MONTH_OPTIONS[selected.month - 1].slice(0, 3) : null}
+      />
+      <TargetDatePartSelect
+        actions={dayActions}
+        label="Day"
+        onSelect={(actionId) => selectPart("day", actionId)}
+        value={selected ? String(selected.day) : null}
+      />
+    </View>
+  );
+}
+
+function TargetDatePartSelect({
+  actions,
+  label,
+  value,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  value: string | null;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+  const displayValue = value ?? label;
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.targetDateMenu}
+      title={`Select ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`Select target ${label.toLowerCase()}`}
+        accessibilityRole="button"
+        style={[
+          styles.targetDateSelect,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.targetDateSelectText,
+            { color: value ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {displayValue}
+        </Text>
+        <SymbolView
+          name={symbol("chevron.down", "keyboard_arrow_down")}
+          size={13}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1824,6 +2034,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     fontWeight: "500",
+  },
+  targetDateRow: {
+    flexDirection: "row",
+    gap: 7,
+  },
+  targetDateMenu: {
+    flex: 1,
+    minWidth: 0,
+  },
+  targetDateSelect: {
+    minHeight: 49,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 11,
+  },
+  targetDateSelectText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   checkpointRow: {
     flexDirection: "row",

@@ -109,7 +109,7 @@ export async function scheduleHabitReminderAsync(
   await ensureDefaultAndroidNotificationChannelAsync();
   const hasPermission = await requestNotificationPermissionAsync();
   if (!hasPermission) {
-    throw new Error("Notifications are not enabled for Higher Habits.");
+    throw new Error("Notifications are not enabled for float.");
   }
 
   const content = {
@@ -227,12 +227,12 @@ export async function sendTestNotificationAsync(): Promise<void> {
   await ensureDefaultAndroidNotificationChannelAsync();
   const hasPermission = await requestNotificationPermissionAsync();
   if (!hasPermission) {
-    throw new Error("Notifications are not enabled for Higher Habits.");
+    throw new Error("Notifications are not enabled for float.");
   }
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: "Higher Habits",
+      title: "float",
       body: "Notifications are working.",
       data: { type: "test" },
     },

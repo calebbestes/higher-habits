@@ -1,4 +1,5 @@
 import { GoalIcon } from "@/components/goal-icon";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -72,6 +73,8 @@ import type { HabitsTab } from "@/lib/tab-view-store";
 type SymbolName = SymbolViewProps["name"];
 type SortKey = "priority" | "frequency" | "remaining";
 type PeriodFilter = "all" | "monthly" | "weekly";
+type PlanTimePart = "hour" | "minute";
+type PlanTimeParts = { hour: number; minute: number };
 
 const PRIORITY_ORDER: Record<string, number> = {
   high: 0,
@@ -124,6 +127,9 @@ const PERIOD_FILTER_OPTIONS: {
 ];
 
 const DAY_ABBRS = ["S", "M", "T", "W", "T", "F", "S"];
+const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
+const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
+const PLAN_TIME_MINUTES = Array.from({ length: 60 }, (_, index) => index);
 const MONTH_NAMES = [
   "January",
   "February",
@@ -254,6 +260,45 @@ function buildCalendarDays(
 
 function formatDayHeader(date: Date): string {
   return `${DAY_NAMES_FULL[date.getDay()]}, ${MONTH_ABBRS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
+function parsePlanTimeInputParts(value: string): PlanTimeParts | null {
+  const match = value.trim().match(/^(0?[1-9]|1[0-2]):([0-5]\d)$/);
+  if (!match) return null;
+
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function getPlanTimePartsForPicker(
+  value: string,
+  fallbackHour: number,
+): PlanTimeParts {
+  return parsePlanTimeInputParts(value) ?? { hour: fallbackHour, minute: 0 };
+}
+
+function formatPlanTimeInput({ hour, minute }: PlanTimeParts): string {
+  return `${hour}:${String(minute).padStart(2, "0")}`;
+}
+
+function updatePlanTimePart({
+  fallbackHour,
+  part,
+  partValue,
+  value,
+}: {
+  fallbackHour: number;
+  part: PlanTimePart;
+  partValue: number;
+  value: string;
+}): string {
+  return formatPlanTimeInput({
+    ...getPlanTimePartsForPicker(value, fallbackHour),
+    [part]: partValue,
+  });
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
 }
 
 function getGoalMonthProgress(
@@ -2089,21 +2134,10 @@ function GoalActionsModal({
                           >
                             Start
                           </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanStartTime}
-                            placeholder="9:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
+                          <PlanTimeSelect
+                            fallbackHour={9}
                             value={planStartTime}
+                            onChange={setPlanStartTime}
                           />
                           <View style={modalStyles.planPeriodToggle}>
                             {PLAN_PERIODS.map((period) => {
@@ -2149,21 +2183,10 @@ function GoalActionsModal({
                           >
                             End
                           </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanEndTime}
-                            placeholder="10:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
+                          <PlanTimeSelect
+                            fallbackHour={10}
                             value={planEndTime}
+                            onChange={setPlanEndTime}
                           />
                           <View style={modalStyles.planPeriodToggle}>
                             {PLAN_PERIODS.map((period) => {
@@ -2291,6 +2314,121 @@ function GoalActionsModal({
         </SafeAreaView>
       </View>
     </Modal>
+  );
+}
+
+function PlanTimeSelect({
+  fallbackHour,
+  value,
+  onChange,
+}: {
+  fallbackHour: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parsePlanTimeInputParts(value);
+  const pickerParts = getPlanTimePartsForPicker(value, fallbackHour);
+  const hourActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_HOURS.map((hour) => ({
+      id: String(hour),
+      title: String(hour),
+      state: menuSelectedState(selected?.hour === hour),
+    })),
+  ];
+  const minuteActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_MINUTES.map((minute) => ({
+      id: String(minute),
+      title: String(minute).padStart(2, "0"),
+      state: menuSelectedState(selected?.minute === minute),
+    })),
+  ];
+
+  const selectPart = (part: PlanTimePart, actionId: string) => {
+    if (actionId === CLEAR_PLAN_TIME_ACTION) {
+      onChange("");
+      return;
+    }
+
+    onChange(
+      updatePlanTimePart({
+        fallbackHour,
+        part,
+        partValue: Number(actionId),
+        value,
+      }),
+    );
+  };
+
+  return (
+    <View style={modalStyles.planTimePickerRow}>
+      <PlanTimePartSelect
+        actions={hourActions}
+        label="Hour"
+        value={selected ? String(pickerParts.hour) : null}
+        onSelect={(actionId) => selectPart("hour", actionId)}
+      />
+      <PlanTimePartSelect
+        actions={minuteActions}
+        label="Min"
+        value={selected ? String(pickerParts.minute).padStart(2, "0") : null}
+        onSelect={(actionId) => selectPart("minute", actionId)}
+      />
+    </View>
+  );
+}
+
+function PlanTimePartSelect({
+  actions,
+  label,
+  value,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  value: string | null;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={modalStyles.planTimePickerMenu}
+      title={`Select ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`Select ${label.toLowerCase()}`}
+        accessibilityRole="button"
+        style={[modalStyles.planTimePicker, { borderColor: theme.tabBorder }]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            modalStyles.planTimePickerText,
+            { color: value ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {value ?? label}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "keyboard_arrow_down")}
+          size={12}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -2812,6 +2950,31 @@ const modalStyles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 15,
     fontWeight: "700",
+  },
+  planTimePickerRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planTimePickerMenu: {
+    flex: 1,
+    minWidth: 0,
+  },
+  planTimePicker: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 9,
+  },
+  planTimePickerText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   planPeriodToggle: {
     flexDirection: "row",

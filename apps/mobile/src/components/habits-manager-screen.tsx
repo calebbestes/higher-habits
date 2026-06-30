@@ -1,4 +1,3 @@
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { isRenderableIconKey } from "@/components/goal-icon";
+import { EXPO_SYMBOL_ICON_OPTIONS, GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -81,49 +80,6 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 1,
 };
 
-const HABIT_ICON_OPTIONS = [
-  {
-    key: "fa7-solid:bullseye",
-    label: "Target",
-    symbol: symbol("target", "target"),
-  },
-  {
-    key: "mdi:heart-outline",
-    label: "Heart",
-    symbol: symbol("heart", "favorite"),
-  },
-  {
-    key: "mdi:dumbbell",
-    label: "Fitness",
-    symbol: symbol("dumbbell", "fitness_center"),
-  },
-  {
-    key: "mdi:book-open-page-variant-outline",
-    label: "Read",
-    symbol: symbol("book", "menu_book"),
-  },
-  {
-    key: "mdi:briefcase-outline",
-    label: "Work",
-    symbol: symbol("briefcase", "work"),
-  },
-  {
-    key: "mdi:account-group-outline",
-    label: "Social",
-    symbol: symbol("person.2", "groups"),
-  },
-  {
-    key: "mdi:cash",
-    label: "Money",
-    symbol: symbol("dollarsign.circle", "paid"),
-  },
-  {
-    key: "mdi:star-outline",
-    label: "Star",
-    symbol: symbol("star", "star"),
-  },
-] as const;
-
 const EMPTY_HABIT: HabitInput = {
   name: "",
   frequencyGoal: null,
@@ -135,7 +91,7 @@ const EMPTY_HABIT: HabitInput = {
   goalId: null,
   priority: "low",
   visibility: "only_me",
-  iconKey: HABIT_ICON_OPTIONS[0].key,
+  iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
   reminderEnabled: false,
   reminderTime: null,
   hidden: false,
@@ -143,16 +99,6 @@ const EMPTY_HABIT: HabitInput = {
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
-}
-
-function resolveSymbol(
-  iconKey: string,
-  fallback = HABIT_ICON_OPTIONS[0].symbol,
-) {
-  return (
-    HABIT_ICON_OPTIONS.find((option) => option.key === iconKey)?.symbol ??
-    fallback
-  );
 }
 
 function frequencyLabel(habit: Habit) {
@@ -687,11 +633,10 @@ function HabitCard({
       <View
         style={[styles.habitIcon, { backgroundColor: theme.backgroundElement }]}
       >
-        <SymbolView
-          name={resolveSymbol(habit.iconKey)}
+        <GoalIcon
+          iconKey={habit.iconKey}
           size={22}
-          weight="semibold"
-          tintColor={habit.hidden ? theme.textSecondary : theme.primary}
+          color={habit.hidden ? theme.textSecondary : theme.primary}
         />
       </View>
       <View style={styles.habitBody}>
@@ -1607,14 +1552,6 @@ function VerticalNumberStepper({
   );
 }
 
-function iconSvgUrl(iconKey: string, color: string) {
-  const colon = iconKey.indexOf(":");
-  if (colon === -1) return null;
-  const prefix = iconKey.slice(0, colon);
-  const name = iconKey.slice(colon + 1);
-  return `https://api.iconify.design/${prefix}/${name}.svg?color=${encodeURIComponent(color)}`;
-}
-
 function IconSearchPicker({
   value,
   onChange,
@@ -1624,32 +1561,18 @@ function IconSearchPicker({
 }) {
   const theme = useTheme();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<string[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const results = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchingOptions = normalizedQuery
+      ? EXPO_SYMBOL_ICON_OPTIONS.filter((option) =>
+          [option.label, option.key, ...option.keywords]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedQuery),
+        )
+      : EXPO_SYMBOL_ICON_OPTIONS;
 
-  useEffect(() => {
-    if (query.length < 2) {
-      setResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        // Restrict to icon sets GoalIcon can actually render.
-        // Without this, searches surface icons from sets like boxicons/tdesign
-        // that fall back to the generic target icon once saved.
-        const res = await fetch(
-          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24&prefixes=mdi,fa6-solid`,
-        );
-        const data = (await res.json()) as { icons?: string[] };
-        setResults((data.icons ?? []).filter(isRenderableIconKey));
-      } catch {
-        setResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    return matchingOptions.slice(0, 24);
   }, [query]);
 
   return (
@@ -1678,14 +1601,10 @@ function IconSearchPicker({
           value={query}
           onChangeText={setQuery}
         />
-        {isSearching ? (
-          <ActivityIndicator size="small" color={theme.textSecondary} />
-        ) : value ? (
-          <Image
-            source={{ uri: iconSvgUrl(value, "#6B7280") ?? "" }}
-            style={styles.iconSearchPreview}
-            contentFit="contain"
-          />
+        {value ? (
+          <View style={styles.iconSearchPreview}>
+            <GoalIcon iconKey={value} size={20} color={theme.textSecondary} />
+          </View>
         ) : null}
       </View>
 
@@ -1696,18 +1615,15 @@ function IconSearchPicker({
             { borderColor: theme.tabBorder, backgroundColor: theme.tabBar },
           ]}
         >
-          {results.map((iconKey) => {
-            const selected = iconKey === value;
-            const url = iconSvgUrl(iconKey, selected ? "#FFFFFF" : "#6B7280");
-            const shortName = iconKey.split(":")[1] ?? iconKey;
+          {results.map((option) => {
+            const selected = option.key === value;
             return (
               <Pressable
-                key={iconKey}
-                accessibilityLabel={iconKey}
+                key={option.key}
+                accessibilityLabel={option.label}
                 onPress={() => {
-                  onChange(iconKey);
-                  setResults([]);
-                  setQuery(shortName);
+                  onChange(option.key);
+                  setQuery(option.label);
                 }}
                 style={({ pressed }) => [
                   styles.iconResultItem,
@@ -1719,13 +1635,13 @@ function IconSearchPicker({
                   pressed && styles.pressed,
                 ]}
               >
-                {url ? (
-                  <Image
-                    source={{ uri: url }}
-                    style={styles.iconResultImg}
-                    contentFit="contain"
-                  />
-                ) : null}
+                <GoalIcon
+                  iconKey={option.key}
+                  size={28}
+                  color={
+                    selected ? theme.primaryForeground : theme.textSecondary
+                  }
+                />
                 <Text
                   numberOfLines={1}
                   style={[
@@ -1733,7 +1649,7 @@ function IconSearchPicker({
                     { color: selected ? "#FFFFFF" : theme.textSecondary },
                   ]}
                 >
-                  {shortName}
+                  {option.label}
                 </Text>
               </Pressable>
             );
@@ -2055,7 +1971,6 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 4,
   },
-  iconResultImg: { width: 28, height: 28 },
   iconResultLabel: {
     fontSize: 8,
     lineHeight: 10,

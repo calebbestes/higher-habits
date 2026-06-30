@@ -1,3 +1,4 @@
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -68,6 +69,10 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
 }
 
 function getGoalLabel(friend: FriendRow, incentive: FriendIncentiveRow) {
@@ -161,6 +166,63 @@ function MetadataItem({
         {label}
       </Text>
     </View>
+  );
+}
+
+function GoalDropdown({
+  goals,
+  selectedGoalId,
+  selectedGoalName,
+  onSelect,
+}: {
+  goals: Array<{ id: string; name: string }>;
+  selectedGoalId: string;
+  selectedGoalName?: string;
+  onSelect: (goalId: string) => void;
+}) {
+  const theme = useTheme();
+  const actions: MenuAction[] = goals.map((goal) => ({
+    id: goal.id,
+    title: goal.name,
+    state: menuSelectedState(goal.id === selectedGoalId),
+  }));
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.goalDropdownMenu}
+      title="Select goal"
+    >
+      <View
+        accessible
+        accessibilityLabel="Select goal"
+        accessibilityRole="button"
+        style={[
+          styles.goalDropdown,
+          {
+            backgroundColor: theme.background,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.goalDropdownText,
+            { color: selectedGoalName ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {selectedGoalName ?? "Select a goal"}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "keyboard_arrow_down")}
+          size={14}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -315,6 +377,9 @@ function CreateIncentiveModal({
 
   const daysNum = Number.parseInt(days, 10);
   const percentNum = Number.parseInt(percent, 10);
+  const selectedGoal = selectedFriend?.goalOptions.find(
+    (goal) => goal.id === goalId,
+  );
   const canSend =
     body.trim().length > 0 &&
     Number.isFinite(daysNum) &&
@@ -323,6 +388,13 @@ function CreateIncentiveModal({
     percentNum >= 1 &&
     percentNum <= 100 &&
     (scope !== "single" || goalId.length > 0);
+
+  const selectScope = (nextScope: StreakGoalScope) => {
+    setScope(nextScope);
+    if (nextScope === "single" && !goalId && selectedFriend?.goalOptions[0]) {
+      setGoalId(selectedFriend.goalOptions[0].id);
+    }
+  };
 
   async function handleSend() {
     if (!selectedFriend || !canSend) return;
@@ -422,7 +494,7 @@ function CreateIncentiveModal({
                     key={f.id}
                     onPress={() => {
                       setSelectedFriend(f);
-                      if (f.goalOptions[0]) setGoalId(f.goalOptions[0].id);
+                      setGoalId(f.goalOptions[0]?.id ?? "");
                       setStep(2);
                     }}
                     style={[
@@ -504,7 +576,7 @@ function CreateIncentiveModal({
                   {SCOPE_OPTIONS.map((opt) => (
                     <Pressable
                       key={opt.value}
-                      onPress={() => setScope(opt.value)}
+                      onPress={() => selectScope(opt.value)}
                       style={[
                         styles.scopeChip,
                         {
@@ -549,44 +621,15 @@ function CreateIncentiveModal({
                           { color: theme.textSecondary },
                         ]}
                       >
-                        No shared goals available
+                        No goals available
                       </Text>
                     ) : (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ gap: 8 }}
-                      >
-                        {selectedFriend.goalOptions.map((g) => (
-                          <Pressable
-                            key={g.id}
-                            onPress={() => setGoalId(g.id)}
-                            style={[
-                              styles.scopeChip,
-                              {
-                                backgroundColor:
-                                  goalId === g.id ? accent : theme.background,
-                                borderColor:
-                                  goalId === g.id ? accent : theme.tabBorder,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.scopeChipText,
-                                {
-                                  color:
-                                    goalId === g.id
-                                      ? accentForeground
-                                      : theme.textSecondary,
-                                },
-                              ]}
-                            >
-                              {g.name}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </ScrollView>
+                      <GoalDropdown
+                        goals={selectedFriend.goalOptions}
+                        selectedGoalId={goalId}
+                        selectedGoalName={selectedGoal?.name}
+                        onSelect={setGoalId}
+                      />
                     )}
                   </>
                 )}
@@ -1143,6 +1186,25 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   scopeChipText: { fontSize: 13, fontWeight: "600" },
+  goalDropdownMenu: {
+    width: "100%",
+  },
+  goalDropdown: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+  },
+  goalDropdownText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    fontWeight: "600",
+  },
   streakRow: { flexDirection: "row", marginTop: 4 },
   inputSuffix: { fontSize: 12, marginTop: 4 },
   sendBtn: {

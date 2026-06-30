@@ -101,7 +101,7 @@ export function SettingsScreen() {
       void setThemePreference(preference);
     };
 
-    Alert.alert("Appearance", "Choose how Higher Habits looks.", [
+    Alert.alert("Appearance", "Choose how float looks.", [
       { text: "Automatic", onPress: () => choose("system") },
       { text: "Light", onPress: () => choose("light") },
       { text: "Dark", onPress: () => choose("dark") },
@@ -291,7 +291,7 @@ export function SettingsScreen() {
             </Pressable>
             <View style={styles.profileText}>
               <Text style={[styles.profileName, { color: theme.text }]}>
-                {session?.user.name ?? "Higher Habits account"}
+                {session?.user.name ?? "float account"}
               </Text>
               <Text
                 numberOfLines={1}

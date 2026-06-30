@@ -81,13 +81,13 @@ export const Colors = {
     dark: {
         text: "#ffffff",
         background: "#000000",
-        backgroundElement: "#212225",
-        backgroundSelected: "#2E3135",
+        backgroundElement: "#2A2E35",
+        backgroundSelected: "#3A4049",
         textSecondary: "#B0B4BA",
         ...DefaultColorThemeColors,
-        tabBar: "#172827",
-        tabBorder: "#2C5352",
-        tabIcon: "#B0C2C2",
+        tabBar: "#1B1E24",
+        tabBorder: "#3A4048",
+        tabIcon: "#ADB3BC",
     },
 } as const;
 

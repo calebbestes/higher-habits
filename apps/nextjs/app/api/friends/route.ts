@@ -222,7 +222,8 @@ async function getFriendActivitySummary(
         eq(habits.period, "daily"),
         eq(habits.hidden, false),
       ),
-    );
+    )
+    .orderBy(asc(habits.name));
   const visibleGoalIds = await getVisibleGoalIdsForFriend(
     db,
     viewerId,
@@ -275,7 +276,7 @@ async function getFriendActivitySummary(
           ? Math.round((earnedPoints / possiblePoints) * 100)
           : 0,
     },
-    goalOptions: dailyGoals.map((goal) => ({
+    goalOptions: allDailyGoals.map((goal) => ({
       id: goal.id,
       name: goal.name,
     })),

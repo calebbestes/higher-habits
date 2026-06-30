@@ -62,6 +62,25 @@ function formatShareDate(date: Date): string {
   }).format(date);
 }
 
+function countMonthlyCompletions({
+  goalId,
+  currentMonthKey,
+  logsByGoalDate,
+}: {
+  goalId: string;
+  currentMonthKey: string;
+  logsByGoalDate: Record<string, "complete" | "planned">;
+}): number {
+  let count = 0;
+  const prefix = `${goalId}_${currentMonthKey}-`;
+
+  for (const [key, val] of Object.entries(logsByGoalDate)) {
+    if (key.startsWith(prefix) && val === "complete") count++;
+  }
+
+  return count;
+}
+
 function buildHabitShareText({
   currentDate,
   categories,
@@ -177,11 +196,23 @@ export function DashboardScreen() {
 
   const monthlyGoals = useMemo(() => {
     if (!snapshot) return [];
-    const order: Record<string, number> = { high: 0, medium: 1, low: 1 };
     return snapshot.periodicGoals
       .filter((g) => g.period === "monthly" && (g.frequencyGoal ?? 0) > 0)
-      .sort((a, b) => (order[a.priority] ?? 1) - (order[b.priority] ?? 1));
-  }, [snapshot]);
+      .map((goal, index) => ({
+        goal,
+        index,
+        completionRatio:
+          countMonthlyCompletions({
+            goalId: goal.id,
+            currentMonthKey,
+            logsByGoalDate: snapshot.logsByGoalDate,
+          }) / (goal.frequencyGoal ?? 1),
+      }))
+      .sort(
+        (a, b) => b.completionRatio - a.completionRatio || a.index - b.index,
+      )
+      .map(({ goal }) => goal);
+  }, [currentMonthKey, snapshot]);
 
   const highPriorityCats = useMemo(() => {
     if (!snapshot) return [];
@@ -694,14 +725,15 @@ function MonthlyGoalRow({
 }) {
   const theme = useTheme();
 
-  const completions = useMemo(() => {
-    let count = 0;
-    const prefix = `${goal.id}_${currentMonthKey}-`;
-    for (const [key, val] of Object.entries(logsByGoalDate)) {
-      if (key.startsWith(prefix) && val === "complete") count++;
-    }
-    return count;
-  }, [goal.id, currentMonthKey, logsByGoalDate]);
+  const completions = useMemo(
+    () =>
+      countMonthlyCompletions({
+        goalId: goal.id,
+        currentMonthKey,
+        logsByGoalDate,
+      }),
+    [goal.id, currentMonthKey, logsByGoalDate],
+  );
 
   const total = goal.frequencyGoal ?? 1;
   const pct = Math.min(completions / total, 1);
@@ -774,7 +806,7 @@ function CategoryHeatmap({
           style={[styles.catDivider, { backgroundColor: theme.tabBorder }]}
         />
       ) : null}
-      <Text style={[styles.catLabel, { color: theme.secondary }]}>
+      <Text style={[styles.catLabel, { color: theme.textSecondary }]}>
         {category.name.toUpperCase()}
       </Text>
       {goals.map((goal) => {
