@@ -12,6 +12,8 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   sharedGoals: SharedGoalLink[];
 };
 
@@ -45,6 +47,8 @@ export type PeriodicGoalInfo = {
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   createdAt: string;
   sharedGoals: SharedGoalLink[];
 };
@@ -58,6 +62,8 @@ export type HiddenGoalInfo = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
 };
 
 export type AcceptedGoalIncentive = {
@@ -67,6 +73,25 @@ export type AcceptedGoalIncentive = {
   streakDays: number;
   streakPercent: number;
   createdAt: string;
+};
+
+export type GoalLogSocialComment = {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+};
+
+export type GoalLogSocialSummary = {
+  props: {
+    count: number;
+    hasPropped: boolean;
+  };
+  comments: GoalLogSocialComment[];
 };
 
 export type GoalLogsSnapshot = {
@@ -87,6 +112,8 @@ export type GoalLogsSnapshot = {
     string,
     { startTime: string | null; endTime: string | null }
   >;
+  /** key: `${goalId}_${dateKey}`, only logs with feed activity */
+  socialByGoalDate: Record<string, GoalLogSocialSummary>;
 };
 
 export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
@@ -99,6 +126,7 @@ export const EMPTY_GOAL_LOGS_SNAPSHOT: GoalLogsSnapshot = {
   photoCountsByGoalDate: {},
   visibilityByGoalDate: {},
   plannedTimesByGoalDate: {},
+  socialByGoalDate: {},
 };
 
 async function parseResponse<T>(res: Response): Promise<T> {

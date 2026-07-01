@@ -22,6 +22,7 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
+import { updateUserSettings } from "@/lib/user-settings-client";
 
 type AuthFormScreenProps = {
   mode: "login" | "sign-up";
@@ -147,6 +148,11 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         );
         return;
       }
+      if (isSignUp) {
+        await updateUserSettings({ onboardingCompleted: false }).catch(
+          () => undefined,
+        );
+      }
       setShouldEnterApp(true);
     } catch {
       setShouldEnterApp(false);
@@ -183,6 +189,11 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
           "Signed in, but the session could not be saved. Please try again.",
         );
         return;
+      }
+      if (isSignUp) {
+        await updateUserSettings({ onboardingCompleted: false }).catch(
+          () => undefined,
+        );
       }
       setShouldEnterApp(true);
     } catch {
@@ -231,7 +242,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                   </Text>
                 </View>
                 <Text style={[styles.brandName, { color: theme.text }]}>
-                  Higher Habits
+                  float
                 </Text>
               </View>
 

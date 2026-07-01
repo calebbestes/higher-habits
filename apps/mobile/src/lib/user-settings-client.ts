@@ -22,7 +22,12 @@ export type NotificationSettings = {
   notifyWeeklyRecap: boolean;
 };
 
-export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
+export type UserSettings = NotificationSettings & {
+  onboardingCompleted: boolean;
+};
+
+export const USER_SETTING_DEFAULTS: UserSettings = {
+  onboardingCompleted: true,
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
   notifyTasksDueToday: true,
@@ -44,6 +49,29 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyWeeklyRecap: true,
 };
 
+export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
+  notifyFriendRequests: USER_SETTING_DEFAULTS.notifyFriendRequests,
+  notifyMonthlyGoalToday: USER_SETTING_DEFAULTS.notifyMonthlyGoalToday,
+  notifyTasksDueToday: USER_SETTING_DEFAULTS.notifyTasksDueToday,
+  notifyInactivityReminder: USER_SETTING_DEFAULTS.notifyInactivityReminder,
+  notifySharedGoalInvites: USER_SETTING_DEFAULTS.notifySharedGoalInvites,
+  notifyStreakAtRisk: USER_SETTING_DEFAULTS.notifyStreakAtRisk,
+  notifyStreakMilestone: USER_SETTING_DEFAULTS.notifyStreakMilestone,
+  notifyEndOfDayNudge: USER_SETTING_DEFAULTS.notifyEndOfDayNudge,
+  notifyPostProps: USER_SETTING_DEFAULTS.notifyPostProps,
+  notifyPostComments: USER_SETTING_DEFAULTS.notifyPostComments,
+  notifyFriendRequestAccepted:
+    USER_SETTING_DEFAULTS.notifyFriendRequestAccepted,
+  notifyFriendMilestone: USER_SETTING_DEFAULTS.notifyFriendMilestone,
+  notifySharedGoalResponses: USER_SETTING_DEFAULTS.notifySharedGoalResponses,
+  notifyLastToComplete: USER_SETTING_DEFAULTS.notifyLastToComplete,
+  notifySharedGoalEnding: USER_SETTING_DEFAULTS.notifySharedGoalEnding,
+  notifyStakesReminder: USER_SETTING_DEFAULTS.notifyStakesReminder,
+  notifyIncentiveEarned: USER_SETTING_DEFAULTS.notifyIncentiveEarned,
+  notifyPlanTomorrow: USER_SETTING_DEFAULTS.notifyPlanTomorrow,
+  notifyWeeklyRecap: USER_SETTING_DEFAULTS.notifyWeeklyRecap,
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -55,15 +83,22 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const fetchNotificationSettings = (): Promise<NotificationSettings> =>
+export const fetchUserSettings = (): Promise<UserSettings> =>
   mobileApiFetch("/api/user-settings").then((r) =>
-    parseResponse<NotificationSettings>(r),
+    parseResponse<UserSettings>(r),
   );
 
-export const updateNotificationSettings = (
-  settings: Partial<NotificationSettings>,
+export const updateUserSettings = (
+  settings: Partial<UserSettings>,
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/user-settings", {
     method: "POST",
     body: JSON.stringify(settings),
   }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const fetchNotificationSettings = (): Promise<NotificationSettings> =>
+  fetchUserSettings();
+
+export const updateNotificationSettings = (
+  settings: Partial<NotificationSettings>,
+): Promise<{ ok: true }> => updateUserSettings(settings);

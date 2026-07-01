@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
+import { DayPlanScreen } from "@/components/day-plan-screen";
 import { GoalsScreen } from "@/components/goals-screen";
 import { HabitsScreen } from "@/components/habits-screen";
 import { TopTasksScreen } from "@/components/top-tasks-screen";
@@ -10,7 +11,6 @@ import {
   isPlanReportView,
   setHabitsTab,
   setPlanReportView,
-  usePlanReportView,
 } from "@/lib/tab-view-store";
 
 export default function PlanReportScreen() {
@@ -19,15 +19,12 @@ export default function PlanReportScreen() {
     view?: string;
     date?: string;
   }>();
-  // Prefer the URL param (deep links / web), but fall back to the remembered
-  // view so switching tabs and returning restores where you were.
-  const rememberedView = usePlanReportView();
   const legacyHabitsTab = isLegacyHabitsTab(view) ? view : undefined;
   const activeView = legacyHabitsTab
     ? "habits"
     : isPlanReportView(view)
       ? view
-      : rememberedView;
+      : "day-plan";
 
   useEffect(() => {
     if (legacyHabitsTab) {
@@ -41,6 +38,14 @@ export default function PlanReportScreen() {
       setPlanReportView(view);
     }
   }, [legacyHabitsTab, router, view]);
+
+  if (activeView === "day-plan") {
+    return (
+      <ComponentErrorBoundary name="DayPlanScreen">
+        <DayPlanScreen initialDateKey={date} />
+      </ComponentErrorBoundary>
+    );
+  }
 
   if (activeView === "top-tasks") {
     return (

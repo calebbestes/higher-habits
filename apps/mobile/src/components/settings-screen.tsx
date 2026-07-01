@@ -15,7 +15,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { NotificationSettingsModal } from "@/components/notification-settings-screen";
-import { MaxContentWidth } from "@/constants/theme";
+import {
+  ColorThemeOptions,
+  ColorThemeOrder,
+  type ColorThemePreference,
+  DefaultColorThemePreference,
+  MaxContentWidth,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -23,9 +29,12 @@ import {
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
+import { sendTestNotificationAsync } from "@/lib/push-notifications";
 import {
   type ThemePreference,
+  getColorThemePreference,
   getThemePreference,
+  setColorThemePreference,
   setThemePreference,
 } from "@/lib/theme-preference";
 
@@ -42,13 +51,19 @@ export function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] =
+    useState(false);
   const [appearance, setAppearance] = useState<ThemePreference>("system");
+  const [colorTheme, setColorTheme] = useState<ColorThemePreference>(
+    DefaultColorThemePreference,
+  );
   const [googleCalendarStatus, setGoogleCalendarStatus] =
     useState<GoogleCalendarStatus | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     void getThemePreference().then(setAppearance);
+    void getColorThemePreference().then(setColorTheme);
   }, []);
 
   const loadGoogleCalendarStatus = useCallback(async () => {
@@ -86,12 +101,17 @@ export function SettingsScreen() {
       void setThemePreference(preference);
     };
 
-    Alert.alert("Appearance", "Choose how Higher Habits looks.", [
+    Alert.alert("Appearance", "Choose how float looks.", [
       { text: "Automatic", onPress: () => choose("system") },
       { text: "Light", onPress: () => choose("light") },
       { text: "Dark", onPress: () => choose("dark") },
       { text: "Cancel", style: "cancel" },
     ]);
+  };
+
+  const chooseColorTheme = (preference: ColorThemePreference) => {
+    setColorTheme(preference);
+    void setColorThemePreference(preference);
   };
 
   const pickProfilePicture = async () => {
@@ -156,6 +176,24 @@ export function SettingsScreen() {
       );
     } finally {
       setIsGoogleConnecting(false);
+    }
+  };
+
+  const sendTestNotification = async () => {
+    if (isSendingTestNotification) return;
+
+    setIsSendingTestNotification(true);
+    try {
+      await sendTestNotificationAsync();
+    } catch (notificationError) {
+      Alert.alert(
+        "Notifications",
+        notificationError instanceof Error
+          ? notificationError.message
+          : "Could not send a test notification.",
+      );
+    } finally {
+      setIsSendingTestNotification(false);
     }
   };
 
@@ -253,7 +291,7 @@ export function SettingsScreen() {
             </Pressable>
             <View style={styles.profileText}>
               <Text style={[styles.profileName, { color: theme.text }]}>
-                {session?.user.name ?? "Higher Habits account"}
+                {session?.user.name ?? "float account"}
               </Text>
               <Text
                 numberOfLines={1}
@@ -277,11 +315,25 @@ export function SettingsScreen() {
               }
               onPress={chooseAppearance}
             />
+            <ColorThemePickerRow
+              value={colorTheme}
+              onChange={chooseColorTheme}
+            />
             <SettingsRow
               icon={sym("bell.fill", "notifications")}
               title="Notifications"
               value="Manage"
               onPress={() => setShowNotifications(true)}
+            />
+            <SettingsRow
+              icon={sym("bell.badge.fill", "notifications_active")}
+              title="Test notification"
+              value={isSendingTestNotification ? "Sending" : "Send"}
+              onPress={
+                isSendingTestNotification
+                  ? undefined
+                  : () => void sendTestNotification()
+              }
             />
           </SettingsGroup>
 
@@ -327,6 +379,77 @@ export function SettingsScreen() {
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
+    </View>
+  );
+}
+
+function ColorThemePickerRow({
+  onChange,
+  value,
+}: {
+  onChange: (value: ColorThemePreference) => void;
+  value: ColorThemePreference;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.colorRow, { borderBottomColor: theme.tabBorder }]}>
+      <SymbolView
+        name={sym("swatchpalette.fill", "palette")}
+        size={20}
+        weight="semibold"
+        tintColor={theme.primary}
+      />
+      <View style={styles.colorRowText}>
+        <Text style={[styles.rowTitle, { color: theme.text }]}>Colors</Text>
+        <Text style={[styles.colorRowValue, { color: theme.textSecondary }]}>
+          {ColorThemeOptions[value].label}
+        </Text>
+      </View>
+      <View style={styles.colorSwatches}>
+        {ColorThemeOrder.map((optionKey) => {
+          const option = ColorThemeOptions[optionKey];
+          const selected = optionKey === value;
+
+          return (
+            <Pressable
+              accessibilityLabel={`Use ${option.label} colors`}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              key={optionKey}
+              onPress={() => onChange(optionKey)}
+              style={({ pressed }) => [
+                styles.colorSwatchButton,
+                {
+                  borderColor: selected ? theme.text : theme.tabBorder,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[
+                  styles.colorSwatchHalf,
+                  {
+                    backgroundColor: option.colors.primary,
+                    borderTopLeftRadius: 999,
+                    borderBottomLeftRadius: 999,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.colorSwatchHalf,
+                  {
+                    backgroundColor: option.colors.secondary,
+                    borderTopRightRadius: 999,
+                    borderBottomRightRadius: 999,
+                  },
+                ]}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -518,6 +641,31 @@ const styles = StyleSheet.create({
   },
   rowTitle: { flex: 1, fontSize: 16, fontWeight: "600" },
   rowValue: { fontSize: 14, fontWeight: "500" },
+  colorRow: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  colorRowText: { flex: 1, gap: 2 },
+  colorRowValue: { fontSize: 13, fontWeight: "600" },
+  colorSwatches: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  colorSwatchButton: {
+    width: 34,
+    height: 34,
+    flexDirection: "row",
+    overflow: "hidden",
+    borderWidth: 2,
+    borderRadius: 17,
+  },
+  colorSwatchHalf: { flex: 1 },
   signOutRow: {
     minHeight: 54,
     flexDirection: "row",

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -124,6 +125,43 @@ function formatEndDate(dateStr: string | null): string {
   } catch {
     return dateStr;
   }
+}
+
+function parseDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day, 12);
+}
+
+function formatActivityDate(dateKey: string): string {
+  const date = parseDateKey(dateKey);
+  const today = new Date();
+  const todayAtNoon = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+    12,
+  );
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.round(
+    (todayAtNoon.getTime() - date.getTime()) / dayMs,
+  );
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
+function pluralize(value: number, singular: string, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function formatStreak(value: number) {
+  return `${value}-day streak`;
 }
 
 function getInitials(name: string): string {
@@ -582,10 +620,74 @@ function GoalDetailsSheet({
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
   const cur = goal.currentUserParticipant;
   const accepted = goal.participants.filter((p) => p.status === "accepted");
   const showProgress = goal.mode === "collaborative";
   const isStreakType = goal.scoringType === "longest_streak";
+  const isCompetitive = goal.mode === "competitive";
+  const getParticipantScore = (participant: SharedGoalParticipantSnapshot) =>
+    isStreakType ? participant.currentStreak : participant.completedCount;
+  const scoreLabel = isStreakType ? "streak" : "total";
+  const leaderboard = accepted
+    .map((participant) => ({
+      participant,
+      score: getParticipantScore(participant),
+    }))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.participant.userName.localeCompare(right.participant.userName),
+    );
+  const leaderScore = leaderboard[0]?.score ?? goal.progress.value;
+  const myScore = cur ? getParticipantScore(cur) : 0;
+  const isCurrentUserLeading = Boolean(
+    cur && goal.progress.leaderUserIds.includes(cur.userId),
+  );
+  const leaderTieCount = goal.progress.leaderUserIds.length;
+  const target = goal.progress.target;
+  const competitiveSummary = (() => {
+    if (!isCompetitive || !cur) return null;
+
+    if (goal.scoringType === "first_to_target" && target !== null) {
+      const remaining = Math.max(target - myScore, 0);
+
+      return {
+        title:
+          remaining === 0
+            ? "Target reached"
+            : isCurrentUserLeading
+              ? leaderTieCount > 1
+                ? "You're tied for 1st"
+                : "You're leading"
+              : `Leader has ${pluralize(leaderScore, "completion")}`,
+        detail:
+          remaining === 0
+            ? `${myScore} of ${target} completions`
+            : `${pluralize(remaining, "completion")} away from target`,
+      };
+    }
+
+    if (isStreakType) {
+      return {
+        title: isCurrentUserLeading
+          ? leaderTieCount > 1
+            ? "You're tied for longest streak"
+            : "You're leading"
+          : `Leader has a ${formatStreak(leaderScore)}`,
+        detail: formatStreak(myScore),
+      };
+    }
+
+    return {
+      title: isCurrentUserLeading
+        ? leaderTieCount > 1
+          ? "You're tied for 1st"
+          : "You're leading"
+        : `Leader has ${pluralize(leaderScore, "completion")}`,
+      detail: `${pluralize(myScore, "completion")} total`,
+    };
+  })();
 
   // Header stats are tailored to the scoring type.
   const statCells: { value: string; label: string }[] = [];
@@ -615,10 +717,9 @@ function GoalDetailsSheet({
     // First to target / highest total: raw totals.
     if (cur)
       statCells.push({ value: `${cur.completedCount}`, label: "My total" });
-    if (goal.scoringType === "first_to_target" && goal.target !== null) {
-      statCells.push({ value: `${goal.target}`, label: "Target" });
-    } else {
-      statCells.push({ value: `${goal.progress.value}`, label: "Leader" });
+    statCells.push({ value: `${leaderScore}`, label: "Leader" });
+    if (goal.scoringType === "first_to_target" && target !== null) {
+      statCells.push({ value: `${target}`, label: "Target" });
     }
   }
 
@@ -646,20 +747,39 @@ function GoalDetailsSheet({
       <View
         style={[styles.sheetHeader, { borderBottomColor: theme.tabBorder }]}
       >
+        <View style={styles.sheetHeaderSideSpacer} />
         <Text
           style={[styles.sheetTitle, { color: theme.text }]}
           numberOfLines={2}
         >
           {goal.name}
         </Text>
-        <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={12}>
-          <SymbolView
-            name={sym("xmark", "close")}
-            size={16}
-            weight="semibold"
-            tintColor={theme.primary}
-          />
-        </Pressable>
+        <View style={styles.sheetHeaderActions}>
+          <Pressable
+            onPress={() => setIsActionsOpen(true)}
+            style={styles.sheetHeaderIconButton}
+            hitSlop={8}
+          >
+            <SymbolView
+              name={sym("ellipsis", "more_horiz")}
+              size={18}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+          <Pressable
+            onPress={onClose}
+            style={styles.sheetHeaderIconButton}
+            hitSlop={8}
+          >
+            <SymbolView
+              name={sym("xmark", "close")}
+              size={16}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -668,7 +788,7 @@ function GoalDetailsSheet({
         showsVerticalScrollIndicator={false}
       >
         {/* Badges */}
-        <View style={[styles.badgeRow, { marginBottom: 12 }]}>
+        <View style={[styles.badgeRow, styles.detailsBadgeRow]}>
           <ModeBadge mode={goal.mode} />
           <ScoringBadge type={goal.scoringType} />
         </View>
@@ -699,10 +819,25 @@ function GoalDetailsSheet({
           ))}
         </View>
 
+        {competitiveSummary ? (
+          <Text
+            style={[
+              styles.competitiveSummary,
+              { color: theme.textSecondary },
+            ]}
+          >
+            <Text style={{ color: theme.text, fontWeight: "800" }}>
+              {competitiveSummary.title}
+            </Text>
+            {" · "}
+            {competitiveSummary.detail}
+          </Text>
+        ) : null}
+
         {/* Progress bar */}
         {showProgress && (
           <View style={styles.sheetSection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            <Text style={[styles.sheetSectionTitle, { color: theme.text }]}>
               Progress
             </Text>
             <ProgressBar
@@ -726,7 +861,7 @@ function GoalDetailsSheet({
         {/* My linked goal */}
         {cur && (
           <View style={styles.sheetSection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            <Text style={[styles.sheetSectionTitle, { color: theme.text }]}>
               My linked goal
             </Text>
             <View
@@ -735,18 +870,44 @@ function GoalDetailsSheet({
                 { backgroundColor: theme.backgroundElement },
               ]}
             >
-              <Text
-                style={[
-                  styles.linkedGoalName,
-                  {
-                    color: cur.personalGoalId
-                      ? theme.text
-                      : theme.textSecondary,
-                  },
-                ]}
-              >
-                {cur.personalGoalName ?? "No goal linked"}
-              </Text>
+              <View style={styles.linkedGoalInfo}>
+                <View
+                  style={[
+                    styles.linkedGoalIcon,
+                    { backgroundColor: `${theme.primary}16` },
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("target", "target")}
+                    size={15}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                </View>
+                <View style={styles.linkedGoalText}>
+                  <Text
+                    style={[
+                      styles.linkedGoalLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Linked habit
+                  </Text>
+                  <Text
+                    style={[
+                      styles.linkedGoalName,
+                      {
+                        color: cur.personalGoalId
+                          ? theme.text
+                          : theme.textSecondary,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {cur.personalGoalName ?? "No goal linked"}
+                  </Text>
+                </View>
+              </View>
               <Pressable onPress={onRelink}>
                 <Text style={[styles.relinkText, { color: theme.primary }]}>
                   {cur.personalGoalId ? "Change" : "Link"}
@@ -756,61 +917,117 @@ function GoalDetailsSheet({
           </View>
         )}
 
-        {/* Participants */}
+        {/* Participants / leaderboard */}
         <View style={styles.sheetSection}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Participants
+          <Text style={[styles.sheetSectionTitle, { color: theme.text }]}>
+            {isCompetitive ? "Leaderboard" : "Participants"}
           </Text>
-          {accepted.map((p) => (
-            <View
-              key={p.userId}
-              style={[
-                styles.participantRow,
-                { borderBottomColor: theme.tabBorder },
-              ]}
-            >
-              <Avatar image={p.userImage} name={p.userName} size={36} />
-              <View style={styles.participantInfo}>
-                <Text style={[styles.participantName, { color: theme.text }]}>
-                  {p.userName}
-                </Text>
-                <Text
-                  style={[
-                    styles.participantStats,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  {isStreakType
-                    ? `${p.currentStreak} day streak`
-                    : `${p.completedCount} total`}
-                </Text>
-              </View>
-              {p.completedToday && (
+          {isCompetitive
+            ? leaderboard.map(({ participant, score }, index) => (
                 <View
+                  key={participant.userId}
                   style={[
-                    styles.doneChip,
-                    { backgroundColor: theme.backgroundElement },
+                    styles.leaderboardRow,
+                    { borderBottomColor: theme.tabBorder },
                   ]}
                 >
-                  <SymbolView
-                    name={sym("checkmark", "check")}
-                    size={11}
-                    weight="semibold"
-                    tintColor={theme.primary}
+                  <Text
+                    style={[
+                      styles.leaderboardRank,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {index + 1}
+                  </Text>
+                  <Avatar
+                    image={participant.userImage}
+                    name={participant.userName}
+                    size={32}
                   />
-                  <Text style={[styles.doneChipText, { color: theme.primary }]}>
-                    Done
+                  <View style={styles.participantInfo}>
+                    <Text
+                      style={[styles.participantName, { color: theme.text }]}
+                    >
+                      {participant.userName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.participantStats,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {participant.completedToday
+                        ? "Reported today"
+                        : "Not reported today"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.leaderboardScore, { color: theme.text }]}>
+                    {score}{" "}
+                    <Text
+                      style={[
+                        styles.leaderboardScoreLabel,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {scoreLabel}
+                    </Text>
                   </Text>
                 </View>
-              )}
-            </View>
-          ))}
+              ))
+            : accepted.map((p) => (
+                <View
+                  key={p.userId}
+                  style={[
+                    styles.participantRow,
+                    { borderBottomColor: theme.tabBorder },
+                  ]}
+                >
+                  <Avatar image={p.userImage} name={p.userName} size={36} />
+                  <View style={styles.participantInfo}>
+                    <Text
+                      style={[styles.participantName, { color: theme.text }]}
+                    >
+                      {p.userName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.participantStats,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {isStreakType
+                        ? `${p.currentStreak} day streak`
+                        : `${p.completedCount} total`}
+                    </Text>
+                  </View>
+                  {p.completedToday && (
+                    <View
+                      style={[
+                        styles.doneChip,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
+                    >
+                      <SymbolView
+                        name={sym("checkmark", "check")}
+                        size={11}
+                        weight="semibold"
+                        tintColor={theme.primary}
+                      />
+                      <Text
+                        style={[styles.doneChipText, { color: theme.primary }]}
+                      >
+                        Done
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ))}
         </View>
 
         {/* Recent activity */}
         {goal.recentActivity.length > 0 && (
           <View style={styles.sheetSection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            <Text style={[styles.sheetSectionTitle, { color: theme.text }]}>
               Recent activity
             </Text>
             {goal.recentActivity.slice(0, 5).map((a) => (
@@ -829,7 +1046,7 @@ function GoalDetailsSheet({
                   <Text style={{ color: theme.text, fontWeight: "600" }}>
                     {a.userName}
                   </Text>{" "}
-                  completed on {a.dateKey}
+                  completed {formatActivityDate(a.dateKey)}
                 </Text>
               </View>
             ))}
@@ -839,38 +1056,96 @@ function GoalDetailsSheet({
 
       {/* Footer actions */}
       <View style={[styles.sheetFooter, { borderTopColor: theme.tabBorder }]}>
-        {cur && !cur.completedToday && cur.personalGoalId && (
+        {cur?.personalGoalId ? (
           <Pressable
             onPress={onReportToday}
-            style={[styles.sheetPrimaryBtn, { backgroundColor: theme.primary }]}
+            style={[
+              styles.sheetPrimaryBtn,
+              cur.completedToday
+                ? {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    borderWidth: StyleSheet.hairlineWidth,
+                  }
+                : { backgroundColor: theme.primary },
+            ]}
           >
             <Text
               style={[
                 styles.sheetPrimaryBtnText,
-                { color: theme.primaryForeground },
+                {
+                  color: cur.completedToday
+                    ? theme.primary
+                    : theme.primaryForeground,
+                },
               ]}
             >
-              Report today
+              {cur.completedToday ? "Add note or photo" : "Report today"}
             </Text>
           </Pressable>
-        )}
-        <View style={styles.sheetSecondaryActions}>
-          {goal.canManage && goal.status === "active" && (
-            <Pressable onPress={onArchive} style={styles.sheetSecBtn}>
-              <Text
-                style={[styles.sheetSecBtnText, { color: theme.textSecondary }]}
+        ) : null}
+      </View>
+
+      <Modal
+        visible={isActionsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsActionsOpen(false)}
+      >
+        <Pressable
+          style={styles.menuBackdrop}
+          onPress={() => setIsActionsOpen(false)}
+        >
+          <Pressable
+            style={[
+              styles.menuSheet,
+              {
+                backgroundColor: theme.background,
+                paddingBottom: insets.bottom + 12,
+              },
+            ]}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <Text style={[styles.menuTitle, { color: theme.text }]}>
+              {goal.name}
+            </Text>
+            {goal.canManage && goal.status === "active" ? (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setIsActionsOpen(false);
+                  onArchive();
+                }}
               >
-                Archive
+                <SymbolView
+                  name={sym("archivebox", "archive")}
+                  size={20}
+                  tintColor={theme.text}
+                />
+                <Text style={[styles.menuItemText, { color: theme.text }]}>
+                  Archive
+                </Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setIsActionsOpen(false);
+                onLeave();
+              }}
+            >
+              <SymbolView
+                name={sym("rectangle.portrait.and.arrow.right", "logout")}
+                size={20}
+                tintColor="#EF4444"
+              />
+              <Text style={[styles.menuItemText, { color: "#EF4444" }]}>
+                Leave
               </Text>
             </Pressable>
-          )}
-          <Pressable onPress={onLeave} style={styles.sheetSecBtn}>
-            <Text style={[styles.sheetSecBtnText, { color: "#EF4444" }]}>
-              Leave
-            </Text>
           </Pressable>
-        </View>
-      </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1891,6 +2166,8 @@ export function SharedGoalsScreen() {
   // ─── Report-today action dialog (shared with daily/monthly goals) ──────────
   const [menuGoal, setMenuGoal] = useState<SharedGoalSnapshot | null>(null);
   const [actionGoal, setActionGoal] = useState<SharedGoalSnapshot | null>(null);
+  const [pendingActionGoal, setPendingActionGoal] =
+    useState<SharedGoalSnapshot | null>(null);
   const [logsSnapshot, setLogsSnapshot] = useState<GoalLogsSnapshot | null>(
     null,
   );
@@ -1932,6 +2209,26 @@ export function SharedGoalsScreen() {
     }
   }, []);
 
+  const presentGoalActions = useCallback(
+    (goal: SharedGoalSnapshot) => {
+      setActionGoal(goal);
+      void refreshLogsSnapshot();
+    },
+    [refreshLogsSnapshot],
+  );
+
+  useEffect(() => {
+    if (!pendingActionGoal || selectedGoal !== null) return;
+
+    const actionGoalToPresent = pendingActionGoal;
+    const task = InteractionManager.runAfterInteractions(() => {
+      presentGoalActions(actionGoalToPresent);
+      setPendingActionGoal(null);
+    });
+
+    return () => task.cancel();
+  }, [pendingActionGoal, presentGoalActions, selectedGoal]);
+
   // Opens the same action dialog daily/monthly goals use, targeting the
   // participant's linked personal goal for today.
   function openGoalActions(goal: SharedGoalSnapshot) {
@@ -1941,9 +2238,14 @@ export function SharedGoalsScreen() {
       setRelinkGoal(goal);
       return;
     }
-    setSelectedGoal(null);
-    setActionGoal(goal);
-    void refreshLogsSnapshot();
+
+    if (selectedGoal !== null) {
+      setPendingActionGoal(goal);
+      setSelectedGoal(null);
+      return;
+    }
+
+    presentGoalActions(goal);
   }
 
   // The linked personal goal for the open action dialog, shaped as an
@@ -1970,6 +2272,8 @@ export function SharedGoalsScreen() {
           visibility: actionPersonalGoal?.visibility ?? "only_me",
           period: actionPersonalGoal?.period ?? "daily",
           frequencyGoal: actionPersonalGoal?.frequencyGoal ?? null,
+          reminderEnabled: actionPersonalGoal?.reminderEnabled ?? false,
+          reminderTime: actionPersonalGoal?.reminderTime ?? null,
         }
       : null;
 
@@ -2616,6 +2920,10 @@ const styles = StyleSheet.create({
     gap: 14,
     flexShrink: 1,
   },
+  detailsBadgeRow: {
+    marginBottom: 12,
+    paddingLeft: 2,
+  },
   menuBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -2778,6 +3086,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
   },
+  sheetHeaderSideSpacer: {
+    width: 72,
+  },
+  sheetHeaderActions: {
+    width: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  sheetHeaderIconButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+  },
   sheetClose: {
     width: 32,
     alignItems: "flex-end",
@@ -2791,6 +3116,11 @@ const styles = StyleSheet.create({
   },
   sheetSection: {
     marginBottom: 20,
+  },
+  sheetSectionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 10,
   },
   sheetFooter: {
     paddingHorizontal: 20,
@@ -2849,6 +3179,13 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.3,
   },
+  competitiveSummary: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+    marginTop: -4,
+    marginBottom: 18,
+  },
   // Linked goal row
   linkedGoalRow: {
     flexDirection: "row",
@@ -2858,14 +3195,65 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
   },
+  linkedGoalInfo: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginRight: 12,
+  },
+  linkedGoalIcon: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  linkedGoalText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  linkedGoalLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
   linkedGoalName: {
     fontSize: 15,
     fontWeight: "600",
     flex: 1,
-    marginRight: 12,
   },
   relinkText: {
     fontSize: 14,
+    fontWeight: "700",
+  },
+  // Leaderboard row
+  leaderboardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  leaderboardRank: {
+    width: 18,
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  leaderboardScore: {
+    maxWidth: 112,
+    textAlign: "right",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  leaderboardScoreLabel: {
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: "700",
   },
   // Participant row

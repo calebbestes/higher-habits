@@ -137,8 +137,8 @@ export function getTaskPriorityLevel(
   return Math.max(1, Math.min(3, score));
 }
 
-export const fetchTasks = () =>
-  mobileApiFetch(`/api/tasks?today=${todayDateKey()}`).then((response) =>
+export const fetchTasks = (today = todayDateKey()) =>
+  mobileApiFetch(`/api/tasks?today=${today}`).then((response) =>
     parseResponse<Task[]>(response),
   );
 

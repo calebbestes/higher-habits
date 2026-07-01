@@ -24,6 +24,8 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
 };
 
@@ -34,6 +36,25 @@ export type AcceptedGoalIncentive = {
   streakDays: number;
   streakPercent: number;
   createdAt: string;
+};
+
+export type GoalLogSocialComment = {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+};
+
+export type GoalLogSocialSummary = {
+  props: {
+    count: number;
+    hasPropped: boolean;
+  };
+  comments: GoalLogSocialComment[];
 };
 
 export type CategoryWithGoals = {
@@ -57,6 +78,8 @@ export type PeriodicGoalInfo = {
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   createdAt: string;
   sharedGoals?: LinkedSharedGoal[];
 };
@@ -73,6 +96,7 @@ export type GoalLogsSnapshot = {
     string,
     { startTime: string | null; endTime: string | null }
   >;
+  socialByGoalDate: Record<string, GoalLogSocialSummary>;
 };
 
 export type GoalLogStatus = "complete" | "planned" | null;

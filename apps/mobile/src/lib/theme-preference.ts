@@ -1,12 +1,65 @@
 import * as SecureStore from "expo-secure-store";
+import { useSyncExternalStore } from "react";
 import { Appearance, Platform } from "react-native";
+
+import {
+  ColorThemeOptions,
+  type ColorThemePreference,
+  DefaultColorThemePreference,
+} from "@/constants/theme";
 
 export type ThemePreference = "system" | "light" | "dark";
 
-const STORAGE_KEY = "theme-preference";
+const THEME_STORAGE_KEY = "theme-preference";
+const COLOR_THEME_STORAGE_KEY = "color-theme-preference";
+
+function createPreferenceStore<T>(initial: T) {
+  let value = initial;
+  const listeners = new Set<() => void>();
+
+  return {
+    get: () => value,
+    set: (next: T) => {
+      if (Object.is(next, value)) return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const colorThemeStore = createPreferenceStore<ColorThemePreference>(
+  DefaultColorThemePreference,
+);
 
 function isThemePreference(value: string | null): value is ThemePreference {
   return value === "system" || value === "light" || value === "dark";
+}
+
+function isColorThemePreference(
+  value: string | null,
+): value is ColorThemePreference {
+  return Boolean(value && value in ColorThemeOptions);
+}
+
+async function getStoredPreference(key: string): Promise<string | null> {
+  return Platform.OS === "web"
+    ? globalThis.localStorage?.getItem(key)
+    : await SecureStore.getItemAsync(key);
+}
+
+async function setStoredPreference(key: string, value: string): Promise<void> {
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(key, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(key, value);
 }
 
 export function applyThemePreference(preference: ThemePreference) {
@@ -15,21 +68,40 @@ export function applyThemePreference(preference: ThemePreference) {
   );
 }
 
+export function applyColorThemePreference(preference: ColorThemePreference) {
+  colorThemeStore.set(preference);
+}
+
+export function useColorThemePreference(): ColorThemePreference {
+  return useSyncExternalStore(
+    colorThemeStore.subscribe,
+    colorThemeStore.get,
+    colorThemeStore.get,
+  );
+}
+
 export async function getThemePreference(): Promise<ThemePreference> {
-  const stored =
-    Platform.OS === "web"
-      ? globalThis.localStorage?.getItem(STORAGE_KEY)
-      : await SecureStore.getItemAsync(STORAGE_KEY);
+  const stored = await getStoredPreference(THEME_STORAGE_KEY);
 
   return isThemePreference(stored) ? stored : "system";
 }
 
+export async function getColorThemePreference(): Promise<ColorThemePreference> {
+  const stored = await getStoredPreference(COLOR_THEME_STORAGE_KEY);
+
+  return isColorThemePreference(stored) ? stored : DefaultColorThemePreference;
+}
+
 export async function setThemePreference(preference: ThemePreference) {
-  if (Platform.OS === "web") {
-    globalThis.localStorage?.setItem(STORAGE_KEY, preference);
-  } else {
-    await SecureStore.setItemAsync(STORAGE_KEY, preference);
-  }
+  await setStoredPreference(THEME_STORAGE_KEY, preference);
 
   applyThemePreference(preference);
+}
+
+export async function setColorThemePreference(
+  preference: ColorThemePreference,
+) {
+  await setStoredPreference(COLOR_THEME_STORAGE_KEY, preference);
+
+  applyColorThemePreference(preference);
 }

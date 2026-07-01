@@ -336,7 +336,7 @@ export function NotificationSettingsModal({
               ))}
               <Text style={[styles.footnote, { color: theme.textSecondary }]}>
                 Turn off any notification you don't want to receive. Make sure
-                notifications are also enabled for Higher Habits in your device
+                notifications are also enabled for float in your device
                 settings.
               </Text>
             </ScrollView>

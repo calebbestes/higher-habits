@@ -1,4 +1,3 @@
-import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { isRenderableIconKey } from "@/components/goal-icon";
+import { EXPO_SYMBOL_ICON_OPTIONS, GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -38,6 +37,10 @@ import {
   fetchHabits,
   updateHabit,
 } from "@/lib/habits-client";
+import {
+  cancelHabitReminderAsync,
+  scheduleHabitReminderAsync,
+} from "@/lib/push-notifications";
 
 type SymbolName = SymbolViewProps["name"];
 type HabitFilter = "all" | "high" | "hidden";
@@ -45,6 +48,8 @@ type HabitFilter = "all" | "high" | "hidden";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const DEFAULT_REMINDER_TIME = "09:00";
+const REMINDER_TIME_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",
@@ -75,49 +80,6 @@ const PRIORITY_ORDER: Record<string, number> = {
   low: 1,
 };
 
-const HABIT_ICON_OPTIONS = [
-  {
-    key: "fa7-solid:bullseye",
-    label: "Target",
-    symbol: symbol("target", "target"),
-  },
-  {
-    key: "mdi:heart-outline",
-    label: "Heart",
-    symbol: symbol("heart", "favorite"),
-  },
-  {
-    key: "mdi:dumbbell",
-    label: "Fitness",
-    symbol: symbol("dumbbell", "fitness_center"),
-  },
-  {
-    key: "mdi:book-open-page-variant-outline",
-    label: "Read",
-    symbol: symbol("book", "menu_book"),
-  },
-  {
-    key: "mdi:briefcase-outline",
-    label: "Work",
-    symbol: symbol("briefcase", "work"),
-  },
-  {
-    key: "mdi:account-group-outline",
-    label: "Social",
-    symbol: symbol("person.2", "groups"),
-  },
-  {
-    key: "mdi:cash",
-    label: "Money",
-    symbol: symbol("dollarsign.circle", "paid"),
-  },
-  {
-    key: "mdi:star-outline",
-    label: "Star",
-    symbol: symbol("star", "star"),
-  },
-] as const;
-
 const EMPTY_HABIT: HabitInput = {
   name: "",
   frequencyGoal: null,
@@ -129,22 +91,14 @@ const EMPTY_HABIT: HabitInput = {
   goalId: null,
   priority: "low",
   visibility: "only_me",
-  iconKey: HABIT_ICON_OPTIONS[0].key,
+  iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
+  reminderEnabled: false,
+  reminderTime: null,
   hidden: false,
 };
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
-}
-
-function resolveSymbol(
-  iconKey: string,
-  fallback = HABIT_ICON_OPTIONS[0].symbol,
-) {
-  return (
-    HABIT_ICON_OPTIONS.find((option) => option.key === iconKey)?.symbol ??
-    fallback
-  );
 }
 
 function frequencyLabel(habit: Habit) {
@@ -167,6 +121,15 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function normalizeReminderTime(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_REMINDER_TIME;
+  if (!REMINDER_TIME_REGEX.test(trimmed)) return null;
+
+  const [hours = "0", minutes = "00"] = trimmed.split(":");
+  return `${hours.padStart(2, "0")}:${minutes}`;
+}
+
 function toInput(habit: Habit): HabitInput {
   return {
     name: habit.name,
@@ -182,6 +145,8 @@ function toInput(habit: Habit): HabitInput {
     priority: habit.priority,
     visibility: habit.visibility,
     iconKey: habit.iconKey,
+    reminderEnabled: habit.reminderEnabled ?? false,
+    reminderTime: habit.reminderTime ?? null,
     hidden: habit.hidden,
   };
 }
@@ -275,6 +240,16 @@ export function HabitsManagerScreen() {
     const saved = editingHabit
       ? await updateHabit(editingHabit.id, input)
       : await createHabit(input);
+    try {
+      await scheduleHabitReminderAsync(saved);
+    } catch (reminderError) {
+      Alert.alert(
+        "Reminder not scheduled",
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Could not schedule this habit reminder.",
+      );
+    }
 
     setHabits((current) =>
       editingHabit
@@ -302,6 +277,11 @@ export function HabitsManagerScreen() {
         ...toInput(habit),
         hidden: !habit.hidden,
       });
+      if (updated.hidden) {
+        await cancelHabitReminderAsync(updated.id);
+      } else {
+        await scheduleHabitReminderAsync(updated);
+      }
       setHabits((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -327,6 +307,7 @@ export function HabitsManagerScreen() {
           onPress: async () => {
             try {
               await deleteHabit(habit.id);
+              await cancelHabitReminderAsync(habit.id);
               setHabits((current) =>
                 current.filter((item) => item.id !== habit.id),
               );
@@ -652,11 +633,10 @@ function HabitCard({
       <View
         style={[styles.habitIcon, { backgroundColor: theme.backgroundElement }]}
       >
-        <SymbolView
-          name={resolveSymbol(habit.iconKey)}
+        <GoalIcon
+          iconKey={habit.iconKey}
           size={22}
-          weight="semibold"
-          tintColor={habit.hidden ? theme.textSecondary : theme.primary}
+          color={habit.hidden ? theme.textSecondary : theme.primary}
         />
       </View>
       <View style={styles.habitBody}>
@@ -921,10 +901,22 @@ export function HabitFormModal({
 
   const save = async () => {
     if (!form.name.trim() || !form.categoryId || isSaving) return;
+    const reminderTime = form.reminderEnabled
+      ? normalizeReminderTime(form.reminderTime)
+      : null;
+    if (form.reminderEnabled && !reminderTime) {
+      setError("Enter a reminder time like 09:00.");
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
     try {
-      await onSave({ ...form, name: form.name.trim() });
+      await onSave({
+        ...form,
+        name: form.name.trim(),
+        reminderTime,
+      });
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -1277,6 +1269,77 @@ export function HabitFormModal({
               </View>
             </FormSection>
 
+            <FormSection title="Reminder">
+              <View style={styles.reminderRow}>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: form.reminderEnabled }}
+                  onPress={() =>
+                    setForm((current) => ({
+                      ...current,
+                      reminderEnabled: !current.reminderEnabled,
+                      reminderTime: current.reminderEnabled
+                        ? null
+                        : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
+                    }))
+                  }
+                  style={({ pressed }) => [
+                    styles.reminderToggle,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.checkboxBox,
+                      {
+                        backgroundColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.backgroundElement,
+                        borderColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    {form.reminderEnabled ? (
+                      <SymbolView
+                        name={symbol("checkmark", "check")}
+                        size={15}
+                        tintColor={theme.primaryForeground}
+                      />
+                    ) : null}
+                  </View>
+                  <Text style={[styles.reminderLabel, { color: theme.text }]}>
+                    Notify me at
+                  </Text>
+                </Pressable>
+                <TextInput
+                  accessibilityLabel="Reminder time"
+                  editable={form.reminderEnabled}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={5}
+                  onChangeText={(reminderTime) =>
+                    setForm((current) => ({ ...current, reminderTime }))
+                  }
+                  placeholder={DEFAULT_REMINDER_TIME}
+                  placeholderTextColor={theme.textSecondary}
+                  selectionColor={theme.primary}
+                  style={[
+                    styles.reminderTimeInput,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      color: form.reminderEnabled
+                        ? theme.text
+                        : theme.textSecondary,
+                    },
+                    !form.reminderEnabled && styles.disabled,
+                  ]}
+                  value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
+                />
+              </View>
+            </FormSection>
+
             <View
               style={[
                 styles.switchRow,
@@ -1489,14 +1552,6 @@ function VerticalNumberStepper({
   );
 }
 
-function iconSvgUrl(iconKey: string, color: string) {
-  const colon = iconKey.indexOf(":");
-  if (colon === -1) return null;
-  const prefix = iconKey.slice(0, colon);
-  const name = iconKey.slice(colon + 1);
-  return `https://api.iconify.design/${prefix}/${name}.svg?color=${encodeURIComponent(color)}`;
-}
-
 function IconSearchPicker({
   value,
   onChange,
@@ -1506,32 +1561,18 @@ function IconSearchPicker({
 }) {
   const theme = useTheme();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<string[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const results = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const matchingOptions = normalizedQuery
+      ? EXPO_SYMBOL_ICON_OPTIONS.filter((option) =>
+          [option.label, option.key, ...option.keywords]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedQuery),
+        )
+      : EXPO_SYMBOL_ICON_OPTIONS;
 
-  useEffect(() => {
-    if (query.length < 2) {
-      setResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        // Restrict to icon sets GoalIcon can actually render.
-        // Without this, searches surface icons from sets like boxicons/tdesign
-        // that fall back to the generic target icon once saved.
-        const res = await fetch(
-          `https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=24&prefixes=mdi,fa6-solid`,
-        );
-        const data = (await res.json()) as { icons?: string[] };
-        setResults((data.icons ?? []).filter(isRenderableIconKey));
-      } catch {
-        setResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    return matchingOptions.slice(0, 24);
   }, [query]);
 
   return (
@@ -1560,14 +1601,10 @@ function IconSearchPicker({
           value={query}
           onChangeText={setQuery}
         />
-        {isSearching ? (
-          <ActivityIndicator size="small" color={theme.textSecondary} />
-        ) : value ? (
-          <Image
-            source={{ uri: iconSvgUrl(value, "#6B7280") ?? "" }}
-            style={styles.iconSearchPreview}
-            contentFit="contain"
-          />
+        {value ? (
+          <View style={styles.iconSearchPreview}>
+            <GoalIcon iconKey={value} size={20} color={theme.textSecondary} />
+          </View>
         ) : null}
       </View>
 
@@ -1578,18 +1615,15 @@ function IconSearchPicker({
             { borderColor: theme.tabBorder, backgroundColor: theme.tabBar },
           ]}
         >
-          {results.map((iconKey) => {
-            const selected = iconKey === value;
-            const url = iconSvgUrl(iconKey, selected ? "#FFFFFF" : "#6B7280");
-            const shortName = iconKey.split(":")[1] ?? iconKey;
+          {results.map((option) => {
+            const selected = option.key === value;
             return (
               <Pressable
-                key={iconKey}
-                accessibilityLabel={iconKey}
+                key={option.key}
+                accessibilityLabel={option.label}
                 onPress={() => {
-                  onChange(iconKey);
-                  setResults([]);
-                  setQuery(shortName);
+                  onChange(option.key);
+                  setQuery(option.label);
                 }}
                 style={({ pressed }) => [
                   styles.iconResultItem,
@@ -1601,13 +1635,13 @@ function IconSearchPicker({
                   pressed && styles.pressed,
                 ]}
               >
-                {url ? (
-                  <Image
-                    source={{ uri: url }}
-                    style={styles.iconResultImg}
-                    contentFit="contain"
-                  />
-                ) : null}
+                <GoalIcon
+                  iconKey={option.key}
+                  size={28}
+                  color={
+                    selected ? theme.primaryForeground : theme.textSecondary
+                  }
+                />
                 <Text
                   numberOfLines={1}
                   style={[
@@ -1615,7 +1649,7 @@ function IconSearchPicker({
                     { color: selected ? "#FFFFFF" : theme.textSecondary },
                   ]}
                 >
-                  {shortName}
+                  {option.label}
                 </Text>
               </Pressable>
             );
@@ -1937,7 +1971,6 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 4,
   },
-  iconResultImg: { width: 28, height: 28 },
   iconResultLabel: {
     fontSize: 8,
     lineHeight: 10,
@@ -1993,6 +2026,39 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  reminderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  reminderToggle: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    gap: 10,
+  },
+  checkboxBox: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 7,
+  },
+  reminderLabel: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  reminderTimeInput: {
+    width: 92,
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
   newCategory: {
     gap: 13,
     borderWidth: StyleSheet.hairlineWidth,

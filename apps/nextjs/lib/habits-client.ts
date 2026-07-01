@@ -23,6 +23,8 @@ export type Habit = {
   priority: "high" | "low";
   visibility: HabitVisibility;
   iconKey: string;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   hidden: boolean;
   createdAt: string;
   updatedAt: string;
@@ -37,6 +39,8 @@ export type HabitInput = {
   priority: string;
   visibility: HabitVisibility;
   iconKey: string;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   hidden: boolean;
 };
 

@@ -58,6 +58,12 @@ export const updatePlanGoal = (id: string, input: GoalInput) =>
     body: JSON.stringify({ type: "update", id, ...input }),
   }).then((response) => parseResponse<Goal>(response));
 
+export const updatePlanGoalCheckpoint = (id: string, completed: boolean) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({ type: "updateCheckpoint", id, completed }),
+  }).then((response) => parseResponse<Goal>(response));
+
 export const deletePlanGoal = (id: string) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",

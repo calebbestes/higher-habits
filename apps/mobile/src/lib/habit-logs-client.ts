@@ -24,6 +24,8 @@ export type HabitInCategory = {
   visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
 };
 
@@ -35,6 +37,25 @@ export type AcceptedHabitIncentive = {
   streakDays: number;
   streakPercent: number;
   createdAt: string;
+};
+
+export type HabitLogSocialComment = {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+};
+
+export type HabitLogSocialSummary = {
+  props: {
+    count: number;
+    hasPropped: boolean;
+  };
+  comments: HabitLogSocialComment[];
 };
 
 export type CategoryWithHabits = {
@@ -59,6 +80,8 @@ export type PeriodicHabitInfo = {
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
+  reminderEnabled: boolean;
+  reminderTime: string | null;
   createdAt: string;
   sharedGoals?: LinkedSharedGoal[];
 };
@@ -75,6 +98,7 @@ export type HabitLogsSnapshot = {
     string,
     { startTime: string | null; endTime: string | null }
   >;
+  socialByHabitDate: Record<string, HabitLogSocialSummary>;
 };
 
 export type HabitLogStatus = "complete" | "planned" | null;
@@ -85,6 +109,8 @@ export type CategoryWithGoals = CategoryWithHabits;
 export type PeriodicGoalInfo = PeriodicHabitInfo;
 export type GoalLogsSnapshot = HabitLogsSnapshot;
 export type GoalLogStatus = HabitLogStatus;
+export type GoalLogSocialComment = HabitLogSocialComment;
+export type GoalLogSocialSummary = HabitLogSocialSummary;
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {

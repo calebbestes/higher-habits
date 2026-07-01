@@ -26,11 +26,11 @@ function createSelectionStore<T>(initial: T) {
   return { get, set, subscribe };
 }
 
-export type PlanReportView = "habits" | "goals" | "top-tasks";
+export type PlanReportView = "day-plan" | "habits" | "goals" | "top-tasks";
 export type HabitsTab = "daily" | "monthly";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
 
-const planReportStore = createSelectionStore<PlanReportView>("habits");
+const planReportStore = createSelectionStore<PlanReportView>("day-plan");
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
 const collabStore = createSelectionStore<CollabSection>("feed");
 
@@ -71,7 +71,12 @@ export function setCollabSection(section: CollabSection): void {
 }
 
 export function isPlanReportView(value: unknown): value is PlanReportView {
-  return value === "habits" || value === "goals" || value === "top-tasks";
+  return (
+    value === "day-plan" ||
+    value === "habits" ||
+    value === "goals" ||
+    value === "top-tasks"
+  );
 }
 
 export function isCollabSection(value: unknown): value is CollabSection {

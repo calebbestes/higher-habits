@@ -59,6 +59,8 @@ const getGoalLogsSnapshotForMonth = async (
     repeatInterval: habits.repeatInterval,
     repeatDays: habits.repeatDays,
     repeatMonthlyType: habits.repeatMonthlyType,
+    reminderEnabled: habits.reminderEnabled,
+    reminderTime: habits.reminderTime,
     createdAt: habits.createdAt,
   };
 
@@ -222,6 +224,8 @@ const getGoalLogsSnapshotForMonth = async (
         visibility: goal.visibility,
         period: goal.period,
         frequencyGoal: goal.frequencyGoal,
+        reminderEnabled: goal.reminderEnabled,
+        reminderTime: goal.reminderTime,
         sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
       })),
     }))
@@ -239,6 +243,8 @@ const getGoalLogsSnapshotForMonth = async (
     repeatInterval: goal.repeatInterval ?? null,
     repeatDays: (goal.repeatDays as number[] | null) ?? null,
     repeatMonthlyType: goal.repeatMonthlyType ?? null,
+    reminderEnabled: goal.reminderEnabled,
+    reminderTime: goal.reminderTime,
     createdAt: goal.createdAt.toISOString(),
     sharedGoals: sharedGoalsByPersonalGoalId[goal.id] ?? [],
   });
@@ -271,6 +277,7 @@ const getGoalLogsSnapshotForMonth = async (
       },
       {},
     ),
+    socialByGoalDate: {},
   };
 };
 

@@ -13,6 +13,7 @@ function CategoryAccordionRowImpl({
   goals,
   dateKey,
   logsByGoalDate,
+  plannedTimesByGoalDate,
   updatingKeys,
   isExpanded,
   onToggleExpand,
@@ -23,6 +24,10 @@ function CategoryAccordionRowImpl({
   goals: GoalInCategory[];
   dateKey: string;
   logsByGoalDate: Record<string, "complete" | "planned">;
+  plannedTimesByGoalDate?: Record<
+    string,
+    { startTime: string | null; endTime: string | null }
+  >;
   updatingKeys: Set<string>;
   isExpanded: boolean;
   onToggleExpand: () => void;
@@ -46,13 +51,13 @@ function CategoryAccordionRowImpl({
         style={({ pressed }) => [styles.catRow, pressed && styles.pressed]}
       >
         <View
-          style={[styles.catIconWrap, { backgroundColor: `${cfg.color}22` }]}
+          style={[styles.catIconWrap, { backgroundColor: theme.secondary }]}
         >
           <SymbolView
             name={cfg.symbol}
             size={20}
             weight="semibold"
-            tintColor={theme.primary}
+            tintColor={theme.secondaryForeground}
           />
         </View>
         <View style={styles.catRowText}>
@@ -86,6 +91,7 @@ function CategoryAccordionRowImpl({
               <GoalRow
                 goal={goal}
                 status={logsByGoalDate[`${goal.id}_${dateKey}`]}
+                plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}

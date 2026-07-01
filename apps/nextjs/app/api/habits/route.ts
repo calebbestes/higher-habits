@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
+const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const habitFields = {
   name: z.string().trim().min(1),
   frequencyGoal: z.number().int().positive().nullable().default(null),
@@ -22,6 +24,8 @@ const habitFields = {
     .enum(["only_me", "goal_friends", "all_friends"])
     .default("only_me"),
   iconKey: z.string().default(""),
+  reminderEnabled: z.boolean().default(false),
+  reminderTime: z.string().regex(TIME_REGEX).nullable().default(null),
   hidden: z.boolean().default(false),
 };
 
@@ -60,6 +64,8 @@ const selectHabitShape = {
   priority: habits.priority,
   visibility: habits.visibility,
   iconKey: habits.iconKey,
+  reminderEnabled: habits.reminderEnabled,
+  reminderTime: habits.reminderTime,
   hidden: habits.hidden,
   createdAt: habits.createdAt,
   updatedAt: habits.updatedAt,
@@ -203,6 +209,8 @@ export async function POST(request: Request) {
       priority: d.priority,
       visibility: d.visibility,
       iconKey: d.iconKey,
+      reminderEnabled: d.reminderEnabled,
+      reminderTime: d.reminderEnabled ? (d.reminderTime ?? "09:00") : null,
       hidden: d.hidden,
     });
 

@@ -50,6 +50,7 @@ import {
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
+import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 import { CategoryAccordionRow } from "./daily-goals/category-accordion-row";
@@ -160,10 +161,18 @@ export function DailyGoalsScreen({
   const saveGoal = async (input: HabitInput) => {
     addCrashBreadcrumb("saveGoal", { editing: Boolean(editingGoal) });
     try {
-      if (editingGoal) {
-        await updateHabit(editingGoal.id, input);
-      } else {
-        await createHabit(input);
+      const saved = editingGoal
+        ? await updateHabit(editingGoal.id, input)
+        : await createHabit(input);
+      try {
+        await scheduleHabitReminderAsync(saved);
+      } catch (reminderError) {
+        Alert.alert(
+          "Reminder not scheduled",
+          reminderError instanceof Error
+            ? reminderError.message
+            : "Could not schedule this habit reminder.",
+        );
       }
       await load();
       setFormOpen(false);
@@ -577,6 +586,7 @@ export function DailyGoalsScreen({
   // which goal shape caused it instead of an opaque "convert undefined" crash.
   let modalProps: {
     hasNote: boolean;
+    noteText: string | null;
     hasPhoto: boolean;
     plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
@@ -584,6 +594,7 @@ export function DailyGoalsScreen({
     isUpdating: boolean;
   } = {
     hasNote: false,
+    noteText: null,
     hasPhoto: false,
     plannedTime: null,
     visibility: "only_me",
@@ -595,6 +606,7 @@ export function DailyGoalsScreen({
       const key = `${activeGoal.id}_${dateKey}`;
       modalProps = {
         hasNote: Boolean(snapshot?.notesByHabitDate?.[key]?.trim()),
+        noteText: snapshot?.notesByHabitDate?.[key] ?? null,
         hasPhoto: (snapshot?.photoCountsByHabitDate?.[key] ?? 0) > 0,
         plannedTime: snapshot?.plannedTimesByHabitDate?.[key] ?? null,
         visibility:
@@ -798,6 +810,9 @@ export function DailyGoalsScreen({
                           goals={goals}
                           dateKey={dateKey}
                           logsByGoalDate={logsByHabitDate}
+                          plannedTimesByGoalDate={
+                            snapshot?.plannedTimesByHabitDate
+                          }
                           updatingKeys={updatingKeys}
                           isExpanded={isExpanded}
                           onToggleExpand={() => toggleCatKey(catKey)}
@@ -811,7 +826,7 @@ export function DailyGoalsScreen({
               })}
               {monthlyPlannedGoals.length > 0 ? (
                 <PriorityAccordion
-                  color="#3B82F6"
+                  color={theme.primary}
                   completed={monthlyPlannedCompleted}
                   isOpen={openPriorities.has("monthly")}
                   label="Monthly Habits"
@@ -840,6 +855,11 @@ export function DailyGoalsScreen({
                         <GoalRow
                           goal={goal}
                           status={logsByHabitDate[`${goal.id}_${dateKey}`]}
+                          plannedTime={
+                            snapshot?.plannedTimesByHabitDate?.[
+                              `${goal.id}_${dateKey}`
+                            ] ?? null
+                          }
                           isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                           onPress={() => openGoalActions(goal)}
                         />
@@ -855,7 +875,7 @@ export function DailyGoalsScreen({
                 const isOpen = openPriorities.has(p);
                 return (
                   <PriorityAccordion
-                    color={theme.textSecondary}
+                    color={theme.primary}
                     completed={progress.completed}
                     key={p}
                     label={PRIORITY_LABELS[p] ?? p}
@@ -873,6 +893,9 @@ export function DailyGoalsScreen({
                           goals={goals}
                           dateKey={dateKey}
                           logsByGoalDate={logsByHabitDate}
+                          plannedTimesByGoalDate={
+                            snapshot?.plannedTimesByHabitDate
+                          }
                           updatingKeys={updatingKeys}
                           isExpanded={isExpanded}
                           onToggleExpand={() => toggleCatKey(catKey)}
@@ -888,6 +911,7 @@ export function DailyGoalsScreen({
                 completedList={completedList}
                 dateKey={dateKey}
                 logsByGoalDate={logsByHabitDate}
+                plannedTimesByGoalDate={snapshot?.plannedTimesByHabitDate}
                 updatingKeys={updatingKeys}
                 isOpen={showCompleted}
                 onToggle={() => setShowCompleted((v) => !v)}
@@ -913,8 +937,10 @@ export function DailyGoalsScreen({
       <GoalActionsModal
         goal={activeGoal}
         hasNote={modalProps.hasNote}
+        noteText={modalProps.noteText}
         hasPhoto={modalProps.hasPhoto}
         visibility={modalProps.visibility}
+        canPlan={dateKey >= todayKey}
         isFutureDate={isFutureDate}
         plannedTime={modalProps.plannedTime ?? undefined}
         isUpdatingVisibility={isUpdatingVisibility}

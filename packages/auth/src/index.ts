@@ -4,7 +4,14 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 
-import { accounts, getDb, sessions, users, verifications } from "@habit/db";
+import {
+  accounts,
+  getDb,
+  sessions,
+  userSettings,
+  users,
+  verifications,
+} from "@habit/db";
 
 export function createAuth() {
   const db = getDb();
@@ -56,6 +63,11 @@ export function createAuth() {
           }
         : {},
     account: {
+      // Native OAuth auth sessions can lose the transient browser state cookie
+      // on the callback. The database verification state is still checked and
+      // consumed, so this keeps mobile Google auth reliable without disabling
+      // OAuth state validation.
+      skipStateCookieCheck: true,
       accountLinking: {
         enabled: true,
         requireLocalEmailVerified: false,
@@ -117,6 +129,18 @@ export function createAuth() {
                 phoneNumber: phoneNumber || null,
               },
             };
+          },
+          after: async (user: Record<string, unknown>) => {
+            const userId = typeof user.id === "string" ? user.id : "";
+            if (!userId) return;
+
+            await db
+              .insert(userSettings)
+              .values({
+                userId,
+                onboardingCompleted: false,
+              })
+              .onConflictDoNothing({ target: userSettings.userId });
           },
         },
       },

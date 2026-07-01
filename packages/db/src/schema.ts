@@ -21,6 +21,7 @@ export const GOAL_VISIBILITIES = [
   "all_friends",
 ] as const;
 export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
+export const PLANNED_EVENT_SOURCE_TYPES = ["task", "goal_checkpoint"] as const;
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
 export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
@@ -364,6 +365,39 @@ export const goalCheckpoints = pgTable(
   ],
 );
 
+export const plannedEvents = pgTable(
+  "planned_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    title: text("title").notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    plannedStartTime: text("planned_start_time"),
+    plannedEndTime: text("planned_end_time"),
+    googleCalendarEventId: text("google_calendar_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("planned_events_user_source_uidx").on(
+      table.userId,
+      table.sourceType,
+      table.sourceId,
+    ),
+    index("planned_events_user_id_idx").on(table.userId),
+    index("planned_events_date_idx").on(table.date),
+    index("planned_events_source_idx").on(table.sourceType, table.sourceId),
+  ],
+);
+
 export const habits = pgTable(
   "habits",
   {
@@ -386,6 +420,8 @@ export const habits = pgTable(
     priority: goalPriorityEnum("priority").notNull(),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     iconKey: text("icon_key").default("").notNull(),
+    reminderEnabled: boolean("reminder_enabled").default(false).notNull(),
+    reminderTime: text("reminder_time"),
     hidden: boolean("hidden").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -599,6 +635,8 @@ export type NewFriend = typeof friends.$inferInsert;
 export type FriendStatus = (typeof FRIEND_STATUSES)[number];
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
+export type PlannedEventSourceType =
+  (typeof PLANNED_EVENT_SOURCE_TYPES)[number];
 export type GoalPeriod = (typeof GOAL_PERIODS)[number];
 export type GoalPriority = (typeof GOAL_PRIORITIES)[number];
 export type GoalVisibility = (typeof GOAL_VISIBILITIES)[number];
@@ -609,6 +647,8 @@ export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;
 export type GoalCheckpoint = typeof goalCheckpoints.$inferSelect;
 export type NewGoalCheckpoint = typeof goalCheckpoints.$inferInsert;
+export type PlannedEvent = typeof plannedEvents.$inferSelect;
+export type NewPlannedEvent = typeof plannedEvents.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
@@ -687,6 +727,9 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  onboardingCompleted: boolean("onboarding_completed")
+    .notNull()
+    .default(true),
   // Notification preferences.
   notifyFriendRequests: boolean("notify_friend_requests")
     .notNull()

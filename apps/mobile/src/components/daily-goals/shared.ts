@@ -306,6 +306,23 @@ export const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 10,
   },
+  planTimeBadge: {
+    minWidth: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  planTimeBadgeTime: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  planTimeBadgePeriod: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   goalIcon: {
     width: 34,
     height: 34,
@@ -408,6 +425,22 @@ export const modalStyles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "600",
   },
+  noteRowContent: {
+    flex: 1,
+    gap: 4,
+  },
+  notePreview: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
+  planHint: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "500",
+    paddingHorizontal: 4,
+    marginTop: -4,
+  },
   planTimeSection: {
     gap: 10,
     borderRadius: 16,
@@ -440,6 +473,23 @@ export const modalStyles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 15,
     fontWeight: "700",
+  },
+  planPeriodToggle: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planPeriodOption: {
+    flex: 1,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+  },
+  planPeriodText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   photoRow: {
     flexDirection: "row",

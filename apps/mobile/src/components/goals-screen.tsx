@@ -1,3 +1,4 @@
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -20,13 +21,28 @@ import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import {
+  PLAN_PERIODS,
+  type PlanPeriod,
+  getPlanTimeInput,
+  normalizePlanTimeInput,
+} from "@/lib/plan-time";
+import {
+  type PlannedEvent,
+  deletePlannedEvent,
+  fetchPlannedEvents,
+  upsertPlannedEvent,
+} from "@/lib/planned-events-client";
 import {
   type Goal,
+  type GoalCheckpoint,
   type GoalInput,
   createPlanGoal,
   deletePlanGoal,
   fetchPlanGoals,
   updatePlanGoal,
+  updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -36,11 +52,121 @@ type CheckpointDraft = {
   targetDate: string;
   completed: boolean;
 };
+type ActiveCheckpoint = {
+  goal: Goal;
+  checkpoint: GoalCheckpoint;
+};
+type DateKeyParts = { year: number; month: number; day: number };
+type TargetDatePart = "year" | "month" | "day";
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
+const MONTH_OPTIONS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
+}
+
+function todayDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKeyParts(dateKey: string): DateKeyParts | null {
+  if (!DATE_KEY_REGEX.test(dateKey)) return null;
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() + 1 !== month ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, month, day };
+}
+
+function getTodayDateParts(): DateKeyParts {
+  const date = new Date();
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+  };
+}
+
+function getDatePartsForPicker(dateKey: string): DateKeyParts {
+  return parseDateKeyParts(dateKey) ?? getTodayDateParts();
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function formatDateKey({ year, month, day }: DateKeyParts): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+    2,
+    "0",
+  )}`;
+}
+
+function updateDatePart(
+  dateKey: string,
+  part: TargetDatePart,
+  value: number,
+): string {
+  const base = getDatePartsForPicker(dateKey);
+  const next = { ...base, [part]: value };
+  const daysInMonth = getDaysInMonth(next.year, next.month);
+
+  return formatDateKey({ ...next, day: Math.min(next.day, daysInMonth) });
+}
+
+function getYearOptions(selectedYear: number | undefined): number[] {
+  const currentYear = new Date().getFullYear();
+  const years = Array.from(
+    { length: 26 },
+    (_, index) => currentYear - 5 + index,
+  );
+
+  if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);
+
+  return years.sort((left, right) => left - right);
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
+}
+
+function formatCheckpointDate(dateKey: string | null) {
+  if (!dateKey) return "No date";
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (!year || !month || !day) return dateKey;
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: year === new Date().getFullYear() ? undefined : "numeric",
+  }).format(new Date(year, month - 1, day));
 }
 
 export function GoalsScreen() {
@@ -53,13 +179,23 @@ export function GoalsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [activeCheckpoint, setActiveCheckpoint] =
+    useState<ActiveCheckpoint | null>(null);
+  const [planningCheckpoint, setPlanningCheckpoint] =
+    useState<ActiveCheckpoint | null>(null);
+  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
 
     try {
-      setGoals(await fetchPlanGoals());
+      const [nextGoals, nextPlannedEvents] = await Promise.all([
+        fetchPlanGoals(),
+        fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
+      ]);
+      setGoals(nextGoals);
+      setPlannedEvents(nextPlannedEvents);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -89,6 +225,16 @@ export function GoalsScreen() {
     );
   }, [goals, query]);
 
+  const plannedEventsByCheckpointId = useMemo(() => {
+    const map = new Map<string, PlannedEvent>();
+    for (const event of plannedEvents) {
+      if (event.sourceType === "goal_checkpoint") {
+        map.set(event.sourceId, event);
+      }
+    }
+    return map;
+  }, [plannedEvents]);
+
   const openCreate = () => {
     setEditingGoal(null);
     setFormOpen(true);
@@ -111,6 +257,109 @@ export function GoalsScreen() {
     setEditingGoal(null);
   };
 
+  const updateGoalInList = (updatedGoal: Goal | null) => {
+    if (!updatedGoal) return;
+    setGoals((current) =>
+      current.map((goal) => (goal.id === updatedGoal.id ? updatedGoal : goal)),
+    );
+  };
+
+  const toggleCheckpointComplete = async (
+    active: ActiveCheckpoint,
+    completed: boolean,
+  ) => {
+    setActiveCheckpoint(null);
+    setError(null);
+
+    try {
+      const updatedGoal = await updatePlanGoalCheckpoint(
+        active.checkpoint.id,
+        completed,
+      );
+      updateGoalInList(updatedGoal);
+      if (completed) {
+        setPlannedEvents((current) =>
+          current.filter(
+            (event) =>
+              event.sourceType !== "goal_checkpoint" ||
+              event.sourceId !== active.checkpoint.id,
+          ),
+        );
+      } else {
+        await load(true);
+      }
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update checkpoint.",
+      );
+    }
+  };
+
+  const openCheckpointPlan = (active: ActiveCheckpoint) => {
+    setActiveCheckpoint(null);
+    setPlanningCheckpoint(active);
+  };
+
+  const saveCheckpointPlan = async ({
+    dateKey,
+    endTime,
+    startTime,
+    timeZone,
+  }: {
+    dateKey: string;
+    endTime: string | null;
+    startTime: string | null;
+    timeZone: string | null;
+  }) => {
+    if (!planningCheckpoint) return;
+
+    const result = await upsertPlannedEvent({
+      dateKey,
+      endTime,
+      sourceId: planningCheckpoint.checkpoint.id,
+      sourceType: "goal_checkpoint",
+      startTime,
+      timeZone,
+      title: planningCheckpoint.checkpoint.title,
+    });
+
+    setPlannedEvents((current) => {
+      const filtered = current.filter(
+        (event) =>
+          event.sourceType !== "goal_checkpoint" ||
+          event.sourceId !== planningCheckpoint.checkpoint.id,
+      );
+      return [...filtered, result.event];
+    });
+  };
+
+  const clearCheckpointPlan = async (active: ActiveCheckpoint) => {
+    setActiveCheckpoint(null);
+    setError(null);
+
+    try {
+      await deletePlannedEvent({
+        sourceId: active.checkpoint.id,
+        sourceType: "goal_checkpoint",
+      });
+      setPlannedEvents((current) =>
+        current.filter(
+          (event) =>
+            event.sourceType !== "goal_checkpoint" ||
+            event.sourceId !== active.checkpoint.id,
+        ),
+      );
+    } catch (clearError) {
+      setError(
+        clearError instanceof Error
+          ? clearError.message
+          : "Could not clear checkpoint plan.",
+      );
+    }
+  };
+
   const confirmDelete = (goal: Goal) => {
     Alert.alert(
       "Delete goal?",
@@ -125,6 +374,16 @@ export function GoalsScreen() {
               await deletePlanGoal(goal.id);
               setGoals((current) =>
                 current.filter((item) => item.id !== goal.id),
+              );
+              const checkpointIds = new Set(
+                goal.checkpoints.map((checkpoint) => checkpoint.id),
+              );
+              setPlannedEvents((current) =>
+                current.filter(
+                  (event) =>
+                    event.sourceType !== "goal_checkpoint" ||
+                    !checkpointIds.has(event.sourceId),
+                ),
               );
             } catch (deleteError) {
               setError(
@@ -248,8 +507,12 @@ export function GoalsScreen() {
                 <GoalCard
                   key={goal.id}
                   goal={goal}
+                  plannedEventsByCheckpointId={plannedEventsByCheckpointId}
                   onDelete={() => confirmDelete(goal)}
                   onEdit={() => openEdit(goal)}
+                  onPressCheckpoint={(checkpoint) =>
+                    setActiveCheckpoint({ goal, checkpoint })
+                  }
                 />
               ))}
             </View>
@@ -272,29 +535,59 @@ export function GoalsScreen() {
         }}
         onSave={saveGoal}
       />
+      <CheckpointActionsModal
+        active={activeCheckpoint}
+        plannedEvent={
+          activeCheckpoint
+            ? plannedEventsByCheckpointId.get(activeCheckpoint.checkpoint.id)
+            : null
+        }
+        onClose={() => setActiveCheckpoint(null)}
+        onClearPlan={clearCheckpointPlan}
+        onEditGoal={(goal) => {
+          setActiveCheckpoint(null);
+          openEdit(goal);
+        }}
+        onPlan={openCheckpointPlan}
+        onToggleComplete={toggleCheckpointComplete}
+      />
+      <CheckpointPlanModal
+        active={planningCheckpoint}
+        existingPlan={
+          planningCheckpoint
+            ? plannedEventsByCheckpointId.get(planningCheckpoint.checkpoint.id)
+            : null
+        }
+        onClose={() => setPlanningCheckpoint(null)}
+        onSave={saveCheckpointPlan}
+      />
     </View>
   );
 }
 
 function GoalCard({
   goal,
+  plannedEventsByCheckpointId,
   onDelete,
   onEdit,
+  onPressCheckpoint,
 }: {
   goal: Goal;
+  plannedEventsByCheckpointId: Map<string, PlannedEvent>;
   onDelete: () => void;
   onEdit: () => void;
+  onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
 }) {
   const theme = useTheme();
+  const completedCount = goal.checkpoints.filter(
+    (checkpoint) => checkpoint.completed,
+  ).length;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onEdit}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.goalCard,
         { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-        pressed && styles.pressed,
       ]}
     >
       <View style={styles.goalCardTop}>
@@ -319,10 +612,24 @@ function GoalCard({
             {goal.title}
           </Text>
           <Text style={[styles.goalMeta, { color: theme.textSecondary }]}>
-            {goal.checkpoints.length} checkpoint
-            {goal.checkpoints.length === 1 ? "" : "s"}
+            {completedCount}/{goal.checkpoints.length} checkpoints complete
           </Text>
         </View>
+        <Pressable
+          accessibilityLabel={`Edit ${goal.title}`}
+          hitSlop={8}
+          onPress={onEdit}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <SymbolView
+            name={symbol("pencil", "edit")}
+            size={18}
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
         <Pressable
           accessibilityLabel={`Delete ${goal.title}`}
           hitSlop={8}
@@ -344,65 +651,532 @@ function GoalCard({
       </View>
 
       {goal.checkpoints.length ? (
-        <GoalTimeline checkpoints={goal.checkpoints} />
+        <GoalTimeline
+          checkpoints={goal.checkpoints}
+          plannedEventsByCheckpointId={plannedEventsByCheckpointId}
+          onPressCheckpoint={onPressCheckpoint}
+        />
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 
-function GoalTimeline({ checkpoints }: { checkpoints: Goal["checkpoints"] }) {
+function GoalTimeline({
+  checkpoints,
+  plannedEventsByCheckpointId,
+  onPressCheckpoint,
+}: {
+  checkpoints: Goal["checkpoints"];
+  plannedEventsByCheckpointId: Map<string, PlannedEvent>;
+  onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
+}) {
   const theme = useTheme();
   return (
-    <View style={styles.timeline}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.timelineScroll}
+      contentContainerStyle={styles.timelineContent}
+    >
       {checkpoints.map((checkpoint, index) => {
-        const isLast = index === checkpoints.length - 1;
+        const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
+        const nextCheckpoint = checkpoints[index + 1];
+        const connectorIsComplete = Boolean(
+          checkpoint.completed && nextCheckpoint?.completed,
+        );
+        const markerColor = checkpoint.completed
+          ? theme.primary
+          : plannedEvent
+            ? theme.secondary
+            : theme.backgroundElement;
+        const markerBorderColor =
+          checkpoint.completed || plannedEvent ? markerColor : theme.tabBorder;
+        const planTime = plannedEvent?.startTime
+          ? getPlanTimeInput(plannedEvent.startTime)
+          : null;
+
         return (
-          <View key={checkpoint.id} style={styles.timelineItem}>
-            <View style={styles.timelineMarkerColumn}>
-              <View
-                style={[
-                  styles.timelineDot,
+          <View key={checkpoint.id} style={styles.timelineMilestone}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.milestoneDate,
+                {
+                  color: checkpoint.completed
+                    ? theme.primary
+                    : plannedEvent
+                      ? theme.secondary
+                      : theme.text,
+                },
+              ]}
+            >
+              {formatCheckpointDate(
+                plannedEvent?.date ?? checkpoint.targetDate,
+              )}
+            </Text>
+            <View style={styles.milestoneTrackRow}>
+              <Pressable
+                accessibilityLabel={`${checkpoint.title}. Tap for checkpoint actions.`}
+                accessibilityRole="button"
+                onPress={() => onPressCheckpoint(checkpoint)}
+                style={({ pressed }) => [
+                  styles.milestoneMarker,
                   {
-                    backgroundColor: checkpoint.completed
-                      ? theme.primary
-                      : theme.backgroundElement,
-                    borderColor: checkpoint.completed
-                      ? theme.primary
-                      : theme.tabBorder,
+                    backgroundColor: markerColor,
+                    borderColor: markerBorderColor,
+                    shadowColor: theme.text,
                   },
+                  pressed && styles.pressed,
                 ]}
-              />
-              {!isLast ? (
+              >
+                <SymbolView
+                  name={
+                    checkpoint.completed
+                      ? symbol("checkmark", "check")
+                      : plannedEvent
+                        ? symbol("calendar", "calendar_today")
+                        : symbol("circle", "radio_button_unchecked")
+                  }
+                  size={checkpoint.completed ? 17 : 18}
+                  weight="semibold"
+                  tintColor={
+                    checkpoint.completed
+                      ? theme.primaryForeground
+                      : plannedEvent
+                        ? theme.secondaryForeground
+                        : theme.textSecondary
+                  }
+                />
+              </Pressable>
+              {index < checkpoints.length - 1 ? (
                 <View
                   style={[
-                    styles.timelineLine,
-                    { backgroundColor: theme.tabBorder },
+                    styles.milestoneConnector,
+                    {
+                      backgroundColor: connectorIsComplete
+                        ? theme.primary
+                        : theme.tabBorder,
+                    },
                   ]}
                 />
               ) : null}
             </View>
-            <View style={styles.timelineText}>
+            <Pressable onPress={() => onPressCheckpoint(checkpoint)}>
               <Text
                 numberOfLines={2}
                 style={[
-                  styles.timelineTitle,
+                  styles.milestoneTitle,
                   { color: theme.text },
                   checkpoint.completed && styles.completedTimelineTitle,
                 ]}
               >
                 {checkpoint.title}
               </Text>
-              {checkpoint.targetDate ? (
-                <Text
-                  style={[styles.timelineDate, { color: theme.textSecondary }]}
-                >
-                  {checkpoint.targetDate}
-                </Text>
-              ) : null}
-            </View>
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.milestoneSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {checkpoint.completed
+                  ? "Complete"
+                  : planTime?.time
+                    ? `Planned ${planTime.time} ${planTime.period}`
+                    : plannedEvent
+                      ? "Planned"
+                      : "Tap to plan"}
+              </Text>
+            </Pressable>
           </View>
         );
       })}
+    </ScrollView>
+  );
+}
+
+function CheckpointActionsModal({
+  active,
+  plannedEvent,
+  onClearPlan,
+  onClose,
+  onEditGoal,
+  onPlan,
+  onToggleComplete,
+}: {
+  active: ActiveCheckpoint | null;
+  plannedEvent?: PlannedEvent | null;
+  onClearPlan: (active: ActiveCheckpoint) => void;
+  onClose: () => void;
+  onEditGoal: (goal: Goal) => void;
+  onPlan: (active: ActiveCheckpoint) => void;
+  onToggleComplete: (active: ActiveCheckpoint, completed: boolean) => void;
+}) {
+  const theme = useTheme();
+  if (!active) return null;
+
+  const { checkpoint, goal } = active;
+
+  return (
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.actionSheet,
+            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+          ]}
+        >
+          <Text style={[styles.actionTitle, { color: theme.text }]}>
+            {checkpoint.title}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.actionSubtitle, { color: theme.textSecondary }]}
+          >
+            {goal.title}
+          </Text>
+          <SheetAction
+            icon={symbol("calendar.badge.plus", "event_available")}
+            label={plannedEvent ? "Edit calendar plan" : "Plan to calendar"}
+            onPress={() => onPlan(active)}
+          />
+          {plannedEvent ? (
+            <SheetAction
+              icon={symbol("calendar.badge.minus", "event_busy")}
+              label="Clear calendar plan"
+              onPress={() => onClearPlan(active)}
+            />
+          ) : null}
+          <SheetAction
+            icon={symbol(
+              checkpoint.completed
+                ? "arrow.uturn.backward.circle"
+                : "checkmark.circle",
+              checkpoint.completed ? "undo" : "check_circle",
+            )}
+            label={checkpoint.completed ? "Reopen checkpoint" : "Mark complete"}
+            onPress={() => onToggleComplete(active, !checkpoint.completed)}
+          />
+          <SheetAction
+            icon={symbol("pencil", "edit")}
+            label="Edit goal"
+            onPress={() => onEditGoal(goal)}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SheetAction({
+  danger,
+  icon,
+  label,
+  onPress,
+}: {
+  danger?: boolean;
+  icon: SymbolName;
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const color = danger ? "#B84D54" : theme.tabIcon;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.sheetActionRow,
+        pressed && { backgroundColor: theme.backgroundElement },
+      ]}
+    >
+      <SymbolView name={icon} size={20} tintColor={color} />
+      <Text
+        style={[
+          styles.sheetActionLabel,
+          { color: danger ? "#B84D54" : theme.text },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function CheckpointPlanModal({
+  active,
+  existingPlan,
+  onClose,
+  onSave,
+}: {
+  active: ActiveCheckpoint | null;
+  existingPlan?: PlannedEvent | null;
+  onClose: () => void;
+  onSave: (input: {
+    dateKey: string;
+    endTime: string | null;
+    startTime: string | null;
+    timeZone: string | null;
+  }) => Promise<void>;
+}) {
+  const theme = useTheme();
+  const [dateKey, setDateKey] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [startPeriod, setStartPeriod] = useState<PlanPeriod>("AM");
+  const [endPeriod, setEndPeriod] = useState<PlanPeriod>("AM");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const normalizedStartTime = normalizePlanTimeInput(startTime, startPeriod);
+  const normalizedEndTime = normalizePlanTimeInput(endTime, endPeriod);
+  const hasAnyTimeInput = Boolean(startTime.trim() || endTime.trim());
+  const hasValidTimeRange = Boolean(normalizedStartTime && normalizedEndTime);
+  const dateIsValid = DATE_KEY_REGEX.test(dateKey.trim());
+  const canSave = Boolean(
+    active && dateIsValid && (!hasAnyTimeInput || hasValidTimeRange),
+  );
+  const timeZone = useMemo(() => getLocalTimeZone(), []);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const start = getPlanTimeInput(existingPlan?.startTime);
+    const end = getPlanTimeInput(existingPlan?.endTime);
+    setDateKey(
+      existingPlan?.date ?? active.checkpoint.targetDate ?? todayDateKey(),
+    );
+    setStartTime(start.time);
+    setEndTime(end.time);
+    setStartPeriod(start.period);
+    setEndPeriod(end.period);
+    setError(null);
+  }, [active, existingPlan]);
+
+  const save = async () => {
+    if (!canSave || isSaving) return;
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      await onSave({
+        dateKey: dateKey.trim(),
+        endTime: hasValidTimeRange ? normalizedEndTime : null,
+        startTime: hasValidTimeRange ? normalizedStartTime : null,
+        timeZone,
+      });
+      onClose();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error ? saveError.message : "Could not save plan.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!active) return null;
+
+  return (
+    <Modal animationType="slide" transparent visible onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.planSheet, { backgroundColor: theme.background }]}
+        >
+          <View
+            style={[
+              styles.planSheetHeader,
+              {
+                backgroundColor: theme.tabBar,
+                borderBottomColor: theme.tabBorder,
+              },
+            ]}
+          >
+            <View style={styles.planSheetTitleBlock}>
+              <Text style={[styles.planSheetTitle, { color: theme.text }]}>
+                {existingPlan ? "Edit calendar plan" : "Plan to calendar"}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.planSheetSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {active.checkpoint.title}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.closeButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+          <View style={styles.planSheetContent}>
+            <View style={styles.inputField}>
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Date
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                keyboardType="numbers-and-punctuation"
+                onChangeText={setDateKey}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={theme.textSecondary}
+                selectionColor={theme.primary}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    color: theme.text,
+                  },
+                ]}
+                value={dateKey}
+              />
+            </View>
+            <View style={styles.planTimeGrid}>
+              <CheckpointPlanTimeField
+                label="Start"
+                period={startPeriod}
+                value={startTime}
+                onChangePeriod={setStartPeriod}
+                onChangeText={setStartTime}
+              />
+              <CheckpointPlanTimeField
+                label="End"
+                period={endPeriod}
+                value={endTime}
+                onChangePeriod={setEndPeriod}
+                onChangeText={setEndTime}
+              />
+            </View>
+            {hasAnyTimeInput && !hasValidTimeRange ? (
+              <Text style={styles.formError}>
+                Add both start and end times like 9:00.
+              </Text>
+            ) : null}
+            {dateKey.trim() && !dateIsValid ? (
+              <Text style={styles.formError}>Use date format YYYY-MM-DD.</Text>
+            ) : null}
+            {error ? <Text style={styles.formError}>{error}</Text> : null}
+            <Pressable
+              accessibilityRole="button"
+              disabled={!canSave || isSaving}
+              onPress={() => void save()}
+              style={({ pressed }) => [
+                styles.planSaveButton,
+                { backgroundColor: canSave ? theme.primary : theme.tabBorder },
+                pressed && styles.pressed,
+              ]}
+            >
+              {isSaving ? (
+                <ActivityIndicator
+                  color={theme.primaryForeground}
+                  size="small"
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.planSaveButtonText,
+                    { color: theme.primaryForeground },
+                  ]}
+                >
+                  Save plan
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function CheckpointPlanTimeField({
+  label,
+  onChangePeriod,
+  onChangeText,
+  period,
+  value,
+}: {
+  label: string;
+  onChangePeriod: (period: PlanPeriod) => void;
+  onChangeText: (value: string) => void;
+  period: PlanPeriod;
+  value: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.inputField, styles.planTimeField]}>
+      <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
+      <TextInput
+        keyboardType="numbers-and-punctuation"
+        onChangeText={onChangeText}
+        placeholder="9:00"
+        placeholderTextColor={theme.textSecondary}
+        selectionColor={theme.primary}
+        style={[
+          styles.input,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+            color: theme.text,
+          },
+        ]}
+        value={value}
+      />
+      <View style={styles.planPeriodRow}>
+        {PLAN_PERIODS.map((option) => {
+          const selected = period === option;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              key={option}
+              onPress={() => onChangePeriod(option)}
+              style={({ pressed }) => [
+                styles.planPeriodChip,
+                {
+                  backgroundColor: selected
+                    ? theme.primary
+                    : theme.backgroundElement,
+                  borderColor: selected ? theme.primary : theme.tabBorder,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.planPeriodLabel,
+                  {
+                    color: selected
+                      ? theme.primaryForeground
+                      : theme.textSecondary,
+                  },
+                ]}
+              >
+                {option}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -462,7 +1236,7 @@ function EmptyState({
   );
 }
 
-function GoalFormModal({
+export function GoalFormModal({
   goal,
   isOpen,
   onClose,
@@ -749,24 +1523,11 @@ function GoalFormModal({
                         ]}
                         value={checkpoint.title}
                       />
-                      <TextInput
-                        autoCapitalize="none"
-                        keyboardType="numbers-and-punctuation"
-                        onChangeText={(targetDate) =>
+                      <TargetDateSelect
+                        value={checkpoint.targetDate}
+                        onChange={(targetDate) =>
                           updateCheckpoint(checkpoint.localId, { targetDate })
                         }
-                        placeholder="Target date (YYYY-MM-DD)"
-                        placeholderTextColor={theme.textSecondary}
-                        selectionColor={theme.primary}
-                        style={[
-                          styles.input,
-                          {
-                            backgroundColor: theme.backgroundElement,
-                            borderColor: theme.tabBorder,
-                            color: theme.text,
-                          },
-                        ]}
-                        value={checkpoint.targetDate}
                       />
                     </View>
                   </View>
@@ -813,6 +1574,142 @@ function createEmptyCheckpoint(): CheckpointDraft {
     targetDate: "",
     completed: false,
   };
+}
+
+function TargetDateSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parseDateKeyParts(value);
+  const pickerParts = getDatePartsForPicker(value);
+  const daysInMonth = getDaysInMonth(pickerParts.year, pickerParts.month);
+
+  const yearActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...getYearOptions(selected?.year).map((year) => ({
+      id: String(year),
+      title: String(year),
+      state: menuSelectedState(selected?.year === year),
+    })),
+  ];
+  const monthActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...MONTH_OPTIONS.map((month, index) => ({
+      id: String(index + 1),
+      title: month,
+      state: menuSelectedState(selected?.month === index + 1),
+    })),
+  ];
+  const dayActions: MenuAction[] = [
+    {
+      id: CLEAR_TARGET_DATE_ACTION,
+      title: "No date",
+      state: menuSelectedState(!selected),
+    },
+    ...Array.from({ length: daysInMonth }, (_, index) => index + 1).map(
+      (day) => ({
+        id: String(day),
+        title: String(day),
+        state: menuSelectedState(selected?.day === day),
+      }),
+    ),
+  ];
+
+  const selectPart = (part: TargetDatePart, actionId: string) => {
+    if (actionId === CLEAR_TARGET_DATE_ACTION) {
+      onChange("");
+      return;
+    }
+
+    onChange(updateDatePart(value, part, Number(actionId)));
+  };
+
+  return (
+    <View style={styles.targetDateRow}>
+      <TargetDatePartSelect
+        actions={yearActions}
+        label="Year"
+        onSelect={(actionId) => selectPart("year", actionId)}
+        value={selected ? String(selected.year) : null}
+      />
+      <TargetDatePartSelect
+        actions={monthActions}
+        label="Month"
+        onSelect={(actionId) => selectPart("month", actionId)}
+        value={selected ? MONTH_OPTIONS[selected.month - 1].slice(0, 3) : null}
+      />
+      <TargetDatePartSelect
+        actions={dayActions}
+        label="Day"
+        onSelect={(actionId) => selectPart("day", actionId)}
+        value={selected ? String(selected.day) : null}
+      />
+    </View>
+  );
+}
+
+function TargetDatePartSelect({
+  actions,
+  label,
+  value,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  value: string | null;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+  const displayValue = value ?? label;
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.targetDateMenu}
+      title={`Select ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`Select target ${label.toLowerCase()}`}
+        accessibilityRole="button"
+        style={[
+          styles.targetDateSelect,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.targetDateSelectText,
+            { color: value ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {displayValue}
+        </Text>
+        <SymbolView
+          name={symbol("chevron.down", "keyboard_arrow_down")}
+          size={13}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -893,40 +1790,156 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 13,
   },
-  timeline: {
-    gap: 0,
-    paddingLeft: 58,
-    paddingTop: 2,
+  timelineScroll: { marginHorizontal: -12 },
+  timelineContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 2,
   },
-  timelineItem: {
+  timelineMilestone: {
+    width: 132,
+    minHeight: 122,
+  },
+  milestoneDate: {
+    marginBottom: 10,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  milestoneTrackRow: {
     flexDirection: "row",
-    minHeight: 34,
-    gap: 9,
-  },
-  timelineMarkerColumn: {
-    width: 14,
     alignItems: "center",
+    height: 42,
   },
-  timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: 3,
+  milestoneMarker: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderRadius: 21,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  timelineLine: {
-    width: StyleSheet.hairlineWidth,
+  milestoneConnector: {
     flex: 1,
+    height: 9,
+    marginLeft: 0,
+    borderRadius: 999,
+  },
+  milestoneTitle: {
+    marginTop: 11,
+    paddingRight: 12,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  milestoneSubtitle: {
     marginTop: 3,
+    paddingRight: 12,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    textAlign: "center",
   },
-  timelineText: {
-    flex: 1,
-    minWidth: 0,
-    paddingBottom: 10,
-  },
-  timelineTitle: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   completedTimelineTitle: { textDecorationLine: "line-through", opacity: 0.7 },
-  timelineDate: { fontSize: 10, lineHeight: 14, fontWeight: "700" },
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "#00000055",
+    padding: 12,
+  },
+  actionSheet: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 25,
+    padding: 8,
+    paddingBottom: 12,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  actionTitle: {
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  actionSubtitle: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  sheetActionRow: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  sheetActionLabel: { fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  planSheet: {
+    overflow: "hidden",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  planSheetHeader: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  planSheetTitleBlock: { flex: 1, minWidth: 0 },
+  planSheetTitle: { fontSize: 22, lineHeight: 27, fontWeight: "900" },
+  planSheetSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  closeButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+  },
+  planSheetContent: { gap: 14, padding: 18, paddingBottom: 28 },
+  planTimeGrid: { flexDirection: "row", gap: 10 },
+  planTimeField: { flex: 1, minWidth: 0 },
+  planSaveButton: {
+    minHeight: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    marginTop: 2,
+  },
+  planSaveButtonText: { fontSize: 15, lineHeight: 20, fontWeight: "900" },
+  planPeriodRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planPeriodChip: {
+    flex: 1,
+    minHeight: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 11,
+  },
+  planPeriodLabel: { fontSize: 12, lineHeight: 16, fontWeight: "800" },
   centerState: {
     alignItems: "center",
     justifyContent: "center",
@@ -1021,6 +2034,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     fontWeight: "500",
+  },
+  targetDateRow: {
+    flexDirection: "row",
+    gap: 7,
+  },
+  targetDateMenu: {
+    flex: 1,
+    minWidth: 0,
+  },
+  targetDateSelect: {
+    minHeight: 49,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 11,
+  },
+  targetDateSelectText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   checkpointRow: {
     flexDirection: "row",

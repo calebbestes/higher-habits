@@ -1,4 +1,5 @@
 import { GoalIcon } from "@/components/goal-icon";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -56,11 +57,24 @@ import {
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
+import {
+  PLAN_PERIODS,
+  type PlanPeriod,
+  getPlanTimeInput,
+  normalizePlanTimeInput,
+  normalizeStoredPlanTime,
+} from "@/lib/plan-time";
+import {
+  cancelHabitReminderAsync,
+  scheduleHabitReminderAsync,
+} from "@/lib/push-notifications";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 type SymbolName = SymbolViewProps["name"];
 type SortKey = "priority" | "frequency" | "remaining";
 type PeriodFilter = "all" | "monthly" | "weekly";
+type PlanTimePart = "hour" | "minute";
+type PlanTimeParts = { hour: number; minute: number };
 
 const PRIORITY_ORDER: Record<string, number> = {
   high: 0,
@@ -113,6 +127,9 @@ const PERIOD_FILTER_OPTIONS: {
 ];
 
 const DAY_ABBRS = ["S", "M", "T", "W", "T", "F", "S"];
+const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
+const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
+const PLAN_TIME_MINUTES = Array.from({ length: 60 }, (_, index) => index);
 const MONTH_NAMES = [
   "January",
   "February",
@@ -245,6 +262,45 @@ function formatDayHeader(date: Date): string {
   return `${DAY_NAMES_FULL[date.getDay()]}, ${MONTH_ABBRS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
+function parsePlanTimeInputParts(value: string): PlanTimeParts | null {
+  const match = value.trim().match(/^(0?[1-9]|1[0-2]):([0-5]\d)$/);
+  if (!match) return null;
+
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function getPlanTimePartsForPicker(
+  value: string,
+  fallbackHour: number,
+): PlanTimeParts {
+  return parsePlanTimeInputParts(value) ?? { hour: fallbackHour, minute: 0 };
+}
+
+function formatPlanTimeInput({ hour, minute }: PlanTimeParts): string {
+  return `${hour}:${String(minute).padStart(2, "0")}`;
+}
+
+function updatePlanTimePart({
+  fallbackHour,
+  part,
+  partValue,
+  value,
+}: {
+  fallbackHour: number;
+  part: PlanTimePart;
+  partValue: number;
+  value: string;
+}): string {
+  return formatPlanTimeInput({
+    ...getPlanTimePartsForPicker(value, fallbackHour),
+    [part]: partValue,
+  });
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
+}
+
 function getGoalMonthProgress(
   goal: PeriodicHabitInfo,
   monthKey: string,
@@ -339,10 +395,18 @@ export function MonthlyGoalsScreen({
   );
 
   const saveGoal = async (input: HabitInput) => {
-    if (editingGoal) {
-      await updateHabit(editingGoal.id, input);
-    } else {
-      await createHabit(input);
+    const saved = editingGoal
+      ? await updateHabit(editingGoal.id, input)
+      : await createHabit(input);
+    try {
+      await scheduleHabitReminderAsync(saved);
+    } catch (reminderError) {
+      Alert.alert(
+        "Reminder not scheduled",
+        reminderError instanceof Error
+          ? reminderError.message
+          : "Could not schedule this habit reminder.",
+      );
     }
     await load();
     setFormOpen(false);
@@ -386,6 +450,7 @@ export function MonthlyGoalsScreen({
           onPress: async () => {
             try {
               await deleteHabit(goal.id);
+              await cancelHabitReminderAsync(goal.id);
               await load();
             } catch (deleteError) {
               setError(
@@ -841,6 +906,7 @@ export function MonthlyGoalsScreen({
               }
               isFilterOpen={sortFilterOpen}
               logsByHabitDate={logsByHabitDate}
+              plannedTimesByHabitDate={snapshot?.plannedTimesByHabitDate}
               updatingKeys={updatingKeys}
               onDeleteGoal={confirmDelete}
               onEditGoal={openEdit}
@@ -1318,13 +1384,17 @@ const DayCell = memo(function DayCell({
         <View style={styles.tilesRow}>
           {visibleGoals.map((goal) => {
             const status = logsByHabitDate[`${goal.id}_${dateKey}`];
-            const bg = status === "complete" ? theme.primary : "#A0A0A0";
+            const bg = status ? theme.primary : theme.backgroundElement;
             return (
               <View
                 key={goal.id}
                 style={[styles.iconTile, { backgroundColor: bg }]}
               >
-                <GoalIcon iconKey={goal.iconKey} size={9} color="#FFFFFF" />
+                <GoalIcon
+                  iconKey={goal.iconKey}
+                  size={9}
+                  color={theme.primaryForeground}
+                />
               </View>
             );
           })}
@@ -1358,6 +1428,7 @@ function DayDetailPanel({
   isFilterActive,
   isFilterOpen,
   logsByHabitDate,
+  plannedTimesByHabitDate,
   updatingKeys,
   onDeleteGoal,
   onEditGoal,
@@ -1372,6 +1443,10 @@ function DayDetailPanel({
   isFilterActive: boolean;
   isFilterOpen: boolean;
   logsByHabitDate: Record<string, "complete" | "planned">;
+  plannedTimesByHabitDate?: Record<
+    string,
+    { startTime: string | null; endTime: string | null }
+  >;
   updatingKeys: Set<string>;
   onDeleteGoal: (goal: PeriodicHabitInfo) => void;
   onEditGoal: (goal: PeriodicHabitInfo) => void;
@@ -1392,7 +1467,7 @@ function DayDetailPanel({
           <SymbolView
             name={sym("calendar", "calendar_today")}
             size={26}
-            tintColor={theme.primary}
+            tintColor={theme.secondary}
           />
         </View>
         <Text style={[styles.emptyTitle, { color: theme.text }]}>
@@ -1481,6 +1556,9 @@ function DayDetailPanel({
                 logsByHabitDate={logsByHabitDate}
                 monthKey={monthKey}
                 status={logsByHabitDate[`${goal.id}_${selectedDateKey}`]}
+                plannedTime={
+                  plannedTimesByHabitDate?.[`${goal.id}_${selectedDateKey}`]
+                }
                 isUpdating={updatingKeys.has(`${goal.id}_${selectedDateKey}`)}
                 onDelete={() => onDeleteGoal(goal)}
                 onEdit={() => onEditGoal(goal)}
@@ -1513,6 +1591,7 @@ function SwipeableGoalRow({
   logsByHabitDate,
   monthKey,
   status,
+  plannedTime,
   isUpdating,
   onDelete,
   onEdit,
@@ -1522,6 +1601,7 @@ function SwipeableGoalRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
+  plannedTime?: { startTime: string | null; endTime: string | null } | null;
   isUpdating: boolean;
   onDelete: () => void;
   onEdit: () => void;
@@ -1549,6 +1629,7 @@ function SwipeableGoalRow({
         logsByHabitDate={logsByHabitDate}
         monthKey={monthKey}
         status={status}
+        plannedTime={plannedTime}
         isUpdating={isUpdating}
         onEdit={onEdit}
         onPress={onPress}
@@ -1626,6 +1707,7 @@ function GoalListRow({
   logsByHabitDate,
   monthKey,
   status,
+  plannedTime,
   isUpdating,
   onEdit,
   onPress,
@@ -1634,6 +1716,7 @@ function GoalListRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
+  plannedTime?: { startTime: string | null; endTime: string | null } | null;
   isUpdating: boolean;
   onEdit: () => void;
   onPress: () => void;
@@ -1641,6 +1724,10 @@ function GoalListRow({
   const theme = useTheme();
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
+  const plannedTimeDisplay = isPlanned
+    ? getPlanTimeInput(plannedTime?.startTime)
+    : null;
+  const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
   const { completed, planned, target } = getGoalMonthProgress(
     goal,
     monthKey,
@@ -1651,21 +1738,9 @@ function GoalListRow({
   const completedWidth = `${(completedSlots / target) * 100}%` as const;
   const plannedWidth = `${(plannedSlots / target) * 100}%` as const;
 
-  const rowBg = isComplete
-    ? `${theme.primary}12`
-    : isPlanned
-      ? "#A0A0A00E"
-      : "transparent";
-  const statusBg = isComplete
-    ? theme.primary
-    : isPlanned
-      ? "#A0A0A0"
-      : "transparent";
-  const statusBorder = isComplete
-    ? theme.primary
-    : isPlanned
-      ? "#A0A0A0"
-      : theme.tabBorder;
+  const rowBg = isComplete ? `${theme.primary}12` : "transparent";
+  const statusBg = isComplete ? theme.primary : "transparent";
+  const statusBorder = isComplete ? theme.primary : theme.tabBorder;
 
   return (
     <Pressable
@@ -1678,43 +1753,36 @@ function GoalListRow({
         pressed && styles.pressed,
       ]}
     >
-      {/* Status box */}
-      <View
-        style={[
-          styles.statusBox,
-          { backgroundColor: statusBg, borderColor: statusBorder },
-        ]}
-      >
-        {isUpdating ? (
-          <ActivityIndicator
-            size="small"
-            color={isComplete || isPlanned ? "#FFFFFF" : theme.primary}
-          />
-        ) : isComplete ? (
-          <SymbolView
-            name={sym("checkmark", "check")}
-            size={13}
-            weight="bold"
-            tintColor="#FFFFFF"
-          />
-        ) : isPlanned ? (
-          <SymbolView
-            name={sym("clock", "schedule")}
-            size={13}
-            weight="semibold"
-            tintColor="#FFFFFF"
-          />
-        ) : null}
-      </View>
+      {isUpdating || isComplete || (!isPlanned && !hasPlannedTime) ? (
+        <View
+          style={[
+            styles.statusBox,
+            { backgroundColor: statusBg, borderColor: statusBorder },
+          ]}
+        >
+          {isUpdating ? (
+            <ActivityIndicator
+              size="small"
+              color={isComplete ? "#FFFFFF" : theme.primary}
+            />
+          ) : isComplete ? (
+            <SymbolView
+              name={sym("checkmark", "check")}
+              size={13}
+              weight="bold"
+              tintColor="#FFFFFF"
+            />
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Habit icon */}
-      <View
-        style={[styles.goalIcon, { backgroundColor: theme.backgroundElement }]}
-      >
+      <View style={styles.goalIcon}>
         <GoalIcon
+          filled
           iconKey={goal.iconKey}
           size={17}
-          color={isComplete ? theme.primary : theme.tabIcon}
+          color={theme.secondary}
         />
       </View>
 
@@ -1745,20 +1813,45 @@ function GoalListRow({
         >
           {completedSlots > 0 ? (
             <View
-              style={[styles.goalProgressCompleted, { width: completedWidth }]}
+              style={[
+                styles.goalProgressCompleted,
+                { width: completedWidth, backgroundColor: theme.primary },
+              ]}
             />
           ) : null}
           {plannedSlots > 0 ? (
-            <View style={[styles.goalProgressPlanned, { width: plannedWidth }]}>
+            <View
+              style={[
+                styles.goalProgressPlanned,
+                { width: plannedWidth, backgroundColor: theme.primary },
+              ]}
+            >
               <View style={styles.plannedStripeRow}>
                 {PLANNED_STRIPES.map((stripe) => (
-                  <View key={stripe} style={styles.plannedStripe} />
+                  <View
+                    key={stripe}
+                    style={[
+                      styles.plannedStripe,
+                      { backgroundColor: theme.tabIcon },
+                    ]}
+                  />
                 ))}
               </View>
             </View>
           ) : null}
         </View>
       </View>
+
+      {hasPlannedTime && plannedTimeDisplay ? (
+        <View style={styles.planTimeBadge}>
+          <Text style={[styles.planTimeBadgeTime, { color: theme.primary }]}>
+            {plannedTimeDisplay.time}
+          </Text>
+          <Text style={[styles.planTimeBadgePeriod, { color: theme.text }]}>
+            {plannedTimeDisplay.period}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Edit menu */}
       <Pressable
@@ -1771,7 +1864,6 @@ function GoalListRow({
         }}
         style={({ pressed }) => [
           styles.goalMenuButton,
-          { backgroundColor: theme.backgroundElement },
           pressed && styles.pressed,
         ]}
       >
@@ -1840,11 +1932,36 @@ function GoalActionsModal({
   const isUploadingPhoto = uploadingPhotoSource !== null;
   const [planStartTime, setPlanStartTime] = useState("");
   const [planEndTime, setPlanEndTime] = useState("");
+  const [planStartPeriod, setPlanStartPeriod] = useState<PlanPeriod>("AM");
+  const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
+  const nextPlanStartTime = normalizePlanTimeInput(
+    planStartTime,
+    planStartPeriod,
+  );
+  const nextPlanEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
+  const currentPlanStartTime = normalizeStoredPlanTime(plannedTime?.startTime);
+  const currentPlanEndTime = normalizeStoredPlanTime(plannedTime?.endTime);
+  const hasAnyPlanTimeInput = Boolean(
+    planStartTime.trim() || planEndTime.trim(),
+  );
+  const hasPlanTimeChanges =
+    nextPlanStartTime !== currentPlanStartTime ||
+    nextPlanEndTime !== currentPlanEndTime;
+  const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
+  const willSavePlan = showPlanAction && (!isPlanned || hasPlanTimeChanges);
+  const isPlanActionDisabled =
+    willSavePlan &&
+    ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
+      (!hasNote && !hasPlanTimeRange));
 
   useEffect(() => {
     if (!visible) return;
-    setPlanStartTime(plannedTime?.startTime ?? "");
-    setPlanEndTime(plannedTime?.endTime ?? "");
+    const start = getPlanTimeInput(plannedTime?.startTime);
+    const end = getPlanTimeInput(plannedTime?.endTime);
+    setPlanStartTime(start.time);
+    setPlanStartPeriod(start.period);
+    setPlanEndTime(end.time);
+    setPlanEndPeriod(end.period);
   }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
 
   return (
@@ -1939,38 +2056,57 @@ function GoalActionsModal({
                 {showPlanAction ? (
                   <>
                     <Pressable
-                      onPress={() =>
-                        onSetStatus(isPlanned ? null : "planned", {
-                          startTime: planStartTime.trim() || null,
-                          endTime: planEndTime.trim() || null,
-                          timeZone: getLocalTimeZone(),
-                        })
-                      }
+                      disabled={isPlanActionDisabled}
+                      onPress={() => {
+                        const nextStatus =
+                          isPlanned && !hasPlanTimeChanges ? null : "planned";
+
+                        onSetStatus(
+                          nextStatus,
+                          nextStatus === "planned"
+                            ? {
+                                startTime: nextPlanStartTime,
+                                endTime: nextPlanEndTime,
+                                timeZone: getLocalTimeZone(),
+                              }
+                            : undefined,
+                        );
+                      }}
                       style={({ pressed }) => [
                         modalStyles.actionRow,
                         { backgroundColor: theme.backgroundElement },
+                        isPlanActionDisabled && modalStyles.disabled,
                         pressed && styles.pressed,
                       ]}
                     >
                       {isUpdating ? (
-                        <ActivityIndicator size="small" color="#A0A0A0" />
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.secondary}
+                        />
                       ) : (
                         <SymbolView
                           name={
-                            isPlanned
+                            isPlanned && !hasPlanTimeChanges
                               ? sym("calendar.badge.minus", "event_busy")
                               : sym("calendar.badge.plus", "event_available")
                           }
                           size={26}
                           tintColor={
-                            isPlanned ? theme.textSecondary : "#A0A0A0"
+                            isPlanned && !hasPlanTimeChanges
+                              ? theme.textSecondary
+                              : theme.secondary
                           }
                         />
                       )}
                       <Text
                         style={[modalStyles.actionText, { color: theme.text }]}
                       >
-                        {isPlanned ? "Remove plan" : "Plan"}
+                        {isPlanned && !hasPlanTimeChanges
+                          ? "Remove plan"
+                          : isPlanned
+                            ? "Save plan"
+                            : "Plan"}
                       </Text>
                     </Pressable>
 
@@ -1998,22 +2134,45 @@ function GoalActionsModal({
                           >
                             Start
                           </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanStartTime}
-                            placeholder="09:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
+                          <PlanTimeSelect
+                            fallbackHour={9}
                             value={planStartTime}
+                            onChange={setPlanStartTime}
                           />
+                          <View style={modalStyles.planPeriodToggle}>
+                            {PLAN_PERIODS.map((period) => {
+                              const isSelected = planStartPeriod === period;
+
+                              return (
+                                <Pressable
+                                  key={period}
+                                  onPress={() => setPlanStartPeriod(period)}
+                                  style={[
+                                    modalStyles.planPeriodOption,
+                                    {
+                                      backgroundColor: isSelected
+                                        ? theme.primary
+                                        : "transparent",
+                                      borderColor: theme.tabBorder,
+                                    },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      modalStyles.planPeriodText,
+                                      {
+                                        color: isSelected
+                                          ? theme.primaryForeground
+                                          : theme.textSecondary,
+                                      },
+                                    ]}
+                                  >
+                                    {period}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                         </View>
                         <View style={modalStyles.planTimeField}>
                           <Text
@@ -2024,22 +2183,45 @@ function GoalActionsModal({
                           >
                             End
                           </Text>
-                          <TextInput
-                            autoCapitalize="none"
-                            keyboardType="numbers-and-punctuation"
-                            onChangeText={setPlanEndTime}
-                            placeholder="10:00"
-                            placeholderTextColor={theme.textSecondary}
-                            selectionColor={theme.primary}
-                            style={[
-                              modalStyles.planTimeInput,
-                              {
-                                borderColor: theme.tabBorder,
-                                color: theme.text,
-                              },
-                            ]}
+                          <PlanTimeSelect
+                            fallbackHour={10}
                             value={planEndTime}
+                            onChange={setPlanEndTime}
                           />
+                          <View style={modalStyles.planPeriodToggle}>
+                            {PLAN_PERIODS.map((period) => {
+                              const isSelected = planEndPeriod === period;
+
+                              return (
+                                <Pressable
+                                  key={period}
+                                  onPress={() => setPlanEndPeriod(period)}
+                                  style={[
+                                    modalStyles.planPeriodOption,
+                                    {
+                                      backgroundColor: isSelected
+                                        ? theme.primary
+                                        : "transparent",
+                                      borderColor: theme.tabBorder,
+                                    },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      modalStyles.planPeriodText,
+                                      {
+                                        color: isSelected
+                                          ? theme.primaryForeground
+                                          : theme.textSecondary,
+                                      },
+                                    ]}
+                                  >
+                                    {period}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                         </View>
                       </View>
                     </View>
@@ -2132,6 +2314,121 @@ function GoalActionsModal({
         </SafeAreaView>
       </View>
     </Modal>
+  );
+}
+
+function PlanTimeSelect({
+  fallbackHour,
+  value,
+  onChange,
+}: {
+  fallbackHour: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parsePlanTimeInputParts(value);
+  const pickerParts = getPlanTimePartsForPicker(value, fallbackHour);
+  const hourActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_HOURS.map((hour) => ({
+      id: String(hour),
+      title: String(hour),
+      state: menuSelectedState(selected?.hour === hour),
+    })),
+  ];
+  const minuteActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_MINUTES.map((minute) => ({
+      id: String(minute),
+      title: String(minute).padStart(2, "0"),
+      state: menuSelectedState(selected?.minute === minute),
+    })),
+  ];
+
+  const selectPart = (part: PlanTimePart, actionId: string) => {
+    if (actionId === CLEAR_PLAN_TIME_ACTION) {
+      onChange("");
+      return;
+    }
+
+    onChange(
+      updatePlanTimePart({
+        fallbackHour,
+        part,
+        partValue: Number(actionId),
+        value,
+      }),
+    );
+  };
+
+  return (
+    <View style={modalStyles.planTimePickerRow}>
+      <PlanTimePartSelect
+        actions={hourActions}
+        label="Hour"
+        value={selected ? String(pickerParts.hour) : null}
+        onSelect={(actionId) => selectPart("hour", actionId)}
+      />
+      <PlanTimePartSelect
+        actions={minuteActions}
+        label="Min"
+        value={selected ? String(pickerParts.minute).padStart(2, "0") : null}
+        onSelect={(actionId) => selectPart("minute", actionId)}
+      />
+    </View>
+  );
+}
+
+function PlanTimePartSelect({
+  actions,
+  label,
+  value,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  value: string | null;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={modalStyles.planTimePickerMenu}
+      title={`Select ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`Select ${label.toLowerCase()}`}
+        accessibilityRole="button"
+        style={[modalStyles.planTimePicker, { borderColor: theme.tabBorder }]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            modalStyles.planTimePickerText,
+            { color: value ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {value ?? label}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "keyboard_arrow_down")}
+          size={12}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -2409,12 +2706,10 @@ const styles = StyleSheet.create({
   },
   goalProgressCompleted: {
     height: "100%",
-    backgroundColor: "#2C5352",
   },
   goalProgressPlanned: {
     height: "100%",
     overflow: "hidden",
-    backgroundColor: "#2C5352",
   },
   plannedStripeRow: {
     position: "absolute",
@@ -2428,7 +2723,6 @@ const styles = StyleSheet.create({
   plannedStripe: {
     width: 3,
     height: 24,
-    backgroundColor: "#A0A0A0",
     transform: [{ rotate: "32deg" }],
   },
   completedText: { textDecorationLine: "line-through" },
@@ -2439,6 +2733,23 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
+  },
+  planTimeBadge: {
+    minWidth: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  planTimeBadgeTime: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  planTimeBadgePeriod: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+    textAlign: "center",
   },
   goalMenuButton: {
     width: 30,
@@ -2639,6 +2950,48 @@ const modalStyles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 15,
     fontWeight: "700",
+  },
+  planTimePickerRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planTimePickerMenu: {
+    flex: 1,
+    minWidth: 0,
+  },
+  planTimePicker: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 9,
+  },
+  planTimePickerText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  planPeriodToggle: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planPeriodOption: {
+    flex: 1,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+  },
+  planPeriodText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   photoRow: {
     flexDirection: "row",

@@ -603,11 +603,11 @@ function AddFriendModal({
 
   const inviteBy = (channel: "email" | "sms") => {
     const value = invite.trim();
-    const body = `Hey! I'm using an app called Abi to build my habits. You should mak a goal with me!`;
+    const body = `Hey! I'm using an app called float to build my habits. You should make a goal with me!`;
     let url: string;
     if (channel === "email") {
       const query = `subject=${encodeURIComponent(
-        "Join me on Higher Habits",
+        "Join me on float",
       )}&body=${encodeURIComponent(body)}`;
       url = `mailto:${encodeURIComponent(value)}?${query}`;
     } else {
@@ -660,7 +660,7 @@ function AddFriendModal({
             >
               {/* Section 1: contacts already on the app */}
               <Text style={[styles.addSectionTitle, { color: theme.text }]}>
-                On Higher Habits
+                On float
               </Text>
               <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
                 Friends from your contacts who already use the app.
@@ -714,7 +714,7 @@ function AddFriendModal({
                 <Text
                   style={[styles.modalHint, { color: theme.textSecondary }]}
                 >
-                  None of your contacts are on Higher Habits yet — invite them
+                  None of your contacts are on float yet — invite them
                   below.
                 </Text>
               ) : null}
@@ -810,7 +810,7 @@ function AddFriendModal({
                   { color: theme.text, marginTop: 28 },
                 ]}
               >
-                Invite to Higher Habits
+                Invite to float
               </Text>
               <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
                 Send a friend an email or text with a link to join.

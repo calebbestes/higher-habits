@@ -14,13 +14,20 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
+import { toInput } from "@/components/tasks/shared";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
-import { toInput } from "@/components/tasks/shared";
+import { TaskPlanModal } from "@/components/tasks/task-plan-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  type PlannedEvent,
+  deletePlannedEvent,
+  fetchPlannedEvents,
+  upsertPlannedEvent,
+} from "@/lib/planned-events-client";
 import {
   TASK_URGENCIES,
   type Task,
@@ -87,6 +94,8 @@ export function TasksScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [actionTask, setActionTask] = useState<Task | null>(null);
+  const [planningTask, setPlanningTask] = useState<Task | null>(null);
+  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
 
   const { projects, reloadProjects, createProject, confirmDeleteProject } =
     useTaskProjects();
@@ -105,8 +114,13 @@ export function TasksScreen() {
       setError(null);
 
       try {
-        const [nextTasks] = await Promise.all([fetchTasks(), reloadProjects()]);
+        const [nextTasks, nextPlannedEvents] = await Promise.all([
+          fetchTasks(),
+          fetchPlannedEvents({ sourceType: "task" }),
+          reloadProjects(),
+        ]);
         setTasks(nextTasks);
+        setPlannedEvents(nextPlannedEvents);
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -167,6 +181,13 @@ export function TasksScreen() {
 
     return urgencyGroups;
   }, [visibleTasks]);
+  const plannedEventsByTaskId = useMemo(() => {
+    const map = new Map<string, PlannedEvent>();
+    for (const event of plannedEvents) {
+      if (event.sourceType === "task") map.set(event.sourceId, event);
+    }
+    return map;
+  }, [plannedEvents]);
 
   const openCreate = () => {
     setEditingTask(null);
@@ -183,12 +204,31 @@ export function TasksScreen() {
     const saved = editingTask
       ? await updateTask(editingTask.id, input)
       : await createTask(input);
+    const existingPlan = editingTask
+      ? plannedEventsByTaskId.get(editingTask.id)
+      : null;
 
     setTasks((current) =>
       editingTask
         ? current.map((task) => (task.id === saved.id ? saved : task))
         : [...current, saved],
     );
+    if (existingPlan) {
+      const result = await upsertPlannedEvent({
+        dateKey: existingPlan.date,
+        endTime: existingPlan.endTime,
+        sourceId: saved.id,
+        sourceType: "task",
+        startTime: existingPlan.startTime,
+        timeZone: null,
+        title: saved.name,
+      });
+      setPlannedEvents((current) =>
+        current.map((event) =>
+          event.id === result.event.id ? result.event : event,
+        ),
+      );
+    }
     setFormOpen(false);
     setEditingTask(null);
     void reloadProjects();
@@ -220,6 +260,61 @@ export function TasksScreen() {
     }
   };
 
+  const openPlanTask = (task: Task) => {
+    setActionTask(null);
+    setPlanningTask(task);
+  };
+
+  const saveTaskPlan = async ({
+    dateKey,
+    endTime,
+    startTime,
+    timeZone,
+  }: {
+    dateKey: string;
+    endTime: string | null;
+    startTime: string | null;
+    timeZone: string | null;
+  }) => {
+    if (!planningTask) return;
+
+    const result = await upsertPlannedEvent({
+      dateKey,
+      endTime,
+      sourceId: planningTask.id,
+      sourceType: "task",
+      startTime,
+      timeZone,
+      title: planningTask.name,
+    });
+    setPlannedEvents((current) => {
+      const filtered = current.filter(
+        (event) =>
+          event.sourceType !== "task" || event.sourceId !== planningTask.id,
+      );
+      return [...filtered, result.event];
+    });
+  };
+
+  const clearTaskPlan = async (task: Task) => {
+    setActionTask(null);
+
+    try {
+      await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
+      setPlannedEvents((current) =>
+        current.filter(
+          (event) => event.sourceType !== "task" || event.sourceId !== task.id,
+        ),
+      );
+    } catch (clearError) {
+      setError(
+        clearError instanceof Error
+          ? clearError.message
+          : "Could not clear task plan.",
+      );
+    }
+  };
+
   const confirmDelete = (task: Task) => {
     setActionTask(null);
     Alert.alert("Delete task?", `"${task.name}" will be permanently deleted.`, [
@@ -232,6 +327,12 @@ export function TasksScreen() {
             await deleteTask(task.id);
             setTasks((current) =>
               current.filter((item) => item.id !== task.id),
+            );
+            setPlannedEvents((current) =>
+              current.filter(
+                (event) =>
+                  event.sourceType !== "task" || event.sourceId !== task.id,
+              ),
             );
             void reloadProjects();
           } catch (deleteError) {
@@ -459,10 +560,23 @@ export function TasksScreen() {
       />
       <TaskActionsModal
         task={actionTask}
+        plannedEvent={
+          actionTask ? plannedEventsByTaskId.get(actionTask.id) : null
+        }
         onClose={() => setActionTask(null)}
+        onClearPlan={clearTaskPlan}
         onDelete={confirmDelete}
         onEdit={openEdit}
+        onPlan={openPlanTask}
         onToggle={toggleComplete}
+      />
+      <TaskPlanModal
+        existingPlan={
+          planningTask ? plannedEventsByTaskId.get(planningTask.id) : null
+        }
+        task={planningTask}
+        onClose={() => setPlanningTask(null)}
+        onSave={saveTaskPlan}
       />
     </View>
   );

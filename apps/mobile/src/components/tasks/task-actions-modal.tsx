@@ -2,6 +2,7 @@ import { SymbolView } from "expo-symbols";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
+import type { PlannedEvent } from "@/lib/planned-events-client";
 import type { Task } from "@/lib/tasks-client";
 
 import { sym } from "./shared";
@@ -12,12 +13,18 @@ export function TaskActionsModal({
   onEdit,
   onDelete,
   onToggle,
+  onPlan,
+  onClearPlan,
+  plannedEvent,
 }: {
   task: Task | null;
   onClose: () => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
   onToggle: (task: Task) => void;
+  onPlan?: (task: Task) => void;
+  onClearPlan?: (task: Task) => void;
+  plannedEvent?: PlannedEvent | null;
 }) {
   const theme = useTheme();
   if (!task) return null;
@@ -28,6 +35,24 @@ export function TaskActionsModal({
       icon: sym("pencil", "edit"),
       onPress: () => onEdit(task),
     },
+    ...(onPlan
+      ? [
+          {
+            label: plannedEvent ? "Edit calendar plan" : "Plan to calendar",
+            icon: sym("calendar.badge.plus", "event_available"),
+            onPress: () => onPlan(task),
+          },
+        ]
+      : []),
+    ...(plannedEvent && onClearPlan
+      ? [
+          {
+            label: "Clear calendar plan",
+            icon: sym("calendar.badge.minus", "event_busy"),
+            onPress: () => onClearPlan(task),
+          },
+        ]
+      : []),
     {
       label: task.completedAt ? "Mark as active" : "Mark as complete",
       icon: sym(

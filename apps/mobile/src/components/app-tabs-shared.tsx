@@ -64,8 +64,17 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "left",
-      width: 178,
+      width: 196,
       items: [
+        {
+          label: "Day Plan",
+          href: "/plan-report?view=day-plan",
+          icon: {
+            ios: "calendar.day.timeline.left",
+            android: "view_day",
+            web: "view_day",
+          },
+        },
         {
           label: "Habits",
           href: "/plan-report?view=habits",
@@ -448,6 +457,7 @@ function rememberSubmenuSelection(href: Href) {
   if (typeof href !== "string") return;
 
   const planReportViews: Record<string, PlanReportView> = {
+    "/plan-report?view=day-plan": "day-plan",
     "/plan-report?view=habits": "habits",
     "/plan-report?view=goals": "goals",
     "/plan-report?view=top-tasks": "top-tasks",

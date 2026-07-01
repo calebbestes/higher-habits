@@ -37,24 +37,8 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-type CategoryConfig = { color: string };
-
-const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
-  Spiritual: { color: "#2C5352" },
-  Physical: { color: "#9D7474" },
-  Work: { color: "#516162" },
-  Social: { color: "#5A8FA0" },
-  "Hobbies/Social": { color: "#5A8FA0" },
-  "Financial/Career": { color: "#B87D4D" },
-};
-
-const DEFAULT_CATEGORY_COLOR = "#516162";
 const COMPLETE_SHARE_TILE = "🟩";
 const EMPTY_SHARE_TILE = "⬜";
-
-function getCategoryColor(name: string): string {
-  return CATEGORY_CONFIG[name]?.color ?? DEFAULT_CATEGORY_COLOR;
-}
 
 function getLast10Days(today: Date): string[] {
   const days: string[] = [];
@@ -76,6 +60,25 @@ function formatShareDate(date: Date): string {
     month: "short",
     day: "numeric",
   }).format(date);
+}
+
+function countMonthlyCompletions({
+  goalId,
+  currentMonthKey,
+  logsByGoalDate,
+}: {
+  goalId: string;
+  currentMonthKey: string;
+  logsByGoalDate: Record<string, "complete" | "planned">;
+}): number {
+  let count = 0;
+  const prefix = `${goalId}_${currentMonthKey}-`;
+
+  for (const [key, val] of Object.entries(logsByGoalDate)) {
+    if (key.startsWith(prefix) && val === "complete") count++;
+  }
+
+  return count;
 }
 
 function buildHabitShareText({
@@ -193,11 +196,23 @@ export function DashboardScreen() {
 
   const monthlyGoals = useMemo(() => {
     if (!snapshot) return [];
-    const order: Record<string, number> = { high: 0, medium: 1, low: 1 };
     return snapshot.periodicGoals
       .filter((g) => g.period === "monthly" && (g.frequencyGoal ?? 0) > 0)
-      .sort((a, b) => (order[a.priority] ?? 1) - (order[b.priority] ?? 1));
-  }, [snapshot]);
+      .map((goal, index) => ({
+        goal,
+        index,
+        completionRatio:
+          countMonthlyCompletions({
+            goalId: goal.id,
+            currentMonthKey,
+            logsByGoalDate: snapshot.logsByGoalDate,
+          }) / (goal.frequencyGoal ?? 1),
+      }))
+      .sort(
+        (a, b) => b.completionRatio - a.completionRatio || a.index - b.index,
+      )
+      .map(({ goal }) => goal);
+  }, [currentMonthKey, snapshot]);
 
   const highPriorityCats = useMemo(() => {
     if (!snapshot) return [];
@@ -710,14 +725,15 @@ function MonthlyGoalRow({
 }) {
   const theme = useTheme();
 
-  const completions = useMemo(() => {
-    let count = 0;
-    const prefix = `${goal.id}_${currentMonthKey}-`;
-    for (const [key, val] of Object.entries(logsByGoalDate)) {
-      if (key.startsWith(prefix) && val === "complete") count++;
-    }
-    return count;
-  }, [goal.id, currentMonthKey, logsByGoalDate]);
+  const completions = useMemo(
+    () =>
+      countMonthlyCompletions({
+        goalId: goal.id,
+        currentMonthKey,
+        logsByGoalDate,
+      }),
+    [goal.id, currentMonthKey, logsByGoalDate],
+  );
 
   const total = goal.frequencyGoal ?? 1;
   const pct = Math.min(completions / total, 1);
@@ -732,19 +748,12 @@ function MonthlyGoalRow({
       ) : null}
       <View style={styles.monthlyRow}>
         <View
-          style={[
-            styles.monthlyIcon,
-            {
-              backgroundColor: isComplete
-                ? `${theme.primary}22`
-                : theme.backgroundElement,
-            },
-          ]}
+          style={[styles.monthlyIcon, { backgroundColor: theme.secondary }]}
         >
           <GoalIcon
             iconKey={goal.iconKey}
             size={18}
-            color={isComplete ? theme.primary : theme.tabIcon}
+            color={theme.secondaryForeground}
           />
         </View>
         <View style={styles.progressBarWrap}>
@@ -789,7 +798,6 @@ function CategoryHeatmap({
   showDivider: boolean;
 }) {
   const theme = useTheme();
-  const color = getCategoryColor(category.name);
 
   return (
     <View style={styles.catHeatmap}>
@@ -798,7 +806,7 @@ function CategoryHeatmap({
           style={[styles.catDivider, { backgroundColor: theme.tabBorder }]}
         />
       ) : null}
-      <Text style={[styles.catLabel, { color }]}>
+      <Text style={[styles.catLabel, { color: theme.textSecondary }]}>
         {category.name.toUpperCase()}
       </Text>
       {goals.map((goal) => {
@@ -808,15 +816,12 @@ function CategoryHeatmap({
         return (
           <View key={goal.id} style={styles.heatmapRow}>
             <View
-              style={[
-                styles.heatmapIcon,
-                { backgroundColor: theme.backgroundElement },
-              ]}
+              style={[styles.heatmapIcon, { backgroundColor: theme.secondary }]}
             >
               <GoalIcon
                 iconKey={goal.iconKey}
                 size={13}
-                color={theme.tabIcon}
+                color={theme.secondaryForeground}
               />
             </View>
             <View style={styles.dayBlocks}>
@@ -825,7 +830,11 @@ function CategoryHeatmap({
                   key={d}
                   style={[
                     styles.dayBlock,
-                    { backgroundColor: dayStatuses[i] ? color : `${color}25` },
+                    {
+                      backgroundColor: dayStatuses[i]
+                        ? theme.primary
+                        : theme.backgroundElement,
+                    },
                   ]}
                 />
               ))}
@@ -844,15 +853,12 @@ function IconPreview({ goals }: { goals: GoalInCategory[] }) {
       {goals.map((goal) => (
         <View
           key={goal.id}
-          style={[
-            styles.iconPreviewItem,
-            { backgroundColor: theme.backgroundElement },
-          ]}
+          style={[styles.iconPreviewItem, { backgroundColor: theme.secondary }]}
         >
           <GoalIcon
             iconKey={goal.iconKey}
             size={16}
-            color={theme.textSecondary}
+            color={theme.secondaryForeground}
           />
         </View>
       ))}
