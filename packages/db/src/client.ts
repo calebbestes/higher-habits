@@ -13,6 +13,19 @@ const globalForHabitDb = globalThis as typeof globalThis & {
   __habitDbClient?: PostgresClient;
 };
 
+function getPoolMax(url: string): number {
+  const configuredMax = Number.parseInt(process.env.POSTGRES_POOL_MAX ?? "", 10);
+  if (Number.isFinite(configuredMax) && configuredMax > 0) {
+    return configuredMax;
+  }
+
+  if (process.env.VERCEL || url.includes("pooler.supabase.com")) {
+    return 1;
+  }
+
+  return 10;
+}
+
 export function getDb(): HabitDb | null {
   ensureDbEnv();
 
@@ -23,14 +36,11 @@ export function getDb(): HabitDb | null {
   }
 
   if (!globalForHabitDb.__habitDb) {
-    const isSupabaseSessionPooler = /pooler\.supabase\.com:5432(?:\/|$)/.test(
-      url,
-    );
     const client = postgres(url, {
       prepare: false,
-      // Supabase session poolers can be configured with a tiny pool_size.
-      // Keeping this at 1 avoids exhausting the pool during local dev.
-      max: isSupabaseSessionPooler ? 1 : 10,
+      // Serverless instances scale horizontally, so each instance must keep a
+      // tiny local pool or Supabase session pools can run out of clients.
+      max: getPoolMax(url),
     });
 
     globalForHabitDb.__habitDbClient = client;
