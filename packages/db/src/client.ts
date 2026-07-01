@@ -26,6 +26,22 @@ function getPoolMax(url: string): number {
   return 10;
 }
 
+function getIdleTimeout(url: string): number | null {
+  const configuredTimeout = Number.parseInt(
+    process.env.POSTGRES_IDLE_TIMEOUT ?? "",
+    10,
+  );
+  if (Number.isFinite(configuredTimeout) && configuredTimeout > 0) {
+    return configuredTimeout;
+  }
+
+  if (process.env.VERCEL || url.includes("pooler.supabase.com")) {
+    return 5;
+  }
+
+  return null;
+}
+
 export function getDb(): HabitDb | null {
   ensureDbEnv();
 
@@ -36,11 +52,13 @@ export function getDb(): HabitDb | null {
   }
 
   if (!globalForHabitDb.__habitDb) {
+    const idleTimeout = getIdleTimeout(url);
     const client = postgres(url, {
       prepare: false,
       // Serverless instances scale horizontally, so each instance must keep a
       // tiny local pool or Supabase session pools can run out of clients.
       max: getPoolMax(url),
+      ...(idleTimeout ? { idle_timeout: idleTimeout } : {}),
     });
 
     globalForHabitDb.__habitDbClient = client;
