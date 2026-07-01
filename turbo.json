@@ -10,6 +10,7 @@
             "outputs": [".next/**", "dist/**"],
             "env": [
                 "POSTGRES_URL",
+                "POSTGRES_POOL_MAX",
                 "BETTER_AUTH_URL",
                 "BETTER_AUTH_SECRET",
                 "NEXT_PUBLIC_APP_URL",
