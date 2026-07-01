@@ -8,7 +8,21 @@
         "build": {
             "dependsOn": ["^build"],
             "outputs": [".next/**", "dist/**"],
-            "env": ["POSTGRES_URL", "BETTER_AUTH_URL", "BETTER_AUTH_SECRET"]
+            "env": [
+                "POSTGRES_URL",
+                "BETTER_AUTH_URL",
+                "BETTER_AUTH_SECRET",
+                "NEXT_PUBLIC_APP_URL",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "SUPABASE_URL",
+                "SUPABASE_SECRET_KEY",
+                "EXPO_PUBLIC_SENTRY_DSN",
+                "SENTRY_ALLOW_FAILURE",
+                "SENTRY_AUTH_TOKEN",
+                "SENTRY_ORG",
+                "SENTRY_PROJECT"
+            ]
         },
         "lint": {
             "dependsOn": ["^lint"],
