@@ -62,6 +62,13 @@ function formatShareDate(date: Date): string {
   }).format(date);
 }
 
+function formatHeatmapDateLabel(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  if (!year || !month || !day) return "";
+
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
+}
+
 function countMonthlyCompletions({
   goalId,
   currentMonthKey,
@@ -380,16 +387,19 @@ export function DashboardScreen() {
                 <>
                   <DashCard>
                     {highPriorityCats.length > 0 ? (
-                      highPriorityCats.map((cat, i) => (
-                        <CategoryHeatmap
-                          key={cat.id}
-                          category={cat}
-                          goals={cat.goals}
-                          days={last10Days}
-                          logsByGoalDate={snapshot.logsByGoalDate}
-                          showDivider={i > 0}
-                        />
-                      ))
+                      <>
+                        <HeatmapDateHeader days={last10Days} />
+                        {highPriorityCats.map((cat, i) => (
+                          <CategoryHeatmap
+                            key={cat.id}
+                            category={cat}
+                            goals={cat.goals}
+                            days={last10Days}
+                            logsByGoalDate={snapshot.logsByGoalDate}
+                            showDivider={i > 0}
+                          />
+                        ))}
+                      </>
                     ) : (
                       <Text
                         style={[
@@ -411,6 +421,7 @@ export function DashboardScreen() {
                         <IconPreview goals={lowerPriorityGoals} />
                       }
                     >
+                      <HeatmapDateHeader days={last10Days} />
                       {lowerPriorityCats.map((cat, i) => (
                         <CategoryHeatmap
                           key={cat.id}
@@ -708,6 +719,32 @@ function DashSection({
       ) : collapsedContent ? (
         collapsedContent
       ) : null}
+    </View>
+  );
+}
+
+function HeatmapDateHeader({ days }: { days: string[] }) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.heatmapDateHeader}>
+      <View style={styles.heatmapDateIconSpacer} />
+      <View style={styles.dayBlocks}>
+        {days.map((day) => (
+          <Text
+            key={day}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.58}
+            style={[
+              styles.heatmapDateLabel,
+              { color: theme.textSecondary },
+            ]}
+          >
+            {formatHeatmapDateLabel(day)}
+          </Text>
+        ))}
+      </View>
     </View>
   );
 }
@@ -1027,6 +1064,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
     marginBottom: 2,
+  },
+  heatmapDateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    paddingBottom: 3,
+  },
+  heatmapDateIconSpacer: {
+    width: 26,
+  },
+  heatmapDateLabel: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "800",
   },
   heatmapRow: {
     flexDirection: "row",

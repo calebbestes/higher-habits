@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import type { ActionGoal } from "@/components/daily-goals/shared";
+import { DatePartPicker } from "@/components/date-part-picker";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { useTheme } from "@/hooks/use-theme";
 import { type FriendRow, fetchFriends } from "@/lib/friends-client";
@@ -1802,20 +1803,11 @@ function CreateGoalModal({
                   >
                     Start date
                   </Text>
-                  <TextInput
-                    style={[
-                      styles.textInput,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        color: theme.text,
-                        borderColor: theme.tabBorder,
-                      },
-                    ]}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={theme.textSecondary}
-                    value={form.startsOn}
-                    onChangeText={(v) =>
-                      setForm((f) => ({ ...f, startsOn: v }))
+                  <DatePartPicker
+                    compact
+                    value={form.startsOn || null}
+                    onChange={(startsOn) =>
+                      setForm((f) => ({ ...f, startsOn: startsOn ?? "" }))
                     }
                   />
                 </View>
@@ -1829,19 +1821,12 @@ function CreateGoalModal({
                   >
                     End date
                   </Text>
-                  <TextInput
-                    style={[
-                      styles.textInput,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        color: theme.text,
-                        borderColor: theme.tabBorder,
-                      },
-                    ]}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={theme.textSecondary}
-                    value={form.endsOn}
-                    onChangeText={(v) => setForm((f) => ({ ...f, endsOn: v }))}
+                  <DatePartPicker
+                    compact
+                    value={form.endsOn || null}
+                    onChange={(endsOn) =>
+                      setForm((f) => ({ ...f, endsOn: endsOn ?? "" }))
+                    }
                   />
                 </View>
               </View>

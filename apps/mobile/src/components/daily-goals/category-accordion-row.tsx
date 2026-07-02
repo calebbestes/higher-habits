@@ -2,11 +2,12 @@ import { SymbolView } from "expo-symbols";
 import { Pressable, Text, View } from "react-native";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
+import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
 import type { CategoryWithGoals, GoalInCategory } from "@/lib/goal-logs-client";
 
 import { GoalRow } from "./goal-row";
-import { getCategoryConfig, styles, sym } from "./shared";
+import { styles, sym } from "./shared";
 
 function CategoryAccordionRowImpl({
   category,
@@ -35,7 +36,6 @@ function CategoryAccordionRowImpl({
   onPressGoal: (goal: GoalInCategory) => void;
 }) {
   const theme = useTheme();
-  const cfg = getCategoryConfig(category.name);
 
   return (
     <View
@@ -53,11 +53,11 @@ function CategoryAccordionRowImpl({
         <View
           style={[styles.catIconWrap, { backgroundColor: theme.secondary }]}
         >
-          <SymbolView
-            name={cfg.symbol}
+          <GoalIcon
+            iconKey={category.icon}
             size={20}
-            weight="semibold"
-            tintColor={theme.secondaryForeground}
+            color={theme.secondaryForeground}
+            filled
           />
         </View>
         <View style={styles.catRowText}>

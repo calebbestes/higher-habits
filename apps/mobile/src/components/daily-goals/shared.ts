@@ -298,14 +298,6 @@ export const styles = StyleSheet.create({
     paddingVertical: 13,
     minHeight: 64,
   },
-  statusButton: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderRadius: 10,
-  },
   planTimeBadge: {
     minWidth: 48,
     alignItems: "center",

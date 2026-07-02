@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalIcon } from "@/components/goal-icon";
@@ -13,7 +13,6 @@ function GoalRowImpl({
   goal,
   status,
   plannedTime,
-  isUpdating,
   onEdit,
   onPress,
 }: {
@@ -34,9 +33,6 @@ function GoalRowImpl({
     : null;
   const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
 
-  const statusBg = isComplete ? theme.primary : "transparent";
-  const statusBorder = isComplete ? theme.primary : theme.tabBorder;
-  const rowBg = isComplete ? `${theme.primary}12` : "transparent";
   const sharedFriends = getSharedFriends(goal).slice(0, 3);
 
   return (
@@ -46,33 +42,9 @@ function GoalRowImpl({
       onPress={onPress}
       style={({ pressed }) => [
         styles.goalRow,
-        { backgroundColor: rowBg },
         pressed && styles.pressed,
       ]}
     >
-      {isUpdating || isComplete || (!isPlanned && !hasPlannedTime) ? (
-        <View
-          style={[
-            styles.statusButton,
-            { backgroundColor: statusBg, borderColor: statusBorder },
-          ]}
-        >
-          {isUpdating ? (
-            <ActivityIndicator
-              size="small"
-              color={isComplete ? "#FFFFFF" : theme.primary}
-            />
-          ) : isComplete ? (
-            <SymbolView
-              name={sym("checkmark", "check")}
-              size={13}
-              weight="bold"
-              tintColor="#FFFFFF"
-            />
-          ) : null}
-        </View>
-      ) : null}
-
       {/* Goal icon */}
       <View style={styles.goalIcon}>
         <GoalIcon
