@@ -475,6 +475,7 @@ export function MonthlyGoalsScreen({
       status: HabitLogStatus,
       options?: {
         endTime?: string | null;
+        repeatPlan?: boolean;
         startTime?: string | null;
         timeZone?: string | null;
       },
@@ -508,6 +509,7 @@ export function MonthlyGoalsScreen({
             plannedTimesByHabitDate[key] = {
               startTime: options?.startTime ?? null,
               endTime: options?.endTime ?? null,
+              repeatsDaily: options?.repeatPlan ?? false,
             };
           } else {
             delete plannedTimesByHabitDate[key];
@@ -1445,7 +1447,7 @@ function DayDetailPanel({
   logsByHabitDate: Record<string, "complete" | "planned">;
   plannedTimesByHabitDate?: Record<
     string,
-    { startTime: string | null; endTime: string | null }
+    { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
   >;
   updatingKeys: Set<string>;
   onDeleteGoal: (goal: PeriodicHabitInfo) => void;
@@ -1601,7 +1603,9 @@ function SwipeableGoalRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?: { startTime: string | null; endTime: string | null } | null;
+  plannedTime?:
+    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
+    | null;
   isUpdating: boolean;
   onDelete: () => void;
   onEdit: () => void;
@@ -1716,7 +1720,9 @@ function GoalListRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?: { startTime: string | null; endTime: string | null } | null;
+  plannedTime?:
+    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
+    | null;
   isUpdating: boolean;
   onEdit: () => void;
   onPress: () => void;
@@ -1901,7 +1907,11 @@ function GoalActionsModal({
   visible: boolean;
   hasNote: boolean;
   hasPhoto: boolean;
-  plannedTime?: { startTime: string | null; endTime: string | null };
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  };
   visibility: HabitVisibility;
   status: "complete" | "planned" | undefined;
   isUpdating: boolean;
@@ -1916,6 +1926,7 @@ function GoalActionsModal({
     status: HabitLogStatus,
     options?: {
       endTime?: string | null;
+      repeatPlan?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
     },

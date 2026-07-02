@@ -55,12 +55,14 @@ export type FriendFeedPhoto = {
 export type FriendFeedComment = {
   id: string;
   userId: string;
+  parentCommentId: string | null;
   authorName: string;
   authorImage: string | null;
   body: string;
   createdAt: string;
   updatedAt: string;
   canDelete: boolean;
+  replies: FriendFeedComment[];
 };
 
 export type FriendFeedEntry = {
@@ -139,10 +141,14 @@ export const toggleFeedProp = (goalLogId: string) =>
     body: JSON.stringify({ type: "toggleProp" }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
 
-export const addFeedComment = (goalLogId: string, body: string) =>
+export const addFeedComment = (
+  goalLogId: string,
+  body: string,
+  parentCommentId?: string | null,
+) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {
     method: "POST",
-    body: JSON.stringify({ type: "addComment", body }),
+    body: JSON.stringify({ type: "addComment", body, parentCommentId }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
 
 export const deleteFeedComment = (goalLogId: string, commentId: string) =>

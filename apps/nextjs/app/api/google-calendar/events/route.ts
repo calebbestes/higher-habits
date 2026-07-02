@@ -5,6 +5,7 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
   createGoogleCalendarPrimaryEvent,
   listGoogleCalendarPrimaryEventsForRange,
+  updateGoogleCalendarPrimaryEvent,
 } from "@/lib/google-calendar";
 
 const querySchema = z.object({
@@ -25,6 +26,9 @@ const createEventSchema = z.object({
   plannedStartTime: timeSchema,
   plannedTimeZone: z.string().min(1).nullable().optional(),
   title: z.string().trim().min(1).max(200),
+});
+const updateEventSchema = createEventSchema.extend({
+  eventId: z.string().min(1).max(1024),
 });
 
 export async function GET(request: Request) {
@@ -68,6 +72,38 @@ export async function POST(request: Request) {
     const result = await createGoogleCalendarPrimaryEvent({
       dateKey: data.dateKey,
       description: data.description ?? null,
+      plannedEndTime: data.plannedEndTime,
+      plannedStartTime: data.plannedStartTime,
+      timeZone: data.plannedTimeZone ?? null,
+      title: data.title,
+      userId: user.id,
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+    if (authErrorResponse) return authErrorResponse;
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const user = await requireRequestUser(request);
+    const data = updateEventSchema.parse(await request.json());
+
+    const result = await updateGoogleCalendarPrimaryEvent({
+      dateKey: data.dateKey,
+      description: data.description ?? null,
+      eventId: data.eventId,
       plannedEndTime: data.plannedEndTime,
       plannedStartTime: data.plannedStartTime,
       timeZone: data.plannedTimeZone ?? null,

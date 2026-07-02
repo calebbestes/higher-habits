@@ -35,17 +35,39 @@ const DEFAULTS = Object.fromEntries(
 ) as Record<NotificationKey, boolean>;
 
 const USER_SETTING_DEFAULTS = {
+  defaultAppStartPage: "collab",
+  defaultCollabSection: "feed",
+  defaultPlanReportView: "day-plan",
   onboardingCompleted: true,
 } as const;
 
+const notificationSchemaShape = Object.fromEntries(
+  NOTIFICATION_KEYS.map((key) => [key, z.boolean()]),
+) as Record<NotificationKey, z.ZodBoolean>;
+
 const bodySchema = z
   .object({
+    defaultAppStartPage: z.enum([
+      "plan-report",
+      "journal",
+      "collab",
+      "dashboard",
+      "settings",
+    ]),
+    defaultCollabSection: z.enum([
+      "feed",
+      "incentives",
+      "shared-goals",
+      "friends",
+    ]),
+    defaultPlanReportView: z.enum([
+      "day-plan",
+      "habits",
+      "goals",
+      "top-tasks",
+    ]),
     onboardingCompleted: z.boolean(),
-    ...Object.fromEntries(
-      NOTIFICATION_KEYS.map((key) => [key, z.boolean()]),
-    ),
-  } as Record<NotificationKey, z.ZodBoolean> & {
-    onboardingCompleted: z.ZodBoolean;
+    ...notificationSchemaShape,
   })
   .partial();
 
@@ -68,6 +90,14 @@ export async function GET(request: Request) {
       .limit(1);
 
     const response = {
+      defaultAppStartPage:
+        row?.defaultAppStartPage ?? USER_SETTING_DEFAULTS.defaultAppStartPage,
+      defaultCollabSection:
+        row?.defaultCollabSection ??
+        USER_SETTING_DEFAULTS.defaultCollabSection,
+      defaultPlanReportView:
+        row?.defaultPlanReportView ??
+        USER_SETTING_DEFAULTS.defaultPlanReportView,
       onboardingCompleted:
         row?.onboardingCompleted ?? USER_SETTING_DEFAULTS.onboardingCompleted,
       ...Object.fromEntries(

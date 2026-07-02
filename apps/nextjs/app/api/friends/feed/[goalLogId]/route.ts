@@ -22,6 +22,7 @@ const interactionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("addComment"),
     body: z.string().trim().min(1).max(2_000),
+    parentCommentId: z.string().uuid().nullable().optional(),
   }),
   z.object({
     type: z.literal("deleteComment"),
@@ -58,8 +59,12 @@ async function findAccessibleFeedEntry(
     )
     .limit(1);
 
-  if (!entry || entry.ownerId === userId) {
+  if (!entry) {
     return null;
+  }
+
+  if (entry.ownerId === userId) {
+    return entry;
   }
 
   if (!entry.notes.trim()) {
@@ -143,6 +148,13 @@ export async function POST(
     }
 
     if (interaction.type === "toggleProp") {
+      if (entry.ownerId === user.id) {
+        return NextResponse.json(
+          { error: "You cannot prop your own post." },
+          { status: 400 },
+        );
+      }
+
       const [existingProp] = await db
         .select({ id: feedProps.id })
         .from(feedProps)
@@ -182,20 +194,52 @@ export async function POST(
     }
 
     if (interaction.type === "addComment") {
+      const parentCommentId = interaction.parentCommentId ?? null;
+      const [parentComment] = parentCommentId
+        ? await db
+            .select({
+              id: feedComments.id,
+              userId: feedComments.userId,
+            })
+            .from(feedComments)
+            .where(
+              and(
+                eq(feedComments.id, parentCommentId),
+                eq(feedComments.goalLogId, goalLogId),
+              ),
+            )
+            .limit(1)
+        : [];
+
+      if (parentCommentId && !parentComment) {
+        return NextResponse.json(
+          { error: "Parent comment not found." },
+          { status: 404 },
+        );
+      }
+
       const [comment] = await db
         .insert(feedComments)
         .values({
           goalLogId,
           userId: user.id,
+          parentCommentId,
           body: interaction.body,
         })
         .returning({ id: feedComments.id });
 
-      void sendPushToUser(entry.ownerId, "notifyPostComments", {
-        title: "New comment on your post",
-        body: `${user.name} commented: ${interaction.body.slice(0, 100)}`,
-        data: { type: "post_comment", goalLogId },
-      });
+      const notificationUserId = parentComment?.userId ?? entry.ownerId;
+      if (notificationUserId !== user.id) {
+        void sendPushToUser(notificationUserId, "notifyPostComments", {
+          title: parentComment
+            ? "New reply to your comment"
+            : "New comment on your post",
+          body: `${user.name} ${
+            parentComment ? "replied" : "commented"
+          }: ${interaction.body.slice(0, 100)}`,
+          data: { type: "post_comment", goalLogId },
+        });
+      }
 
       return NextResponse.json(comment, { status: 201 });
     }

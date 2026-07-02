@@ -58,6 +58,7 @@ type GoogleCalendarEventBody = {
   description: string;
   start: { date: string } | { dateTime: string; timeZone: string };
   end: { date: string } | { dateTime: string; timeZone: string };
+  recurrence?: string[];
   extendedProperties: {
     private: Record<string, string>;
   };
@@ -124,6 +125,7 @@ export async function upsertGoogleCalendarHabitPlan({
   habitName,
   plannedEndTime,
   plannedStartTime,
+  repeatDaily,
   timeZone,
   userId,
 }: {
@@ -134,6 +136,7 @@ export async function upsertGoogleCalendarHabitPlan({
   habitName: string;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  repeatDaily?: boolean;
   timeZone?: string | null;
   userId: string;
 }): Promise<{
@@ -152,6 +155,7 @@ export async function upsertGoogleCalendarHabitPlan({
     existingEventId,
     plannedEndTime,
     plannedStartTime,
+    repeatDaily,
     sourceId: goalId,
     sourceType: "habit",
     title: habitName,
@@ -169,6 +173,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   existingEventId,
   plannedEndTime,
   plannedStartTime,
+  repeatDaily,
   sourceId,
   sourceType,
   title,
@@ -181,6 +186,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   existingEventId?: string | null;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  repeatDaily?: boolean;
   sourceId: string;
   sourceType: HigherHabitsPlannedEventSource;
   title: string;
@@ -203,11 +209,17 @@ export async function upsertGoogleCalendarPlannedEvent({
       return { status: token.status };
     }
 
-    const body = buildGoogleCalendarEvent({
+    const updateBody = buildGoogleCalendarEvent({
       dateKey,
       description,
       plannedEndTime,
       plannedStartTime,
+      recurrence:
+        repeatDaily === undefined
+          ? undefined
+          : repeatDaily
+            ? ["RRULE:FREQ=DAILY"]
+            : [],
       sourceId,
       sourceType,
       title,
@@ -220,7 +232,7 @@ export async function upsertGoogleCalendarPlannedEvent({
         `/calendars/primary/events/${encodeURIComponent(existingEventId)}`,
         token.accessToken,
         {
-          body: JSON.stringify(body),
+          body: JSON.stringify(updateBody),
           method: "PATCH",
         },
       );
@@ -240,11 +252,23 @@ export async function upsertGoogleCalendarPlannedEvent({
       }
     }
 
+    const insertBody = buildGoogleCalendarEvent({
+      dateKey,
+      description,
+      plannedEndTime,
+      plannedStartTime,
+      recurrence: repeatDaily ? ["RRULE:FREQ=DAILY"] : undefined,
+      sourceId,
+      sourceType,
+      title,
+      timeZone,
+      extraPrivateProperties,
+    });
     const insertResponse = await googleCalendarFetch(
       "/calendars/primary/events",
       token.accessToken,
       {
-        body: JSON.stringify(body),
+        body: JSON.stringify(insertBody),
         method: "POST",
       },
     );
@@ -494,6 +518,75 @@ export async function createGoogleCalendarPrimaryEvent({
   }
 }
 
+export async function updateGoogleCalendarPrimaryEvent({
+  dateKey,
+  description,
+  eventId,
+  plannedEndTime,
+  plannedStartTime,
+  timeZone,
+  title,
+  userId,
+}: {
+  dateKey: string;
+  description?: string | null;
+  eventId: string;
+  plannedEndTime?: string | null;
+  plannedStartTime?: string | null;
+  timeZone?: string | null;
+  title: string;
+  userId: string;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  event?: GoogleCalendarEvent | null;
+}> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return { status: token.status };
+    }
+
+    const trimmedDescription = description?.trim();
+    const body: GoogleCalendarDirectEventBody = {
+      summary: title,
+      ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      ...buildGoogleCalendarEventTime({
+        dateKey,
+        plannedEndTime,
+        plannedStartTime,
+        timeZone,
+      }),
+    };
+    const response = await googleCalendarFetch(
+      `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      token.accessToken,
+      {
+        body: JSON.stringify(body),
+        method: "PATCH",
+      },
+    );
+    await throwIfGoogleCalendarError(response);
+
+    const updated = (await response
+      .json()
+      .catch(() => null)) as GoogleCalendarApiEvent | null;
+
+    return {
+      status: "synced",
+      event: updated ? normalizeGoogleCalendarEvent(updated) : null,
+    };
+  } catch (error) {
+    console.error("Google Calendar event update failed", error);
+    return { status: "error" };
+  }
+}
+
 async function getGoogleCalendarAccessToken(
   userId: string,
 ): Promise<GoogleTokenResult> {
@@ -551,6 +644,7 @@ function buildGoogleCalendarEvent({
   extraPrivateProperties,
   plannedEndTime,
   plannedStartTime,
+  recurrence,
   sourceId,
   sourceType,
   title,
@@ -561,6 +655,7 @@ function buildGoogleCalendarEvent({
   extraPrivateProperties?: Record<string, string>;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  recurrence?: string[];
   sourceId: string;
   sourceType: HigherHabitsPlannedEventSource;
   title: string;
@@ -575,6 +670,7 @@ function buildGoogleCalendarEvent({
       plannedStartTime,
       timeZone,
     }),
+    ...(recurrence === undefined ? {} : { recurrence }),
     extendedProperties: {
       private: {
         higherHabitsSourceId: sourceId,

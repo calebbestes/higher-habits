@@ -213,6 +213,7 @@ export function DailyGoalsScreen({
       status: HabitLogStatus,
       options?: {
         endTime?: string | null;
+        repeatPlan?: boolean;
         startTime?: string | null;
         timeZone?: string | null;
       },
@@ -262,6 +263,7 @@ export function DailyGoalsScreen({
             plannedTimesByHabitDate[key] = {
               startTime: options?.startTime ?? null,
               endTime: options?.endTime ?? null,
+              repeatsDaily: options?.repeatPlan ?? false,
             };
           } else {
             delete plannedTimesByHabitDate[key];

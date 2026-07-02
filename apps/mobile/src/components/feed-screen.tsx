@@ -76,6 +76,25 @@ function formatCommentTime(timestamp: string): string {
   }).format(date);
 }
 
+function countComments(comments: FriendFeedComment[]): number {
+  return comments.reduce(
+    (total, comment) => total + 1 + countComments(comment.replies),
+    0,
+  );
+}
+
+function removeCommentById(
+  comments: FriendFeedComment[],
+  commentId: string,
+): FriendFeedComment[] {
+  return comments
+    .filter((comment) => comment.id !== commentId)
+    .map((comment) => ({
+      ...comment,
+      replies: removeCommentById(comment.replies, commentId),
+    }));
+}
+
 export function FeedScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
@@ -86,10 +105,16 @@ export function FeedScreen() {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
     {},
   );
+  const [replyTargets, setReplyTargets] = useState<
+    Record<string, FriendFeedComment | null>
+  >({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(
     null,
   );
   const [activePhoto, setActivePhoto] = useState<FriendFeedPhoto | null>(null);
+  const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
+    string | null
+  >(null);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
@@ -151,10 +176,12 @@ export function FeedScreen() {
       const body = (commentDrafts[entryId] ?? "").trim();
       if (!body || submittingComment) return;
 
+      const replyTarget = replyTargets[entryId] ?? null;
       setSubmittingComment(entryId);
       try {
-        await addFeedComment(entryId, body);
+        await addFeedComment(entryId, body, replyTarget?.id ?? null);
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
+        setReplyTargets((prev) => ({ ...prev, [entryId]: null }));
         const data = await fetchFriendsFeed();
         setEntries(data);
       } catch (err) {
@@ -166,7 +193,7 @@ export function FeedScreen() {
         setSubmittingComment(null);
       }
     },
-    [commentDrafts, submittingComment],
+    [commentDrafts, replyTargets, submittingComment],
   );
 
   const handleDeleteComment = useCallback(
@@ -179,9 +206,14 @@ export function FeedScreen() {
               ? e
               : {
                   ...e,
-                  comments: e.comments.filter((c) => c.id !== commentId),
+                  comments: removeCommentById(e.comments, commentId),
                 },
           ),
+        );
+        setReplyTargets((prev) =>
+          prev[entryId]?.id === commentId
+            ? { ...prev, [entryId]: null }
+            : prev,
         );
       } catch (err) {
         Alert.alert(
@@ -192,6 +224,10 @@ export function FeedScreen() {
     },
     [],
   );
+
+  const activeCommentsEntry = activeCommentsEntryId
+    ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
+    : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -272,17 +308,9 @@ export function FeedScreen() {
                   <FeedCard
                     key={entry.id}
                     entry={entry}
-                    commentDraft={commentDrafts[entry.id] ?? ""}
-                    isSubmittingComment={submittingComment === entry.id}
                     onToggleProp={() => void handleToggleProp(entry.id)}
                     onPhotoPress={setActivePhoto}
-                    onCommentDraftChange={(val) =>
-                      setCommentDrafts((prev) => ({ ...prev, [entry.id]: val }))
-                    }
-                    onAddComment={() => void handleAddComment(entry.id)}
-                    onDeleteComment={(commentId) =>
-                      void handleDeleteComment(entry.id, commentId)
-                    }
+                    onOpenComments={() => setActiveCommentsEntryId(entry.id)}
                   />
                 ))}
               </View>
@@ -311,34 +339,77 @@ export function FeedScreen() {
           ) : null}
         </Pressable>
       </Modal>
+
+      <CommentsModal
+        entry={activeCommentsEntry}
+        commentDraft={
+          activeCommentsEntry
+            ? (commentDrafts[activeCommentsEntry.id] ?? "")
+            : ""
+        }
+        isSubmittingComment={
+          activeCommentsEntry
+            ? submittingComment === activeCommentsEntry.id
+            : false
+        }
+        replyTarget={
+          activeCommentsEntry
+            ? (replyTargets[activeCommentsEntry.id] ?? null)
+            : null
+        }
+        onClose={() => setActiveCommentsEntryId(null)}
+        onCommentDraftChange={(val) => {
+          if (!activeCommentsEntry) return;
+          setCommentDrafts((prev) => ({
+            ...prev,
+            [activeCommentsEntry.id]: val,
+          }));
+        }}
+        onAddComment={() => {
+          if (!activeCommentsEntry) return;
+          void handleAddComment(activeCommentsEntry.id);
+        }}
+        onCancelReply={() => {
+          if (!activeCommentsEntry) return;
+          setReplyTargets((prev) => ({
+            ...prev,
+            [activeCommentsEntry.id]: null,
+          }));
+        }}
+        onDeleteComment={(commentId) => {
+          if (!activeCommentsEntry) return;
+          void handleDeleteComment(activeCommentsEntry.id, commentId);
+        }}
+        onReplyToComment={(comment) => {
+          if (!activeCommentsEntry) return;
+          setReplyTargets((prev) => ({
+            ...prev,
+            [activeCommentsEntry.id]: comment,
+          }));
+        }}
+      />
     </View>
   );
 }
 
 function FeedCard({
   entry,
-  commentDraft,
-  isSubmittingComment,
   onToggleProp,
   onPhotoPress,
-  onCommentDraftChange,
-  onAddComment,
-  onDeleteComment,
+  onOpenComments,
 }: {
   entry: FriendFeedEntry;
-  commentDraft: string;
-  isSubmittingComment: boolean;
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
-  onCommentDraftChange: (val: string) => void;
-  onAddComment: () => void;
-  onDeleteComment: (commentId: string) => void;
+  onOpenComments: () => void;
 }) {
   const theme = useTheme();
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [notesOverflows, setNotesOverflows] = useState(false);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
   const strippedNotes = stripHtml(entry.notes);
-  const isSinglePhoto = entry.photos.length === 1;
+  const commentCount = countComments(entry.comments);
 
   return (
     <View
@@ -357,41 +428,103 @@ function FeedCard({
           >
             {entry.friend.name}
           </Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.dateText, { color: theme.textSecondary }]}
-          >
-            {formatFeedDate(entry.dateKey)}
-          </Text>
+          <View style={styles.headerGoalRow}>
+            <GoalIcon
+              iconKey={entry.goal.icon}
+              size={14}
+              color={theme.textSecondary}
+            />
+            <Text
+              numberOfLines={1}
+              style={[styles.goalText, { color: theme.textSecondary }]}
+            >
+              {entry.goal.name}
+            </Text>
+          </View>
         </View>
-        <GoalPill goal={entry.goal} />
+        <Text
+          numberOfLines={1}
+          style={[styles.dateText, { color: theme.textSecondary }]}
+        >
+          {formatFeedDate(entry.dateKey)}
+        </Text>
       </View>
 
       {/* Photos */}
       {entry.photos.length > 0 ? (
-        <View
-          style={[
-            styles.photoGrid,
-            isSinglePhoto ? styles.photoGridSingle : styles.photoGridMulti,
-          ]}
-        >
-          {entry.photos.map((photo) => (
-            <Pressable
-              key={photo.id}
-              onPress={() => onPhotoPress(photo)}
-              style={({ pressed }) => [
-                styles.photoItem,
-                isSinglePhoto ? styles.photoItemSingle : styles.photoItemMulti,
-                pressed && styles.pressed,
-              ]}
+        <View style={styles.carouselWrap}>
+          <View
+            onLayout={(event) => {
+              setCarouselWidth(event.nativeEvent.layout.width);
+            }}
+            style={[
+              styles.carouselFrame,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onMomentumScrollEnd={(event) => {
+                if (!carouselWidth) return;
+                setCarouselIndex(
+                  Math.round(
+                    event.nativeEvent.contentOffset.x / carouselWidth,
+                  ),
+                );
+              }}
             >
-              <Image
-                source={{ uri: photo.url }}
-                style={styles.photoImage}
-                contentFit="cover"
-              />
-            </Pressable>
-          ))}
+              {entry.photos.map((photo) => (
+                <Pressable
+                  key={photo.id}
+                  onPress={() => onPhotoPress(photo)}
+                  style={({ pressed }) => [
+                    styles.carouselSlide,
+                    { width: carouselWidth || 1 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Image
+                    source={{ uri: photo.url }}
+                    style={styles.photoImage}
+                    contentFit="cover"
+                  />
+                </Pressable>
+              ))}
+            </ScrollView>
+            {entry.photos.length > 1 ? (
+              <View
+                style={[
+                  styles.carouselCounter,
+                  { backgroundColor: "rgba(0,0,0,0.5)" },
+                ]}
+              >
+                <Text style={styles.carouselCounterText}>
+                  {carouselIndex + 1}/{entry.photos.length}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {entry.photos.length > 1 ? (
+            <View style={styles.carouselDots}>
+              {entry.photos.map((photo, index) => (
+                <View
+                  key={photo.id}
+                  style={[
+                    styles.carouselDot,
+                    {
+                      backgroundColor:
+                        index === carouselIndex
+                          ? theme.primary
+                          : theme.backgroundSelected,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -457,7 +590,13 @@ function FeedCard({
           </Text>
         </Pressable>
 
-        <View style={styles.commentCountWrap}>
+        <Pressable
+          onPress={onOpenComments}
+          style={({ pressed }) => [
+            styles.commentCountWrap,
+            pressed && styles.pressed,
+          ]}
+        >
           <SymbolView
             name={sym("bubble.left", "chat_bubble_outline")}
             size={16}
@@ -467,72 +606,220 @@ function FeedCard({
           <Text
             style={[styles.commentCountText, { color: theme.textSecondary }]}
           >
-            {entry.comments.length}{" "}
-            {entry.comments.length === 1 ? "comment" : "comments"}
+            {commentCount} {commentCount === 1 ? "comment" : "comments"}
           </Text>
-        </View>
-      </View>
-
-      {/* Comments */}
-      {entry.comments.length > 0 ? (
-        <View
-          style={[styles.commentsList, { borderTopColor: theme.tabBorder }]}
-        >
-          {entry.comments.map((comment) => (
-            <CommentRow
-              key={comment.id}
-              comment={comment}
-              onDelete={() => onDeleteComment(comment.id)}
-            />
-          ))}
-        </View>
-      ) : null}
-
-      {/* Comment input */}
-      <View
-        style={[styles.commentInputRow, { borderTopColor: theme.tabBorder }]}
-      >
-        <TextInput
-          style={[
-            styles.commentInput,
-            {
-              backgroundColor: theme.backgroundElement,
-              color: theme.text,
-            },
-          ]}
-          placeholder="Write a comment..."
-          placeholderTextColor={theme.textSecondary}
-          value={commentDraft}
-          onChangeText={onCommentDraftChange}
-          returnKeyType="send"
-          onSubmitEditing={onAddComment}
-          maxLength={2000}
-          multiline={false}
-        />
-        <Pressable
-          onPress={onAddComment}
-          disabled={!commentDraft.trim() || isSubmittingComment}
-          style={({ pressed }) => [
-            styles.sendButton,
-            { backgroundColor: theme.primary },
-            (!commentDraft.trim() || isSubmittingComment) &&
-              styles.sendButtonDisabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          {isSubmittingComment ? (
-            <ActivityIndicator size="small" color={theme.primaryForeground} />
-          ) : (
-            <SymbolView
-              name={sym("paperplane.fill", "send")}
-              size={15}
-              weight="semibold"
-              tintColor={theme.primaryForeground}
-            />
-          )}
         </Pressable>
       </View>
+
     </View>
+  );
+}
+
+function CommentsModal({
+  commentDraft,
+  entry,
+  isSubmittingComment,
+  onAddComment,
+  onCancelReply,
+  onClose,
+  onCommentDraftChange,
+  onDeleteComment,
+  onReplyToComment,
+  replyTarget,
+}: {
+  commentDraft: string;
+  entry: FriendFeedEntry | null;
+  isSubmittingComment: boolean;
+  onAddComment: () => void;
+  onCancelReply: () => void;
+  onClose: () => void;
+  onCommentDraftChange: (value: string) => void;
+  onDeleteComment: (commentId: string) => void;
+  onReplyToComment: (comment: FriendFeedComment) => void;
+  replyTarget: FriendFeedComment | null;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Modal
+      visible={entry !== null}
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.commentsModalOverlay}
+      >
+        <Pressable style={styles.commentsModalBackdrop} onPress={onClose} />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[
+            styles.commentsSheet,
+            {
+              backgroundColor: theme.background,
+              borderColor: theme.tabBorder,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.commentsModalHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <View style={styles.commentsModalTitleBlock}>
+              <Text style={[styles.commentsModalTitle, { color: theme.text }]}>
+                Comments
+              </Text>
+              {entry ? (
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.commentsModalSubtitle,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {entry.friend.name} · {entry.goal.name}
+                </Text>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityLabel="Close comments"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.commentsModalClose,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.modalCommentsContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={styles.modalCommentsScroll}
+          >
+            {entry && entry.comments.length > 0 ? (
+              entry.comments.map((comment) => (
+                <CommentRow
+                  key={comment.id}
+                  comment={comment}
+                  onDeleteComment={onDeleteComment}
+                  onReply={onReplyToComment}
+                />
+              ))
+            ) : (
+              <View style={styles.emptyComments}>
+                <Text style={[styles.emptyCommentsTitle, { color: theme.text }]}>
+                  No comments yet
+                </Text>
+                <Text
+                  style={[
+                    styles.emptyCommentsText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Start the conversation.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+
+          <View
+            style={[
+              styles.commentComposer,
+              { borderTopColor: theme.tabBorder },
+            ]}
+          >
+            {replyTarget ? (
+              <View style={styles.replyingToRow}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.replyingToText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Replying to {replyTarget.authorName}
+                </Text>
+                <Pressable
+                  accessibilityLabel="Cancel reply"
+                  hitSlop={8}
+                  onPress={onCancelReply}
+                  style={({ pressed }) => pressed && styles.pressed}
+                >
+                  <SymbolView
+                    name={sym("xmark", "close")}
+                    size={13}
+                    weight="bold"
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+              </View>
+            ) : null}
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={[
+                  styles.commentInput,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    color: theme.text,
+                  },
+                ]}
+                placeholder={
+                  replyTarget
+                    ? `Reply to ${replyTarget.authorName}...`
+                    : "Write a comment..."
+                }
+                placeholderTextColor={theme.textSecondary}
+                value={commentDraft}
+                onChangeText={onCommentDraftChange}
+                returnKeyType="send"
+                onSubmitEditing={onAddComment}
+                maxLength={2000}
+                multiline={false}
+              />
+              <Pressable
+                onPress={onAddComment}
+                disabled={!commentDraft.trim() || isSubmittingComment}
+                style={({ pressed }) => [
+                  styles.sendButton,
+                  { backgroundColor: theme.primary },
+                  (!commentDraft.trim() || isSubmittingComment) &&
+                    styles.sendButtonDisabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {isSubmittingComment ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.primaryForeground}
+                  />
+                ) : (
+                  <SymbolView
+                    name={sym("paperplane.fill", "send")}
+                    size={15}
+                    weight="semibold"
+                    tintColor={theme.primaryForeground}
+                  />
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -580,76 +867,92 @@ function FriendAvatar({
   );
 }
 
-function GoalPill({ goal }: { goal: FriendFeedEntry["goal"] }) {
-  const theme = useTheme();
-
-  return (
-    <View
-      style={[styles.goalPill, { backgroundColor: theme.backgroundElement }]}
-    >
-      <View style={styles.goalPillIcon}>
-        <GoalIcon iconKey={goal.icon} size={14} color={theme.textSecondary} />
-      </View>
-      <Text
-        numberOfLines={1}
-        style={[styles.goalPillText, { color: theme.textSecondary }]}
-      >
-        {goal.name}
-      </Text>
-    </View>
-  );
-}
-
 function CommentRow({
   comment,
-  onDelete,
+  depth = 0,
+  onDeleteComment,
+  onReply,
 }: {
   comment: FriendFeedComment;
-  onDelete: () => void;
+  depth?: number;
+  onDeleteComment: (commentId: string) => void;
+  onReply: (comment: FriendFeedComment) => void;
 }) {
   const theme = useTheme();
 
   return (
-    <View
-      style={[styles.commentRow, { backgroundColor: theme.backgroundElement }]}
-    >
-      <FriendAvatar
-        image={comment.authorImage}
-        name={comment.authorName}
-        size={28}
-      />
-      <View style={styles.commentBody}>
-        <View style={styles.commentMeta}>
-          <Text
-            numberOfLines={1}
-            style={[styles.commentAuthor, { color: theme.text }]}
-          >
-            {comment.authorName}
+    <View style={[styles.commentThread, depth > 0 && styles.commentReplyThread]}>
+      <View
+        style={[
+          styles.commentRow,
+          depth > 0 && styles.commentReplyRow,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <FriendAvatar
+          image={comment.authorImage}
+          name={comment.authorName}
+          size={28}
+        />
+        <View style={styles.commentBody}>
+          <View style={styles.commentMeta}>
+            <Text
+              numberOfLines={1}
+              style={[styles.commentAuthor, { color: theme.text }]}
+            >
+              {comment.authorName}
+            </Text>
+            <Text style={[styles.commentTime, { color: theme.textSecondary }]}>
+              {formatCommentTime(comment.createdAt)}
+            </Text>
+          </View>
+          <Text style={[styles.commentText, { color: theme.text }]}>
+            {comment.body}
           </Text>
-          <Text style={[styles.commentTime, { color: theme.textSecondary }]}>
-            {formatCommentTime(comment.createdAt)}
-          </Text>
+          <View style={styles.commentActions}>
+            <Pressable
+              hitSlop={8}
+              onPress={() => onReply(comment)}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text
+                style={[styles.commentActionText, { color: theme.primary }]}
+              >
+                Reply
+              </Text>
+            </Pressable>
+          </View>
         </View>
-        <Text style={[styles.commentText, { color: theme.text }]}>
-          {comment.body}
-        </Text>
+        {comment.canDelete ? (
+          <Pressable
+            onPress={() => onDeleteComment(comment.id)}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.deleteCommentBtn,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("trash", "delete_outline")}
+              size={14}
+              weight="semibold"
+              tintColor="#9D474D"
+            />
+          </Pressable>
+        ) : null}
       </View>
-      {comment.canDelete ? (
-        <Pressable
-          onPress={onDelete}
-          hitSlop={8}
-          style={({ pressed }) => [
-            styles.deleteCommentBtn,
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("trash", "delete_outline")}
-            size={14}
-            weight="semibold"
-            tintColor="#9D474D"
-          />
-        </Pressable>
+      {comment.replies.length > 0 ? (
+        <View style={styles.commentReplies}>
+          {comment.replies.map((reply) => (
+            <CommentRow
+              key={reply.id}
+              comment={reply}
+              depth={depth + 1}
+              onDeleteComment={onDeleteComment}
+              onReply={onReply}
+            />
+          ))}
+        </View>
       ) : null}
     </View>
   );
@@ -761,53 +1064,63 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   dateText: {
+    maxWidth: 138,
+    flexShrink: 0,
+    textAlign: "right",
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
   },
-  goalPill: {
+  headerGoalRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
+  },
+  goalText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    flex: 1,
+    minWidth: 0,
+  },
+  carouselWrap: {
+    marginBottom: 12,
+  },
+  carouselFrame: {
+    position: "relative",
+    aspectRatio: 1,
+    overflow: "hidden",
+    width: "100%",
+  },
+  carouselSlide: {
+    aspectRatio: 1,
+  },
+  carouselCounter: {
+    position: "absolute",
+    top: 10,
+    right: 10,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    maxWidth: 140,
-    flexShrink: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-  goalPillIcon: {
-    width: 13,
-    height: 13,
-    flexShrink: 0,
-  },
-  goalPillText: {
+  carouselCounterText: {
+    color: "#FFFFFF",
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "600",
-    flexShrink: 1,
+    fontWeight: "800",
   },
-  photoGrid: {
-    marginHorizontal: 14,
-    marginBottom: 12,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  photoGridSingle: {},
-  photoGridMulti: {
+  carouselDots: {
+    minHeight: 18,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingTop: 8,
   },
-  photoItem: {
-    overflow: "hidden",
-    borderRadius: 12,
-  },
-  photoItemSingle: {
-    aspectRatio: 4 / 3,
-  },
-  photoItemMulti: {
-    width: "48.5%",
-    aspectRatio: 1,
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   photoImage: {
     width: "100%",
@@ -861,11 +1174,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "600",
   },
-  commentsList: {
+  commentThread: {
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  commentReplyThread: {
+    marginLeft: 22,
+  },
+  commentReplies: {
+    gap: 6,
   },
   commentRow: {
     flexDirection: "row",
@@ -874,6 +1190,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 9,
+  },
+  commentReplyRow: {
+    borderTopLeftRadius: 4,
   },
   commentBody: {
     flex: 1,
@@ -901,17 +1220,45 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "400",
   },
+  commentActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  commentActionText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
   deleteCommentBtn: {
     padding: 4,
     flexShrink: 0,
+  },
+  commentComposer: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+  },
+  replyingToRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 6,
+  },
+  replyingToText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
   },
   commentInputRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 2,
   },
   commentInput: {
     flex: 1,
@@ -931,6 +1278,84 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: { opacity: 0.45 },
   pressed: { opacity: 0.72 },
+  commentsModalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.42)",
+  },
+  commentsModalBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  commentsSheet: {
+    position: "relative",
+    zIndex: 1,
+    maxHeight: "84%",
+    minHeight: "54%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+  },
+  commentsModalHeader: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  commentsModalTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  commentsModalTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "900",
+  },
+  commentsModalSubtitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  commentsModalClose: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+  },
+  modalCommentsScroll: {
+    flex: 1,
+  },
+  modalCommentsContent: {
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  emptyComments: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 44,
+  },
+  emptyCommentsTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "800",
+  },
+  emptyCommentsText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
   lightboxOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.9)",

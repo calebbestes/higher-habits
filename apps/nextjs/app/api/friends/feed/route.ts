@@ -20,6 +20,79 @@ import {
 
 const getDatabase = () => getDb() ?? null;
 
+type FeedCommentRow = {
+  id: string;
+  goalLogId: string;
+  userId: string;
+  parentCommentId: string | null;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type SerializedFeedComment = {
+  id: string;
+  userId: string;
+  parentCommentId: string | null;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+  replies: SerializedFeedComment[];
+};
+
+function groupNestedComments(
+  commentRows: FeedCommentRow[],
+  currentUserId: string,
+) {
+  const commentsById = new Map<string, SerializedFeedComment>();
+  const goalLogIdByCommentId = new Map<string, string>();
+  const rootCommentsByGoalLogId = new Map<string, SerializedFeedComment[]>();
+
+  for (const comment of commentRows) {
+    commentsById.set(comment.id, {
+      id: comment.id,
+      userId: comment.userId,
+      parentCommentId: comment.parentCommentId,
+      authorName: comment.authorName,
+      authorImage: comment.authorImage,
+      body: comment.body,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      canDelete: comment.userId === currentUserId,
+      replies: [],
+    });
+    goalLogIdByCommentId.set(comment.id, comment.goalLogId);
+  }
+
+  for (const comment of commentRows) {
+    const serialized = commentsById.get(comment.id);
+    if (!serialized) continue;
+
+    const parent = comment.parentCommentId
+      ? commentsById.get(comment.parentCommentId)
+      : null;
+    const parentGoalLogId = comment.parentCommentId
+      ? goalLogIdByCommentId.get(comment.parentCommentId)
+      : null;
+
+    if (parent && parentGoalLogId === comment.goalLogId) {
+      parent.replies.push(serialized);
+      continue;
+    }
+
+    const comments = rootCommentsByGoalLogId.get(comment.goalLogId) ?? [];
+    comments.push(serialized);
+    rootCommentsByGoalLogId.set(comment.goalLogId, comments);
+  }
+
+  return rootCommentsByGoalLogId;
+}
+
 async function createSignedPhotoUrl(storagePath: string) {
   const storage = getSupabaseStorageAdmin();
   const { data, error } = await storage.storage
@@ -207,12 +280,14 @@ export async function GET(request: Request) {
         comments: Array<{
           id: string;
           userId: string;
+          parentCommentId: string | null;
           authorName: string;
           authorImage: string | null;
           body: string;
           createdAt: string;
           updatedAt: string;
           canDelete: boolean;
+          replies: SerializedFeedComment[];
         }>;
         photos: Array<{
           id: string;
@@ -265,6 +340,7 @@ export async function GET(request: Request) {
             id: feedComments.id,
             goalLogId: feedComments.goalLogId,
             userId: feedComments.userId,
+            parentCommentId: feedComments.parentCommentId,
             authorName: users.name,
             authorImage: users.image,
             body: feedComments.body,
@@ -287,20 +363,12 @@ export async function GET(request: Request) {
         }
       }
 
-      for (const comment of commentRows) {
-        const entry = entries.get(comment.goalLogId);
+      const commentsByGoalLogId = groupNestedComments(commentRows, user.id);
+      for (const [goalLogId, comments] of commentsByGoalLogId) {
+        const entry = entries.get(goalLogId);
         if (!entry) continue;
 
-        entry.comments.push({
-          id: comment.id,
-          userId: comment.userId,
-          authorName: comment.authorName,
-          authorImage: comment.authorImage,
-          body: comment.body,
-          createdAt: comment.createdAt.toISOString(),
-          updatedAt: comment.updatedAt.toISOString(),
-          canDelete: comment.userId === user.id,
-        });
+        entry.comments = comments;
       }
     }
 

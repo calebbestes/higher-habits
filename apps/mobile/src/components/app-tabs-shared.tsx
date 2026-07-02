@@ -24,10 +24,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/hooks/use-theme";
 import {
+  COLLAB_SECTION_HREFS,
+  PLAN_REPORT_VIEW_HREFS,
   type CollabSection,
   type PlanReportView,
   setCollabSection,
   setPlanReportView,
+  useDefaultCollabSection,
+  useDefaultPlanReportView,
 } from "@/lib/tab-view-store";
 
 const HOLD_HAPTIC_DELAY_MS = 220;
@@ -41,7 +45,7 @@ type SubmenuItem = {
 
 type TabItem = {
   name: string;
-  href: "/" | "/plan-report" | "/journal" | "/dashboard" | "/settings";
+  href: Href;
   label: string;
   icon: SymbolViewProps["name"];
   center?: boolean;
@@ -193,6 +197,8 @@ export default function AppTabs() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const router = useRouter();
+  const defaultPlanReportView = useDefaultPlanReportView();
+  const defaultCollabSection = useDefaultCollabSection();
   const [openMenuName, setOpenMenuName] = useState<string | null>(null);
   const usesNativeAppleMenus = Platform.OS === "ios";
   const usesAppleTabBar = Platform.OS === "ios";
@@ -215,24 +221,37 @@ export default function AppTabs() {
             },
           ])}
         >
-          {TABS.map((tab) => (
-            <TabTrigger key={tab.name} name={tab.name} href={tab.href} asChild>
-              <TabButton
-                item={tab}
-                isMenuOpen={!usesNativeAppleMenus && openMenuName === tab.name}
-                onDefaultPress={() => router.navigate(tab.href)}
-                onOpenMenu={() => {
-                  setOpenMenuName((current) =>
-                    current === tab.name ? null : tab.name,
-                  );
-                }}
-                onSelectMenuItem={(href) => {
-                  rememberSubmenuSelection(href);
-                  router.navigate(href);
-                }}
-              />
-            </TabTrigger>
-          ))}
+          {TABS.map((tab) => {
+            const href = getDefaultTabHref({
+              defaultCollabSection,
+              defaultPlanReportView,
+              tab,
+            });
+
+            return (
+              <TabTrigger key={tab.name} name={tab.name} href={href} asChild>
+                <TabButton
+                  item={tab}
+                  isMenuOpen={
+                    !usesNativeAppleMenus && openMenuName === tab.name
+                  }
+                  onDefaultPress={() => {
+                    rememberSubmenuSelection(href);
+                    router.navigate(href);
+                  }}
+                  onOpenMenu={() => {
+                    setOpenMenuName((current) =>
+                      current === tab.name ? null : tab.name,
+                    );
+                  }}
+                  onSelectMenuItem={(href) => {
+                    rememberSubmenuSelection(href);
+                    router.navigate(href);
+                  }}
+                />
+              </TabTrigger>
+            );
+          })}
         </TabBarSurface>
       </TabList>
       {!usesNativeAppleMenus && openMenu ? (
@@ -474,6 +493,24 @@ function rememberSubmenuSelection(href: Href) {
 
   const collabSection = collabSections[href];
   if (collabSection) setCollabSection(collabSection);
+}
+
+function getDefaultTabHref({
+  defaultCollabSection,
+  defaultPlanReportView,
+  tab,
+}: {
+  defaultCollabSection: CollabSection;
+  defaultPlanReportView: PlanReportView;
+  tab: TabItem;
+}): Href {
+  if (tab.name === "plan-report") {
+    return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView] as Href;
+  }
+  if (tab.name === "collab") {
+    return COLLAB_SECTION_HREFS[defaultCollabSection] as Href;
+  }
+  return tab.href;
 }
 
 function SubmenuPopover({

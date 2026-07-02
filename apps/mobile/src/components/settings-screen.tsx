@@ -37,8 +37,50 @@ import {
   setColorThemePreference,
   setThemePreference,
 } from "@/lib/theme-preference";
+import {
+  type AppStartPage,
+  type CollabSection,
+  type PlanReportView,
+  applyNavigationDefaults,
+} from "@/lib/tab-view-store";
+import {
+  type UserSettings,
+  USER_SETTING_DEFAULTS,
+  fetchUserSettings,
+  updateUserSettings,
+} from "@/lib/user-settings-client";
 
 type SymbolName = SymbolViewProps["name"];
+type NavigationDefaultKey =
+  | "defaultAppStartPage"
+  | "defaultCollabSection"
+  | "defaultPlanReportView";
+type NavigationDefaults = Pick<UserSettings, NavigationDefaultKey>;
+
+const PLAN_REPORT_DEFAULT_OPTIONS: {
+  label: string;
+  value: PlanReportView;
+}[] = [
+  { label: "Day Plan", value: "day-plan" },
+  { label: "Habits", value: "habits" },
+  { label: "Goals", value: "goals" },
+  { label: "Tasks", value: "top-tasks" },
+];
+
+const COLLAB_DEFAULT_OPTIONS: { label: string; value: CollabSection }[] = [
+  { label: "Feed", value: "feed" },
+  { label: "Incentives", value: "incentives" },
+  { label: "Shared Goals", value: "shared-goals" },
+  { label: "Friends", value: "friends" },
+];
+
+const APP_START_DEFAULT_OPTIONS: { label: string; value: AppStartPage }[] = [
+  { label: "Plan/Report", value: "plan-report" },
+  { label: "Journal", value: "journal" },
+  { label: "Collab", value: "collab" },
+  { label: "Dashboard", value: "dashboard" },
+  { label: "Settings", value: "settings" },
+];
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -59,6 +101,12 @@ export function SettingsScreen() {
   );
   const [googleCalendarStatus, setGoogleCalendarStatus] =
     useState<GoogleCalendarStatus | null>(null);
+  const [navigationDefaults, setNavigationDefaults] =
+    useState<NavigationDefaults>({
+      defaultAppStartPage: USER_SETTING_DEFAULTS.defaultAppStartPage,
+      defaultCollabSection: USER_SETTING_DEFAULTS.defaultCollabSection,
+      defaultPlanReportView: USER_SETTING_DEFAULTS.defaultPlanReportView,
+    });
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
@@ -77,6 +125,23 @@ export function SettingsScreen() {
   useEffect(() => {
     void loadGoogleCalendarStatus();
   }, [loadGoogleCalendarStatus]);
+
+  useEffect(() => {
+    let active = true;
+
+    void fetchUserSettings()
+      .then((settings) => {
+        if (!active) return;
+        const nextDefaults = pickNavigationDefaults(settings);
+        setNavigationDefaults(nextDefaults);
+        applyNavigationDefaults(nextDefaults);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const signOut = async () => {
     setIsSigningOut(true);
@@ -112,6 +177,57 @@ export function SettingsScreen() {
   const chooseColorTheme = (preference: ColorThemePreference) => {
     setColorTheme(preference);
     void setColorThemePreference(preference);
+  };
+
+  const saveNavigationDefault = <Key extends NavigationDefaultKey>(
+    key: Key,
+    value: NavigationDefaults[Key],
+  ) => {
+    const previous = navigationDefaults;
+    const next = { ...previous, [key]: value };
+    setNavigationDefaults(next);
+    applyNavigationDefaults(next);
+
+    updateUserSettings({ [key]: value })
+      .then(() => undefined)
+      .catch(() => {
+        setNavigationDefaults(previous);
+        applyNavigationDefaults(previous);
+        Alert.alert("Settings", "Could not save that default page.");
+      });
+  };
+
+  const choosePlanReportDefault = () => {
+    Alert.alert("Plan/Report default", "Choose the first Plan/Report page.", [
+      ...PLAN_REPORT_DEFAULT_OPTIONS.map((option) => ({
+        text: option.label,
+        onPress: () =>
+          saveNavigationDefault("defaultPlanReportView", option.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
+
+  const chooseCollabDefault = () => {
+    Alert.alert("Collab default", "Choose the first Collab page.", [
+      ...COLLAB_DEFAULT_OPTIONS.map((option) => ({
+        text: option.label,
+        onPress: () =>
+          saveNavigationDefault("defaultCollabSection", option.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
+
+  const chooseAppStartDefault = () => {
+    Alert.alert("App start page", "Choose what opens when float starts.", [
+      ...APP_START_DEFAULT_OPTIONS.map((option) => ({
+        text: option.label,
+        onPress: () =>
+          saveNavigationDefault("defaultAppStartPage", option.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
   };
 
   const pickProfilePicture = async () => {
@@ -302,7 +418,7 @@ export function SettingsScreen() {
             </View>
           </View>
 
-          <SettingsGroup title="Preferences">
+          <SettingsGroup title="Appearance">
             <SettingsRow
               icon={sym("paintpalette.fill", "palette")}
               title="Appearance"
@@ -319,6 +435,33 @@ export function SettingsScreen() {
               value={colorTheme}
               onChange={chooseColorTheme}
             />
+            <SettingsRow
+              icon={sym("calendar.badge.clock", "event_note")}
+              title="Plan/Report default"
+              value={getPlanReportDefaultLabel(
+                navigationDefaults.defaultPlanReportView,
+              )}
+              onPress={choosePlanReportDefault}
+            />
+            <SettingsRow
+              icon={sym("person.2.fill", "groups")}
+              title="Collab default"
+              value={getCollabDefaultLabel(
+                navigationDefaults.defaultCollabSection,
+              )}
+              onPress={chooseCollabDefault}
+            />
+            <SettingsRow
+              icon={sym("house.fill", "home")}
+              title="App start page"
+              value={getAppStartDefaultLabel(
+                navigationDefaults.defaultAppStartPage,
+              )}
+              onPress={chooseAppStartDefault}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="Notifications">
             <SettingsRow
               icon={sym("bell.fill", "notifications")}
               title="Notifications"
@@ -451,6 +594,35 @@ function ColorThemePickerRow({
         })}
       </View>
     </View>
+  );
+}
+
+function pickNavigationDefaults(settings: UserSettings): NavigationDefaults {
+  return {
+    defaultAppStartPage: settings.defaultAppStartPage,
+    defaultCollabSection: settings.defaultCollabSection,
+    defaultPlanReportView: settings.defaultPlanReportView,
+  };
+}
+
+function getPlanReportDefaultLabel(value: PlanReportView): string {
+  return (
+    PLAN_REPORT_DEFAULT_OPTIONS.find((option) => option.value === value)
+      ?.label ?? "Day Plan"
+  );
+}
+
+function getCollabDefaultLabel(value: CollabSection): string {
+  return (
+    COLLAB_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
+    "Feed"
+  );
+}
+
+function getAppStartDefaultLabel(value: AppStartPage): string {
+  return (
+    APP_START_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
+    "Collab"
   );
 }
 

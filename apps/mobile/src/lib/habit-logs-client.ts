@@ -96,8 +96,16 @@ export type HabitLogsSnapshot = {
   visibilityByHabitDate: Record<string, HabitVisibility>;
   plannedTimesByHabitDate: Record<
     string,
-    { startTime: string | null; endTime: string | null }
+    { startTime: string | null; endTime: string | null; repeatsDaily: boolean }
   >;
+  // Active "repeat daily" plan per habit, effective from originDate forward.
+  repeatingPlansByHabit: Record<
+    string,
+    { startTime: string | null; endTime: string | null; originDate: string }
+  >;
+  // Dates (any status) that already have their own log per habit; an explicit
+  // log for a date overrides the projected daily repeat for that date.
+  explicitPlanDatesByHabit: Record<string, string[]>;
   socialByHabitDate: Record<string, HabitLogSocialSummary>;
 };
 
@@ -155,6 +163,7 @@ export const setHabitLog = (
   status: HabitLogStatus,
   options?: {
     endTime?: string | null;
+    repeatPlan?: boolean;
     startTime?: string | null;
     timeZone?: string | null;
   },
@@ -169,6 +178,7 @@ export const setHabitLog = (
       plannedStartTime: options?.startTime ?? null,
       plannedEndTime: options?.endTime ?? null,
       plannedTimeZone: options?.timeZone ?? null,
+      repeatPlan: options?.repeatPlan ?? false,
     }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 

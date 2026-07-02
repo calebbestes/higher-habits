@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DatePartPicker } from "@/components/date-part-picker";
 import { useTheme } from "@/hooks/use-theme";
 import type { Project } from "@/lib/projects-client";
 import {
@@ -209,19 +210,17 @@ export function TaskFormModal({
             </FormSection>
 
             <FormSection title="Schedule">
-              <LabeledInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                label="Exact due date"
-                onChangeText={(dueDate) =>
-                  setForm((current) => ({
-                    ...current,
-                    dueDate: dueDate.trim() || null,
-                  }))
-                }
-                placeholder="YYYY-MM-DD"
-                value={form.dueDate ?? ""}
-              />
+              <View style={styles.inputField}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Exact due date
+                </Text>
+                <DatePartPicker
+                  value={form.dueDate}
+                  onChange={(dueDate) =>
+                    setForm((current) => ({ ...current, dueDate }))
+                  }
+                />
+              </View>
               {!dueDateValid ? (
                 <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
               ) : null}

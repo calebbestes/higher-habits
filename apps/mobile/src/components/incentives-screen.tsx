@@ -545,7 +545,7 @@ function CreateIncentiveModal({
                     borderColor: theme.tabBorder,
                   },
                 ]}
-                placeholder="Coffee on me when you hit it"
+                placeholder="Lunch on me when you hit it"
                 placeholderTextColor={theme.textSecondary}
                 value={body}
                 onChangeText={setBody}

@@ -78,15 +78,18 @@ export type AcceptedGoalIncentive = {
 export type GoalLogSocialComment = {
   id: string;
   userId: string;
+  parentCommentId: string | null;
   authorName: string;
   authorImage: string | null;
   body: string;
   createdAt: string;
   updatedAt: string;
   canDelete: boolean;
+  replies: GoalLogSocialComment[];
 };
 
 export type GoalLogSocialSummary = {
+  goalLogId: string;
   props: {
     count: number;
     hasPropped: boolean;
@@ -110,7 +113,7 @@ export type GoalLogsSnapshot = {
   /** key: `${goalId}_${dateKey}` */
   plannedTimesByGoalDate: Record<
     string,
-    { startTime: string | null; endTime: string | null }
+    { startTime: string | null; endTime: string | null; repeatsDaily: boolean }
   >;
   /** key: `${goalId}_${dateKey}`, only logs with feed activity */
   socialByGoalDate: Record<string, GoalLogSocialSummary>;
@@ -147,6 +150,7 @@ export const setGoalLog = (
   status: "complete" | "planned" | null,
   options?: {
     endTime?: string | null;
+    repeatPlan?: boolean;
     startTime?: string | null;
     timeZone?: string | null;
   },
@@ -162,6 +166,7 @@ export const setGoalLog = (
       plannedStartTime: options?.startTime ?? null,
       plannedEndTime: options?.endTime ?? null,
       plannedTimeZone: options?.timeZone ?? null,
+      repeatPlan: options?.repeatPlan ?? false,
     }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 

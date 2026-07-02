@@ -69,6 +69,7 @@ const bodySchema = z.discriminatedUnion("type", [
     plannedStartTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedEndTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedTimeZone: z.string().min(1).max(100).nullable().optional(),
+    repeatPlan: z.boolean().optional().default(false),
   }),
   z.object({
     type: z.literal("setHidden"),
@@ -97,6 +98,7 @@ const bodySchema = z.discriminatedUnion("type", [
 const getDatabase = () => getDb() ?? null;
 
 type GoalLogSocialSummary = {
+  goalLogId: string;
   props: {
     count: number;
     hasPropped: boolean;
@@ -104,14 +106,82 @@ type GoalLogSocialSummary = {
   comments: Array<{
     id: string;
     userId: string;
+    parentCommentId: string | null;
     authorName: string;
     authorImage: string | null;
     body: string;
     createdAt: string;
     updatedAt: string;
     canDelete: boolean;
+    replies: GoalLogSocialSummary["comments"];
   }>;
 };
+
+type GoalLogCommentRow = {
+  id: string;
+  goalLogId: string;
+  userId: string;
+  parentCommentId: string | null;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function groupNestedGoalLogComments(
+  commentRows: GoalLogCommentRow[],
+  currentUserId: string,
+) {
+  const commentsById = new Map<
+    string,
+    GoalLogSocialSummary["comments"][number]
+  >();
+  const goalLogIdByCommentId = new Map<string, string>();
+  const rootCommentsByGoalLogId = new Map<
+    string,
+    GoalLogSocialSummary["comments"]
+  >();
+
+  for (const comment of commentRows) {
+    commentsById.set(comment.id, {
+      id: comment.id,
+      userId: comment.userId,
+      parentCommentId: comment.parentCommentId,
+      authorName: comment.authorName,
+      authorImage: comment.authorImage,
+      body: comment.body,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      canDelete: comment.userId === currentUserId,
+      replies: [],
+    });
+    goalLogIdByCommentId.set(comment.id, comment.goalLogId);
+  }
+
+  for (const comment of commentRows) {
+    const serialized = commentsById.get(comment.id);
+    if (!serialized) continue;
+
+    const parent = comment.parentCommentId
+      ? commentsById.get(comment.parentCommentId)
+      : null;
+    const parentGoalLogId = comment.parentCommentId
+      ? goalLogIdByCommentId.get(comment.parentCommentId)
+      : null;
+
+    if (parent && parentGoalLogId === comment.goalLogId) {
+      parent.replies.push(serialized);
+      continue;
+    }
+
+    const comments = rootCommentsByGoalLogId.get(comment.goalLogId) ?? [];
+    comments.push(serialized);
+    rootCommentsByGoalLogId.set(comment.goalLogId, comments);
+  }
+
+  return rootCommentsByGoalLogId;
+}
 
 export async function GET(request: Request) {
   try {
@@ -204,6 +274,7 @@ export async function GET(request: Request) {
           notes: goalLogs.notes,
           plannedStartTime: goalLogs.plannedStartTime,
           plannedEndTime: goalLogs.plannedEndTime,
+          plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
           visibility: goalLogs.visibility,
         })
         .from(goalLogs)
@@ -424,9 +495,56 @@ export async function GET(request: Request) {
           {
             startTime: log.plannedStartTime ?? null,
             endTime: log.plannedEndTime ?? null,
+            repeatsDaily: log.plannedRepeatsDaily,
           },
         ]),
     );
+    // Every date (any status) that already has its own log — the day plan uses
+    // this so an explicit plan for a date overrides a projected daily repeat.
+    const explicitPlanDatesByHabit = logs.reduce<Record<string, string[]>>(
+      (dates, log) => {
+        const existing = dates[log.goalId] ?? [];
+        existing.push(log.date);
+        dates[log.goalId] = existing;
+        return dates;
+      },
+      {},
+    );
+    // The active "repeat daily" plan per habit, resolved across all months (not
+    // just the requested range) so it keeps projecting forward indefinitely.
+    // The most recently set repeat wins and is effective from its own date on.
+    const repeatingPlanRows = await db
+      .select({
+        goalId: goalLogs.goalId,
+        date: goalLogs.date,
+        plannedStartTime: goalLogs.plannedStartTime,
+        plannedEndTime: goalLogs.plannedEndTime,
+      })
+      .from(goalLogs)
+      .where(
+        and(
+          eq(goalLogs.userId, user.id),
+          eq(goalLogs.status, "planned"),
+          eq(goalLogs.plannedRepeatsDaily, true),
+        ),
+      )
+      .orderBy(asc(goalLogs.date));
+    const repeatingPlansByHabit = repeatingPlanRows.reduce<
+      Record<
+        string,
+        { startTime: string | null; endTime: string | null; originDate: string }
+      >
+    >((plans, row) => {
+      const existing = plans[row.goalId];
+      if (!existing || row.date > existing.originDate) {
+        plans[row.goalId] = {
+          startTime: row.plannedStartTime ?? null,
+          endTime: row.plannedEndTime ?? null,
+          originDate: row.date,
+        };
+      }
+      return plans;
+    }, {});
     const photoCountsByHabitDate = photos.reduce<Record<string, number>>(
       (counts, photo) => {
         const key = `${photo.goalId}_${photo.date}`;
@@ -441,11 +559,12 @@ export async function GET(request: Request) {
         .map((log) => [log.id, `${log.goalId}_${log.date}`]),
     );
     const socialByHabitDate: Record<string, GoalLogSocialSummary> = {};
-    const ensureSocial = (key: string) => {
+    const ensureSocial = (key: string, goalLogId: string) => {
       const existing = socialByHabitDate[key];
       if (existing) return existing;
 
       const next: GoalLogSocialSummary = {
+        goalLogId,
         props: {
           count: 0,
           hasPropped: false,
@@ -471,6 +590,7 @@ export async function GET(request: Request) {
             id: feedComments.id,
             goalLogId: feedComments.goalLogId,
             userId: feedComments.userId,
+            parentCommentId: feedComments.parentCommentId,
             authorName: users.name,
             authorImage: users.image,
             body: feedComments.body,
@@ -487,27 +607,22 @@ export async function GET(request: Request) {
         const key = socialLogKeysById.get(prop.goalLogId);
         if (!key) continue;
 
-        const social = ensureSocial(key);
+        const social = ensureSocial(key, prop.goalLogId);
         social.props.count += 1;
         if (prop.userId === user.id) {
           social.props.hasPropped = true;
         }
       }
 
-      for (const comment of commentRows) {
-        const key = socialLogKeysById.get(comment.goalLogId);
+      const commentsByGoalLogId = groupNestedGoalLogComments(
+        commentRows,
+        user.id,
+      );
+      for (const [goalLogId, comments] of commentsByGoalLogId) {
+        const key = socialLogKeysById.get(goalLogId);
         if (!key) continue;
 
-        ensureSocial(key).comments.push({
-          id: comment.id,
-          userId: comment.userId,
-          authorName: comment.authorName,
-          authorImage: comment.authorImage,
-          body: comment.body,
-          createdAt: comment.createdAt.toISOString(),
-          updatedAt: comment.updatedAt.toISOString(),
-          canDelete: comment.userId === user.id,
-        });
+        ensureSocial(key, goalLogId).comments = comments;
       }
     }
 
@@ -527,6 +642,10 @@ export async function GET(request: Request) {
       visibilityByHabitDate,
       plannedTimesByGoalDate: plannedTimesByHabitDate,
       plannedTimesByHabitDate,
+      repeatingPlansByGoal: repeatingPlansByHabit,
+      repeatingPlansByHabit,
+      explicitPlanDatesByGoal: explicitPlanDatesByHabit,
+      explicitPlanDatesByHabit,
       photoCountsByGoalDate: photoCountsByHabitDate,
       photoCountsByHabitDate,
       socialByGoalDate: socialByHabitDate,
@@ -568,6 +687,7 @@ export async function POST(request: Request) {
       .select({
         id: habits.id,
         name: habits.name,
+        period: habits.period,
         visibility: habits.visibility,
       })
       .from(habits)
@@ -587,6 +707,10 @@ export async function POST(request: Request) {
         data.status === "planned"
           ? normalizeTimeKey(data.plannedEndTime)
           : null;
+      const plannedRepeatsDaily =
+        data.status === "planned" && goal.period === "daily"
+          ? data.repeatPlan
+          : false;
       const [existingLog] = await db
         .select({
           googleCalendarEventId: goalLogs.googleCalendarEventId,
@@ -614,6 +738,7 @@ export async function POST(request: Request) {
         const updateValues: {
           googleCalendarEventId?: null;
           plannedEndTime: null;
+          plannedRepeatsDaily: false;
           plannedStartTime: null;
           status: "incomplete";
           updatedAt: Date;
@@ -621,6 +746,7 @@ export async function POST(request: Request) {
           status: "incomplete",
           plannedStartTime: null,
           plannedEndTime: null,
+          plannedRepeatsDaily: false,
           updatedAt: new Date(),
         };
 
@@ -628,16 +754,27 @@ export async function POST(request: Request) {
           updateValues.googleCalendarEventId = null;
         }
 
+        // Upsert (not update-only) so clearing a day that only exists as a
+        // projected daily repeat writes an explicit "incomplete" override,
+        // which suppresses the repeat for that day going forward.
         await db
-          .update(goalLogs)
-          .set(updateValues)
-          .where(
-            and(
-              eq(goalLogs.goalId, data.goalId),
-              eq(goalLogs.date, data.dateKey),
-              eq(goalLogs.userId, user.id),
-            ),
-          );
+          .insert(goalLogs)
+          .values({
+            userId: user.id,
+            goalId: data.goalId,
+            date: data.dateKey,
+            status: "incomplete",
+            plannedStartTime: null,
+            plannedEndTime: null,
+            plannedRepeatsDaily: false,
+            visibility: goal.visibility,
+            googleCalendarEventId: null,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [goalLogs.goalId, goalLogs.date],
+            set: updateValues,
+          });
 
         return NextResponse.json({ ok: true, calendarSync });
       }
@@ -651,6 +788,7 @@ export async function POST(request: Request) {
           status: data.status,
           plannedStartTime,
           plannedEndTime,
+          plannedRepeatsDaily,
           visibility: goal.visibility,
           updatedAt: new Date(),
         })
@@ -660,6 +798,7 @@ export async function POST(request: Request) {
             status: data.status,
             plannedStartTime,
             plannedEndTime,
+            plannedRepeatsDaily,
             updatedAt: new Date(),
             userId: user.id,
           },
@@ -684,6 +823,7 @@ export async function POST(request: Request) {
         habitName: goal.name,
         plannedEndTime,
         plannedStartTime,
+        repeatDaily: goal.period === "daily" ? plannedRepeatsDaily : undefined,
         timeZone: data.plannedTimeZone ?? null,
         userId: user.id,
       });

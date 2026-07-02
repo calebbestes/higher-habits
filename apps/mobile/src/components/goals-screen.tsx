@@ -582,6 +582,18 @@ function GoalCard({
   const completedCount = goal.checkpoints.filter(
     (checkpoint) => checkpoint.completed,
   ).length;
+  const actionItems: MenuAction[] = [
+    {
+      id: "edit-goal",
+      title: "Edit goal",
+      image: "pencil",
+    },
+    {
+      id: "delete-goal",
+      title: "Delete goal",
+      image: "trash",
+    },
+  ];
 
   return (
     <View
@@ -615,39 +627,36 @@ function GoalCard({
             {completedCount}/{goal.checkpoints.length} checkpoints complete
           </Text>
         </View>
-        <Pressable
-          accessibilityLabel={`Edit ${goal.title}`}
-          hitSlop={8}
-          onPress={onEdit}
-          style={({ pressed }) => [
-            styles.iconButton,
-            pressed && { backgroundColor: theme.backgroundElement },
-          ]}
-        >
-          <SymbolView
-            name={symbol("pencil", "edit")}
-            size={18}
-            tintColor={theme.textSecondary}
-          />
-        </Pressable>
-        <Pressable
-          accessibilityLabel={`Delete ${goal.title}`}
-          hitSlop={8}
-          onPress={(event) => {
-            event.stopPropagation();
-            onDelete();
+        <MenuView
+          actions={actionItems}
+          onPressAction={({ nativeEvent }) => {
+            if (nativeEvent.event === "edit-goal") {
+              onEdit();
+              return;
+            }
+            if (nativeEvent.event === "delete-goal") {
+              onDelete();
+            }
           }}
-          style={({ pressed }) => [
-            styles.iconButton,
-            pressed && { backgroundColor: theme.backgroundElement },
-          ]}
+          title={goal.title}
         >
-          <SymbolView
-            name={symbol("trash", "delete")}
-            size={19}
-            tintColor="#B84D54"
-          />
-        </Pressable>
+          <View
+            accessible
+            accessibilityLabel={`More actions for ${goal.title}`}
+            accessibilityRole="button"
+            style={[
+              styles.iconButton,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <SymbolView
+              name={symbol("ellipsis", "more_horiz")}
+              size={21}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
+          </View>
+        </MenuView>
       </View>
 
       {goal.checkpoints.length ? (
