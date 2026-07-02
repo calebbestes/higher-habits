@@ -31,16 +31,20 @@ import {
 import { EMPTY_TASK, capitalize, sym, toInput } from "./shared";
 
 export function TaskFormModal({
+  initialValues,
   isOpen,
   onClose,
   onSave,
+  saveHint,
   task,
   projects,
   onCreateProject,
 }: {
+  initialValues?: Partial<TaskInput>;
   isOpen: boolean;
   onClose: () => void;
   onSave: (input: TaskInput) => Promise<void>;
+  saveHint?: string;
   task: Task | null;
   projects: Project[];
   onCreateProject: (name: string) => Promise<Project>;
@@ -54,10 +58,10 @@ export function TaskFormModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setForm(task ? toInput(task) : EMPTY_TASK);
+    setForm(task ? toInput(task) : { ...EMPTY_TASK, ...initialValues });
     setError(null);
     setNewProjectName("");
-  }, [isOpen, task]);
+  }, [initialValues, isOpen, task]);
 
   const addProject = async () => {
     const name = newProjectName.trim();
@@ -152,6 +156,21 @@ export function TaskFormModal({
               )}
             </Pressable>
           </View>
+          {saveHint ? (
+            <View
+              style={[
+                styles.saveHint,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.saveHintText, { color: theme.text }]}>
+                {saveHint}
+              </Text>
+            </View>
+          ) : null}
 
           <ScrollView
             contentContainerStyle={styles.formContent}
@@ -460,6 +479,17 @@ const styles = StyleSheet.create({
   },
   formHeaderButtonText: { fontSize: 15, fontWeight: "700" },
   formTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  saveHint: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "transparent",
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+  },
+  saveHintText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
   formContent: {
     width: "100%",
     maxWidth: 620,

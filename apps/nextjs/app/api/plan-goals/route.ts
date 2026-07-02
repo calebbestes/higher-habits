@@ -1,4 +1,4 @@
-import { getDb, goalCheckpoints, goals } from "@habit/db";
+import { GOAL_VISIBILITIES, getDb, goalCheckpoints, goals } from "@habit/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -32,6 +32,8 @@ const updateCheckpointSchema = z.object({
   type: z.literal("updateCheckpoint"),
   id: z.string().uuid(),
   completed: z.boolean(),
+  notes: z.string().max(20_000).nullable().optional(),
+  visibility: z.enum(GOAL_VISIBILITIES).optional(),
 });
 const deleteSchema = z.object({
   type: z.literal("delete"),
@@ -59,6 +61,8 @@ const selectCheckpointShape = {
   targetDate: goalCheckpoints.targetDate,
   sortOrder: goalCheckpoints.sortOrder,
   completedAt: goalCheckpoints.completedAt,
+  notes: goalCheckpoints.notes,
+  visibility: goalCheckpoints.visibility,
   createdAt: goalCheckpoints.createdAt,
   updatedAt: goalCheckpoints.updatedAt,
 } as const;
@@ -74,6 +78,8 @@ type CheckpointRow = {
   targetDate: string | null;
   sortOrder: number;
   completedAt: Date | null;
+  notes: string | null;
+  visibility: (typeof GOAL_VISIBILITIES)[number];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -85,6 +91,9 @@ function serializeCheckpoint(row: CheckpointRow) {
     targetDate: row.targetDate ?? null,
     sortOrder: row.sortOrder,
     completed: Boolean(row.completedAt),
+    completedAt: row.completedAt?.toISOString() ?? null,
+    notes: row.notes ?? null,
+    visibility: row.visibility,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -309,6 +318,10 @@ export async function POST(request: Request) {
         .update(goalCheckpoints)
         .set({
           completedAt: data.completed ? new Date() : null,
+          ...(data.notes !== undefined ? { notes: data.notes } : {}),
+          ...(data.visibility !== undefined
+            ? { visibility: data.visibility }
+            : {}),
           updatedAt: new Date(),
         })
         .where(
@@ -321,25 +334,6 @@ export async function POST(request: Request) {
 
       if (!checkpoint) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-
-      if (data.completed) {
-        await deletePlannedEventsForSources(db, {
-          sourceIds: [checkpoint.id],
-          sourceType: "goal_checkpoint",
-          userId: user.id,
-        });
-      } else if (checkpoint.targetDate) {
-        await upsertPlannedEvent(db, {
-          dateKey: checkpoint.targetDate,
-          plannedEndTime: null,
-          plannedStartTime: null,
-          sourceId: checkpoint.id,
-          sourceType: "goal_checkpoint",
-          title: checkpoint.title,
-          timeZone: null,
-          userId: user.id,
-        });
       }
 
       return NextResponse.json(

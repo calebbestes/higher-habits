@@ -18,10 +18,15 @@ import {
 import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
-import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import {
+  type CheckpointPhoto,
+  fetchAllCheckpointPhotos,
+} from "@/lib/checkpoint-photos-client";
+import { addFeedComment } from "@/lib/friends-client";
 import {
   type GoalLogsSnapshot,
   deleteGoalLog,
@@ -39,7 +44,7 @@ import {
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
-import { addFeedComment } from "@/lib/friends-client";
+import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -67,6 +72,16 @@ type JournalEntry = {
 
 type JournalSocialSummary = GoalLogsSnapshot["socialByGoalDate"][string];
 type JournalSocialComment = JournalSocialSummary["comments"][number];
+
+type CheckpointJournalEntry = {
+  id: string;
+  goalTitle: string;
+  checkpointTitle: string;
+  dateKey: string;
+  note: string;
+  visibility: GoalVisibility;
+  photos: GoalPhoto[];
+};
 
 const MONTHS = [
   "January",
@@ -160,6 +175,10 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [checkpointGoals, setCheckpointGoals] = useState<Goal[]>([]);
+  const [checkpointPhotos, setCheckpointPhotos] = useState<CheckpointPhoto[]>(
+    [],
+  );
   const [activePost, setActivePost] = useState<JournalEntry | null>(null);
   const [isUpdatingPost, setIsUpdatingPost] = useState(false);
   const [noteEditEntry, setNoteEditEntry] = useState<JournalEntry | null>(null);
@@ -210,6 +229,13 @@ export function JournalScreen() {
         });
         setSnapshot(nextSnapshot);
         setPhotos(nextPhotos);
+
+        const [nextGoals, nextCheckpointPhotos] = await Promise.all([
+          fetchPlanGoals().catch(() => [] as Goal[]),
+          fetchAllCheckpointPhotos().catch(() => [] as CheckpointPhoto[]),
+        ]);
+        setCheckpointGoals(nextGoals);
+        setCheckpointPhotos(nextCheckpointPhotos);
       } catch (loadError) {
         setError(
           loadError instanceof Error
@@ -336,6 +362,78 @@ export function JournalScreen() {
         left.goal.name.localeCompare(right.goal.name),
     );
   }, [goalById, range, selectedGoalId, snapshot]);
+
+  const checkpointPhotosById = useMemo(() => {
+    const grouped = new Map<string, GoalPhoto[]>();
+    for (const photo of checkpointPhotos) {
+      const mapped: GoalPhoto = {
+        id: photo.id,
+        url: photo.url,
+        contentType: photo.contentType,
+        createdAt: photo.createdAt,
+        dateKey: "",
+        goalId: photo.checkpointId,
+      };
+      grouped.set(photo.checkpointId, [
+        ...(grouped.get(photo.checkpointId) ?? []),
+        mapped,
+      ]);
+    }
+    return grouped;
+  }, [checkpointPhotos]);
+
+  const checkpointEntries = useMemo(() => {
+    // Checkpoints aren't tied to a habit goal, so hide them when filtering by
+    // a specific habit.
+    if (selectedGoalId) return [] as CheckpointJournalEntry[];
+
+    const results: CheckpointJournalEntry[] = [];
+    for (const goal of checkpointGoals) {
+      for (const checkpoint of goal.checkpoints) {
+        if (!checkpoint.completed || !checkpoint.completedAt) continue;
+
+        const entryDateKey = checkpoint.completedAt.slice(0, 10);
+        if (
+          range &&
+          (entryDateKey < range.startDateKey || entryDateKey > range.endDateKey)
+        ) {
+          continue;
+        }
+
+        const note = checkpoint.notes ?? "";
+        const photos = checkpointPhotosById.get(checkpoint.id) ?? [];
+        if (!note.trim() && photos.length === 0) continue;
+
+        results.push({
+          id: checkpoint.id,
+          goalTitle: goal.title,
+          checkpointTitle: checkpoint.title,
+          dateKey: entryDateKey,
+          note,
+          visibility: checkpoint.visibility,
+          photos,
+        });
+      }
+    }
+
+    return results.sort((left, right) =>
+      right.dateKey.localeCompare(left.dateKey),
+    );
+  }, [checkpointGoals, checkpointPhotosById, range, selectedGoalId]);
+
+  const mergedEntries = useMemo(
+    () =>
+      [
+        ...entries.map((entry) => ({ kind: "habit" as const, entry })),
+        ...checkpointEntries.map((entry) => ({
+          kind: "checkpoint" as const,
+          entry,
+        })),
+      ].sort((left, right) =>
+        right.entry.dateKey.localeCompare(left.entry.dateKey),
+      ),
+    [entries, checkpointEntries],
+  );
 
   const handleSetPostVisibility = useCallback(
     async (entry: JournalEntry, visibility: GoalVisibility) => {
@@ -511,7 +609,7 @@ export function JournalScreen() {
             <View style={styles.centerState}>
               <ActivityIndicator color={theme.primary} size="large" />
             </View>
-          ) : entries.length === 0 ? (
+          ) : mergedEntries.length === 0 ? (
             <EmptyState
               goalName={selectedGoal?.name ?? null}
               dateLabel={
@@ -522,14 +620,27 @@ export function JournalScreen() {
             />
           ) : (
             <View style={styles.entryList}>
-              {entries.map((entry) => {
+              {mergedEntries.map((item) => {
+                if (item.kind === "checkpoint") {
+                  return (
+                    <CheckpointJournalCard
+                      key={`checkpoint_${item.entry.id}`}
+                      entry={item.entry}
+                      onOpenPhoto={setActivePhoto}
+                    />
+                  );
+                }
+
+                const entry = item.entry;
                 const goalLogId = entry.social?.goalLogId ?? null;
 
                 return (
                   <JournalCard
                     key={`${entry.goal.id}_${entry.dateKey}`}
                     entry={entry}
-                    commentDraft={goalLogId ? (replyDrafts[goalLogId] ?? "") : ""}
+                    commentDraft={
+                      goalLogId ? (replyDrafts[goalLogId] ?? "") : ""
+                    }
                     isSubmittingReply={
                       goalLogId !== null &&
                       submittingReplyGoalLogId === goalLogId
@@ -714,6 +825,94 @@ function MonthButton({
         {hasDateFilter ? year : "DATES"}
       </Text>
     </Pressable>
+  );
+}
+
+function CheckpointJournalCard({
+  entry,
+  onOpenPhoto,
+}: {
+  entry: CheckpointJournalEntry;
+  onOpenPhoto: (photo: GoalPhoto) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View
+          style={[
+            styles.goalIcon,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <SymbolView
+            name={sym("checkmark.seal.fill", "verified")}
+            size={16}
+            tintColor={theme.primary}
+          />
+        </View>
+        <View style={styles.cardHeaderText}>
+          <Text style={[styles.cardDate, { color: theme.text }]}>
+            {formatDate(entry.dateKey)}
+          </Text>
+          <Text style={[styles.cardGoal, { color: theme.textSecondary }]}>
+            {entry.goalTitle} · {entry.checkpointTitle}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.checkpointBadge,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <Text style={[styles.checkpointBadgeText, { color: theme.primary }]}>
+            GOAL
+          </Text>
+        </View>
+      </View>
+
+      {entry.note.trim() ? (
+        <Text style={[styles.checkpointNote, { color: theme.text }]}>
+          {entry.note.trim()}
+        </Text>
+      ) : null}
+
+      {entry.photos.length > 0 ? (
+        <View
+          style={[
+            styles.photoGrid,
+            entry.photos.length === 1 && styles.singlePhotoGrid,
+          ]}
+        >
+          {entry.photos.map((photo) => (
+            <Pressable
+              key={photo.id}
+              accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
+              onPress={() => onOpenPhoto(photo)}
+              style={({ pressed }) => [
+                styles.photoButton,
+                entry.photos.length === 1 && styles.singlePhotoButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Image
+                contentFit="cover"
+                source={{ uri: photo.url }}
+                style={styles.photo}
+                transition={180}
+              />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1842,6 +2041,23 @@ const styles = StyleSheet.create({
   cardHeaderText: { flex: 1, gap: 1 },
   cardDate: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
   cardGoal: { fontSize: 11, lineHeight: 15, fontWeight: "600" },
+  checkpointBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  checkpointBadgeText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  checkpointNote: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+    paddingHorizontal: 14,
+  },
   postMenuButton: {
     width: 34,
     height: 34,

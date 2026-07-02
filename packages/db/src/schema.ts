@@ -352,6 +352,8 @@ export const goalCheckpoints = pgTable(
     targetDate: date("target_date", { mode: "string" }),
     sortOrder: integer("sort_order").default(0).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    notes: text("notes"),
+    visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -498,6 +500,29 @@ export const goalLogPhotos = pgTable(
     index("goal_log_photos_goal_log_id_idx").on(table.goalLogId),
     index("goal_log_photos_user_id_idx").on(table.userId),
     unique("goal_log_photos_storage_path_uidx").on(table.storagePath),
+  ],
+);
+
+export const goalCheckpointPhotos = pgTable(
+  "goal_checkpoint_photos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    checkpointId: uuid("checkpoint_id")
+      .notNull()
+      .references(() => goalCheckpoints.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storagePath: text("storage_path").notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_checkpoint_photos_checkpoint_id_idx").on(table.checkpointId),
+    index("goal_checkpoint_photos_user_id_idx").on(table.userId),
+    unique("goal_checkpoint_photos_storage_path_uidx").on(table.storagePath),
   ],
 );
 
@@ -664,6 +689,8 @@ export type GoalLog = typeof goalLogs.$inferSelect;
 export type NewGoalLog = typeof goalLogs.$inferInsert;
 export type GoalLogPhoto = typeof goalLogPhotos.$inferSelect;
 export type NewGoalLogPhoto = typeof goalLogPhotos.$inferInsert;
+export type GoalCheckpointPhoto = typeof goalCheckpointPhotos.$inferSelect;
+export type NewGoalCheckpointPhoto = typeof goalCheckpointPhotos.$inferInsert;
 export type FeedProp = typeof feedProps.$inferSelect;
 export type NewFeedProp = typeof feedProps.$inferInsert;
 export type FeedComment = typeof feedComments.$inferSelect;
@@ -736,9 +763,7 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
-  onboardingCompleted: boolean("onboarding_completed")
-    .notNull()
-    .default(true),
+  onboardingCompleted: boolean("onboarding_completed").notNull().default(true),
   defaultPlanReportView: text("default_plan_report_view")
     .notNull()
     .default("day-plan"),

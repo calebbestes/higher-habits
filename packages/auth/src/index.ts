@@ -6,12 +6,17 @@ import { nextCookies } from "better-auth/next-js";
 
 import {
   accounts,
+  eq,
+  friends,
   getDb,
   sessions,
   userSettings,
   users,
   verifications,
 } from "@habit/db";
+
+// Every new user is automatically made friends with this account.
+const AUTO_FRIEND_EMAIL = "estes.caleb.b@gmail.com";
 
 export function createAuth() {
   const db = getDb();
@@ -141,6 +146,34 @@ export function createAuth() {
                 onboardingCompleted: false,
               })
               .onConflictDoNothing({ target: userSettings.userId });
+
+            // Auto-friend every new user with the founder account. Never let a
+            // failure here block sign-up.
+            try {
+              const userEmail =
+                typeof user.email === "string"
+                  ? user.email.trim().toLowerCase()
+                  : "";
+              if (userEmail === AUTO_FRIEND_EMAIL) return;
+
+              const [founder] = await db
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.email, AUTO_FRIEND_EMAIL))
+                .limit(1);
+              if (!founder || founder.id === userId) return;
+
+              await db
+                .insert(friends)
+                .values({
+                  userId1: userId,
+                  userId2: founder.id,
+                  status: "accepted",
+                })
+                .onConflictDoNothing();
+            } catch (error) {
+              console.error("Auto-friend on signup failed", error);
+            }
           },
         },
       },

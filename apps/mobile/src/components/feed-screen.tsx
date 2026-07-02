@@ -211,9 +211,7 @@ export function FeedScreen() {
           ),
         );
         setReplyTargets((prev) =>
-          prev[entryId]?.id === commentId
-            ? { ...prev, [entryId]: null }
-            : prev,
+          prev[entryId]?.id === commentId ? { ...prev, [entryId]: null } : prev,
         );
       } catch (err) {
         Alert.alert(
@@ -470,9 +468,7 @@ function FeedCard({
               onMomentumScrollEnd={(event) => {
                 if (!carouselWidth) return;
                 setCarouselIndex(
-                  Math.round(
-                    event.nativeEvent.contentOffset.x / carouselWidth,
-                  ),
+                  Math.round(event.nativeEvent.contentOffset.x / carouselWidth),
                 );
               }}
             >
@@ -558,59 +554,60 @@ function FeedCard({
         </View>
       ) : null}
 
-      {/* Actions row */}
-      <View style={[styles.actionsRow, { borderTopColor: theme.tabBorder }]}>
-        <Pressable
-          onPress={onToggleProp}
-          style={({ pressed }) => [
-            styles.propButton,
-            entry.props.hasPropped && {
-              backgroundColor: `${theme.primary}18`,
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("hands.clap.fill", "volunteer_activism")}
-            size={18}
-            weight="semibold"
-            tintColor={entry.props.hasPropped ? theme.primary : theme.tabIcon}
-          />
-          <Text
-            style={[
-              styles.propText,
-              {
-                color: entry.props.hasPropped ? theme.primary : theme.tabIcon,
+      {/* Actions row — props/comments are habit-only for now */}
+      {entry.kind === "habit" ? (
+        <View style={[styles.actionsRow, { borderTopColor: theme.tabBorder }]}>
+          <Pressable
+            onPress={onToggleProp}
+            style={({ pressed }) => [
+              styles.propButton,
+              entry.props.hasPropped && {
+                backgroundColor: `${theme.primary}18`,
               },
+              pressed && styles.pressed,
             ]}
           >
-            {entry.props.count > 0
-              ? `${entry.props.count} ${entry.props.count === 1 ? "Prop" : "Props"}`
-              : "Prop"}
-          </Text>
-        </Pressable>
+            <SymbolView
+              name={sym("hands.clap.fill", "volunteer_activism")}
+              size={18}
+              weight="semibold"
+              tintColor={entry.props.hasPropped ? theme.primary : theme.tabIcon}
+            />
+            <Text
+              style={[
+                styles.propText,
+                {
+                  color: entry.props.hasPropped ? theme.primary : theme.tabIcon,
+                },
+              ]}
+            >
+              {entry.props.count > 0
+                ? `${entry.props.count} ${entry.props.count === 1 ? "Prop" : "Props"}`
+                : "Prop"}
+            </Text>
+          </Pressable>
 
-        <Pressable
-          onPress={onOpenComments}
-          style={({ pressed }) => [
-            styles.commentCountWrap,
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("bubble.left", "chat_bubble_outline")}
-            size={16}
-            weight="semibold"
-            tintColor={theme.textSecondary}
-          />
-          <Text
-            style={[styles.commentCountText, { color: theme.textSecondary }]}
+          <Pressable
+            onPress={onOpenComments}
+            style={({ pressed }) => [
+              styles.commentCountWrap,
+              pressed && styles.pressed,
+            ]}
           >
-            {commentCount} {commentCount === 1 ? "comment" : "comments"}
-          </Text>
-        </Pressable>
-      </View>
-
+            <SymbolView
+              name={sym("bubble.left", "chat_bubble_outline")}
+              size={16}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
+            <Text
+              style={[styles.commentCountText, { color: theme.textSecondary }]}
+            >
+              {commentCount} {commentCount === 1 ? "comment" : "comments"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -721,7 +718,9 @@ function CommentsModal({
               ))
             ) : (
               <View style={styles.emptyComments}>
-                <Text style={[styles.emptyCommentsTitle, { color: theme.text }]}>
+                <Text
+                  style={[styles.emptyCommentsTitle, { color: theme.text }]}
+                >
                   No comments yet
                 </Text>
                 <Text
@@ -881,7 +880,9 @@ function CommentRow({
   const theme = useTheme();
 
   return (
-    <View style={[styles.commentThread, depth > 0 && styles.commentReplyThread]}>
+    <View
+      style={[styles.commentThread, depth > 0 && styles.commentReplyThread]}
+    >
       <View
         style={[
           styles.commentRow,

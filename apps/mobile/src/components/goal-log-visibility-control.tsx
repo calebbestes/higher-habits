@@ -32,12 +32,17 @@ export function GoalLogVisibilityControl({
   disabled,
   value,
   onChange,
+  allowed,
 }: {
   disabled: boolean;
   value: GoalVisibility;
   onChange: (visibility: GoalVisibility) => void;
+  allowed?: GoalVisibility[];
 }) {
   const theme = useTheme();
+  const options = allowed
+    ? OPTIONS.filter((option) => allowed.includes(option.value))
+    : OPTIONS;
 
   return (
     <View
@@ -51,7 +56,7 @@ export function GoalLogVisibilityControl({
         Post visibility
       </Text>
       <View style={[styles.options, { backgroundColor: theme.background }]}>
-        {OPTIONS.map((option) => {
+        {options.map((option) => {
           const selected = option.value === value;
 
           return (

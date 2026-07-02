@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { HabitFormModal } from "@/components/habits-manager-screen";
@@ -28,6 +30,7 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import { uploadCheckpointPhoto } from "@/lib/checkpoint-photos-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
@@ -82,6 +85,7 @@ import {
 
 type DayPlanEntry = {
   allDay: boolean;
+  completed?: boolean;
   description?: string | null;
   endMinutes: number;
   habitId?: string;
@@ -99,6 +103,10 @@ type CheckpointRef = {
   checkpoint: GoalCheckpoint;
   goal: Goal;
 };
+type CheckpointNoteTarget = {
+  entry: DayPlanEntry;
+  ref: CheckpointRef;
+};
 type PlanRange = {
   endMinutes: number;
   startMinutes: number;
@@ -108,6 +116,25 @@ type PlanTargetOption = {
   id: string;
   subtitle?: string;
   title: string;
+};
+export type DayPlanOnboardingStep =
+  | "drag"
+  | "task-info"
+  | "goal-info"
+  | "habit-info"
+  | "select-goal"
+  | "goal-create"
+  | "proof"
+  | "mark-complete"
+  | "journal-info"
+  | "friends-info"
+  | "done";
+export type DayPlanOnboardingGuide = {
+  createdGoalCheckpointId: string | null;
+  onComplete: () => void;
+  onGoalCreated: (checkpointId: string) => void;
+  onStepChange: (step: DayPlanOnboardingStep) => void;
+  step: DayPlanOnboardingStep;
 };
 type TimelineGesture =
   | {
@@ -164,7 +191,13 @@ const MONTH_NAMES = [
 ];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
+export function DayPlanScreen({
+  initialDateKey,
+  onboardingGuide,
+}: {
+  initialDateKey?: string;
+  onboardingGuide?: DayPlanOnboardingGuide;
+}) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const { projects, reloadProjects, createProject } = useTaskProjects();
@@ -173,6 +206,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const timelineViewportTopRef = useRef(0);
   const timelineDragLayerWidthRef = useRef(0);
   const timelineGestureRef = useRef<TimelineGesture | null>(null);
+  const timelineHapticKeyRef = useRef<string | null>(null);
   const timelineAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -204,6 +238,8 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const [activeHabit, setActiveHabit] = useState<ActionHabit | null>(null);
   const [activeEntry, setActiveEntry] = useState<DayPlanEntry | null>(null);
   const [noteHabit, setNoteHabit] = useState<ActionHabit | null>(null);
+  const [noteCheckpoint, setNoteCheckpoint] =
+    useState<CheckpointNoteTarget | null>(null);
   const [dragPlanRange, setDragPlanRange] = useState<PlanRange | null>(null);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
@@ -771,14 +807,25 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const entries = useMemo(
     () =>
       buildDayPlanEntries({
+        checkpointById,
         dateKey,
         googleEvents,
         habitById,
         plannedEvents,
         snapshot,
+        taskById,
         selectedDate,
       }),
-    [dateKey, googleEvents, habitById, plannedEvents, selectedDate, snapshot],
+    [
+      checkpointById,
+      dateKey,
+      googleEvents,
+      habitById,
+      plannedEvents,
+      selectedDate,
+      snapshot,
+      taskById,
+    ],
   );
   const timedEntries = useMemo(
     () => layoutTimedEntries(entries.filter((entry) => !entry.allDay)),
@@ -786,6 +833,10 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   );
   const allDayEntries = entries.filter((entry) => entry.allDay);
   const activeKey = activeHabit ? `${activeHabit.id}_${dateKey}` : null;
+  const activeCheckpoint =
+    activeEntry?.kind === "goal" && activeEntry.sourceId
+      ? (checkpointById.get(activeEntry.sourceId) ?? null)
+      : null;
   const activePlannedTime = activeKey
     ? snapshot?.plannedTimesByHabitDate[activeKey]
     : undefined;
@@ -795,8 +846,10 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
       draftPlanRange ||
       otherEventRange ||
       creatingTargetType ||
-      noteHabit,
+      noteHabit ||
+      noteCheckpoint,
   );
+  const onboardingStep = onboardingGuide?.step ?? null;
   const timelineScrollMax = HOUR_HEIGHT * 24 - TIMELINE_VIEWPORT_HEIGHT;
   const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
     timelineViewportTopRef.current =
@@ -806,6 +859,28 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     minutesFromTimelineY(
       timelineScrollYRef.current + pageY - timelineViewportTopRef.current,
     );
+  const playTimelineDragStartHaptic = () => {
+    const haptic =
+      Platform.OS === "android"
+        ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Drag_Start)
+        : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid);
+
+    void haptic.catch(() => undefined);
+  };
+  const playTimelineRangeHaptic = (range: PlanRange, force = false) => {
+    const key = `${range.startMinutes}-${range.endMinutes}`;
+    if (!force && timelineHapticKeyRef.current === key) return;
+
+    timelineHapticKeyRef.current = key;
+    const haptic =
+      Platform.OS === "android"
+        ? Haptics.performAndroidHapticsAsync(
+            Haptics.AndroidHaptics.Segment_Tick,
+          )
+        : Haptics.selectionAsync();
+
+    void haptic.catch(() => undefined);
+  };
   const stopTimelineAutoScroll = () => {
     if (!timelineAutoScrollRef.current) return;
     clearInterval(timelineAutoScrollRef.current);
@@ -830,6 +905,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
       lastPageY: pageY,
       latestRange: range,
     };
+    playTimelineRangeHaptic(range);
     setDragPlanRange(range);
   };
   const updateTimelineAutoScroll = (pageY: number) => {
@@ -932,6 +1008,8 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     setSelectedPlanTargetType(null);
     setDragPlanRange(range);
     setIsTimelineDragging(true);
+    playTimelineDragStartHaptic();
+    playTimelineRangeHaptic(range, true);
     updateTimelineAutoScroll(press.pageY);
   };
   const handleTimelinePressMove = (event: GestureResponderEvent) => {
@@ -1001,6 +1079,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
 
     const gesture = timelineGestureRef.current;
     timelineGestureRef.current = null;
+    timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
 
@@ -1009,6 +1088,9 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     if (gesture.type === "create") {
       setDraftPlanRange(gesture.latestRange);
       setSelectedPlanTargetType(null);
+      if (onboardingGuide?.step === "drag") {
+        onboardingGuide.onStepChange("task-info");
+      }
       return;
     }
 
@@ -1046,6 +1128,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     pendingEmptyPressRef.current = null;
     stopTimelineAutoScroll();
     timelineGestureRef.current = null;
+    timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
   };
@@ -1084,6 +1167,8 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     setSelectedPlanTargetType(null);
     setDragPlanRange(range);
     setIsTimelineDragging(true);
+    playTimelineDragStartHaptic();
+    playTimelineRangeHaptic(range, true);
     updateTimelineAutoScroll(pageY);
   };
 
@@ -1182,6 +1267,44 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     }
   };
 
+  const saveCheckpointNote = async (
+    target: CheckpointNoteTarget,
+    notes: string,
+  ) => {
+    await updatePlanGoalCheckpoint(target.ref.checkpoint.id, {
+      completed: target.ref.checkpoint.completed,
+      notes: notes.trim() ? notes.trim() : null,
+      visibility: target.ref.checkpoint.visibility,
+    });
+    invalidateCurrentCaches({ planGoals: true });
+    setActiveEntry(target.entry);
+    await load();
+  };
+
+  const setActiveCheckpointVisibility = async (visibility: HabitVisibility) => {
+    if (!activeCheckpoint) return;
+
+    setUpdatingKey(`goal-${activeCheckpoint.checkpoint.id}`);
+    try {
+      await updatePlanGoalCheckpoint(activeCheckpoint.checkpoint.id, {
+        completed: activeCheckpoint.checkpoint.completed,
+        notes: activeCheckpoint.checkpoint.notes,
+        visibility,
+      });
+      invalidateCurrentCaches({ planGoals: true });
+      await load();
+    } catch (updateError) {
+      Alert.alert(
+        "Could not update visibility",
+        updateError instanceof Error
+          ? updateError.message
+          : "The post visibility could not be changed.",
+      );
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+
   const completeActiveEntry = async () => {
     if (!activeEntry?.sourceId) return;
 
@@ -1210,11 +1333,17 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           return;
         }
 
-        await updatePlanGoalCheckpoint(
-          checkpoint.checkpoint.id,
-          !checkpoint.checkpoint.completed,
-        );
+        await updatePlanGoalCheckpoint(checkpoint.checkpoint.id, {
+          completed: !checkpoint.checkpoint.completed,
+        });
         invalidateCurrentCaches({ planGoals: true });
+        if (
+          onboardingGuide?.createdGoalCheckpointId ===
+            checkpoint.checkpoint.id &&
+          onboardingGuide.step === "mark-complete"
+        ) {
+          onboardingGuide.onStepChange("journal-info");
+        }
       }
 
       setActiveEntry(null);
@@ -1271,12 +1400,67 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   };
 
   const openAttachmentForActiveEntry = () => {
-    if (!activeEntry) return;
+    if (!activeEntry?.sourceId) return;
 
-    Alert.alert(
-      "Photos and notes for this event",
-      "Habit photos and notes are ready today. Task and goal checkpoint photos and notes need a generic post model so they can show in Journal and Friends.",
-    );
+    if (activeEntry.kind !== "goal") {
+      Alert.alert(
+        "Photos and notes for this event",
+        "Task photos and notes need a post model before they can show in Journal and Friends.",
+      );
+      return;
+    }
+
+    const ref = checkpointById.get(activeEntry.sourceId);
+    if (!ref) {
+      Alert.alert("Day Plan", "Could not find that checkpoint.");
+      return;
+    }
+
+    setNoteCheckpoint({ entry: activeEntry, ref });
+    setActiveEntry(null);
+  };
+
+  const addCheckpointPhotoForActiveEntry = async (source: GoalPhotoSource) => {
+    if (!activeEntry?.sourceId || uploadingPhotoSource) return;
+
+    if (activeEntry.kind !== "goal") {
+      Alert.alert(
+        "Photos for this event",
+        "Task photos need a post model before they can show in Journal and Friends.",
+      );
+      return;
+    }
+
+    const checkpoint = checkpointById.get(activeEntry.sourceId);
+    if (!checkpoint) {
+      Alert.alert("Day Plan", "Could not find that checkpoint.");
+      return;
+    }
+
+    setUploadingPhotoSource(source);
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+
+      await uploadCheckpointPhoto(checkpoint.checkpoint.id, photo);
+      invalidateCurrentCaches({ planGoals: true });
+      await load();
+      if (
+        onboardingGuide?.createdGoalCheckpointId === checkpoint.checkpoint.id &&
+        onboardingGuide.step === "proof"
+      ) {
+        onboardingGuide.onStepChange("mark-complete");
+      }
+    } catch (photoError) {
+      Alert.alert(
+        "Could not add photo",
+        photoError instanceof Error
+          ? photoError.message
+          : "The photo could not be uploaded.",
+      );
+    } finally {
+      setUploadingPhotoSource(null);
+    }
   };
 
   const closeDraftPlan = () => {
@@ -1309,6 +1493,20 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     invalidateCurrentCaches({ tasks: true });
     setTasks((current) => [saved, ...current]);
     setCreatingTargetType(null);
+    if (draftPlanRange) {
+      await upsertPlannedEvent({
+        dateKey,
+        endTime: formatPlanApiTime(draftPlanRange.endMinutes),
+        sourceId: saved.id,
+        sourceType: "task",
+        startTime: formatPlanApiTime(draftPlanRange.startMinutes),
+        timeZone,
+        title: saved.name,
+      });
+      invalidateCurrentCaches({ google: true, planned: true });
+      closeDraftPlan();
+      await load();
+    }
     void ensureProjects(true);
   };
 
@@ -1331,9 +1529,29 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   };
 
   const saveCreatedGoal = async (input: GoalInput) => {
-    await createPlanGoal(input);
+    const saved = await createPlanGoal(input);
     invalidateCurrentCaches({ planGoals: true });
     setCreatingTargetType(null);
+    const checkpoint = saved.checkpoints[0];
+    if (draftPlanRange && checkpoint) {
+      await upsertPlannedEvent({
+        dateKey,
+        endTime: formatPlanApiTime(draftPlanRange.endMinutes),
+        sourceId: checkpoint.id,
+        sourceType: "goal_checkpoint",
+        startTime: formatPlanApiTime(draftPlanRange.startMinutes),
+        timeZone,
+        title: checkpoint.title,
+      });
+      invalidateCurrentCaches({ google: true, planned: true });
+      closeDraftPlan();
+    }
+    if (checkpoint) {
+      onboardingGuide?.onGoalCreated(checkpoint.id);
+    }
+    if (onboardingGuide?.step === "goal-create") {
+      onboardingGuide.onStepChange("proof");
+    }
     await load();
   };
 
@@ -1532,7 +1750,8 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
                 <Text
                   style={[styles.dateSubtitle, { color: theme.textSecondary }]}
                 >
-                  Calendar events in gray, planned items in color
+                  Planned habits, tasks, and goals in primary color, completed
+                  in secondary color, and other events in gray
                 </Text>
               </View>
             </View>
@@ -1735,16 +1954,26 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
             activeEntry?.sourceId &&
               updatingKey === `${activeEntry.kind}-${activeEntry.sourceId}`,
           )}
+          onboardingStep={
+            activeEntry?.kind === "goal" &&
+            activeEntry.sourceId === onboardingGuide?.createdGoalCheckpointId
+              ? onboardingStep
+              : null
+          }
           statusLabel={getInternalEntryStatusLabel(
             activeEntry,
             taskById,
             checkpointById,
           )}
-          onAddPhoto={openAttachmentForActiveEntry}
+          visibility={activeCheckpoint?.checkpoint.visibility ?? "only_me"}
+          onAddPhoto={() => void addCheckpointPhotoForActiveEntry("library")}
           onClose={() => setActiveEntry(null)}
           onDelete={() => void deleteActiveEntry()}
           onOpenNote={openAttachmentForActiveEntry}
-          onTakePhoto={openAttachmentForActiveEntry}
+          onSetVisibility={(visibility) =>
+            void setActiveCheckpointVisibility(visibility)
+          }
+          onTakePhoto={() => void addCheckpointPhotoForActiveEntry("camera")}
           onToggleComplete={() => void completeActiveEntry()}
         />
         <PlanSelectionModal
@@ -1753,16 +1982,33 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
           hidden={creatingTargetType !== null}
           isSaving={isCreatingPlan}
           monthlyHabitOptions={monthlyHabitOptions}
+          onboardingStep={onboardingStep}
           range={draftPlanRange}
           selectedType={selectedPlanTargetType}
           taskOptions={taskOptions}
           onClose={closeDraftPlan}
-          onCreate={(targetType) => setCreatingTargetType(targetType)}
+          onCreate={(targetType) => {
+            if (onboardingGuide && targetType !== "goal") return;
+            if (onboardingGuide?.step === "goal-create") {
+              onboardingGuide.onStepChange("goal-create");
+            }
+            setCreatingTargetType(targetType);
+          }}
           onCreateOtherEvent={openOtherEventForm}
+          onOnboardingNext={(step) => onboardingGuide?.onStepChange(step)}
           onSelectOption={(targetType, targetId) =>
             void createPlanFromDrag(targetType, targetId)
           }
-          onSelectType={setSelectedPlanTargetType}
+          onSelectType={(targetType) => {
+            if (onboardingGuide && targetType && targetType !== "goal") return;
+            setSelectedPlanTargetType(targetType);
+            if (
+              targetType === "goal" &&
+              onboardingGuide?.step === "select-goal"
+            ) {
+              onboardingGuide.onStepChange("goal-create");
+            }
+          }}
         />
         <OtherEventFormModal
           isSaving={isCreatingOtherEvent}
@@ -1794,9 +2040,28 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
         />
         <GoalFormModal
           goal={null}
+          initialValues={
+            onboardingGuide
+              ? {
+                  title: "I joined float",
+                  checkpoints: [
+                    {
+                      completed: false,
+                      targetDate: dateKey,
+                      title: "Join float",
+                    },
+                  ],
+                }
+              : undefined
+          }
           isOpen={creatingTargetType === "goal"}
           onClose={() => setCreatingTargetType(null)}
           onSave={saveCreatedGoal}
+          saveHint={
+            onboardingGuide
+              ? "The goal is ready. Tap Save to put its first checkpoint on your calendar."
+              : undefined
+          }
         />
         {noteHabit ? (
           <GoalNoteEditorModal
@@ -1812,31 +2077,233 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
             }}
           />
         ) : null}
+        {noteCheckpoint ? (
+          <GoalNoteEditorModal
+            dateKey={dateKey}
+            goalName={noteCheckpoint.ref.checkpoint.title}
+            initialValue={noteCheckpoint.ref.checkpoint.notes}
+            onClose={() => setNoteCheckpoint(null)}
+            onSave={async (notes) => {
+              await saveCheckpointNote(noteCheckpoint, notes);
+            }}
+          />
+        ) : null}
+        <DayPlanOnboardingOverlay
+          onComplete={onboardingGuide?.onComplete}
+          onNext={onboardingGuide?.onStepChange}
+          step={onboardingStep}
+        />
       </View>
     </ComponentErrorBoundary>
   );
 }
 
+function DayPlanOnboardingOverlay({
+  onComplete,
+  onNext,
+  step,
+}: {
+  onComplete?: () => void;
+  onNext?: (step: DayPlanOnboardingStep) => void;
+  step: DayPlanOnboardingStep | null;
+}) {
+  if (
+    !step ||
+    step === "task-info" ||
+    step === "goal-info" ||
+    step === "habit-info" ||
+    step === "select-goal" ||
+    step === "goal-create" ||
+    step === "mark-complete"
+  ) {
+    return null;
+  }
+
+  const content: Record<
+    Exclude<
+      DayPlanOnboardingStep,
+      | "task-info"
+      | "goal-info"
+      | "habit-info"
+      | "select-goal"
+      | "goal-create"
+      | "mark-complete"
+    >,
+    {
+      body: string;
+      buttonLabel?: string;
+      next?: DayPlanOnboardingStep;
+      title: string;
+    }
+  > = {
+    drag: {
+      body: "Click and drag to add to your calendar. This will be in sync with Google Calendar.",
+      title: "Add your first plan",
+    },
+    proof: {
+      body: "Tap the goal checkpoint you just added, then add a selfie with a thumbs up.",
+      title: "Add proof",
+    },
+    "journal-info": {
+      body: "Friends can see your posts if you make the post public.",
+      buttonLabel: "Next",
+      next: "friends-info",
+      title: "Share intentionally",
+    },
+    "friends-info": {
+      body: "This completes your onboarding. Feel free to explore the incentives, shared goals, and dashboard pages next!",
+      buttonLabel: "Finish",
+      next: "done",
+      title: "You are ready",
+    },
+    done: {
+      body: "This completes your onboarding. Feel free to explore the incentives, shared goals, and dashboard pages next!",
+      buttonLabel: "Finish",
+      title: "You are ready",
+    },
+  };
+  const item = content[step];
+
+  return (
+    <View pointerEvents="box-none" style={styles.onboardingOverlay}>
+      <OnboardingTooltipCard
+        body={item.body}
+        buttonLabel={item.buttonLabel}
+        onPress={() => {
+          if (item.next === "done" || step === "done") {
+            onComplete?.();
+            return;
+          }
+          if (item.next) onNext?.(item.next);
+        }}
+        title={item.title}
+      />
+    </View>
+  );
+}
+
+function OnboardingTooltipCard({
+  body,
+  buttonLabel,
+  onPress,
+  title,
+}: {
+  body: string;
+  buttonLabel?: string;
+  onPress?: () => void;
+  title: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[
+        styles.onboardingTooltip,
+        { backgroundColor: theme.background, borderColor: theme.tabBorder },
+      ]}
+    >
+      <Text style={[styles.onboardingTooltipTitle, { color: theme.text }]}>
+        {title}
+      </Text>
+      <Text
+        style={[styles.onboardingTooltipBody, { color: theme.textSecondary }]}
+      >
+        {body}
+      </Text>
+      {buttonLabel && onPress ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onPress}
+          style={({ pressed }) => [
+            styles.onboardingTooltipButton,
+            { backgroundColor: theme.primary },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text
+            style={[
+              styles.onboardingTooltipButtonText,
+              { color: theme.primaryForeground },
+            ]}
+          >
+            {buttonLabel}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function getPlanPickerOnboardingTooltip(step: DayPlanOnboardingStep | null): {
+  body: string;
+  buttonLabel?: string;
+  next?: DayPlanOnboardingStep;
+  title: string;
+} | null {
+  if (step === "task-info") {
+    return {
+      body: "Tasks are important or urgent items on your to-do list.",
+      buttonLabel: "Next",
+      next: "goal-info",
+      title: "Tasks",
+    };
+  }
+  if (step === "goal-info") {
+    return {
+      body: "Goals are definite accomplishments with checkpoints of progression.",
+      buttonLabel: "Next",
+      next: "habit-info",
+      title: "Goals",
+    };
+  }
+  if (step === "habit-info") {
+    return {
+      body: "Daily Habits and Monthly Habits are systems to help you achieve goals. Let's start with a goal.",
+      buttonLabel: "Next",
+      next: "select-goal",
+      title: "Habits",
+    };
+  }
+  if (step === "select-goal") {
+    return {
+      body: "Select Goal to continue.",
+      title: "Start with a goal",
+    };
+  }
+  if (step === "goal-create") {
+    return {
+      body: "Tap the plus button, then tap Save. The goal is already filled in for you.",
+      title: "Create your first goal",
+    };
+  }
+  return null;
+}
+
 function InternalEventActionsModal({
   entry,
   isUpdating,
+  onboardingStep,
   onAddPhoto,
   onClose,
   onDelete,
   onOpenNote,
+  onSetVisibility,
   onTakePhoto,
   onToggleComplete,
   statusLabel,
+  visibility,
 }: {
   entry: DayPlanEntry | null;
   isUpdating: boolean;
+  onboardingStep: DayPlanOnboardingStep | null;
   onAddPhoto: () => void;
   onClose: () => void;
   onDelete: () => void;
   onOpenNote: () => void;
+  onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
   onToggleComplete: () => void;
   statusLabel: string;
+  visibility: HabitVisibility;
 }) {
   const theme = useTheme();
   if (!entry) return null;
@@ -1903,12 +2370,25 @@ function InternalEventActionsModal({
             contentContainerStyle={styles.eventActionContent}
             showsVerticalScrollIndicator={false}
           >
+            {onboardingStep === "proof" ? (
+              <OnboardingTooltipCard
+                body="Take a quick selfie with a thumbs up, or choose one from your library."
+                title="Add proof"
+              />
+            ) : null}
+            {onboardingStep === "mark-complete" ? (
+              <OnboardingTooltipCard
+                body="Mark complete. All events with a note or photo will be added to your journal."
+                title="Finish the goal"
+              />
+            ) : null}
             <Pressable
               disabled={isUpdating}
               onPress={onToggleComplete}
               style={({ pressed }) => [
                 styles.eventActionRow,
                 { backgroundColor: theme.backgroundElement },
+                onboardingStep === "mark-complete" && styles.onboardingGlow,
                 pressed && styles.pressed,
               ]}
             >
@@ -1994,6 +2474,15 @@ function InternalEventActionsModal({
               </Text>
             </Pressable>
 
+            {entry.kind === "goal" ? (
+              <GoalLogVisibilityControl
+                allowed={["only_me", "all_friends"]}
+                disabled={isUpdating}
+                value={visibility}
+                onChange={onSetVisibility}
+              />
+            ) : null}
+
             <Pressable
               disabled={isUpdating}
               onPress={onDelete}
@@ -2028,8 +2517,10 @@ function PlanSelectionModal({
   onClose,
   onCreate,
   onCreateOtherEvent,
+  onOnboardingNext,
   onSelectOption,
   onSelectType,
+  onboardingStep,
   range,
   selectedType,
   taskOptions,
@@ -2042,8 +2533,10 @@ function PlanSelectionModal({
   onClose: () => void;
   onCreate: (targetType: PlanTargetType) => void;
   onCreateOtherEvent: () => void;
+  onOnboardingNext?: (step: DayPlanOnboardingStep) => void;
   onSelectOption: (targetType: PlanTargetType, targetId: string) => void;
   onSelectType: (targetType: PlanTargetType | null) => void;
+  onboardingStep: DayPlanOnboardingStep | null;
   range: PlanRange | null;
   selectedType: PlanTargetType | null;
   taskOptions: PlanTargetOption[];
@@ -2059,16 +2552,26 @@ function PlanSelectionModal({
   };
   const selectedOptions = selectedType ? optionsByType[selectedType] : [];
   const selectedMeta = selectedType ? getPlanTargetMeta(selectedType) : null;
+  const onboardingTooltip = getPlanPickerOnboardingTooltip(onboardingStep);
+  const restrictToGoal = Boolean(onboardingStep);
+  // Keep every option disabled during the intro steps, until the
+  // "Start with a goal" (select-goal) prompt appears.
+  const optionsLocked =
+    onboardingStep === "task-info" ||
+    onboardingStep === "goal-info" ||
+    onboardingStep === "habit-info";
+  const allowClose = !onboardingStep;
 
   return (
     <Modal
       animationType="fade"
       transparent
       visible={!hidden}
-      onRequestClose={onClose}
+      onRequestClose={allowClose ? onClose : undefined}
     >
       <View style={styles.sheetOverlay}>
         <Pressable
+          disabled={!allowClose}
           style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
           onPress={onClose}
         />
@@ -2080,11 +2583,13 @@ function PlanSelectionModal({
             {selectedType ? (
               <Pressable
                 accessibilityLabel="Back to plan types"
+                disabled={!allowClose}
                 hitSlop={8}
                 onPress={() => onSelectType(null)}
                 style={({ pressed }) => [
                   styles.planPickerBackButton,
                   { backgroundColor: theme.backgroundElement },
+                  !allowClose && styles.disabledButton,
                   pressed && styles.pressed,
                 ]}
               >
@@ -2111,10 +2616,15 @@ function PlanSelectionModal({
             {selectedType ? (
               <Pressable
                 accessibilityLabel={`Create ${selectedMeta?.label.toLowerCase()}`}
+                disabled={restrictToGoal && selectedType !== "goal"}
                 onPress={() => onCreate(selectedType)}
                 style={({ pressed }) => [
                   styles.planPickerCreateButton,
                   { backgroundColor: theme.primary },
+                  onboardingStep === "goal-create" && styles.onboardingGlow,
+                  restrictToGoal &&
+                    selectedType !== "goal" &&
+                    styles.disabledButton,
                   pressed && styles.pressed,
                 ]}
               >
@@ -2128,6 +2638,19 @@ function PlanSelectionModal({
             ) : null}
           </View>
 
+          {onboardingTooltip ? (
+            <OnboardingTooltipCard
+              body={onboardingTooltip.body}
+              buttonLabel={onboardingTooltip.buttonLabel}
+              onPress={
+                onboardingTooltip.next
+                  ? () => onOnboardingNext?.(onboardingTooltip.next!)
+                  : undefined
+              }
+              title={onboardingTooltip.title}
+            />
+          ) : null}
+
           {selectedType ? (
             <ScrollView
               contentContainerStyle={styles.planPickerList}
@@ -2137,7 +2660,7 @@ function PlanSelectionModal({
               {selectedOptions.length > 0 ? (
                 selectedOptions.map((option) => (
                   <Pressable
-                    disabled={isSaving}
+                    disabled={isSaving || Boolean(onboardingStep)}
                     key={option.id}
                     onPress={() => onSelectOption(selectedType, option.id)}
                     style={({ pressed }) => [
@@ -2202,6 +2725,9 @@ function PlanSelectionModal({
                 ] as const
               ).map((targetType) => {
                 const isOtherEvent = targetType === "otherEvent";
+                const disabled =
+                  optionsLocked ||
+                  (restrictToGoal && (isOtherEvent || targetType !== "goal"));
                 const meta = isOtherEvent
                   ? {
                       icon: sym("calendar.badge.plus", "event_available"),
@@ -2214,6 +2740,7 @@ function PlanSelectionModal({
 
                 return (
                   <Pressable
+                    disabled={disabled}
                     key={targetType}
                     onPress={() =>
                       isOtherEvent
@@ -2223,6 +2750,10 @@ function PlanSelectionModal({
                     style={({ pressed }) => [
                       styles.planPickerTypeRow,
                       { backgroundColor: theme.backgroundElement },
+                      targetType === "goal" &&
+                        onboardingStep === "select-goal" &&
+                        styles.onboardingGlow,
+                      disabled && styles.onboardingDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -2592,7 +3123,7 @@ function getEntryColors(
     };
   }
 
-  if (entry.kind === "habit") {
+  if (!entry.completed) {
     return {
       backgroundColor: theme.primary,
       color: theme.primaryForeground,
@@ -2606,19 +3137,23 @@ function getEntryColors(
 }
 
 function buildDayPlanEntries({
+  checkpointById,
   dateKey,
   googleEvents,
   habitById,
   plannedEvents,
   selectedDate,
   snapshot,
+  taskById,
 }: {
+  checkpointById: Map<string, CheckpointRef>;
   dateKey: string;
   googleEvents: GoogleCalendarDayEvent[];
   habitById: Map<string, ActionHabit>;
   plannedEvents: PlannedEvent[];
   selectedDate: Date;
   snapshot: HabitLogsSnapshot | null;
+  taskById: Map<string, Task>;
 }): DayPlanEntry[] {
   const dayStart = startOfDay(selectedDate);
   const dayEnd = addDays(dayStart, 1);
@@ -2630,22 +3165,26 @@ function buildDayPlanEntries({
   }
 
   for (const event of plannedEvents) {
-    const entry = plannedEventToEntry(event);
+    const entry = plannedEventToEntry(event, { checkpointById, taskById });
     if (entry) entries.push(entry);
   }
 
   if (snapshot) {
     for (const habit of habitById.values()) {
       const key = `${habit.id}_${dateKey}`;
-      if (snapshot.logsByHabitDate[key] !== "planned") continue;
+      const status = snapshot.logsByHabitDate[key];
 
       const plannedTime = snapshot.plannedTimesByHabitDate[key];
       const startMinutes = timeToMinutes(plannedTime?.startTime);
       const endMinutes = timeToMinutes(plannedTime?.endTime);
       const hasTimeRange = startMinutes !== null && endMinutes !== null;
+      if (status !== "planned" && !(status === "complete" && hasTimeRange)) {
+        continue;
+      }
 
       entries.push({
         allDay: !hasTimeRange,
+        completed: status === "complete",
         endMinutes: hasTimeRange
           ? normalizeEndMinutes(startMinutes, endMinutes)
           : MINUTES_IN_DAY,
@@ -2665,6 +3204,9 @@ function buildDayPlanEntries({
       const plan = snapshot.repeatingPlansByHabit?.[habit.id];
       if (!plan || dateKey < plan.originDate) continue;
       if (snapshot.explicitPlanDatesByHabit?.[habit.id]?.includes(dateKey)) {
+        continue;
+      }
+      if (snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] === "complete") {
         continue;
       }
 
@@ -2691,13 +3233,27 @@ function buildDayPlanEntries({
   return entries;
 }
 
-function plannedEventToEntry(event: PlannedEvent): DayPlanEntry | null {
+function plannedEventToEntry(
+  event: PlannedEvent,
+  {
+    checkpointById,
+    taskById,
+  }: {
+    checkpointById: Map<string, CheckpointRef>;
+    taskById: Map<string, Task>;
+  },
+): DayPlanEntry | null {
   const startMinutes = timeToMinutes(event.startTime);
   const endMinutes = timeToMinutes(event.endTime);
   const hasTimeRange = startMinutes !== null && endMinutes !== null;
+  const completed =
+    event.sourceType === "task"
+      ? Boolean(taskById.get(event.sourceId)?.completedAt)
+      : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
 
   return {
     allDay: !hasTimeRange,
+    completed,
     endMinutes: hasTimeRange
       ? normalizeEndMinutes(startMinutes, endMinutes)
       : MINUTES_IN_DAY,
@@ -3521,6 +4077,59 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "700",
+  },
+  onboardingOverlay: {
+    position: "absolute",
+    right: 18,
+    bottom: 26,
+    left: 18,
+    zIndex: 20,
+  },
+  onboardingTooltip: {
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    elevation: 14,
+  },
+  onboardingTooltipTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+  onboardingTooltipBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  onboardingTooltipButton: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    marginTop: 5,
+    paddingHorizontal: 16,
+  },
+  onboardingTooltipButtonText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "900",
+  },
+  onboardingGlow: {
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    shadowColor: "#34BEE8",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    elevation: 16,
+  },
+  onboardingDisabled: {
+    opacity: 0.28,
   },
   disabledButton: { opacity: 0.55 },
   pressed: { opacity: 0.65 },

@@ -1,3 +1,4 @@
+import type { GoalVisibility } from "@/lib/goals-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type Goal = {
@@ -14,6 +15,9 @@ export type GoalCheckpoint = {
   targetDate: string | null;
   sortOrder: number;
   completed: boolean;
+  completedAt: string | null;
+  notes: string | null;
+  visibility: GoalVisibility;
   createdAt: string;
   updatedAt: string;
 };
@@ -58,10 +62,17 @@ export const updatePlanGoal = (id: string, input: GoalInput) =>
     body: JSON.stringify({ type: "update", id, ...input }),
   }).then((response) => parseResponse<Goal>(response));
 
-export const updatePlanGoalCheckpoint = (id: string, completed: boolean) =>
+export const updatePlanGoalCheckpoint = (
+  id: string,
+  update: {
+    completed: boolean;
+    notes?: string | null;
+    visibility?: GoalVisibility;
+  },
+) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
-    body: JSON.stringify({ type: "updateCheckpoint", id, completed }),
+    body: JSON.stringify({ type: "updateCheckpoint", id, ...update }),
   }).then((response) => parseResponse<Goal>(response));
 
 export const deletePlanGoal = (id: string) =>

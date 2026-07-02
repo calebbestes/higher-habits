@@ -77,7 +77,7 @@ function AuthNavigator() {
     boolean | null
   >(null);
   const [postOnboardingRoute, setPostOnboardingRoute] = useState<
-    "/journal" | null
+    "/dashboard" | null
   >(null);
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
@@ -185,7 +185,7 @@ function AuthNavigator() {
     return (
       <OnboardingScreen
         onComplete={() => {
-          setPostOnboardingRoute("/journal");
+          setPostOnboardingRoute("/dashboard");
           setOnboardingCompleted(true);
         }}
       />

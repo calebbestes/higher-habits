@@ -3,12 +3,15 @@ import {
   feedProps,
   friends,
   getDb,
+  goalCheckpointPhotos,
+  goalCheckpoints,
   goalLogPhotos,
   goalLogs,
+  goals,
   habits,
   users,
 } from "@habit/db";
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -268,6 +271,7 @@ export async function GET(request: Request) {
       string,
       {
         id: string;
+        kind: "habit" | "goal_checkpoint";
         friend: { id: string; name: string; image: string | null };
         goal: { id: string; name: string; icon: string };
         dateKey: string;
@@ -306,6 +310,7 @@ export async function GET(request: Request) {
 
       entries.set(row.entryId, {
         id: row.entryId,
+        kind: "habit",
         friend,
         goal: {
           id: row.goalId,
@@ -372,7 +377,105 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json([...entries.values()]);
+    // Completed goal checkpoints shared with all friends. Planning goals have no
+    // per-friend tie, so only "all_friends" checkpoints surface in the feed.
+    const checkpointRows = await db
+      .select({
+        entryId: goalCheckpoints.id,
+        friendId: goalCheckpoints.userId,
+        goalId: goalCheckpoints.goalId,
+        goalTitle: goals.title,
+        checkpointTitle: goalCheckpoints.title,
+        notes: goalCheckpoints.notes,
+        completedAt: goalCheckpoints.completedAt,
+        updatedAt: goalCheckpoints.updatedAt,
+      })
+      .from(goalCheckpoints)
+      .innerJoin(goals, eq(goalCheckpoints.goalId, goals.id))
+      .where(
+        and(
+          inArray(goalCheckpoints.userId, friendIds),
+          isNotNull(goalCheckpoints.completedAt),
+          eq(goalCheckpoints.visibility, "all_friends"),
+          eq(goals.userId, goalCheckpoints.userId),
+        ),
+      )
+      .orderBy(desc(goalCheckpoints.updatedAt));
+
+    const checkpointIds = checkpointRows.map((row) => row.entryId);
+    const checkpointPhotoRows =
+      checkpointIds.length > 0
+        ? await db
+            .select({
+              entryId: goalCheckpointPhotos.checkpointId,
+              photoId: goalCheckpointPhotos.id,
+              storagePath: goalCheckpointPhotos.storagePath,
+              contentType: goalCheckpointPhotos.contentType,
+              photoCreatedAt: goalCheckpointPhotos.createdAt,
+            })
+            .from(goalCheckpointPhotos)
+            .where(inArray(goalCheckpointPhotos.checkpointId, checkpointIds))
+            .orderBy(desc(goalCheckpointPhotos.createdAt))
+        : [];
+
+    const checkpointPhotosById = (
+      await Promise.all(
+        checkpointPhotoRows.map(async (row) => ({
+          ...row,
+          url: await createSignedPhotoUrl(row.storagePath),
+        })),
+      )
+    ).reduce<
+      Map<
+        string,
+        Array<{
+          id: string;
+          url: string;
+          contentType: string;
+          createdAt: string;
+        }>
+      >
+    >((photosByCheckpoint, row) => {
+      const photos = photosByCheckpoint.get(row.entryId) ?? [];
+      photos.push({
+        id: row.photoId,
+        url: row.url,
+        contentType: row.contentType,
+        createdAt: row.photoCreatedAt.toISOString(),
+      });
+      photosByCheckpoint.set(row.entryId, photos);
+      return photosByCheckpoint;
+    }, new Map());
+
+    for (const row of checkpointRows) {
+      const friend = friendsById.get(row.friendId);
+      if (!friend || !row.completedAt) continue;
+      const photos = checkpointPhotosById.get(row.entryId) ?? [];
+      if (!row.notes?.trim() && photos.length === 0) continue;
+
+      entries.set(row.entryId, {
+        id: row.entryId,
+        kind: "goal_checkpoint",
+        friend,
+        goal: {
+          id: row.goalId,
+          name: `${row.goalTitle} · ${row.checkpointTitle}`,
+          icon: "checkmark.seal.fill",
+        },
+        dateKey: row.completedAt.toISOString().slice(0, 10),
+        notes: row.notes ?? "",
+        updatedAt: row.updatedAt.toISOString(),
+        props: { count: 0, hasPropped: false },
+        comments: [],
+        photos,
+      });
+    }
+
+    const orderedEntries = [...entries.values()].sort((a, b) =>
+      a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
+    );
+
+    return NextResponse.json(orderedEntries);
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 
