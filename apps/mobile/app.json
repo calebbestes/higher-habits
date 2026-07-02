@@ -54,6 +54,8 @@
         }
       ],
       "expo-font",
+      "@react-native-vector-icons/material-design-icons",
+      "@react-native-vector-icons/lucide",
       "expo-image",
       [
         "expo-notifications",

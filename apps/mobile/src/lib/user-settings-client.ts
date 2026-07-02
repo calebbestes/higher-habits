@@ -1,4 +1,9 @@
 import { mobileApiFetch } from "@/lib/mobile-api";
+import type {
+  AppStartPage,
+  CollabSection,
+  PlanReportView,
+} from "@/lib/tab-view-store";
 
 export type NotificationSettings = {
   notifyFriendRequests: boolean;
@@ -23,10 +28,16 @@ export type NotificationSettings = {
 };
 
 export type UserSettings = NotificationSettings & {
+  defaultAppStartPage: AppStartPage;
+  defaultCollabSection: CollabSection;
+  defaultPlanReportView: PlanReportView;
   onboardingCompleted: boolean;
 };
 
 export const USER_SETTING_DEFAULTS: UserSettings = {
+  defaultAppStartPage: "collab",
+  defaultCollabSection: "feed",
+  defaultPlanReportView: "day-plan",
   onboardingCompleted: true,
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
@@ -85,7 +96,10 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export const fetchUserSettings = (): Promise<UserSettings> =>
   mobileApiFetch("/api/user-settings").then((r) =>
-    parseResponse<UserSettings>(r),
+    parseResponse<Partial<UserSettings>>(r).then((settings) => ({
+      ...USER_SETTING_DEFAULTS,
+      ...settings,
+    })),
   );
 
 export const updateUserSettings = (

@@ -1,10 +1,9 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * A tiny external store for remembering the last-selected sub-view of a tab,
- * so switching tabs and coming back restores where you were. Read with
- * useSyncExternalStore (no effects, no tearing) and written from event
- * handlers when the user picks a view.
+ * Tiny external stores for tab sub-view state and server-backed navigation
+ * defaults. Read with useSyncExternalStore (no effects, no tearing) and
+ * written from settings or tab/menu event handlers.
  */
 function createSelectionStore<T>(initial: T) {
   let value = initial;
@@ -29,10 +28,44 @@ function createSelectionStore<T>(initial: T) {
 export type PlanReportView = "day-plan" | "habits" | "goals" | "top-tasks";
 export type HabitsTab = "daily" | "monthly";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
+export type AppStartPage =
+  | "plan-report"
+  | "journal"
+  | "collab"
+  | "dashboard"
+  | "settings";
 
-const planReportStore = createSelectionStore<PlanReportView>("day-plan");
+export const DEFAULT_PLAN_REPORT_VIEW: PlanReportView = "day-plan";
+export const DEFAULT_COLLAB_SECTION: CollabSection = "feed";
+export const DEFAULT_APP_START_PAGE: AppStartPage = "collab";
+
+export const PLAN_REPORT_VIEW_HREFS = {
+  "day-plan": "/plan-report?view=day-plan",
+  habits: "/plan-report?view=habits",
+  goals: "/plan-report?view=goals",
+  "top-tasks": "/plan-report?view=top-tasks",
+} as const satisfies Record<PlanReportView, string>;
+
+export const COLLAB_SECTION_HREFS = {
+  feed: "/?section=feed",
+  incentives: "/?section=incentives",
+  "shared-goals": "/?section=shared-goals",
+  friends: "/?section=friends",
+} as const satisfies Record<CollabSection, string>;
+
+const planReportStore =
+  createSelectionStore<PlanReportView>(DEFAULT_PLAN_REPORT_VIEW);
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
-const collabStore = createSelectionStore<CollabSection>("feed");
+const collabStore =
+  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const defaultPlanReportStore = createSelectionStore<PlanReportView>(
+  DEFAULT_PLAN_REPORT_VIEW,
+);
+const defaultCollabStore =
+  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const defaultAppStartStore = createSelectionStore<AppStartPage>(
+  DEFAULT_APP_START_PAGE,
+);
 
 export function usePlanReportView(): PlanReportView {
   return useSyncExternalStore(
@@ -70,6 +103,82 @@ export function setCollabSection(section: CollabSection): void {
   collabStore.set(section);
 }
 
+export function useDefaultPlanReportView(): PlanReportView {
+  return useSyncExternalStore(
+    defaultPlanReportStore.subscribe,
+    defaultPlanReportStore.get,
+    defaultPlanReportStore.get,
+  );
+}
+
+export function setDefaultPlanReportView(view: PlanReportView): void {
+  defaultPlanReportStore.set(view);
+}
+
+export function useDefaultCollabSection(): CollabSection {
+  return useSyncExternalStore(
+    defaultCollabStore.subscribe,
+    defaultCollabStore.get,
+    defaultCollabStore.get,
+  );
+}
+
+export function setDefaultCollabSection(section: CollabSection): void {
+  defaultCollabStore.set(section);
+}
+
+export function useDefaultAppStartPage(): AppStartPage {
+  return useSyncExternalStore(
+    defaultAppStartStore.subscribe,
+    defaultAppStartStore.get,
+    defaultAppStartStore.get,
+  );
+}
+
+export function setDefaultAppStartPage(page: AppStartPage): void {
+  defaultAppStartStore.set(page);
+}
+
+export function applyNavigationDefaults({
+  defaultAppStartPage,
+  defaultCollabSection,
+  defaultPlanReportView,
+}: {
+  defaultAppStartPage?: AppStartPage;
+  defaultCollabSection?: CollabSection;
+  defaultPlanReportView?: PlanReportView;
+}): void {
+  if (defaultPlanReportView) {
+    setDefaultPlanReportView(defaultPlanReportView);
+    setPlanReportView(defaultPlanReportView);
+  }
+  if (defaultCollabSection) {
+    setDefaultCollabSection(defaultCollabSection);
+    setCollabSection(defaultCollabSection);
+  }
+  if (defaultAppStartPage) setDefaultAppStartPage(defaultAppStartPage);
+}
+
+export function getAppStartHref({
+  defaultAppStartPage,
+  defaultCollabSection,
+  defaultPlanReportView,
+}: {
+  defaultAppStartPage: AppStartPage;
+  defaultCollabSection: CollabSection;
+  defaultPlanReportView: PlanReportView;
+}): string {
+  if (defaultAppStartPage === "plan-report") {
+    return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView];
+  }
+  if (defaultAppStartPage === "collab") {
+    return COLLAB_SECTION_HREFS[defaultCollabSection];
+  }
+  if (defaultAppStartPage === "journal") return "/journal";
+  if (defaultAppStartPage === "dashboard") return "/dashboard";
+  return "/settings";
+}
+
 export function isPlanReportView(value: unknown): value is PlanReportView {
   return (
     value === "day-plan" ||
@@ -85,5 +194,15 @@ export function isCollabSection(value: unknown): value is CollabSection {
     value === "incentives" ||
     value === "shared-goals" ||
     value === "friends"
+  );
+}
+
+export function isAppStartPage(value: unknown): value is AppStartPage {
+  return (
+    value === "plan-report" ||
+    value === "journal" ||
+    value === "collab" ||
+    value === "dashboard" ||
+    value === "settings"
   );
 }

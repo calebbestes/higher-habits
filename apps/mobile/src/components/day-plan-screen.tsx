@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  type GestureResponderEvent,
+  KeyboardAvoidingView,
   Modal,
-  PanResponder,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -34,6 +36,7 @@ import {
   createGoogleCalendarEvent,
   fetchGoogleCalendarEvents,
   getLocalTimeZone,
+  updateGoogleCalendarEvent,
 } from "@/lib/google-calendar-client";
 import {
   type HabitInCategory,
@@ -50,8 +53,8 @@ import {
   type Category,
   type HabitInput,
   type HabitVisibility,
-  createCategory as createHabitCategory,
   createHabit,
+  createCategory as createHabitCategory,
   fetchCategories,
 } from "@/lib/habits-client";
 import {
@@ -68,6 +71,7 @@ import {
   fetchPlanGoals,
   updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
+import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 import {
   type Task,
   type TaskInput,
@@ -75,7 +79,6 @@ import {
   fetchTasks,
   updateTask,
 } from "@/lib/tasks-client";
-import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 
 type DayPlanEntry = {
   allDay: boolean;
@@ -106,6 +109,21 @@ type PlanTargetOption = {
   subtitle?: string;
   title: string;
 };
+type TimelineGesture =
+  | {
+      anchorMinutes: number;
+      lastPageY: number;
+      latestRange: PlanRange;
+      type: "create";
+    }
+  | {
+      durationMinutes: number;
+      entry: DayPlanEntry;
+      lastPageY: number;
+      latestRange: PlanRange;
+      touchOffsetMinutes: number;
+      type: "move";
+    };
 type CachedDayPlanData = {
   googleResponse: GoogleCalendarEventsResponse;
   habitCategories: Category[];
@@ -121,6 +139,10 @@ const MIN_EVENT_HEIGHT = 30;
 const MINUTES_IN_DAY = 24 * 60;
 const PLAN_SNAP_MINUTES = 15;
 const MIN_PLAN_DURATION_MINUTES = 30;
+const LONG_PRESS_DELAY_MS = 500;
+const TIMELINE_AUTO_SCROLL_EDGE = 54;
+const TIMELINE_AUTO_SCROLL_INTERVAL_MS = 50;
+const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
 const TIMELINE_START_HOUR = 7;
 const TIMELINE_VISIBLE_HOURS = 12;
 const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
@@ -147,7 +169,22 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const tabBarHeight = useTabBarHeight();
   const { projects, reloadProjects, createProject } = useTaskProjects();
   const timelineScrollRef = useRef<ScrollView>(null);
-  const dragStartMinutesRef = useRef<number | null>(null);
+  const timelineScrollYRef = useRef(TIMELINE_INITIAL_OFFSET);
+  const timelineViewportTopRef = useRef(0);
+  const timelineDragLayerWidthRef = useRef(0);
+  const timelineGestureRef = useRef<TimelineGesture | null>(null);
+  const timelineAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const pendingEmptyPressRef = useRef<{
+    locationX: number;
+    locationY: number;
+    pageY: number;
+  } | null>(null);
+  const timelineLongPressTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const suppressEntryPressUntilRef = useRef(0);
   const [selectedDate, setSelectedDate] = useState(() =>
     initialDateKey ? dateFromKey(initialDateKey) : new Date(),
   );
@@ -172,6 +209,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
     null,
   );
+  const [isTimelineDragging, setIsTimelineDragging] = useState(false);
   const [selectedPlanTargetType, setSelectedPlanTargetType] =
     useState<PlanTargetType | null>(null);
   const [creatingTargetType, setCreatingTargetType] =
@@ -282,31 +320,34 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     [],
   );
 
-  const getTasksForDate = useCallback((targetDateKey: string, force = false) => {
-    if (!force) {
-      const cached = tasksCacheRef.current.get(targetDateKey);
-      if (cached) return Promise.resolve(cached);
+  const getTasksForDate = useCallback(
+    (targetDateKey: string, force = false) => {
+      if (!force) {
+        const cached = tasksCacheRef.current.get(targetDateKey);
+        if (cached) return Promise.resolve(cached);
 
-      const inFlight = tasksInFlightRef.current.get(targetDateKey);
-      if (inFlight) return inFlight;
-    }
+        const inFlight = tasksInFlightRef.current.get(targetDateKey);
+        if (inFlight) return inFlight;
+      }
 
-    const request = fetchTasks(targetDateKey)
-      .then((nextTasks) => {
-        if (tasksInFlightRef.current.get(targetDateKey) === request) {
-          tasksCacheRef.current.set(targetDateKey, nextTasks);
-        }
-        return nextTasks;
-      })
-      .finally(() => {
-        if (tasksInFlightRef.current.get(targetDateKey) === request) {
-          tasksInFlightRef.current.delete(targetDateKey);
-        }
-      });
+      const request = fetchTasks(targetDateKey)
+        .then((nextTasks) => {
+          if (tasksInFlightRef.current.get(targetDateKey) === request) {
+            tasksCacheRef.current.set(targetDateKey, nextTasks);
+          }
+          return nextTasks;
+        })
+        .finally(() => {
+          if (tasksInFlightRef.current.get(targetDateKey) === request) {
+            tasksInFlightRef.current.delete(targetDateKey);
+          }
+        });
 
-    tasksInFlightRef.current.set(targetDateKey, request);
-    return request;
-  }, []);
+      tasksInFlightRef.current.set(targetDateKey, request);
+      return request;
+    },
+    [],
+  );
 
   const getGoogleEventsForDate = useCallback(
     (targetDate: Date, targetDateKey: string, force = false) => {
@@ -354,13 +395,8 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
 
       const request = fetchPlannedEvents({ dateKey: targetDateKey })
         .then((nextPlannedEvents) => {
-          if (
-            plannedEventsInFlightRef.current.get(targetDateKey) === request
-          ) {
-            plannedEventsCacheRef.current.set(
-              targetDateKey,
-              nextPlannedEvents,
-            );
+          if (plannedEventsInFlightRef.current.get(targetDateKey) === request) {
+            plannedEventsCacheRef.current.set(targetDateKey, nextPlannedEvents);
           }
           return nextPlannedEvents;
         })
@@ -620,9 +656,19 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     void load();
   }, [load]);
 
+  useEffect(
+    () => () => {
+      if (timelineAutoScrollRef.current) {
+        clearInterval(timelineAutoScrollRef.current);
+      }
+    },
+    [],
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the timeline to 7:00 when changing dates
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
+      timelineScrollYRef.current = TIMELINE_INITIAL_OFFSET;
       timelineScrollRef.current?.scrollTo({
         animated: false,
         y: TIMELINE_INITIAL_OFFSET,
@@ -631,6 +677,15 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
 
     return () => cancelAnimationFrame(frame);
   }, [dateKey]);
+
+  useEffect(
+    () => () => {
+      if (timelineLongPressTimerRef.current) {
+        clearTimeout(timelineLongPressTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const habitById = useMemo(() => buildHabitMap(snapshot), [snapshot]);
   const taskById = useMemo(() => {
@@ -734,51 +789,310 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
   const activePlannedTime = activeKey
     ? snapshot?.plannedTimesByHabitDate[activeKey]
     : undefined;
-  const timelinePanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          const startMinutes = minutesFromTimelineY(
-            event.nativeEvent.locationY,
-          );
-          dragStartMinutesRef.current = startMinutes;
-          setDragPlanRange(normalizePlanRange(startMinutes, startMinutes + 60));
-        },
-        onPanResponderMove: (_event, gesture) => {
-          const startMinutes = dragStartMinutesRef.current;
-          if (startMinutes === null) return;
-
-          const currentMinutes = startMinutes + (gesture.dy / HOUR_HEIGHT) * 60;
-          setDragPlanRange(normalizePlanRange(startMinutes, currentMinutes));
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const startMinutes = dragStartMinutesRef.current;
-          dragStartMinutesRef.current = null;
-          if (startMinutes === null) return;
-
-          const currentMinutes =
-            Math.abs(gesture.dy) < 4
-              ? startMinutes + 60
-              : startMinutes + (gesture.dy / HOUR_HEIGHT) * 60;
-          const range = normalizePlanRange(startMinutes, currentMinutes);
-          setDragPlanRange(null);
-          setDraftPlanRange(range);
-          setSelectedPlanTargetType(null);
-        },
-        onPanResponderTerminate: () => {
-          dragStartMinutesRef.current = null;
-          setDragPlanRange(null);
-        },
-        onStartShouldSetPanResponder: () => true,
-      }),
-    [],
+  const isPlanSheetOpen = Boolean(
+    activeHabit ||
+      activeEntry ||
+      draftPlanRange ||
+      otherEventRange ||
+      creatingTargetType ||
+      noteHabit,
   );
+  const timelineScrollMax = HOUR_HEIGHT * 24 - TIMELINE_VIEWPORT_HEIGHT;
+  const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
+    timelineViewportTopRef.current =
+      pageY - timelineY + timelineScrollYRef.current;
+  };
+  const getTimelineMinutesFromPageY = (pageY: number) =>
+    minutesFromTimelineY(
+      timelineScrollYRef.current + pageY - timelineViewportTopRef.current,
+    );
+  const stopTimelineAutoScroll = () => {
+    if (!timelineAutoScrollRef.current) return;
+    clearInterval(timelineAutoScrollRef.current);
+    timelineAutoScrollRef.current = null;
+  };
+  const updateTimelineGestureFromPageY = (pageY: number) => {
+    const gesture = timelineGestureRef.current;
+    if (!gesture) return;
+
+    const currentMinutes = getTimelineMinutesFromPageY(pageY);
+    const range =
+      gesture.type === "create"
+        ? normalizePlanRange(gesture.anchorMinutes, currentMinutes)
+        : movePlanRange({
+            durationMinutes: gesture.durationMinutes,
+            touchOffsetMinutes: gesture.touchOffsetMinutes,
+            touchMinutes: currentMinutes,
+          });
+
+    timelineGestureRef.current = {
+      ...gesture,
+      lastPageY: pageY,
+      latestRange: range,
+    };
+    setDragPlanRange(range);
+  };
+  const updateTimelineAutoScroll = (pageY: number) => {
+    const viewportY = pageY - timelineViewportTopRef.current;
+    const topDistance = Math.max(0, TIMELINE_AUTO_SCROLL_EDGE - viewportY);
+    const bottomDistance = Math.max(
+      0,
+      viewportY - (TIMELINE_VIEWPORT_HEIGHT - TIMELINE_AUTO_SCROLL_EDGE),
+    );
+    const direction = topDistance > 0 ? -1 : bottomDistance > 0 ? 1 : 0;
+
+    if (direction === 0) {
+      stopTimelineAutoScroll();
+      return;
+    }
+
+    if (timelineAutoScrollRef.current) return;
+
+    timelineAutoScrollRef.current = setInterval(() => {
+      const current = timelineGestureRef.current;
+      if (!current) {
+        stopTimelineAutoScroll();
+        return;
+      }
+
+      const activeViewportY =
+        current.lastPageY - timelineViewportTopRef.current;
+      const activeTopDistance = Math.max(
+        0,
+        TIMELINE_AUTO_SCROLL_EDGE - activeViewportY,
+      );
+      const activeBottomDistance = Math.max(
+        0,
+        activeViewportY -
+          (TIMELINE_VIEWPORT_HEIGHT - TIMELINE_AUTO_SCROLL_EDGE),
+      );
+      const activeDirection =
+        activeTopDistance > 0 ? -1 : activeBottomDistance > 0 ? 1 : 0;
+
+      if (activeDirection === 0) {
+        stopTimelineAutoScroll();
+        return;
+      }
+
+      const distance = Math.max(activeTopDistance, activeBottomDistance);
+      const step = Math.min(
+        TIMELINE_AUTO_SCROLL_MAX_STEP,
+        Math.max(4, distance * 0.28),
+      );
+      const nextScrollY = clampNumber(
+        timelineScrollYRef.current + activeDirection * step,
+        0,
+        timelineScrollMax,
+      );
+
+      if (nextScrollY === timelineScrollYRef.current) {
+        return;
+      }
+
+      timelineScrollYRef.current = nextScrollY;
+      timelineScrollRef.current?.scrollTo({
+        animated: false,
+        y: nextScrollY,
+      });
+      updateTimelineGestureFromPageY(current.lastPageY);
+    }, TIMELINE_AUTO_SCROLL_INTERVAL_MS);
+  };
+  const handleEmptyTimelinePressIn = (event: GestureResponderEvent) => {
+    const { locationX, locationY, pageY } = event.nativeEvent;
+    pendingEmptyPressRef.current = { locationX, locationY, pageY };
+    updateTimelineViewportTop(pageY, locationY);
+  };
+  const handleEmptyTimelineLongPress = () => {
+    const press = pendingEmptyPressRef.current;
+    if (!press) return;
+
+    if (
+      isTimelinePointOnEntry({
+        entries: timedEntries,
+        timelineWidth: timelineDragLayerWidthRef.current,
+        x: press.locationX,
+        y: press.locationY,
+      })
+    ) {
+      return;
+    }
+
+    const startMinutes = minutesFromTimelineY(press.locationY);
+    const range = normalizePlanRange(
+      startMinutes,
+      startMinutes + MIN_PLAN_DURATION_MINUTES,
+    );
+    timelineGestureRef.current = {
+      anchorMinutes: startMinutes,
+      lastPageY: press.pageY,
+      latestRange: range,
+      type: "create",
+    };
+    setDraftPlanRange(null);
+    setSelectedPlanTargetType(null);
+    setDragPlanRange(range);
+    setIsTimelineDragging(true);
+    updateTimelineAutoScroll(press.pageY);
+  };
+  const handleTimelinePressMove = (event: GestureResponderEvent) => {
+    const { pageY } = event.nativeEvent;
+    if (!timelineGestureRef.current) return;
+
+    updateTimelineGestureFromPageY(pageY);
+    updateTimelineAutoScroll(pageY);
+  };
+  const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
+    const startTime = formatPlanApiTime(range.startMinutes);
+    const endTime = formatPlanApiTime(range.endMinutes);
+    setUpdatingKey(entry.id);
+
+    try {
+      if (entry.kind === "habit" && entry.habitId) {
+        await setHabitLog(entry.habitId, dateKey, "planned", {
+          endTime,
+          startTime,
+          timeZone,
+        });
+        invalidateCurrentCaches({ google: true, snapshot: true });
+      } else if (entry.kind === "task" || entry.kind === "goal") {
+        if (!entry.sourceId) throw new Error("Could not find that event.");
+
+        await upsertPlannedEvent({
+          dateKey,
+          endTime,
+          sourceId: entry.sourceId,
+          sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
+          startTime,
+          timeZone,
+          title: entry.title,
+        });
+        invalidateCurrentCaches({ google: true, planned: true });
+      } else if (entry.kind === "google") {
+        const response = await updateGoogleCalendarEvent({
+          dateKey,
+          description: entry.description ?? null,
+          endTime,
+          eventId: entry.sourceId ?? googleEntryId(entry.id),
+          startTime,
+          timeZone,
+          title: entry.title,
+        });
+        if (response.status !== "synced") {
+          throw new Error(getGoogleCalendarStatusMessage(response.status));
+        }
+        invalidateCurrentCaches({ google: true });
+      }
+
+      await load();
+    } catch (moveError) {
+      Alert.alert(
+        "Could not move event",
+        moveError instanceof Error
+          ? moveError.message
+          : "The event could not be moved.",
+      );
+    } finally {
+      setUpdatingKey(null);
+    }
+  };
+  const finishTimelineGesture = () => {
+    pendingEmptyPressRef.current = null;
+    stopTimelineAutoScroll();
+
+    const gesture = timelineGestureRef.current;
+    timelineGestureRef.current = null;
+    setIsTimelineDragging(false);
+    setDragPlanRange(null);
+
+    if (!gesture) return;
+
+    if (gesture.type === "create") {
+      setDraftPlanRange(gesture.latestRange);
+      setSelectedPlanTargetType(null);
+      return;
+    }
+
+    void saveMovedEntry(gesture.entry, gesture.latestRange);
+  };
+  const clearTimelineLongPressTimer = () => {
+    if (timelineLongPressTimerRef.current) {
+      clearTimeout(timelineLongPressTimerRef.current);
+      timelineLongPressTimerRef.current = null;
+    }
+  };
+  // The empty-timeline drag is driven by the raw responder system rather than
+  // Pressable so the picker only opens on a real finger lift (onResponderRelease)
+  // and never on a mid-gesture touch cancellation.
+  const handleTimelineResponderGrant = (event: GestureResponderEvent) => {
+    handleEmptyTimelinePressIn(event);
+    clearTimelineLongPressTimer();
+    timelineLongPressTimerRef.current = setTimeout(() => {
+      timelineLongPressTimerRef.current = null;
+      handleEmptyTimelineLongPress();
+    }, LONG_PRESS_DELAY_MS);
+  };
+  const handleTimelineResponderMove = (event: GestureResponderEvent) => {
+    // Ignore movement until the long press has actually started a drag; until
+    // then the scroll view is free to take over for normal scrolling.
+    if (!timelineGestureRef.current) return;
+    handleTimelinePressMove(event);
+  };
+  const handleTimelineResponderRelease = () => {
+    clearTimelineLongPressTimer();
+    finishTimelineGesture();
+  };
+  const cancelTimelineGesture = () => {
+    clearTimelineLongPressTimer();
+    pendingEmptyPressRef.current = null;
+    stopTimelineAutoScroll();
+    timelineGestureRef.current = null;
+    setIsTimelineDragging(false);
+    setDragPlanRange(null);
+  };
+  const beginMoveEntry = (
+    entry: DayPlanEntry,
+    event: GestureResponderEvent,
+  ) => {
+    const { locationY, pageY } = event.nativeEvent;
+    const entryTop = (entry.startMinutes / 60) * HOUR_HEIGHT;
+    const timelineY = entryTop + locationY;
+    const touchOffsetMinutes = clampNumber(
+      (locationY / HOUR_HEIGHT) * 60,
+      0,
+      Math.max(0, entry.endMinutes - entry.startMinutes),
+    );
+    const durationMinutes = Math.max(
+      MIN_PLAN_DURATION_MINUTES,
+      entry.endMinutes - entry.startMinutes,
+    );
+    const range = {
+      endMinutes: entry.startMinutes + durationMinutes,
+      startMinutes: entry.startMinutes,
+    };
+
+    updateTimelineViewportTop(pageY, timelineY);
+    suppressEntryPressUntilRef.current = Date.now() + 700;
+    timelineGestureRef.current = {
+      durationMinutes,
+      entry,
+      lastPageY: pageY,
+      latestRange: range,
+      touchOffsetMinutes,
+      type: "move",
+    };
+    setDraftPlanRange(null);
+    setSelectedPlanTargetType(null);
+    setDragPlanRange(range);
+    setIsTimelineDragging(true);
+    updateTimelineAutoScroll(pageY);
+  };
 
   const goToToday = () => setSelectedDate(startOfDay(new Date()));
   const moveDate = (days: number) =>
     setSelectedDate((current) => addDays(current, days));
   const openInternalEntry = (entry: DayPlanEntry) => {
+    if (Date.now() < suppressEntryPressUntilRef.current) return;
+
     if (entry.kind === "habit" && entry.habitId) {
       setActiveHabit(habitById.get(entry.habitId) ?? null);
       return;
@@ -793,6 +1107,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
     status: "complete" | "planned" | null,
     options?: {
       endTime?: string | null;
+      repeatPlan?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
     },
@@ -1135,6 +1450,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
                 onRefresh={() => void load({ force: true, refreshing: true })}
               />
             }
+            scrollEnabled={!isTimelineDragging}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.header}>
@@ -1300,6 +1616,12 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
                     ref={timelineScrollRef}
                     contentOffset={{ x: 0, y: TIMELINE_INITIAL_OFFSET }}
                     nestedScrollEnabled
+                    onScroll={(event) => {
+                      timelineScrollYRef.current =
+                        event.nativeEvent.contentOffset.y;
+                    }}
+                    scrollEnabled={!isTimelineDragging}
+                    scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                     style={styles.timelineScroller}
                   >
@@ -1326,24 +1648,40 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
                         </View>
                       ))}
                       <View
-                        {...timelinePanResponder.panHandlers}
+                        onLayout={(event) => {
+                          timelineDragLayerWidthRef.current =
+                            event.nativeEvent.layout.width;
+                        }}
+                        onStartShouldSetResponder={() => !isPlanSheetOpen}
+                        onResponderGrant={handleTimelineResponderGrant}
+                        onResponderMove={handleTimelineResponderMove}
+                        onResponderRelease={handleTimelineResponderRelease}
+                        onResponderTerminate={cancelTimelineGesture}
+                        onResponderTerminationRequest={() =>
+                          !timelineGestureRef.current
+                        }
                         style={styles.dragLayer}
                       />
                       <View style={styles.eventLayer} pointerEvents="box-none">
-                        {dragPlanRange ? (
-                          <DraftPlanBlock range={dragPlanRange} />
-                        ) : null}
                         {timedEntries.map((entry) => (
                           <TimedEntryBlock
                             entry={entry}
                             key={entry.id}
+                            onLongPress={(event) =>
+                              beginMoveEntry(entry, event)
+                            }
                             onPress={
                               entry.kind !== "google"
                                 ? () => openInternalEntry(entry)
                                 : undefined
                             }
+                            onPressMove={handleTimelinePressMove}
+                            onPressOut={finishTimelineGesture}
                           />
                         ))}
+                        {dragPlanRange ? (
+                          <DraftPlanBlock range={dragPlanRange} />
+                        ) : null}
                       </View>
                     </View>
                   </ScrollView>
@@ -1412,6 +1750,7 @@ export function DayPlanScreen({ initialDateKey }: { initialDateKey?: string }) {
         <PlanSelectionModal
           dailyHabitOptions={dailyHabitOptions}
           goalOptions={goalOptions}
+          hidden={creatingTargetType !== null}
           isSaving={isCreatingPlan}
           monthlyHabitOptions={monthlyHabitOptions}
           range={draftPlanRange}
@@ -1505,7 +1844,10 @@ function InternalEventActionsModal({
   return (
     <Modal animationType="slide" transparent visible onRequestClose={onClose}>
       <View style={styles.sheetOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
+          onPress={onClose}
+        />
         <SafeAreaView
           edges={["bottom"]}
           style={[
@@ -1680,6 +2022,7 @@ function InternalEventActionsModal({
 function PlanSelectionModal({
   dailyHabitOptions,
   goalOptions,
+  hidden,
   isSaving,
   monthlyHabitOptions,
   onClose,
@@ -1693,6 +2036,7 @@ function PlanSelectionModal({
 }: {
   dailyHabitOptions: PlanTargetOption[];
   goalOptions: PlanTargetOption[];
+  hidden: boolean;
   isSaving: boolean;
   monthlyHabitOptions: PlanTargetOption[];
   onClose: () => void;
@@ -1717,9 +2061,17 @@ function PlanSelectionModal({
   const selectedMeta = selectedType ? getPlanTargetMeta(selectedType) : null;
 
   return (
-    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+    <Modal
+      animationType="fade"
+      transparent
+      visible={!hidden}
+      onRequestClose={onClose}
+    >
       <View style={styles.sheetOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
+          onPress={onClose}
+        />
         <SafeAreaView
           edges={["bottom"]}
           style={[styles.actionSheet, { backgroundColor: theme.background }]}
@@ -1848,76 +2200,74 @@ function PlanSelectionModal({
                   "goal",
                   "otherEvent",
                 ] as const
-              ).map(
-                (targetType) => {
-                  const isOtherEvent = targetType === "otherEvent";
-                  const meta = isOtherEvent
-                    ? {
-                        icon: sym("calendar.badge.plus", "event_available"),
-                        label: "Other event",
-                      }
-                    : getPlanTargetMeta(targetType);
-                  const count = isOtherEvent
-                    ? null
-                    : optionsByType[targetType].length;
+              ).map((targetType) => {
+                const isOtherEvent = targetType === "otherEvent";
+                const meta = isOtherEvent
+                  ? {
+                      icon: sym("calendar.badge.plus", "event_available"),
+                      label: "Other event",
+                    }
+                  : getPlanTargetMeta(targetType);
+                const count = isOtherEvent
+                  ? null
+                  : optionsByType[targetType].length;
 
-                  return (
-                    <Pressable
-                      key={targetType}
-                      onPress={() =>
-                        isOtherEvent
-                          ? onCreateOtherEvent()
-                          : onSelectType(targetType)
-                      }
-                      style={({ pressed }) => [
-                        styles.planPickerTypeRow,
-                        { backgroundColor: theme.backgroundElement },
-                        pressed && styles.pressed,
+                return (
+                  <Pressable
+                    key={targetType}
+                    onPress={() =>
+                      isOtherEvent
+                        ? onCreateOtherEvent()
+                        : onSelectType(targetType)
+                    }
+                    style={({ pressed }) => [
+                      styles.planPickerTypeRow,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.planPickerTypeIcon,
+                        { backgroundColor: theme.backgroundSelected },
                       ]}
                     >
-                      <View
-                        style={[
-                          styles.planPickerTypeIcon,
-                          { backgroundColor: theme.backgroundSelected },
-                        ]}
-                      >
-                        <SymbolView
-                          name={meta.icon}
-                          size={23}
-                          tintColor={theme.primary}
-                          weight="semibold"
-                        />
-                      </View>
-                      <View style={styles.planPickerOptionText}>
-                        <Text
-                          style={[
-                            styles.planPickerOptionTitle,
-                            { color: theme.text },
-                          ]}
-                        >
-                          {meta.label}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.planPickerOptionSubtitle,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          {isOtherEvent
-                            ? "Google Calendar"
-                            : `${count} available`}
-                        </Text>
-                      </View>
                       <SymbolView
-                        name={sym("chevron.right", "chevron_right")}
-                        size={16}
-                        tintColor={theme.tabIcon}
+                        name={meta.icon}
+                        size={23}
+                        tintColor={theme.primary}
                         weight="semibold"
                       />
-                    </Pressable>
-                  );
-                },
-              )}
+                    </View>
+                    <View style={styles.planPickerOptionText}>
+                      <Text
+                        style={[
+                          styles.planPickerOptionTitle,
+                          { color: theme.text },
+                        ]}
+                      >
+                        {meta.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.planPickerOptionSubtitle,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {isOtherEvent
+                          ? "Google Calendar"
+                          : `${count} available`}
+                      </Text>
+                    </View>
+                    <SymbolView
+                      name={sym("chevron.right", "chevron_right")}
+                      size={16}
+                      tintColor={theme.tabIcon}
+                      weight="semibold"
+                    />
+                  </Pressable>
+                );
+              })}
             </View>
           )}
         </SafeAreaView>
@@ -1950,8 +2300,14 @@ function OtherEventFormModal({
 
   return (
     <Modal animationType="fade" transparent visible onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.sheetOverlay}
+      >
+        <Pressable
+          style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
+          onPress={onClose}
+        />
         <SafeAreaView
           edges={["bottom"]}
           style={[styles.actionSheet, { backgroundColor: theme.background }]}
@@ -2044,7 +2400,7 @@ function OtherEventFormModal({
             </Pressable>
           </View>
         </SafeAreaView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -2133,10 +2489,16 @@ function EntryChip({
 
 function TimedEntryBlock({
   entry,
+  onLongPress,
   onPress,
+  onPressMove,
+  onPressOut,
 }: {
   entry: DayPlanEntry;
+  onLongPress?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
+  onPressMove?: (event: GestureResponderEvent) => void;
+  onPressOut?: () => void;
 }) {
   const theme = useTheme();
   const { backgroundColor, color } = getEntryColors(entry, theme);
@@ -2185,7 +2547,7 @@ function TimedEntryBlock({
 
   return (
     <View
-      pointerEvents={onPress ? "auto" : "none"}
+      pointerEvents={onPress || onLongPress ? "auto" : "none"}
       style={[
         styles.eventOuter,
         {
@@ -2196,11 +2558,15 @@ function TimedEntryBlock({
         },
       ]}
     >
-      {onPress ? (
+      {onPress || onLongPress ? (
         <Pressable
           accessibilityLabel={`Open ${entry.title}`}
           accessibilityRole="button"
+          delayLongPress={LONG_PRESS_DELAY_MS}
+          onLongPress={onLongPress}
           onPress={onPress}
+          onPressMove={onPressMove}
+          onPressOut={onPressOut}
           style={({ pressed }) => [
             styles.eventPressable,
             pressed && styles.pressed,
@@ -2292,6 +2658,34 @@ function buildDayPlanEntries({
         title: habit.name,
       });
     }
+
+    // Project "repeat daily" plans onto every day from their origin forward,
+    // unless the day already has its own log (which is handled above / wins).
+    for (const habit of habitById.values()) {
+      const plan = snapshot.repeatingPlansByHabit?.[habit.id];
+      if (!plan || dateKey < plan.originDate) continue;
+      if (snapshot.explicitPlanDatesByHabit?.[habit.id]?.includes(dateKey)) {
+        continue;
+      }
+
+      const startMinutes = timeToMinutes(plan.startTime);
+      const endMinutes = timeToMinutes(plan.endTime);
+      const hasTimeRange = startMinutes !== null && endMinutes !== null;
+
+      entries.push({
+        allDay: !hasTimeRange,
+        endMinutes: hasTimeRange
+          ? normalizeEndMinutes(startMinutes, endMinutes)
+          : MINUTES_IN_DAY,
+        habitId: habit.id,
+        id: `habit-${habit.id}`,
+        kind: "habit",
+        laneCount: 1,
+        laneIndex: 0,
+        startMinutes: hasTimeRange ? startMinutes : 0,
+        title: habit.name,
+      });
+    }
   }
 
   return entries;
@@ -2331,6 +2725,7 @@ function googleEventToEntry(
       kind: "google",
       laneCount: 1,
       laneIndex: 0,
+      sourceId: event.id,
       startMinutes: 0,
       title: event.title,
     };
@@ -2369,6 +2764,7 @@ function googleEventToEntry(
     kind: "google",
     laneCount: 1,
     laneIndex: 0,
+    sourceId: event.id,
     startMinutes,
     title: event.title,
   };
@@ -2482,6 +2878,67 @@ function normalizePlanRange(startMinutes: number, currentMinutes: number) {
   }
 
   return { endMinutes: end, startMinutes: start };
+}
+
+function movePlanRange({
+  durationMinutes,
+  touchMinutes,
+  touchOffsetMinutes,
+}: {
+  durationMinutes: number;
+  touchMinutes: number;
+  touchOffsetMinutes: number;
+}) {
+  const duration = Math.min(
+    MINUTES_IN_DAY,
+    Math.max(MIN_PLAN_DURATION_MINUTES, durationMinutes),
+  );
+  const start = clampNumber(
+    snapMinutes(touchMinutes - touchOffsetMinutes),
+    0,
+    MINUTES_IN_DAY - duration,
+  );
+
+  return { endMinutes: start + duration, startMinutes: start };
+}
+
+function isTimelinePointOnEntry({
+  entries,
+  timelineWidth,
+  x,
+  y,
+}: {
+  entries: DayPlanEntry[];
+  timelineWidth: number;
+  x: number;
+  y: number;
+}) {
+  return entries.some((entry) => {
+    const top = (entry.startMinutes / 60) * HOUR_HEIGHT;
+    const height = Math.max(
+      ((entry.endMinutes - entry.startMinutes) / 60) * HOUR_HEIGHT,
+      MIN_EVENT_HEIGHT,
+    );
+
+    if (y < top || y > top + height) return false;
+    if (timelineWidth <= 0) return true;
+
+    const laneWidth = 100 / Math.max(entry.laneCount, 1);
+    const left = (laneWidth * entry.laneIndex * timelineWidth) / 100;
+    const width = (laneWidth * timelineWidth) / 100;
+
+    return x >= left && x <= left + width;
+  });
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function googleEntryId(entryId: string) {
+  return entryId.startsWith("google-")
+    ? entryId.slice("google-".length)
+    : entryId;
 }
 
 function snapMinutes(minutes: number) {
@@ -2836,7 +3293,11 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "#00000055",
   },
+  sheetBackdrop: {
+    zIndex: 0,
+  },
   actionSheet: {
+    position: "relative",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 26,
@@ -2847,6 +3308,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 20,
     elevation: 12,
+    zIndex: 1,
   },
   actionTitle: {
     fontSize: 23,
@@ -2861,6 +3323,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   eventActionSheet: {
+    position: "relative",
     overflow: "hidden",
     maxHeight: "82%",
     borderTopLeftRadius: 24,
@@ -2870,6 +3333,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 20,
     elevation: 12,
+    zIndex: 1,
   },
   eventActionHeader: {
     minHeight: 112,

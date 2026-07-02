@@ -1913,7 +1913,7 @@ export function FriendsPageClient({
                   <Input
                     isRequired
                     label="Incentive"
-                    placeholder="Coffee on me when you hit it"
+                    placeholder="Lunch on me when you hit it"
                     value={incentiveText}
                     onValueChange={setIncentiveText}
                   />

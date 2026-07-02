@@ -26,7 +26,7 @@ function CategoryAccordionRowImpl({
   logsByGoalDate: Record<string, "complete" | "planned">;
   plannedTimesByGoalDate?: Record<
     string,
-    { startTime: string | null; endTime: string | null }
+    { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
   >;
   updatingKeys: Set<string>;
   isExpanded: boolean;

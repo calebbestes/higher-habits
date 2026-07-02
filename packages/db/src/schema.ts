@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -458,6 +459,9 @@ export const goalLogs = pgTable(
     notes: text("notes").default("").notNull(),
     plannedStartTime: text("planned_start_time"),
     plannedEndTime: text("planned_end_time"),
+    plannedRepeatsDaily: boolean("planned_repeats_daily")
+      .default(false)
+      .notNull(),
     googleCalendarEventId: text("google_calendar_event_id"),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -531,6 +535,10 @@ export const feedComments = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    parentCommentId: uuid("parent_comment_id").references(
+      (): AnyPgColumn => feedComments.id,
+      { onDelete: "cascade" },
+    ),
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -541,6 +549,7 @@ export const feedComments = pgTable(
   },
   (table) => [
     index("feed_comments_goal_log_id_idx").on(table.goalLogId),
+    index("feed_comments_parent_comment_id_idx").on(table.parentCommentId),
     index("feed_comments_user_id_idx").on(table.userId),
   ],
 );
@@ -730,6 +739,15 @@ export const userSettings = pgTable("user_settings", {
   onboardingCompleted: boolean("onboarding_completed")
     .notNull()
     .default(true),
+  defaultPlanReportView: text("default_plan_report_view")
+    .notNull()
+    .default("day-plan"),
+  defaultCollabSection: text("default_collab_section")
+    .notNull()
+    .default("feed"),
+  defaultAppStartPage: text("default_app_start_page")
+    .notNull()
+    .default("collab"),
   // Notification preferences.
   notifyFriendRequests: boolean("notify_friend_requests")
     .notNull()

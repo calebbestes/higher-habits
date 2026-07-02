@@ -35,11 +35,16 @@ export type CreateGoogleCalendarEventInput = {
   timeZone?: string | null;
   title: string;
 };
+export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
+  eventId: string;
+};
 
 export type CreateGoogleCalendarEventResponse = {
   status: GoogleCalendarEventsResponse["status"];
   event?: GoogleCalendarDayEvent | null;
 };
+export type UpdateGoogleCalendarEventResponse =
+  CreateGoogleCalendarEventResponse;
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -95,6 +100,30 @@ export const createGoogleCalendarEvent = ({
     }),
   }).then((response) =>
     parseResponse<CreateGoogleCalendarEventResponse>(response),
+  );
+
+export const updateGoogleCalendarEvent = ({
+  dateKey,
+  description,
+  endTime,
+  eventId,
+  startTime,
+  timeZone,
+  title,
+}: UpdateGoogleCalendarEventInput): Promise<UpdateGoogleCalendarEventResponse> =>
+  mobileApiFetch("/api/google-calendar/events", {
+    method: "PATCH",
+    body: JSON.stringify({
+      dateKey,
+      description: description ?? null,
+      eventId,
+      plannedStartTime: startTime ?? null,
+      plannedEndTime: endTime ?? null,
+      plannedTimeZone: timeZone ?? null,
+      title,
+    }),
+  }).then((response) =>
+    parseResponse<UpdateGoogleCalendarEventResponse>(response),
   );
 
 export function getLocalTimeZone(): string | null {

@@ -19,7 +19,9 @@ function GoalRowImpl({
 }: {
   goal: ActionGoal;
   status: "complete" | "planned" | undefined;
-  plannedTime?: { startTime: string | null; endTime: string | null } | null;
+  plannedTime?:
+    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
+    | null;
   isUpdating: boolean;
   onEdit?: () => void;
   onPress: () => void;

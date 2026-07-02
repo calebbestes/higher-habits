@@ -63,7 +63,11 @@ function GoalActionsModalImpl({
   isUpdatingVisibility: boolean;
   canPlan?: boolean;
   isFutureDate?: boolean;
-  plannedTime?: { startTime: string | null; endTime: string | null };
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  };
   uploadingPhotoSource: GoalPhotoSource | null;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
@@ -72,6 +76,7 @@ function GoalActionsModalImpl({
     status: GoalLogStatus,
     options?: {
       endTime?: string | null;
+      repeatPlan?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
     },
@@ -89,6 +94,7 @@ function GoalActionsModalImpl({
   const [planEndTime, setPlanEndTime] = useState("");
   const [planStartPeriod, setPlanStartPeriod] = useState<PlanPeriod>("AM");
   const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
+  const [planRepeatsDaily, setPlanRepeatsDaily] = useState(false);
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
   const notePreview = richTextToPlainText(noteText);
   const nextPlanStartTime = normalizePlanTimeInput(
@@ -98,6 +104,10 @@ function GoalActionsModalImpl({
   const nextPlanEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
   const currentPlanStartTime = normalizeStoredPlanTime(plannedTime?.startTime);
   const currentPlanEndTime = normalizeStoredPlanTime(plannedTime?.endTime);
+  const canRepeatPlan = goal?.period === "daily";
+  const currentPlanRepeatsDaily = Boolean(
+    canRepeatPlan && plannedTime?.repeatsDaily,
+  );
   const showPlanEditor = showPlanAction && isPlanEditorOpen;
   const hasAnyPlanTimeInput = Boolean(
     planStartTime.trim() || planEndTime.trim(),
@@ -105,17 +115,20 @@ function GoalActionsModalImpl({
   const hasPlanTimeChanges =
     nextPlanStartTime !== currentPlanStartTime ||
     nextPlanEndTime !== currentPlanEndTime;
+  const hasPlanRepeatChanges =
+    Boolean(canRepeatPlan) && planRepeatsDaily !== currentPlanRepeatsDaily;
+  const hasPlanChanges = hasPlanTimeChanges || hasPlanRepeatChanges;
 
   // A daily plan must carry something useful: a note or a valid time range.
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
-  const willSavePlan = showPlanAction && (!isPlanned || hasPlanTimeChanges);
+  const willSavePlan = showPlanAction && (!isPlanned || hasPlanChanges);
   const isPlanActionDisabled =
     showPlanEditor &&
     willSavePlan &&
     ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
       (!hasNote && !hasPlanTimeRange));
   const planActionLabel =
-    isPlanned && !hasPlanTimeChanges
+    isPlanned && !hasPlanChanges
       ? "Clear plan"
       : showPlanEditor || isPlanned
         ? "Save plan"
@@ -129,8 +142,15 @@ function GoalActionsModalImpl({
     setPlanStartPeriod(start.period);
     setPlanEndTime(end.time);
     setPlanEndPeriod(end.period);
+    setPlanRepeatsDaily(Boolean(plannedTime?.repeatsDaily));
     setIsPlanEditorOpen(isPlanned || Boolean(start.time || end.time));
-  }, [isPlanned, plannedTime?.endTime, plannedTime?.startTime, visible]);
+  }, [
+    isPlanned,
+    plannedTime?.endTime,
+    plannedTime?.repeatsDaily,
+    plannedTime?.startTime,
+    visible,
+  ]);
 
   useEffect(() => {
     if (!goal || !visible) return;
@@ -179,7 +199,7 @@ function GoalActionsModalImpl({
       <View style={modalStyles.overlay}>
         <Pressable
           accessibilityLabel="Close"
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
           onPress={onDismiss}
         />
         <SafeAreaView
@@ -268,7 +288,7 @@ function GoalActionsModalImpl({
                         }
 
                         const nextStatus =
-                          isPlanned && !hasPlanTimeChanges ? null : "planned";
+                          isPlanned && !hasPlanChanges ? null : "planned";
 
                         onSetStatus(
                           nextStatus,
@@ -276,6 +296,9 @@ function GoalActionsModalImpl({
                             ? {
                                 startTime: nextPlanStartTime,
                                 endTime: nextPlanEndTime,
+                                repeatPlan: Boolean(
+                                  canRepeatPlan && planRepeatsDaily,
+                                ),
                                 timeZone: getLocalTimeZone(),
                               }
                             : undefined,
@@ -296,13 +319,13 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={
-                            isPlanned && !hasPlanTimeChanges
+                            isPlanned && !hasPlanChanges
                               ? sym("calendar.badge.minus", "event_busy")
                               : sym("calendar.badge.plus", "event_available")
                           }
                           size={26}
                           tintColor={
-                            isPlanned && !hasPlanTimeChanges
+                            isPlanned && !hasPlanChanges
                               ? theme.textSecondary
                               : theme.secondary
                           }
@@ -463,6 +486,43 @@ function GoalActionsModalImpl({
                             </View>
                           </View>
                         </View>
+                        {canRepeatPlan ? (
+                          <Pressable
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: planRepeatsDaily }}
+                            onPress={() =>
+                              setPlanRepeatsDaily((current) => !current)
+                            }
+                            style={({ pressed }) => [
+                              modalStyles.planRepeatRow,
+                              { borderTopColor: theme.tabBorder },
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <SymbolView
+                              name={
+                                planRepeatsDaily
+                                  ? sym("checkmark.square.fill", "check_box")
+                                  : sym("square", "check_box_outline_blank")
+                              }
+                              size={24}
+                              weight="semibold"
+                              tintColor={
+                                planRepeatsDaily
+                                  ? theme.primary
+                                  : theme.textSecondary
+                              }
+                            />
+                            <Text
+                              style={[
+                                modalStyles.planRepeatText,
+                                { color: theme.text },
+                              ]}
+                            >
+                              Repeat daily
+                            </Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     ) : null}
                   </>

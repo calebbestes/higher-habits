@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -38,6 +39,7 @@ import {
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
+import { addFeedComment } from "@/lib/friends-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -106,6 +108,13 @@ function formatDate(value: string): string {
   });
 }
 
+function countJournalComments(comments: JournalSocialComment[]): number {
+  return comments.reduce(
+    (total, comment) => total + 1 + countJournalComments(comment.replies),
+    0,
+  );
+}
+
 function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
   if (!snapshot) return [];
 
@@ -154,6 +163,13 @@ export function JournalScreen() {
   const [activePost, setActivePost] = useState<JournalEntry | null>(null);
   const [isUpdatingPost, setIsUpdatingPost] = useState(false);
   const [noteEditEntry, setNoteEditEntry] = useState<JournalEntry | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [replyTargets, setReplyTargets] = useState<
+    Record<string, JournalSocialComment | null>
+  >({});
+  const [submittingReplyGoalLogId, setSubmittingReplyGoalLogId] = useState<
+    string | null
+  >(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
 
@@ -415,6 +431,30 @@ export function JournalScreen() {
     [load, uploadingPhotoSource],
   );
 
+  const handleSubmitReply = useCallback(
+    async (goalLogId: string) => {
+      const body = (replyDrafts[goalLogId] ?? "").trim();
+      const replyTarget = replyTargets[goalLogId] ?? null;
+      if (!body || !replyTarget || submittingReplyGoalLogId) return;
+
+      setSubmittingReplyGoalLogId(goalLogId);
+      try {
+        await addFeedComment(goalLogId, body, replyTarget.id);
+        setReplyDrafts((prev) => ({ ...prev, [goalLogId]: "" }));
+        setReplyTargets((prev) => ({ ...prev, [goalLogId]: null }));
+        await load();
+      } catch (replyError) {
+        Alert.alert(
+          "Could not add reply",
+          replyError instanceof Error ? replyError.message : undefined,
+        );
+      } finally {
+        setSubmittingReplyGoalLogId(null);
+      }
+    },
+    [load, replyDrafts, replyTargets, submittingReplyGoalLogId],
+  );
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -430,6 +470,7 @@ export function JournalScreen() {
               onRefresh={() => void load(true)}
             />
           }
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
@@ -481,18 +522,56 @@ export function JournalScreen() {
             />
           ) : (
             <View style={styles.entryList}>
-              {entries.map((entry) => (
-                <JournalCard
-                  key={`${entry.goal.id}_${entry.dateKey}`}
-                  entry={entry}
-                  photoLoadFailed={photoLoadFailed}
-                  photos={
-                    photosByEntry.get(`${entry.goal.id}_${entry.dateKey}`) ?? []
-                  }
-                  onOpenPhoto={setActivePhoto}
-                  onOpenMenu={setActivePost}
-                />
-              ))}
+              {entries.map((entry) => {
+                const goalLogId = entry.social?.goalLogId ?? null;
+
+                return (
+                  <JournalCard
+                    key={`${entry.goal.id}_${entry.dateKey}`}
+                    entry={entry}
+                    commentDraft={goalLogId ? (replyDrafts[goalLogId] ?? "") : ""}
+                    isSubmittingReply={
+                      goalLogId !== null &&
+                      submittingReplyGoalLogId === goalLogId
+                    }
+                    photoLoadFailed={photoLoadFailed}
+                    photos={
+                      photosByEntry.get(`${entry.goal.id}_${entry.dateKey}`) ??
+                      []
+                    }
+                    replyTarget={
+                      goalLogId ? (replyTargets[goalLogId] ?? null) : null
+                    }
+                    onCancelReply={() => {
+                      if (!goalLogId) return;
+                      setReplyTargets((prev) => ({
+                        ...prev,
+                        [goalLogId]: null,
+                      }));
+                    }}
+                    onCommentDraftChange={(value) => {
+                      if (!goalLogId) return;
+                      setReplyDrafts((prev) => ({
+                        ...prev,
+                        [goalLogId]: value,
+                      }));
+                    }}
+                    onOpenPhoto={setActivePhoto}
+                    onOpenMenu={setActivePost}
+                    onReplyToComment={(comment) => {
+                      if (!goalLogId) return;
+                      setReplyTargets((prev) => ({
+                        ...prev,
+                        [goalLogId]: comment,
+                      }));
+                    }}
+                    onSubmitReply={() => {
+                      if (!goalLogId) return;
+                      void handleSubmitReply(goalLogId);
+                    }}
+                  />
+                );
+              })}
             </View>
           )}
         </ScrollView>
@@ -640,16 +719,30 @@ function MonthButton({
 
 function JournalCard({
   entry,
+  commentDraft,
+  isSubmittingReply,
   photoLoadFailed,
   photos,
+  replyTarget,
+  onCancelReply,
+  onCommentDraftChange,
   onOpenPhoto,
   onOpenMenu,
+  onReplyToComment,
+  onSubmitReply,
 }: {
   entry: JournalEntry;
+  commentDraft: string;
+  isSubmittingReply: boolean;
   photoLoadFailed: boolean;
   photos: GoalPhoto[];
+  replyTarget: JournalSocialComment | null;
+  onCancelReply: () => void;
+  onCommentDraftChange: (value: string) => void;
   onOpenPhoto: (photo: GoalPhoto) => void;
   onOpenMenu: (entry: JournalEntry) => void;
+  onReplyToComment: (comment: JournalSocialComment) => void;
+  onSubmitReply: () => void;
 }) {
   const theme = useTheme();
 
@@ -755,21 +848,45 @@ function JournalCard({
         )
       ) : null}
 
-      <JournalSocialActivity social={entry.social} />
+      <JournalSocialActivity
+        commentDraft={commentDraft}
+        isSubmittingReply={isSubmittingReply}
+        replyTarget={replyTarget}
+        social={entry.social}
+        onCancelReply={onCancelReply}
+        onCommentDraftChange={onCommentDraftChange}
+        onReplyToComment={onReplyToComment}
+        onSubmitReply={onSubmitReply}
+      />
     </View>
   );
 }
 
 function JournalSocialActivity({
+  commentDraft,
+  isSubmittingReply,
+  replyTarget,
   social,
+  onCancelReply,
+  onCommentDraftChange,
+  onReplyToComment,
+  onSubmitReply,
 }: {
+  commentDraft: string;
+  isSubmittingReply: boolean;
+  replyTarget: JournalSocialComment | null;
   social: JournalSocialSummary | null;
+  onCancelReply: () => void;
+  onCommentDraftChange: (value: string) => void;
+  onReplyToComment: (comment: JournalSocialComment) => void;
+  onSubmitReply: () => void;
 }) {
   const theme = useTheme();
   const propCount = social?.props.count ?? 0;
   const comments = social?.comments ?? [];
+  const commentCount = countJournalComments(comments);
 
-  if (propCount === 0 && comments.length === 0) {
+  if (propCount === 0 && commentCount === 0) {
     return null;
   }
 
@@ -794,7 +911,7 @@ function JournalSocialActivity({
             </Text>
           </View>
         ) : null}
-        {comments.length > 0 ? (
+        {commentCount > 0 ? (
           <View
             style={[
               styles.socialPill,
@@ -810,49 +927,163 @@ function JournalSocialActivity({
             <Text
               style={[styles.socialPillText, { color: theme.textSecondary }]}
             >
-              {comments.length}{" "}
-              {comments.length === 1 ? "comment" : "comments"}
+              {commentCount} {commentCount === 1 ? "comment" : "comments"}
             </Text>
           </View>
         ) : null}
       </View>
 
-      {comments.length > 0 ? (
+      {commentCount > 0 ? (
         <View style={styles.journalCommentsList}>
           {comments.map((comment) => (
-            <JournalCommentRow key={comment.id} comment={comment} />
+            <JournalCommentRow
+              key={comment.id}
+              comment={comment}
+              onReply={onReplyToComment}
+            />
           ))}
+        </View>
+      ) : null}
+
+      {replyTarget ? (
+        <View style={styles.journalReplyComposer}>
+          <View style={styles.journalReplyingToRow}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.journalReplyingToText,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Replying to {replyTarget.authorName}
+            </Text>
+            <Pressable
+              accessibilityLabel="Cancel reply"
+              hitSlop={8}
+              onPress={onCancelReply}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={13}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+          <View style={styles.journalReplyInputRow}>
+            <TextInput
+              maxLength={2000}
+              onChangeText={onCommentDraftChange}
+              onSubmitEditing={onSubmitReply}
+              placeholder={`Reply to ${replyTarget.authorName}...`}
+              placeholderTextColor={theme.textSecondary}
+              returnKeyType="send"
+              style={[
+                styles.journalReplyInput,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  color: theme.text,
+                },
+              ]}
+              value={commentDraft}
+            />
+            <Pressable
+              disabled={!commentDraft.trim() || isSubmittingReply}
+              onPress={onSubmitReply}
+              style={({ pressed }) => [
+                styles.journalReplySendButton,
+                { backgroundColor: theme.primary },
+                (!commentDraft.trim() || isSubmittingReply) &&
+                  styles.journalReplySendButtonDisabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              {isSubmittingReply ? (
+                <ActivityIndicator
+                  color={theme.primaryForeground}
+                  size="small"
+                />
+              ) : (
+                <SymbolView
+                  name={sym("paperplane.fill", "send")}
+                  size={15}
+                  weight="semibold"
+                  tintColor={theme.primaryForeground}
+                />
+              )}
+            </Pressable>
+          </View>
         </View>
       ) : null}
     </View>
   );
 }
 
-function JournalCommentRow({ comment }: { comment: JournalSocialComment }) {
+function JournalCommentRow({
+  comment,
+  depth = 0,
+  onReply,
+}: {
+  comment: JournalSocialComment;
+  depth?: number;
+  onReply: (comment: JournalSocialComment) => void;
+}) {
   const theme = useTheme();
 
   return (
     <View
       style={[
-        styles.journalCommentRow,
-        { backgroundColor: theme.backgroundElement },
+        styles.journalCommentThread,
+        depth > 0 && styles.journalCommentReplyThread,
       ]}
     >
-      <JournalCommentAvatar
-        image={comment.authorImage}
-        name={comment.authorName}
-      />
-      <View style={styles.journalCommentBody}>
-        <Text
-          numberOfLines={1}
-          style={[styles.journalCommentAuthor, { color: theme.text }]}
-        >
-          {comment.authorName}
-        </Text>
-        <Text style={[styles.journalCommentText, { color: theme.text }]}>
-          {comment.body}
-        </Text>
+      <View
+        style={[
+          styles.journalCommentRow,
+          depth > 0 && styles.journalCommentReplyRow,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <JournalCommentAvatar
+          image={comment.authorImage}
+          name={comment.authorName}
+        />
+        <View style={styles.journalCommentBody}>
+          <Text
+            numberOfLines={1}
+            style={[styles.journalCommentAuthor, { color: theme.text }]}
+          >
+            {comment.authorName}
+          </Text>
+          <Text style={[styles.journalCommentText, { color: theme.text }]}>
+            {comment.body}
+          </Text>
+          <Pressable
+            hitSlop={8}
+            onPress={() => onReply(comment)}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <Text
+              style={[styles.journalCommentReplyText, { color: theme.primary }]}
+            >
+              Reply
+            </Text>
+          </Pressable>
+        </View>
       </View>
+      {comment.replies.length > 0 ? (
+        <View style={styles.journalCommentReplies}>
+          {comment.replies.map((reply) => (
+            <JournalCommentRow
+              key={reply.id}
+              comment={reply}
+              depth={depth + 1}
+              onReply={onReply}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1664,6 +1895,9 @@ const styles = StyleSheet.create({
   },
   socialPillText: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   journalCommentsList: { gap: 7 },
+  journalCommentThread: { gap: 6 },
+  journalCommentReplyThread: { marginLeft: 22 },
+  journalCommentReplies: { gap: 6 },
   journalCommentRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1672,6 +1906,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
+  journalCommentReplyRow: { borderTopLeftRadius: 4 },
   journalCommentAvatarImage: {
     width: 28,
     height: 28,
@@ -1700,6 +1935,49 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "500",
   },
+  journalCommentReplyText: {
+    alignSelf: "flex-start",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  journalReplyComposer: { gap: 7 },
+  journalReplyingToRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 2,
+  },
+  journalReplyingToText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  journalReplyInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  journalReplyInput: {
+    flex: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  journalReplySendButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    borderRadius: 11,
+  },
+  journalReplySendButtonDisabled: { opacity: 0.45 },
   sheetOverlay: {
     flex: 1,
     justifyContent: "flex-end",

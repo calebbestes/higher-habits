@@ -377,11 +377,17 @@ export const modalStyles = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "#00000055",
   },
+  backdrop: {
+    zIndex: 0,
+  },
   sheet: {
+    position: "relative",
     maxHeight: "90%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
+    zIndex: 1,
+    elevation: 24,
   },
   header: {
     minHeight: 68,
@@ -489,6 +495,19 @@ export const modalStyles = StyleSheet.create({
   planPeriodText: {
     fontSize: 12,
     lineHeight: 16,
+    fontWeight: "800",
+  },
+  planRepeatRow: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+  },
+  planRepeatText: {
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "800",
   },
   photoRow: {

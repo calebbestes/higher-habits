@@ -1,5 +1,6 @@
 import * as Contacts from "expo-contacts";
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useMemo, useState } from "react";
 import {
@@ -19,23 +20,25 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { EXPO_SYMBOL_ICON_OPTIONS } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { authClient } from "@/lib/auth-client";
 import { setGoalLog, setGoalLogNote, toDateKey } from "@/lib/goal-logs-client";
-import { pickGoalPhoto, type GoalPhotoSource } from "@/lib/goal-photo-picker";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
-  createCategory,
-  createHabit,
-  fetchCategories,
   type Habit,
   type HabitInput,
   type HabitPeriod,
+  createCategory,
+  createHabit,
+  fetchCategories,
 } from "@/lib/habits-client";
 import { createPlanGoal } from "@/lib/planning-goals-client";
+import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
-  createTask,
-  todayDateKey,
   type Task,
   type TaskInput,
+  createTask,
+  todayDateKey,
   updateTask,
 } from "@/lib/tasks-client";
 import { updateUserSettings } from "@/lib/user-settings-client";
@@ -189,6 +192,18 @@ const TOUR_STEPS: TourStep[] = [
 const INVITE_MESSAGE =
   "Hey! I'm using float to build my habits. You should make a goal with me!";
 
+function initials(value: string): string {
+  return (
+    value
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "HH"
+  );
+}
+
 function selectedOption(kind: FirstItemKind) {
   return (
     FIRST_ITEM_OPTIONS.find((option) => option.key === kind) ??
@@ -255,9 +270,13 @@ async function getHabitCategoryId() {
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const theme = useTheme();
+  const { data: session, refetch: refetchSession } = authClient.useSession();
   const [setupIndex, setSetupIndex] = useState(0);
   const [tourIndex, setTourIndex] = useState(0);
   const [isTouring, setIsTouring] = useState(false);
+  const [isProfile, setIsProfile] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [firstItemKind, setFirstItemKind] =
     useState<FirstItemKind>("daily_habit");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -307,6 +326,40 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       setError("Could not save your setup. Try once more.");
     } finally {
       setIsCompleting(false);
+    }
+  };
+
+  const pickProfilePicture = async () => {
+    if (isUploadingPhoto || isCompleting) return;
+
+    setError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError("Photo access is off. Enable it to add a profile picture.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const imageUrl = await uploadProfilePicture(result.assets[0].uri);
+      setProfileImage(imageUrl);
+      await refetchSession();
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Could not upload that photo.",
+      );
+    } finally {
+      setIsUploadingPhoto(false);
     }
   };
 
@@ -458,7 +511,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== "granted") {
         setContactState("denied");
-        setError("Contacts access is off. Enable it to choose someone to text.");
+        setError(
+          "Contacts access is off. Enable it to choose someone to text.",
+        );
         return;
       }
 
@@ -527,6 +582,13 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     if (!canNavigate) return;
     setError(null);
 
+    if (isProfile) {
+      setIsProfile(false);
+      setIsTouring(true);
+      setTourIndex(TOUR_STEPS.length - 1);
+      return;
+    }
+
     if (isTouring) {
       if (tourIndex > 0) {
         setTourIndex((current) => current - 1);
@@ -544,9 +606,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     if (!canNavigate) return;
     setError(null);
 
+    if (isProfile) {
+      void complete();
+      return;
+    }
+
     if (isTouring) {
       if (tourIndex === TOUR_STEPS.length - 1) {
-        void complete();
+        setIsTouring(false);
+        setIsProfile(true);
       } else {
         setTourIndex((current) => current + 1);
       }
@@ -563,14 +631,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     setTourIndex(0);
   };
 
-  const canUseNext = isTouring || setupIndex !== 0 || Boolean(createdItem);
-  const primaryLabel = isTouring
-    ? tourIndex === TOUR_STEPS.length - 1
-      ? "Finish"
-      : "Next"
-    : setupIndex === SETUP_STEPS.length - 1
-      ? "Start tour"
-      : "Next";
+  const canUseNext =
+    isProfile || isTouring || setupIndex !== 0 || Boolean(createdItem);
+  const primaryLabel = isProfile
+    ? "Finish"
+    : isTouring
+      ? "Next"
+      : setupIndex === SETUP_STEPS.length - 1
+        ? "Start tour"
+        : "Next";
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -618,7 +687,18 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               </View>
 
               <View style={[styles.card, { backgroundColor: theme.tabBar }]}>
-                {isTouring ? (
+                {isProfile ? (
+                  <ProfileStep
+                    error={error}
+                    imageUrl={profileImage ?? session?.user.image ?? null}
+                    initialsSource={
+                      session?.user.name ?? session?.user.email ?? "HH"
+                    }
+                    isUploading={isUploadingPhoto}
+                    onPickPhoto={() => void pickProfilePicture()}
+                    theme={theme}
+                  />
+                ) : isTouring ? (
                   <TourContent step={tourStep} theme={theme} />
                 ) : (
                   <>
@@ -638,10 +718,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
                     <View style={styles.heading}>
                       <Text
-                        style={[
-                          styles.eyebrow,
-                          { color: theme.textSecondary },
-                        ]}
+                        style={[styles.eyebrow, { color: theme.textSecondary }]}
                       >
                         {setupStep.eyebrow}
                       </Text>
@@ -741,28 +818,32 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             ]}
           >
             <View style={styles.dots}>
-              {(isTouring ? TOUR_STEPS : SETUP_STEPS).map((item, index) => (
+              {isProfile ? (
                 <View
-                  key={item.key}
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor:
-                        index === (isTouring ? tourIndex : setupIndex)
-                          ? theme.primary
-                          : theme.backgroundElement,
-                    },
-                  ]}
+                  style={[styles.dot, { backgroundColor: theme.primary }]}
                 />
-              ))}
+              ) : (
+                (isTouring ? TOUR_STEPS : SETUP_STEPS).map((item, index) => (
+                  <View
+                    key={item.key}
+                    style={[
+                      styles.dot,
+                      {
+                        backgroundColor:
+                          index === (isTouring ? tourIndex : setupIndex)
+                            ? theme.primary
+                            : theme.backgroundElement,
+                      },
+                    ]}
+                  />
+                ))
+              )}
             </View>
 
             <View style={styles.footerActions}>
               <Pressable
                 accessibilityRole="button"
-                disabled={
-                  !canNavigate || (!isTouring && setupIndex === 0)
-                }
+                disabled={!canNavigate || (!isTouring && setupIndex === 0)}
                 onPress={goBack}
                 style={({ pressed }) => [
                   styles.secondaryButton,
@@ -1304,6 +1385,130 @@ function FriendsStep({
   );
 }
 
+function ProfileStep({
+  error,
+  imageUrl,
+  initialsSource,
+  isUploading,
+  onPickPhoto,
+  theme,
+}: {
+  error: string | null;
+  imageUrl: string | null;
+  initialsSource: string;
+  isUploading: boolean;
+  onPickPhoto: () => void;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <>
+      <View
+        style={[styles.stepIcon, { backgroundColor: theme.backgroundElement }]}
+      >
+        <SymbolView
+          name={sym("person.crop.circle.fill", "account_circle")}
+          size={34}
+          tintColor={theme.primary}
+          weight="semibold"
+        />
+      </View>
+
+      <View style={styles.heading}>
+        <Text style={[styles.eyebrow, { color: theme.textSecondary }]}>
+          Last step
+        </Text>
+        <Text style={[styles.title, { color: theme.text }]}>
+          Add a profile picture
+        </Text>
+        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+          Put a face to your name so friends recognize you.
+        </Text>
+      </View>
+
+      <View style={styles.profileForm}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose profile picture"
+          disabled={isUploading}
+          onPress={onPickPhoto}
+          style={({ pressed }) => [
+            styles.profileAvatarWrap,
+            pressed && styles.pressed,
+          ]}
+        >
+          {imageUrl ? (
+            <Image
+              source={{ uri: imageUrl }}
+              style={styles.profileAvatar}
+              contentFit="cover"
+            />
+          ) : (
+            <View
+              style={[styles.profileAvatar, { backgroundColor: theme.primary }]}
+            >
+              <Text
+                style={[
+                  styles.profileAvatarText,
+                  { color: theme.primaryForeground },
+                ]}
+              >
+                {initials(initialsSource)}
+              </Text>
+            </View>
+          )}
+          {isUploading ? (
+            <View style={styles.profileAvatarOverlay}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          ) : null}
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={isUploading}
+          onPress={onPickPhoto}
+          style={({ pressed }) => [
+            styles.actionButton,
+            styles.profileButton,
+            { backgroundColor: theme.primary },
+            pressed && !isUploading && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("photo.fill", "image")}
+            size={20}
+            tintColor={theme.primaryForeground}
+            weight="semibold"
+          />
+          <Text
+            style={[
+              styles.actionButtonText,
+              { color: theme.primaryForeground },
+            ]}
+          >
+            {imageUrl ? "Choose a different photo" : "Choose from library"}
+          </Text>
+        </Pressable>
+
+        {imageUrl ? (
+          <Text style={[styles.successText, { color: theme.primary }]}>
+            Looking good! Tap Finish to jump in.
+          </Text>
+        ) : (
+          <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+            You can skip this and add one later from Settings.
+          </Text>
+        )}
+        {error ? (
+          <Text style={[styles.errorText, { color: theme.primary }]}>
+            {error}
+          </Text>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
 function TourContent({
   step,
   theme,
@@ -1452,6 +1657,41 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 12,
+  },
+  profileForm: {
+    gap: 16,
+    alignItems: "center",
+  },
+  profileAvatarWrap: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    overflow: "hidden",
+  },
+  profileAvatar: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileAvatarText: {
+    fontSize: 44,
+    lineHeight: 50,
+    fontWeight: "900",
+  },
+  profileButton: {
+    alignSelf: "stretch",
+  },
+  profileAvatarOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
   },
   inputLabel: {
     fontSize: 15,

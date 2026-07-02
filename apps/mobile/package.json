@@ -5,9 +5,12 @@
   "dependencies": {
     "@better-auth/expo": "^1.6.14",
     "@expo/ui": "~56.0.17",
+    "@react-native-vector-icons/lucide": "^13.1.2",
+    "@react-native-vector-icons/material-design-icons": "^13.1.2",
     "@sentry/react-native": "~7.11.0",
     "better-auth": "^1.6.14",
     "expo": "~56.0.11",
+    "expo-asset": "^57.0.2",
     "expo-blur": "^56.0.3",
     "expo-clipboard": "~56.0.4",
     "expo-constants": "~56.0.18",

@@ -11,6 +11,7 @@ import {
   isPlanReportView,
   setHabitsTab,
   setPlanReportView,
+  useDefaultPlanReportView,
 } from "@/lib/tab-view-store";
 
 export default function PlanReportScreen() {
@@ -19,12 +20,13 @@ export default function PlanReportScreen() {
     view?: string;
     date?: string;
   }>();
+  const defaultView = useDefaultPlanReportView();
   const legacyHabitsTab = isLegacyHabitsTab(view) ? view : undefined;
   const activeView = legacyHabitsTab
     ? "habits"
     : isPlanReportView(view)
       ? view
-      : "day-plan";
+      : defaultView;
 
   useEffect(() => {
     if (legacyHabitsTab) {
@@ -36,8 +38,11 @@ export default function PlanReportScreen() {
 
     if (isPlanReportView(view)) {
       setPlanReportView(view);
+      return;
     }
-  }, [legacyHabitsTab, router, view]);
+
+    setPlanReportView(defaultView);
+  }, [defaultView, legacyHabitsTab, router, view]);
 
   if (activeView === "day-plan") {
     return (

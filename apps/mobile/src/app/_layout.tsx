@@ -1,11 +1,12 @@
 import {
   DarkTheme,
   DefaultTheme,
+  type Href,
   Stack,
   ThemeProvider,
   useRouter,
 } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -33,8 +34,21 @@ import {
   getColorThemePreference,
   getThemePreference,
 } from "@/lib/theme-preference";
+import {
+  type AppStartPage,
+  type CollabSection,
+  type PlanReportView,
+  applyNavigationDefaults,
+  getAppStartHref,
+} from "@/lib/tab-view-store";
 import { recordAppOpened } from "@/lib/user-activity-client";
 import { fetchUserSettings } from "@/lib/user-settings-client";
+
+type NavigationDefaults = {
+  defaultAppStartPage: AppStartPage;
+  defaultCollabSection: CollabSection;
+  defaultPlanReportView: PlanReportView;
+};
 
 function RootLayout() {
   const colorScheme = useColorScheme();
@@ -65,6 +79,9 @@ function AuthNavigator() {
   const [postOnboardingRoute, setPostOnboardingRoute] = useState<
     "/journal" | null
   >(null);
+  const [navigationDefaults, setNavigationDefaults] =
+    useState<NavigationDefaults | null>(null);
+  const appliedStartPageUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     setCrashReportingUser(sessionUserId ?? null);
@@ -75,14 +92,25 @@ function AuthNavigator() {
 
     if (!sessionUserId) {
       setOnboardingCompleted(null);
+      setNavigationDefaults(null);
       setPostOnboardingRoute(null);
+      appliedStartPageUserRef.current = null;
       return;
     }
 
     setOnboardingCompleted(null);
+    setNavigationDefaults(null);
+    appliedStartPageUserRef.current = null;
     void fetchUserSettings()
       .then((settings) => {
         if (!cancelled) {
+          const nextNavigationDefaults = {
+            defaultAppStartPage: settings.defaultAppStartPage,
+            defaultCollabSection: settings.defaultCollabSection,
+            defaultPlanReportView: settings.defaultPlanReportView,
+          };
+          applyNavigationDefaults(nextNavigationDefaults);
+          setNavigationDefaults(nextNavigationDefaults);
           setOnboardingCompleted(settings.onboardingCompleted);
         }
       })
@@ -119,9 +147,31 @@ function AuthNavigator() {
       return;
     }
 
+    appliedStartPageUserRef.current = sessionUserId;
     router.replace(postOnboardingRoute);
     setPostOnboardingRoute(null);
   }, [onboardingCompleted, postOnboardingRoute, router, sessionUserId]);
+
+  useEffect(() => {
+    if (
+      !sessionUserId ||
+      onboardingCompleted !== true ||
+      postOnboardingRoute ||
+      !navigationDefaults ||
+      appliedStartPageUserRef.current === sessionUserId
+    ) {
+      return;
+    }
+
+    appliedStartPageUserRef.current = sessionUserId;
+    router.replace(getAppStartHref(navigationDefaults) as Href);
+  }, [
+    navigationDefaults,
+    onboardingCompleted,
+    postOnboardingRoute,
+    router,
+    sessionUserId,
+  ]);
 
   if (isPending || (session && onboardingCompleted === null)) {
     return (
