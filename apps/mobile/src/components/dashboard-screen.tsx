@@ -725,10 +725,12 @@ function DashSection({
 
 function HeatmapDateHeader({ days }: { days: string[] }) {
   const theme = useTheme();
-  const todayIndex = days.length > 1 ? days.length - 2 : days.length - 1;
-  const dateIndex = days.length - 1;
-  const currentDateLabel = days[dateIndex]
-    ? formatHeatmapDateLabel(days[dateIndex])
+  // Today is the most recent day (rightmost column); the oldest day is labeled
+  // with its date on the far left.
+  const todayIndex = days.length - 1;
+  const startIndex = 0;
+  const startDateLabel = days[startIndex]
+    ? formatHeatmapDateLabel(days[startIndex])
     : "";
 
   return (
@@ -741,15 +743,12 @@ function HeatmapDateHeader({ days }: { days: string[] }) {
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.58}
-            style={[
-              styles.heatmapDateLabel,
-              { color: theme.textSecondary },
-            ]}
+            style={[styles.heatmapDateLabel, { color: theme.textSecondary }]}
           >
             {index === todayIndex
               ? "Today"
-              : index === dateIndex
-                ? currentDateLabel
+              : index === startIndex
+                ? startDateLabel
                 : ""}
           </Text>
         ))}
