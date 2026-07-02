@@ -17,10 +17,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { modalStyles } from "@/components/daily-goals/shared";
+import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  fetchCheckpointPhotos,
+  uploadCheckpointPhoto,
+} from "@/lib/checkpoint-photos-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import {
   PLAN_PERIODS,
@@ -264,37 +272,23 @@ export function GoalsScreen() {
     );
   };
 
-  const toggleCheckpointComplete = async (
-    active: ActiveCheckpoint,
-    completed: boolean,
-  ) => {
-    setActiveCheckpoint(null);
-    setError(null);
+  const handleCheckpointSaved = (updatedGoal: Goal | null) => {
+    updateGoalInList(updatedGoal);
+    if (!updatedGoal) return;
 
-    try {
-      const updatedGoal = await updatePlanGoalCheckpoint(
-        active.checkpoint.id,
-        completed,
-      );
-      updateGoalInList(updatedGoal);
-      if (completed) {
-        setPlannedEvents((current) =>
-          current.filter(
-            (event) =>
-              event.sourceType !== "goal_checkpoint" ||
-              event.sourceId !== active.checkpoint.id,
-          ),
-        );
-      } else {
-        await load(true);
-      }
-    } catch (updateError) {
-      setError(
-        updateError instanceof Error
-          ? updateError.message
-          : "Could not update checkpoint.",
-      );
-    }
+    // A completed checkpoint drops its calendar plan.
+    const completedIds = new Set(
+      updatedGoal.checkpoints
+        .filter((checkpoint) => checkpoint.completed)
+        .map((checkpoint) => checkpoint.id),
+    );
+    setPlannedEvents((current) =>
+      current.filter(
+        (event) =>
+          event.sourceType !== "goal_checkpoint" ||
+          !completedIds.has(event.sourceId),
+      ),
+    );
   };
 
   const openCheckpointPlan = (active: ActiveCheckpoint) => {
@@ -549,7 +543,8 @@ export function GoalsScreen() {
           openEdit(goal);
         }}
         onPlan={openCheckpointPlan}
-        onToggleComplete={toggleCheckpointComplete}
+        onSaved={handleCheckpointSaved}
+        onError={setError}
       />
       <CheckpointPlanModal
         active={planningCheckpoint}
@@ -811,7 +806,8 @@ function CheckpointActionsModal({
   onClose,
   onEditGoal,
   onPlan,
-  onToggleComplete,
+  onSaved,
+  onError,
 }: {
   active: ActiveCheckpoint | null;
   plannedEvent?: PlannedEvent | null;
@@ -819,97 +815,391 @@ function CheckpointActionsModal({
   onClose: () => void;
   onEditGoal: (goal: Goal) => void;
   onPlan: (active: ActiveCheckpoint) => void;
-  onToggleComplete: (active: ActiveCheckpoint, completed: boolean) => void;
+  onSaved: (updatedGoal: Goal | null) => void;
+  onError: (message: string | null) => void;
 }) {
   const theme = useTheme();
-  if (!active) return null;
+  const [completed, setCompleted] = useState(false);
+  const [note, setNote] = useState("");
+  const [visibility, setVisibility] = useState<GoalVisibility>("only_me");
+  const [photoCount, setPhotoCount] = useState(0);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [uploadingSource, setUploadingSource] =
+    useState<GoalPhotoSource | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
 
+  const checkpointId = active?.checkpoint.id ?? null;
+
+  useEffect(() => {
+    if (!active) return;
+    setCompleted(active.checkpoint.completed);
+    setNote(active.checkpoint.notes ?? "");
+    setVisibility(
+      active.checkpoint.visibility === "all_friends"
+        ? "all_friends"
+        : "only_me",
+    );
+    setPhotoCount(0);
+    setNoteOpen(false);
+
+    let cancelled = false;
+    fetchCheckpointPhotos(active.checkpoint.id)
+      .then((rows) => {
+        if (!cancelled) setPhotoCount(rows.length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
+
+  if (!active) return null;
   const { checkpoint, goal } = active;
+  const hasContent = note.trim().length > 0 || photoCount > 0;
+
+  const save = async (next: {
+    completed: boolean;
+    notes: string | null;
+    visibility: GoalVisibility;
+  }) => {
+    if (!checkpointId) return;
+    onError(null);
+    setIsUpdating(true);
+    try {
+      const updatedGoal = await updatePlanGoalCheckpoint(checkpointId, next);
+      setCompleted(next.completed);
+      setVisibility(next.visibility);
+      setNote(next.notes ?? "");
+      onSaved(updatedGoal);
+    } catch (err) {
+      onError(
+        err instanceof Error ? err.message : "Could not update checkpoint.",
+      );
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const addPhoto = async (source: GoalPhotoSource) => {
+    if (!checkpointId || uploadingSource) return;
+    onError(null);
+    setUploadingSource(source);
+    try {
+      const picked = await pickGoalPhoto(source);
+      if (picked) {
+        await uploadCheckpointPhoto(checkpointId, picked);
+        setPhotoCount((current) => current + 1);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Could not add photo.");
+    } finally {
+      setUploadingSource(null);
+    }
+  };
+
+  const notes = () => (note.trim() ? note.trim() : null);
+  const isUploadingPhoto = uploadingSource !== null;
 
   return (
-    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
-          style={[
-            styles.actionSheet,
-            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-          ]}
+    <Modal
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      visible
+      onRequestClose={onClose}
+    >
+      <View style={modalStyles.overlay}>
+        <Pressable
+          accessibilityLabel="Close"
+          style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
+          onPress={onClose}
+        />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[modalStyles.sheet, { backgroundColor: theme.background }]}
         >
-          <Text style={[styles.actionTitle, { color: theme.text }]}>
-            {checkpoint.title}
-          </Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.actionSubtitle, { color: theme.textSecondary }]}
+          <View
+            style={[
+              modalStyles.header,
+              {
+                backgroundColor: theme.tabBar,
+                borderBottomColor: theme.tabBorder,
+              },
+            ]}
           >
-            {goal.title}
-          </Text>
-          <SheetAction
-            icon={symbol("calendar.badge.plus", "event_available")}
-            label={plannedEvent ? "Edit calendar plan" : "Plan to calendar"}
-            onPress={() => onPlan(active)}
-          />
-          {plannedEvent ? (
-            <SheetAction
-              icon={symbol("calendar.badge.minus", "event_busy")}
-              label="Clear calendar plan"
-              onPress={() => onClearPlan(active)}
-            />
-          ) : null}
-          <SheetAction
-            icon={symbol(
-              checkpoint.completed
-                ? "arrow.uturn.backward.circle"
-                : "checkmark.circle",
-              checkpoint.completed ? "undo" : "check_circle",
-            )}
-            label={checkpoint.completed ? "Reopen checkpoint" : "Mark complete"}
-            onPress={() => onToggleComplete(active, !checkpoint.completed)}
-          />
-          <SheetAction
-            icon={symbol("pencil", "edit")}
-            label="Edit goal"
-            onPress={() => onEditGoal(goal)}
-          />
-        </View>
+            <Text
+              style={[modalStyles.title, { color: theme.text }]}
+              numberOfLines={2}
+            >
+              {checkpoint.title}
+            </Text>
+            <Pressable
+              onPress={onClose}
+              hitSlop={8}
+              style={({ pressed }) => [
+                modalStyles.closeBtn,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.tabIcon}
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={modalStyles.actions}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.checkpointGoalLabel,
+                { color: theme.textSecondary },
+              ]}
+            >
+              {goal.title}
+            </Text>
+
+            <Pressable
+              onPress={() =>
+                void save({
+                  completed: !completed,
+                  notes: notes(),
+                  visibility,
+                })
+              }
+              style={({ pressed }) => [
+                modalStyles.actionRow,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              {isUpdating ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <SymbolView
+                  name={
+                    completed
+                      ? symbol("arrow.uturn.backward.circle.fill", "undo")
+                      : symbol("checkmark.circle.fill", "check_circle")
+                  }
+                  size={26}
+                  tintColor={completed ? theme.textSecondary : theme.primary}
+                />
+              )}
+              <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                {completed ? "Reopen" : "Mark complete"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => onPlan(active)}
+              style={({ pressed }) => [
+                modalStyles.actionRow,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("calendar.badge.plus", "event_available")}
+                size={26}
+                tintColor={theme.secondary}
+              />
+              <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                {plannedEvent ? "Edit calendar plan" : "Plan to calendar"}
+              </Text>
+            </Pressable>
+
+            {plannedEvent ? (
+              <Pressable
+                onPress={() => onClearPlan(active)}
+                style={({ pressed }) => [
+                  modalStyles.actionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("calendar.badge.minus", "event_busy")}
+                  size={26}
+                  tintColor={theme.textSecondary}
+                />
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  Clear calendar plan
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <View style={modalStyles.photoRow}>
+              <Pressable
+                disabled={isUploadingPhoto}
+                onPress={() => void addPhoto("camera")}
+                style={({ pressed }) => [
+                  modalStyles.photoBtn,
+                  { backgroundColor: theme.backgroundElement },
+                  isUploadingPhoto && modalStyles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {uploadingSource === "camera" ? (
+                  <ActivityIndicator color={theme.primary} size="small" />
+                ) : (
+                  <SymbolView
+                    name={symbol("camera.fill", "camera_alt")}
+                    size={26}
+                    tintColor={theme.primary}
+                  />
+                )}
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  Take photo
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={isUploadingPhoto}
+                onPress={() => void addPhoto("library")}
+                style={({ pressed }) => [
+                  modalStyles.photoBtn,
+                  { backgroundColor: theme.backgroundElement },
+                  isUploadingPhoto && modalStyles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {uploadingSource === "library" ? (
+                  <ActivityIndicator color={theme.primary} size="small" />
+                ) : (
+                  <SymbolView
+                    name={symbol("photo.fill", "photo_library")}
+                    size={26}
+                    tintColor={theme.primary}
+                  />
+                )}
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  Add photo
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={() => setNoteOpen((current) => !current)}
+              style={({ pressed }) => [
+                modalStyles.actionRow,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("note.text", "notes")}
+                size={26}
+                tintColor={theme.primary}
+              />
+              <View style={modalStyles.noteRowContent}>
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  {note.trim() ? "Edit note" : "Add note"}
+                </Text>
+                {note.trim() && !noteOpen ? (
+                  <Text
+                    numberOfLines={3}
+                    style={[
+                      modalStyles.notePreview,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {note.trim()}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+
+            {noteOpen ? (
+              <View
+                style={[
+                  modalStyles.planTimeSection,
+                  { backgroundColor: theme.backgroundElement },
+                ]}
+              >
+                <TextInput
+                  multiline
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder="Add a note about this milestone…"
+                  placeholderTextColor={theme.textSecondary}
+                  style={[
+                    styles.checkpointNoteInput,
+                    {
+                      backgroundColor: theme.background,
+                      borderColor: theme.tabBorder,
+                      color: theme.text,
+                    },
+                  ]}
+                  textAlignVertical="top"
+                />
+                <Pressable
+                  disabled={isUpdating}
+                  onPress={() =>
+                    void save({
+                      completed,
+                      notes: notes(),
+                      visibility,
+                    }).then(() => setNoteOpen(false))
+                  }
+                  style={[
+                    styles.checkpointSaveButton,
+                    { backgroundColor: theme.primary, marginTop: 10 },
+                  ]}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator color={theme.primaryForeground} />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.checkpointSaveText,
+                        { color: theme.primaryForeground },
+                      ]}
+                    >
+                      Save note
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : null}
+
+            {hasContent ? (
+              <GoalLogVisibilityControl
+                disabled={isUpdating}
+                value={visibility}
+                onChange={(next) =>
+                  void save({ completed, notes: notes(), visibility: next })
+                }
+                allowed={["only_me", "all_friends"]}
+              />
+            ) : null}
+
+            <Pressable
+              onPress={() => onEditGoal(goal)}
+              style={({ pressed }) => [
+                modalStyles.actionRow,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("pencil", "edit")}
+                size={26}
+                tintColor={theme.tabIcon}
+              />
+              <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                Edit goal
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </SafeAreaView>
       </View>
     </Modal>
-  );
-}
-
-function SheetAction({
-  danger,
-  icon,
-  label,
-  onPress,
-}: {
-  danger?: boolean;
-  icon: SymbolName;
-  label: string;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  const color = danger ? "#B84D54" : theme.tabIcon;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.sheetActionRow,
-        pressed && { backgroundColor: theme.backgroundElement },
-      ]}
-    >
-      <SymbolView name={icon} size={20} tintColor={color} />
-      <Text
-        style={[
-          styles.sheetActionLabel,
-          { color: danger ? "#B84D54" : theme.text },
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -1247,14 +1537,18 @@ function EmptyState({
 
 export function GoalFormModal({
   goal,
+  initialValues,
   isOpen,
   onClose,
   onSave,
+  saveHint,
 }: {
   goal: Goal | null;
+  initialValues?: GoalInput;
   isOpen: boolean;
   onClose: () => void;
   onSave: (input: GoalInput) => Promise<void>;
+  saveHint?: string;
 }) {
   const theme = useTheme();
   const [title, setTitle] = useState("");
@@ -1264,7 +1558,7 @@ export function GoalFormModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setTitle(goal?.title ?? "");
+    setTitle(goal?.title ?? initialValues?.title ?? "");
     setCheckpoints(
       goal?.checkpoints.length
         ? goal.checkpoints.map((checkpoint) => ({
@@ -1273,10 +1567,17 @@ export function GoalFormModal({
             targetDate: checkpoint.targetDate ?? "",
             completed: checkpoint.completed,
           }))
-        : [createEmptyCheckpoint()],
+        : initialValues?.checkpoints.length
+          ? initialValues.checkpoints.map((checkpoint) => ({
+              localId: createCheckpointLocalId(),
+              title: checkpoint.title,
+              targetDate: checkpoint.targetDate ?? "",
+              completed: checkpoint.completed,
+            }))
+          : [createEmptyCheckpoint()],
     );
     setError(null);
-  }, [goal, isOpen]);
+  }, [goal, initialValues, isOpen]);
 
   const updateCheckpoint = (
     localId: string,
@@ -1392,6 +1693,21 @@ export function GoalFormModal({
               )}
             </Pressable>
           </View>
+          {saveHint ? (
+            <View
+              style={[
+                styles.saveHint,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderBottomColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.saveHintText, { color: theme.text }]}>
+                {saveHint}
+              </Text>
+            </View>
+          ) : null}
 
           <ScrollView
             contentContainerStyle={styles.formContent}
@@ -1578,11 +1894,15 @@ export function GoalFormModal({
 
 function createEmptyCheckpoint(): CheckpointDraft {
   return {
-    localId: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    localId: createCheckpointLocalId(),
     title: "",
     targetDate: "",
     completed: false,
   };
+}
+
+function createCheckpointLocalId(): string {
+  return `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function TargetDateSelect({
@@ -1887,15 +2207,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
   },
-  sheetActionRow: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-  },
-  sheetActionLabel: { fontSize: 15, lineHeight: 20, fontWeight: "800" },
   planSheet: {
     overflow: "hidden",
     borderTopLeftRadius: 24,
@@ -2013,6 +2324,16 @@ const styles = StyleSheet.create({
   },
   formHeaderButtonText: { fontSize: 15, fontWeight: "700" },
   formTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  saveHint: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+  },
+  saveHintText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
   formContent: {
     width: "100%",
     maxWidth: 620,
@@ -2043,6 +2364,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     fontWeight: "500",
+  },
+  checkpointGoalLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  checkpointNoteInput: {
+    minHeight: 84,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  checkpointSaveButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkpointSaveText: {
+    fontSize: 16,
+    fontWeight: "800",
   },
   targetDateRow: {
     flexDirection: "row",

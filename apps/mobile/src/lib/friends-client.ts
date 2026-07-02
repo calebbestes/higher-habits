@@ -67,6 +67,7 @@ export type FriendFeedComment = {
 
 export type FriendFeedEntry = {
   id: string;
+  kind: "habit" | "goal_checkpoint";
   friend: {
     id: string;
     name: string;

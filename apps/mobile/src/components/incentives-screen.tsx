@@ -351,10 +351,14 @@ function IncentiveCard({
 
 function CreateIncentiveModal({
   friends,
+  onboardingGuide,
   onClose,
   onSend,
 }: {
   friends: FriendRow[];
+  onboardingGuide?: {
+    targetFriendName: string;
+  };
   onClose: () => void;
   onSend: (
     friendshipId: string,
@@ -369,11 +373,23 @@ function CreateIncentiveModal({
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedFriend, setSelectedFriend] = useState<FriendRow | null>(null);
   const [body, setBody] = useState("");
-  const [scope, setScope] = useState<StreakGoalScope>("all");
+  const [scope, setScope] = useState<StreakGoalScope>(
+    onboardingGuide ? "high" : "all",
+  );
   const [goalId, setGoalId] = useState<string>("");
   const [days, setDays] = useState("7");
   const [percent, setPercent] = useState("80");
   const [sending, setSending] = useState(false);
+  const targetFriendQuery = onboardingGuide?.targetFriendName.toLowerCase();
+  const orderedFriends = targetFriendQuery
+    ? [...friends].sort((left, right) => {
+        const leftMatch = left.friendName.toLowerCase().includes(targetFriendQuery);
+        const rightMatch = right.friendName
+          .toLowerCase()
+          .includes(targetFriendQuery);
+        return Number(rightMatch) - Number(leftMatch);
+      })
+    : friends;
 
   const daysNum = Number.parseInt(days, 10);
   const percentNum = Number.parseInt(percent, 10);
@@ -482,6 +498,12 @@ function CreateIncentiveModal({
               <Text style={[styles.stepHeading, { color: theme.text }]}>
                 Who are you incentivizing?
               </Text>
+              {onboardingGuide ? (
+                <GuideBubble
+                  title="Choose Caleb"
+                  body={`Select ${onboardingGuide.targetFriendName} to send your first incentive.`}
+                />
+              ) : null}
               {friends.length === 0 ? (
                 <Text
                   style={[styles.emptyHint, { color: theme.textSecondary }]}
@@ -489,43 +511,46 @@ function CreateIncentiveModal({
                   Add friends first to send incentives.
                 </Text>
               ) : (
-                friends.map((f) => (
-                  <Pressable
-                    key={f.id}
-                    onPress={() => {
-                      setSelectedFriend(f);
-                      setGoalId(f.goalOptions[0]?.id ?? "");
-                      setStep(2);
-                    }}
-                    style={[
-                      styles.friendOption,
-                      { borderBottomColor: theme.tabBorder },
-                    ]}
-                  >
-                    <Avatar name={f.friendName} size={40} />
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[styles.friendOptionName, { color: theme.text }]}
-                      >
-                        {f.friendName}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.friendOptionEmail,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        {f.friendEmail}
-                      </Text>
-                    </View>
-                    <SymbolView
-                      name={sym("chevron.right", "chevron_right")}
-                      size={14}
-                      weight="semibold"
-                      tintColor={theme.textSecondary}
-                    />
-                  </Pressable>
-                ))
+                orderedFriends.map((f) => {
+                  const isTarget = targetFriendQuery
+                    ? f.friendName.toLowerCase().includes(targetFriendQuery)
+                    : false;
+
+                  return (
+                    <Pressable
+                      key={f.id}
+                      onPress={() => {
+                        setSelectedFriend(f);
+                        setGoalId(f.goalOptions[0]?.id ?? "");
+                        setStep(2);
+                      }}
+                      style={[
+                        styles.friendOption,
+                        { borderBottomColor: theme.tabBorder },
+                        isTarget && styles.onboardingGlow,
+                      ]}
+                    >
+                      <Avatar name={f.friendName} size={40} />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.friendOptionName,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {f.friendName}
+                        </Text>
+                       
+                      </View>
+                      <SymbolView
+                        name={sym("chevron.right", "chevron_right")}
+                        size={14}
+                        weight="semibold"
+                        tintColor={theme.textSecondary}
+                      />
+                    </Pressable>
+                  );
+                })
               )}
             </View>
           )}
@@ -533,6 +558,12 @@ function CreateIncentiveModal({
           {/* Step 2: Incentive details */}
           {step === 2 && selectedFriend && (
             <View style={styles.detailsStep}>
+              {onboardingGuide ? (
+                <GuideBubble
+                  title="Make it encouraging"
+                  body="Add your own incentive. Use 80% of high priority goals in the next 7 days."
+                />
+              ) : null}
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
                 Incentive
               </Text>
@@ -739,9 +770,34 @@ function CreateIncentiveModal({
   );
 }
 
+function GuideBubble({ body, title }: { body: string; title: string }) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.guideBubble,
+        { backgroundColor: theme.background, borderColor: theme.tabBorder },
+      ]}
+    >
+      <Text style={[styles.guideTitle, { color: theme.text }]}>{title}</Text>
+      <Text style={[styles.guideBody, { color: theme.textSecondary }]}>
+        {body}
+      </Text>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export function IncentivesScreen() {
+export function IncentivesScreen({
+  onboardingGuide,
+}: {
+  onboardingGuide?: {
+    onSent: () => void;
+    targetFriendName: string;
+  };
+}) {
   const theme = useTheme();
   const accent = theme.primary;
   const accentForeground = theme.primaryForeground;
@@ -792,6 +848,7 @@ export function IncentivesScreen() {
     await sendFriendIncentive(friendshipId, payload);
     setShowCreate(false);
     await load();
+    onboardingGuide?.onSent();
   }
 
   // Build flat list of incentive items
@@ -831,6 +888,7 @@ export function IncentivesScreen() {
             style={({ pressed }) => [
               styles.addButton,
               { backgroundColor: theme.primary },
+              onboardingGuide && styles.onboardingGlow,
               pressed && styles.pressed,
             ]}
           >
@@ -963,6 +1021,15 @@ export function IncentivesScreen() {
         </ScrollView>
       )}
 
+      {onboardingGuide && !showCreate ? (
+        <View pointerEvents="box-none" style={styles.guideOverlay}>
+          <GuideBubble
+            title="Add an incentive"
+            body="Tap the plus button, pick Caleb, and write your own incentive."
+          />
+        </View>
+      ) : null}
+
       {/* Create modal */}
       {showCreate && (
         <View style={[StyleSheet.absoluteFill, styles.modalOverlay]}>
@@ -973,6 +1040,11 @@ export function IncentivesScreen() {
           <View style={styles.modalSheet}>
             <CreateIncentiveModal
               friends={acceptedFriends}
+              onboardingGuide={
+                onboardingGuide
+                  ? { targetFriendName: onboardingGuide.targetFriendName }
+                  : undefined
+              }
               onClose={() => setShowCreate(false)}
               onSend={handleSend}
             />
@@ -1106,6 +1178,39 @@ const styles = StyleSheet.create({
   },
   acceptBtnText: { fontSize: 16, fontWeight: "600" },
   pressed: { opacity: 0.6 },
+  guideBubble: {
+    gap: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
+  },
+  guideTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
+  guideBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  guideOverlay: {
+    position: "absolute",
+    right: 16,
+    bottom: 18,
+    left: 16,
+    zIndex: 40,
+  },
+  onboardingGlow: {
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    shadowColor: "#34BEE8",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    elevation: 16,
+  },
   // Modal
   modalOverlay: {
     zIndex: 200,

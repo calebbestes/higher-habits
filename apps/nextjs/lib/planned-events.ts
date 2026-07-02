@@ -5,7 +5,7 @@ import {
   plannedEvents,
   tasks,
 } from "@habit/db";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import {
   deleteGoogleCalendarPlannedEvent,
@@ -82,7 +82,6 @@ async function ensureGoalCheckpointPlansForDate(
       and(
         eq(goalCheckpoints.userId, userId),
         eq(goalCheckpoints.targetDate, dateKey),
-        isNull(goalCheckpoints.completedAt),
       ),
     )) as Array<{ id: string; title: string; targetDate: string | null }>;
 
