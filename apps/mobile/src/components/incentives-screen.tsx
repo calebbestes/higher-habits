@@ -383,7 +383,9 @@ function CreateIncentiveModal({
   const targetFriendQuery = onboardingGuide?.targetFriendName.toLowerCase();
   const orderedFriends = targetFriendQuery
     ? [...friends].sort((left, right) => {
-        const leftMatch = left.friendName.toLowerCase().includes(targetFriendQuery);
+        const leftMatch = left.friendName
+          .toLowerCase()
+          .includes(targetFriendQuery);
         const rightMatch = right.friendName
           .toLowerCase()
           .includes(targetFriendQuery);
@@ -540,7 +542,6 @@ function CreateIncentiveModal({
                         >
                           {f.friendName}
                         </Text>
-                       
                       </View>
                       <SymbolView
                         name={sym("chevron.right", "chevron_right")}
@@ -1025,7 +1026,7 @@ export function IncentivesScreen({
         <View pointerEvents="box-none" style={styles.guideOverlay}>
           <GuideBubble
             title="Add an incentive"
-            body="Tap the plus button, pick Caleb, and write your own incentive."
+            body="Tap the plus button, pick Caleb, and write your own incentive. Remember your word is your bond!"
           />
         </View>
       ) : null}
