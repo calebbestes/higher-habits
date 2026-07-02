@@ -725,12 +725,17 @@ function DashSection({
 
 function HeatmapDateHeader({ days }: { days: string[] }) {
   const theme = useTheme();
+  const todayIndex = days.length > 1 ? days.length - 2 : days.length - 1;
+  const dateIndex = days.length - 1;
+  const currentDateLabel = days[dateIndex]
+    ? formatHeatmapDateLabel(days[dateIndex])
+    : "";
 
   return (
     <View style={styles.heatmapDateHeader}>
       <View style={styles.heatmapDateIconSpacer} />
       <View style={styles.dayBlocks}>
-        {days.map((day) => (
+        {days.map((day, index) => (
           <Text
             key={day}
             numberOfLines={1}
@@ -741,7 +746,11 @@ function HeatmapDateHeader({ days }: { days: string[] }) {
               { color: theme.textSecondary },
             ]}
           >
-            {formatHeatmapDateLabel(day)}
+            {index === todayIndex
+              ? "Today"
+              : index === dateIndex
+                ? currentDateLabel
+                : ""}
           </Text>
         ))}
       </View>
