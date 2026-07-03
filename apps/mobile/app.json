@@ -10,6 +10,7 @@
     "ios": {
       "icon": "./assets/images/abi-logo.png",
       "bundleIdentifier": "com.calebbestessteam.abi",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
