@@ -33,6 +33,13 @@ export function createAuth() {
     process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_OAUTH_CLIENT_ID;
   const googleClientSecret =
     process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const appleClientId =
+    process.env.APPLE_CLIENT_ID ||
+    process.env.APPLE_SERVICE_ID ||
+    process.env.APPLE_BUNDLE_ID;
+  const appleClientSecret = process.env.APPLE_CLIENT_SECRET;
+  const appleAppBundleIdentifier =
+    process.env.APPLE_APP_BUNDLE_IDENTIFIER || process.env.APPLE_BUNDLE_ID;
 
   if (!db || !secret) {
     return null;
@@ -55,8 +62,8 @@ export function createAuth() {
     emailAndPassword: {
       enabled: true,
     },
-    socialProviders:
-      googleClientId && googleClientSecret
+    socialProviders: {
+      ...(googleClientId && googleClientSecret
         ? {
             google: {
               clientId: googleClientId,
@@ -66,7 +73,17 @@ export function createAuth() {
               scope: ["https://www.googleapis.com/auth/calendar.events"],
             },
           }
-        : {},
+        : {}),
+      ...(appleClientId && appleClientSecret
+        ? {
+            apple: {
+              clientId: appleClientId,
+              clientSecret: appleClientSecret,
+              appBundleIdentifier: appleAppBundleIdentifier,
+            },
+          }
+        : {}),
+    },
     account: {
       // Native OAuth auth sessions can lose the transient browser state cookie
       // on the callback. The database verification state is still checked and
@@ -76,7 +93,7 @@ export function createAuth() {
       accountLinking: {
         enabled: true,
         requireLocalEmailVerified: false,
-        trustedProviders: ["google"],
+        trustedProviders: ["google", "apple"],
       },
     },
     user: {
@@ -108,8 +125,7 @@ export function createAuth() {
               image.startsWith("data:image/") ||
               image.startsWith("https://") ||
               image.startsWith("http://");
-            const isVerifiedOAuthProfile =
-              user.emailVerified === true && hasProfilePicture;
+            const isVerifiedOAuthProfile = user.emailVerified === true;
 
             if (
               !isVerifiedOAuthProfile &&

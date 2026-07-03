@@ -175,10 +175,14 @@ export const setHabitLog = (
       goalId: habitId,
       dateKey,
       status,
-      plannedStartTime: options?.startTime ?? null,
-      plannedEndTime: options?.endTime ?? null,
-      plannedTimeZone: options?.timeZone ?? null,
-      repeatPlan: options?.repeatPlan ?? false,
+      ...(options
+        ? {
+            plannedStartTime: options.startTime ?? null,
+            plannedEndTime: options.endTime ?? null,
+            plannedTimeZone: options.timeZone ?? null,
+            repeatPlan: options.repeatPlan ?? false,
+          }
+        : {}),
     }),
   }).then((r) => parseResponse<{ ok: true }>(r));
 

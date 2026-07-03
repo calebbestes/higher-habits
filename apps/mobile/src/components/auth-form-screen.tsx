@@ -1,13 +1,17 @@
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -15,18 +19,52 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
 type AuthFormScreenProps = {
   mode: "login" | "sign-up";
 };
 
-export function AuthFormScreen({ mode: _mode }: AuthFormScreenProps) {
+type SocialProvider = "apple" | "google";
+
+async function imageToDataUrl(uri: string) {
+  const image = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: 512 } }],
+    {
+      base64: true,
+      compress: 0.72,
+      format: ImageManipulator.SaveFormat.JPEG,
+    },
+  );
+
+  if (!image.base64) {
+    throw new Error("Could not prepare profile photo.");
+  }
+
+  return `data:image/jpeg;base64,${image.base64}`;
+}
+
+export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const router = useRouter();
   const theme = useTheme();
   const { data: session, refetch: refetchSession } = authClient.useSession();
   const [error, setError] = useState<string | null>(null);
-  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
+    null,
+  );
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState<SocialProvider | "email" | null>(
+    null,
+  );
   const [shouldEnterApp, setShouldEnterApp] = useState(false);
+
+  const isSignUp = mode === "sign-up";
+  const isSubmitting = submitting !== null;
 
   useEffect(() => {
     if (shouldEnterApp && session) {
@@ -34,44 +72,137 @@ export function AuthFormScreen({ mode: _mode }: AuthFormScreenProps) {
     }
   }, [router, session, shouldEnterApp]);
 
-  const continueWithGoogle = async () => {
-    if (isGoogleSubmitting) return;
+  const enterApp = async () => {
+    await refetchSession();
+    const sessionResponse = await authClient.getSession();
+    if (!sessionResponse.data) {
+      setShouldEnterApp(false);
+      setError(
+        "Signed in, but the session could not be saved. Please try again.",
+      );
+      return;
+    }
+
+    setShouldEnterApp(true);
+  };
+
+  const continueWithSocial = async (provider: SocialProvider) => {
+    if (isSubmitting) return;
 
     setError(null);
-    setIsGoogleSubmitting(true);
+    setSubmitting(provider);
 
     try {
       const response = await authClient.signIn.social({
-        provider: "google",
+        provider,
         callbackURL: "/",
-        scopes: ["https://www.googleapis.com/auth/calendar.events"],
+        ...(provider === "google"
+          ? { scopes: ["https://www.googleapis.com/auth/calendar.events"] }
+          : {}),
       });
 
       if (response.error) {
-        setError(response.error.message ?? "Unable to continue with Google.");
-        return;
-      }
-
-      await refetchSession();
-      const sessionResponse = await authClient.getSession();
-      if (!sessionResponse.data) {
-        setShouldEnterApp(false);
         setError(
-          "Signed in, but the session could not be saved. Please try again.",
+          response.error.message ??
+            `Unable to continue with ${provider === "apple" ? "Apple" : "Google"}.`,
         );
         return;
       }
 
-      setShouldEnterApp(true);
+      await enterApp();
     } catch {
       setShouldEnterApp(false);
       setError(
         "Could not reach the auth server. Check EXPO_PUBLIC_AUTH_URL and try again.",
       );
     } finally {
-      setIsGoogleSubmitting(false);
+      setSubmitting(null);
     }
   };
+
+  const chooseProfilePhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission required",
+        "Allow photo access in Settings to choose your profile photo.",
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    try {
+      setError(null);
+      setProfilePhotoUri(result.assets[0].uri);
+      setProfilePhotoDataUrl(await imageToDataUrl(result.assets[0].uri));
+    } catch (photoError) {
+      setProfilePhotoUri(null);
+      setProfilePhotoDataUrl(null);
+      setError(
+        photoError instanceof Error
+          ? photoError.message
+          : "Could not prepare that profile photo.",
+      );
+    }
+  };
+
+  const submitEmail = async () => {
+    if (isSubmitting) return;
+
+    setError(null);
+    setSubmitting("email");
+
+    try {
+      const response = isSignUp
+        ? await authClient.signUp.email({
+            name: name.trim(),
+            phoneNumber: phoneNumber.trim(),
+            email: email.trim(),
+            password,
+            image: profilePhotoDataUrl ?? undefined,
+          } as Parameters<typeof authClient.signUp.email>[0] & {
+            phoneNumber: string;
+          })
+        : await authClient.signIn.email({
+            email: email.trim(),
+            password,
+          });
+
+      if (response.error) {
+        setError(response.error.message ?? "Unable to continue.");
+        return;
+      }
+
+      if (isSignUp && profilePhotoUri) {
+        await uploadProfilePicture(profilePhotoUri).catch(() => undefined);
+      }
+
+      await enterApp();
+    } catch {
+      setShouldEnterApp(false);
+      setError(
+        "Could not reach the auth server. Check EXPO_PUBLIC_AUTH_URL and try again.",
+      );
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const canSubmitEmail =
+    email.trim().length > 0 &&
+    password.length > 0 &&
+    (!isSignUp ||
+      (name.trim().length > 0 &&
+        phoneNumber.replace(/\D/g, "").length >= 10 &&
+        Boolean(profilePhotoDataUrl)));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -110,50 +241,181 @@ export function AuthFormScreen({ mode: _mode }: AuthFormScreenProps) {
             >
               <View style={styles.heading}>
                 <Text style={[styles.title, { color: theme.text }]}>
-                  Welcome to float
+                  {isSignUp ? "Create your account" : "Welcome back"}
                 </Text>
                 <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-                  Plan what matters, sync it to Google Calendar, and capture
-                  proof as you go.
+                  {isSignUp
+                    ? "Keep your plans, goals, and proof synced across devices."
+                    : "Sign in to get back to your goals and calendar."}
                 </Text>
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                disabled={isGoogleSubmitting}
-                onPress={() => void continueWithGoogle()}
-                style={({ pressed }) => [
-                  styles.googleButton,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                  },
-                  isGoogleSubmitting && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {isGoogleSubmitting ? (
-                  <ActivityIndicator color={theme.primary} />
-                ) : (
+              <View style={styles.socialStack}>
+                <AuthButton
+                  disabled={isSubmitting}
+                  iconColor="#111111"
+                  isLoading={submitting === "apple"}
+                  label="Continue with Apple"
+                  mark="apple.logo"
+                  onPress={() => void continueWithSocial("apple")}
+                  theme={theme}
+                />
+                <AuthButton
+                  disabled={isSubmitting}
+                  iconColor={theme.primary}
+                  isLoading={submitting === "google"}
+                  label="Continue with Google"
+                  mark="G"
+                  onPress={() => void continueWithSocial("google")}
+                  theme={theme}
+                />
+              </View>
+
+              <View style={styles.dividerRow}>
+                <View
+                  style={[
+                    styles.dividerLine,
+                    { backgroundColor: theme.tabBorder },
+                  ]}
+                />
+                <Text
+                  style={[styles.dividerText, { color: theme.textSecondary }]}
+                >
+                  or
+                </Text>
+                <View
+                  style={[
+                    styles.dividerLine,
+                    { backgroundColor: theme.tabBorder },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.form}>
+                {isSignUp ? (
                   <>
-                    <View
-                      style={[
-                        styles.googleMark,
-                        { backgroundColor: theme.tabBar },
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isSubmitting}
+                      onPress={() => void chooseProfilePhoto()}
+                      style={({ pressed }) => [
+                        styles.photoPicker,
+                        {
+                          backgroundColor: theme.backgroundElement,
+                          borderColor: theme.tabBorder,
+                        },
+                        pressed && styles.pressed,
                       ]}
                     >
-                      <Text
-                        style={[styles.googleMarkText, { color: theme.primary }]}
-                      >
-                        G
-                      </Text>
-                    </View>
-                    <Text style={[styles.googleLabel, { color: theme.text }]}>
-                      Continue with Google
-                    </Text>
+                      {profilePhotoUri ? (
+                        <Image
+                          contentFit="cover"
+                          source={{ uri: profilePhotoUri }}
+                          style={styles.photoPreview}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.photoPlaceholder,
+                            { backgroundColor: theme.tabBar },
+                          ]}
+                        >
+                          <SymbolView
+                            name={{
+                              ios: "camera.fill",
+                              android: "photo_camera",
+                              web: "photo_camera",
+                            }}
+                            size={20}
+                            tintColor={theme.primary}
+                          />
+                        </View>
+                      )}
+                      <View style={styles.photoText}>
+                        <Text
+                          style={[styles.photoTitle, { color: theme.text }]}
+                        >
+                          Profile photo
+                        </Text>
+                        <Text
+                          style={[
+                            styles.photoSubtitle,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {profilePhotoUri
+                            ? "Choose a different photo"
+                            : "Required"}
+                        </Text>
+                      </View>
+                    </Pressable>
+
+                    <AuthInput
+                      autoComplete="name"
+                      editable={!isSubmitting}
+                      label="Name"
+                      onChangeText={setName}
+                      theme={theme}
+                      value={name}
+                    />
+                    <AuthInput
+                      autoComplete="tel"
+                      editable={!isSubmitting}
+                      keyboardType="phone-pad"
+                      label="Phone number"
+                      onChangeText={setPhoneNumber}
+                      theme={theme}
+                      value={phoneNumber}
+                    />
                   </>
-                )}
-              </Pressable>
+                ) : null}
+
+                <AuthInput
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  editable={!isSubmitting}
+                  keyboardType="email-address"
+                  label="Email"
+                  onChangeText={setEmail}
+                  theme={theme}
+                  value={email}
+                />
+                <AuthInput
+                  autoCapitalize="none"
+                  autoComplete={isSignUp ? "new-password" : "current-password"}
+                  editable={!isSubmitting}
+                  label="Password"
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  theme={theme}
+                  value={password}
+                />
+
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!canSubmitEmail || isSubmitting}
+                  onPress={() => void submitEmail()}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    { backgroundColor: theme.primary },
+                    (!canSubmitEmail || isSubmitting) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {submitting === "email" ? (
+                    <ActivityIndicator color={theme.primaryForeground} />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        { color: theme.primaryForeground },
+                      ]}
+                    >
+                      {isSignUp ? "Create account" : "Sign in"}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
 
               {error ? (
                 <View style={styles.errorRow}>
@@ -170,10 +432,19 @@ export function AuthFormScreen({ mode: _mode }: AuthFormScreenProps) {
                 </View>
               ) : null}
 
-              <Text style={[styles.calendarNote, { color: theme.textSecondary }]}>
-                Your Google profile photo becomes your float photo. Calendar
-                access lets float keep plans in sync.
-              </Text>
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => router.replace(isSignUp ? "/login" : "/sign-up")}
+              >
+                <Text
+                  style={[styles.switchText, { color: theme.textSecondary }]}
+                >
+                  {isSignUp ? "Already have an account?" : "Need an account?"}{" "}
+                  <Text style={{ color: theme.primary }}>
+                    {isSignUp ? "Sign in" : "Create one"}
+                  </Text>
+                </Text>
+              </Pressable>
             </View>
 
             <Text style={[styles.privacy, { color: theme.textSecondary }]}>
@@ -182,6 +453,95 @@ export function AuthFormScreen({ mode: _mode }: AuthFormScreenProps) {
           </View>
         </ScrollView>
       </SafeAreaView>
+    </View>
+  );
+}
+
+function AuthButton({
+  disabled,
+  iconColor,
+  isLoading,
+  label,
+  mark,
+  onPress,
+  theme,
+}: {
+  disabled: boolean;
+  iconColor: string;
+  isLoading: boolean;
+  label: string;
+  mark: "apple.logo" | "G";
+  onPress: () => void;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.authButton,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}
+    >
+      {isLoading ? (
+        <ActivityIndicator color={theme.primary} />
+      ) : (
+        <>
+          <View style={[styles.authMark, { backgroundColor: theme.tabBar }]}>
+            {mark === "apple.logo" ? (
+              <SymbolView
+                name={{
+                  ios: "apple.logo",
+                  android: "account_circle",
+                  web: "account_circle",
+                }}
+                size={18}
+                tintColor={iconColor}
+              />
+            ) : (
+              <Text style={[styles.googleMarkText, { color: iconColor }]}>
+                G
+              </Text>
+            )}
+          </View>
+          <Text style={[styles.authLabel, { color: theme.text }]}>{label}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+function AuthInput({
+  label,
+  theme,
+  ...props
+}: TextInput["props"] & {
+  label: string;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  return (
+    <View style={styles.inputGroup}>
+      <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+        {label}
+      </Text>
+      <TextInput
+        {...props}
+        placeholderTextColor={theme.textSecondary}
+        style={[
+          styles.input,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+            color: theme.text,
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -231,7 +591,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 28,
     padding: 24,
-    gap: 22,
+    gap: 20,
     shadowColor: "#2C5352",
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.12,
@@ -251,8 +611,11 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: "600",
   },
-  googleButton: {
-    minHeight: 58,
+  socialStack: {
+    gap: 10,
+  },
+  authButton: {
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -261,7 +624,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 16,
   },
-  googleMark: {
+  authMark: {
     width: 29,
     height: 29,
     alignItems: "center",
@@ -273,9 +636,93 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "900",
   },
-  googleLabel: {
+  authLabel: {
     fontSize: 17,
     lineHeight: 22,
+    fontWeight: "900",
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  dividerText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  form: {
+    gap: 12,
+  },
+  photoPicker: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 10,
+  },
+  photoPreview: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+  },
+  photoPlaceholder: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  photoText: {
+    flex: 1,
+    gap: 2,
+  },
+  photoTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
+  photoSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  inputGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    paddingHorizontal: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  input: {
+    minHeight: 52,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+  primaryButton: {
+    minHeight: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+    paddingHorizontal: 16,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: "900",
   },
   errorRow: {
@@ -290,10 +737,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "600",
   },
-  calendarNote: {
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: "600",
+  switchText: {
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
   },
   privacy: {
     paddingHorizontal: 18,
