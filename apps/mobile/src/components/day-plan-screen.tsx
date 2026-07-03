@@ -837,8 +837,18 @@ export function DayPlanScreen({
     activeEntry?.kind === "goal" && activeEntry.sourceId
       ? (checkpointById.get(activeEntry.sourceId) ?? null)
       : null;
+  const activeRepeatingPlan = activeHabit
+    ? snapshot?.repeatingPlansByHabit[activeHabit.id]
+    : undefined;
   const activePlannedTime = activeKey
-    ? snapshot?.plannedTimesByHabitDate[activeKey]
+    ? (snapshot?.plannedTimesByHabitDate[activeKey] ??
+      (activeRepeatingPlan && dateKey >= activeRepeatingPlan.originDate
+        ? {
+            endTime: activeRepeatingPlan.endTime,
+            repeatsDaily: true,
+            startTime: activeRepeatingPlan.startTime,
+          }
+        : undefined))
     : undefined;
   const isPlanSheetOpen = Boolean(
     activeHabit ||
@@ -1202,7 +1212,16 @@ export function DayPlanScreen({
     const key = `${activeHabit.id}_${dateKey}`;
     setUpdatingKey(key);
     try {
-      await setHabitLog(activeHabit.id, dateKey, status, options);
+      const nextOptions =
+        status === "complete" && !options && activePlannedTime
+          ? {
+              endTime: activePlannedTime.endTime,
+              startTime: activePlannedTime.startTime,
+              timeZone,
+            }
+          : options;
+
+      await setHabitLog(activeHabit.id, dateKey, status, nextOptions);
       invalidateCurrentCaches({ google: true, snapshot: true });
       await load();
     } catch (updateError) {

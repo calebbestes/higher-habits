@@ -702,10 +702,14 @@ export async function POST(request: Request) {
       const plannedStartTime =
         data.status === "planned"
           ? normalizeTimeKey(data.plannedStartTime)
+          : data.status === "complete" && data.plannedStartTime !== undefined
+            ? normalizeTimeKey(data.plannedStartTime)
           : null;
       const plannedEndTime =
         data.status === "planned"
           ? normalizeTimeKey(data.plannedEndTime)
+          : data.status === "complete" && data.plannedEndTime !== undefined
+            ? normalizeTimeKey(data.plannedEndTime)
           : null;
       const plannedRepeatsDaily =
         data.status === "planned" && goal.period === "daily"
@@ -715,6 +719,9 @@ export async function POST(request: Request) {
         .select({
           googleCalendarEventId: goalLogs.googleCalendarEventId,
           notes: goalLogs.notes,
+          plannedEndTime: goalLogs.plannedEndTime,
+          plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
+          plannedStartTime: goalLogs.plannedStartTime,
           status: goalLogs.status,
         })
         .from(goalLogs)
@@ -779,6 +786,19 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, calendarSync });
       }
 
+      const nextPlannedStartTime =
+        data.status === "complete" && data.plannedStartTime === undefined
+          ? (existingLog?.plannedStartTime ?? null)
+          : plannedStartTime;
+      const nextPlannedEndTime =
+        data.status === "complete" && data.plannedEndTime === undefined
+          ? (existingLog?.plannedEndTime ?? null)
+          : plannedEndTime;
+      const nextPlannedRepeatsDaily =
+        data.status === "complete" && data.repeatPlan === false
+          ? (existingLog?.plannedRepeatsDaily ?? false)
+          : plannedRepeatsDaily;
+
       const [savedLog] = await db
         .insert(goalLogs)
         .values({
@@ -786,9 +806,9 @@ export async function POST(request: Request) {
           goalId: data.goalId,
           date: data.dateKey,
           status: data.status,
-          plannedStartTime,
-          plannedEndTime,
-          plannedRepeatsDaily,
+          plannedStartTime: nextPlannedStartTime,
+          plannedEndTime: nextPlannedEndTime,
+          plannedRepeatsDaily: nextPlannedRepeatsDaily,
           visibility: goal.visibility,
           updatedAt: new Date(),
         })
@@ -796,9 +816,9 @@ export async function POST(request: Request) {
           target: [goalLogs.goalId, goalLogs.date],
           set: {
             status: data.status,
-            plannedStartTime,
-            plannedEndTime,
-            plannedRepeatsDaily,
+            plannedStartTime: nextPlannedStartTime,
+            plannedEndTime: nextPlannedEndTime,
+            plannedRepeatsDaily: nextPlannedRepeatsDaily,
             updatedAt: new Date(),
             userId: user.id,
           },
