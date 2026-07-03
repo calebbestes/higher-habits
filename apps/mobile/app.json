@@ -50,7 +50,7 @@
       [
         "expo-contacts",
         {
-          "contactsPermission": "Allow float to find friends who are already on the app."
+          "contactsPermission": "Allow float to compare contact emails and phone numbers with float accounts so you can find friends. Contacts are not stored."
         }
       ],
       "expo-font",

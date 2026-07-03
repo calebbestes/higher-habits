@@ -551,6 +551,17 @@ function AddFriendModal({
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [invite, setInvite] = useState("");
 
+  const confirmFindFromContacts = () => {
+    Alert.alert(
+      "Find friends from contacts?",
+      "float will compare contact emails and phone numbers with existing float accounts. Contact identifiers are used only for this lookup and are not stored.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Continue", onPress: () => void findFromContacts() },
+      ],
+    );
+  };
+
   const findFromContacts = async () => {
     setContactState("loading");
     try {
@@ -668,7 +679,7 @@ function AddFriendModal({
 
               {contactState === "idle" ? (
                 <Pressable
-                  onPress={() => void findFromContacts()}
+                  onPress={confirmFindFromContacts}
                   style={({ pressed }) => [
                     styles.contactsButton,
                     { backgroundColor: theme.primary },

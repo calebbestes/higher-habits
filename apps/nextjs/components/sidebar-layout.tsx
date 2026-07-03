@@ -92,7 +92,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [isMobileCalendarOpen, setIsMobileCalendarOpen] = useState(false);
   const [isMobileFriendsOpen, setIsMobileFriendsOpen] = useState(false);
   const [isMobileAddOpen, setIsMobileAddOpen] = useState(false);
-  const isAuthPage = pathname === "/login" || pathname === "/sign-up";
+  const isPublicPage =
+    pathname === "/login" || pathname === "/privacy" || pathname === "/sign-up";
   const isCalendarRoute = isNavActive("/calendar", pathname);
   const isFriendsRoute = isNavActive(COLLAB_NAV_ITEM.href, pathname);
   const activeFriendsSection = parseFriendsSection(
@@ -113,7 +114,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  if (isAuthPage) {
+  if (isPublicPage) {
     return <div className="min-h-dvh bg-background">{children}</div>;
   }
 

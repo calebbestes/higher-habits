@@ -1,0 +1,38 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+
+const reportSchema = z.object({
+  targetType: z.enum(["feed_post", "feed_comment", "user", "general"]),
+  targetId: z.string().trim().min(1).max(200).optional(),
+  reason: z.string().trim().min(1).max(1_000),
+  context: z.record(z.string(), z.unknown()).optional(),
+});
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireRequestUser(request);
+    const parsed = reportSchema.safeParse(await request.json().catch(() => null));
+
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid report." }, { status: 400 });
+    }
+
+    console.warn("Moderation report submitted", {
+      reporterId: user.id,
+      ...parsed.data,
+      submittedAt: new Date().toISOString(),
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+    if (authErrorResponse) return authErrorResponse;
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
