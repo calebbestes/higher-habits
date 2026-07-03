@@ -25,7 +25,7 @@ const createFriendSchema = z.object({
 
 const respondToFriendSchema = z.object({
   friendshipId: z.string().uuid(),
-  action: z.literal("accept"),
+  action: z.enum(["accept", "archive"]),
 });
 
 const getDatabase = () => getDb() ?? null;
@@ -556,6 +556,28 @@ export async function PATCH(request: Request) {
         { error: parsed.error.message },
         { status: 400 },
       );
+    }
+
+    if (parsed.data.action === "archive") {
+      const [friendship] = await db
+        .update(friends)
+        .set({ status: "archived" })
+        .where(
+          and(
+            eq(friends.id, parsed.data.friendshipId),
+            or(eq(friends.userId1, user.id), eq(friends.userId2, user.id)),
+          ),
+        )
+        .returning({ id: friends.id, status: friends.status });
+
+      if (!friendship) {
+        return NextResponse.json(
+          { error: "Friendship not found." },
+          { status: 404 },
+        );
+      }
+
+      return NextResponse.json(friendship);
     }
 
     const [friendship] = await db

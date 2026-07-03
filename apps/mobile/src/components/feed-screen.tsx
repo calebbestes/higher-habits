@@ -27,8 +27,11 @@ import {
   type FriendFeedEntry,
   type FriendFeedPhoto,
   addFeedComment,
+  archiveFriend,
   deleteFeedComment,
   fetchFriendsFeed,
+  fetchFriends,
+  reportContent,
   toggleFeedProp,
 } from "@/lib/friends-client";
 
@@ -223,6 +226,104 @@ export function FeedScreen() {
     [],
   );
 
+  const reportPost = useCallback(async (entry: FriendFeedEntry) => {
+    try {
+      await reportContent({
+        targetType: "feed_post",
+        targetId: entry.id,
+        reason: "Reported from feed post actions.",
+        context: {
+          friendId: entry.friend.id,
+          goalId: entry.goal.id,
+          dateKey: entry.dateKey,
+        },
+      });
+      Alert.alert("Report sent", "Thanks. We'll review this post.");
+    } catch (err) {
+      Alert.alert(
+        "Could not send report",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
+
+  const reportComment = useCallback(
+    async (entry: FriendFeedEntry, comment: FriendFeedComment) => {
+      try {
+        await reportContent({
+          targetType: "feed_comment",
+          targetId: comment.id,
+          reason: "Reported from feed comment actions.",
+          context: {
+            feedPostId: entry.id,
+            authorId: comment.userId,
+            parentCommentId: comment.parentCommentId,
+          },
+        });
+        Alert.alert("Report sent", "Thanks. We'll review this comment.");
+      } catch (err) {
+        Alert.alert(
+          "Could not send report",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [],
+  );
+
+  const blockFriend = useCallback(
+    async (entry: FriendFeedEntry) => {
+      try {
+        await reportContent({
+          targetType: "user",
+          targetId: entry.friend.id,
+          reason: "Blocked from feed post actions.",
+          context: { feedPostId: entry.id },
+        }).catch(() => undefined);
+
+        const friends = await fetchFriends();
+        const friendship = friends.find(
+          (friend) =>
+            friend.friendId === entry.friend.id && friend.status === "accepted",
+        );
+
+        if (!friendship) {
+          throw new Error("Friendship not found.");
+        }
+
+        await archiveFriend(friendship.id);
+        setEntries((prev) =>
+          prev.filter((item) => item.friend.id !== entry.friend.id),
+        );
+        setActiveCommentsEntryId((current) =>
+          current === entry.id ? null : current,
+        );
+        Alert.alert("Blocked", `${entry.friend.name} was removed.`);
+      } catch (err) {
+        Alert.alert(
+          "Could not block user",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [],
+  );
+
+  const openPostSafetyActions = useCallback(
+    (entry: FriendFeedEntry) => {
+      Alert.alert(entry.friend.name, "Choose a safety action.", [
+        { text: "Report Post", onPress: () => void reportPost(entry) },
+        {
+          text: "Block User",
+          style: "destructive",
+          onPress: () => void blockFriend(entry),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [blockFriend, reportPost],
+  );
+
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
     : null;
@@ -309,6 +410,7 @@ export function FeedScreen() {
                     onToggleProp={() => void handleToggleProp(entry.id)}
                     onPhotoPress={setActivePhoto}
                     onOpenComments={() => setActiveCommentsEntryId(entry.id)}
+                    onOpenSafetyActions={() => openPostSafetyActions(entry)}
                   />
                 ))}
               </View>
@@ -378,6 +480,10 @@ export function FeedScreen() {
           if (!activeCommentsEntry) return;
           void handleDeleteComment(activeCommentsEntry.id, commentId);
         }}
+        onReportComment={(comment) => {
+          if (!activeCommentsEntry) return;
+          void reportComment(activeCommentsEntry, comment);
+        }}
         onReplyToComment={(comment) => {
           if (!activeCommentsEntry) return;
           setReplyTargets((prev) => ({
@@ -395,11 +501,13 @@ function FeedCard({
   onToggleProp,
   onPhotoPress,
   onOpenComments,
+  onOpenSafetyActions,
 }: {
   entry: FriendFeedEntry;
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
+  onOpenSafetyActions: () => void;
 }) {
   const theme = useTheme();
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -446,6 +554,22 @@ function FeedCard({
         >
           {formatFeedDate(entry.dateKey)}
         </Text>
+        <Pressable
+          accessibilityLabel="Post safety actions"
+          hitSlop={8}
+          onPress={onOpenSafetyActions}
+          style={({ pressed }) => [
+            styles.safetyButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
       </View>
 
       {/* Photos */}
@@ -621,6 +745,7 @@ function CommentsModal({
   onClose,
   onCommentDraftChange,
   onDeleteComment,
+  onReportComment,
   onReplyToComment,
   replyTarget,
 }: {
@@ -632,6 +757,7 @@ function CommentsModal({
   onClose: () => void;
   onCommentDraftChange: (value: string) => void;
   onDeleteComment: (commentId: string) => void;
+  onReportComment: (comment: FriendFeedComment) => void;
   onReplyToComment: (comment: FriendFeedComment) => void;
   replyTarget: FriendFeedComment | null;
 }) {
@@ -713,6 +839,7 @@ function CommentsModal({
                   key={comment.id}
                   comment={comment}
                   onDeleteComment={onDeleteComment}
+                  onReportComment={onReportComment}
                   onReply={onReplyToComment}
                 />
               ))
@@ -870,11 +997,13 @@ function CommentRow({
   comment,
   depth = 0,
   onDeleteComment,
+  onReportComment,
   onReply,
 }: {
   comment: FriendFeedComment;
   depth?: number;
   onDeleteComment: (commentId: string) => void;
+  onReportComment: (comment: FriendFeedComment) => void;
   onReply: (comment: FriendFeedComment) => void;
 }) {
   const theme = useTheme();
@@ -922,6 +1051,15 @@ function CommentRow({
                 Reply
               </Text>
             </Pressable>
+            <Pressable
+              hitSlop={8}
+              onPress={() => onReportComment(comment)}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text style={[styles.commentActionText, { color: "#9D474D" }]}>
+                Report
+              </Text>
+            </Pressable>
           </View>
         </View>
         {comment.canDelete ? (
@@ -950,6 +1088,7 @@ function CommentRow({
               comment={reply}
               depth={depth + 1}
               onDeleteComment={onDeleteComment}
+              onReportComment={onReportComment}
               onReply={onReply}
             />
           ))}
@@ -1071,6 +1210,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
+  },
+  safetyButton: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
   },
   headerGoalRow: {
     flexDirection: "row",

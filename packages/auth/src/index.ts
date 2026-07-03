@@ -68,9 +68,6 @@ export function createAuth() {
             google: {
               clientId: googleClientId,
               clientSecret: googleClientSecret,
-              accessType: "offline",
-              prompt: "consent",
-              scope: ["https://www.googleapis.com/auth/calendar.events"],
             },
           }
         : {}),

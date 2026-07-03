@@ -96,9 +96,6 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       const response = await authClient.signIn.social({
         provider,
         callbackURL: "/",
-        ...(provider === "google"
-          ? { scopes: ["https://www.googleapis.com/auth/calendar.events"] }
-          : {}),
       });
 
       if (response.error) {

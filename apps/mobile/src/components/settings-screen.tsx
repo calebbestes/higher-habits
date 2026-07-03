@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,13 +24,24 @@ import {
   MaxContentWidth,
 } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { authClient } from "@/lib/auth-client";
+import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
+import { reportContent } from "@/lib/friends-client";
 import {
   type GoogleCalendarStatus,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
+import { mobileApiFetch } from "@/lib/mobile-api";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
-import { sendTestNotificationAsync } from "@/lib/push-notifications";
+import {
+  registerForPushNotificationsAsync,
+  sendTestNotificationAsync,
+} from "@/lib/push-notifications";
+import {
+  type AppStartPage,
+  type CollabSection,
+  type PlanReportView,
+  applyNavigationDefaults,
+} from "@/lib/tab-view-store";
 import {
   type ThemePreference,
   getColorThemePreference,
@@ -38,14 +50,8 @@ import {
   setThemePreference,
 } from "@/lib/theme-preference";
 import {
-  type AppStartPage,
-  type CollabSection,
-  type PlanReportView,
-  applyNavigationDefaults,
-} from "@/lib/tab-view-store";
-import {
-  type UserSettings,
   USER_SETTING_DEFAULTS,
+  type UserSettings,
   fetchUserSettings,
   updateUserSettings,
 } from "@/lib/user-settings-client";
@@ -90,9 +96,12 @@ export function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { data: session, refetch } = authClient.useSession();
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
+  const [isRegisteringNotifications, setIsRegisteringNotifications] =
+    useState(false);
   const [isSendingTestNotification, setIsSendingTestNotification] =
     useState(false);
   const [appearance, setAppearance] = useState<ThemePreference>("system");
@@ -158,6 +167,49 @@ export function SettingsScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Sign Out", style: "destructive", onPress: () => void signOut() },
     ]);
+  };
+
+  const deleteAccount = async () => {
+    setIsDeletingAccount(true);
+    try {
+      const response = await mobileApiFetch("/api/account", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error ?? "Could not delete account.");
+      }
+
+      await authClient.signOut().catch(() => undefined);
+      router.replace("/login");
+    } catch (deleteError) {
+      Alert.alert(
+        "Delete account",
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Could not delete account.",
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your account, goals, plans, journal entries, photos, friends, and settings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: () => void deleteAccount(),
+        },
+      ],
+    );
   };
 
   const chooseAppearance = () => {
@@ -313,6 +365,90 @@ export function SettingsScreen() {
     }
   };
 
+  const enableDeviceNotifications = async () => {
+    if (isRegisteringNotifications) return;
+
+    setIsRegisteringNotifications(true);
+    try {
+      const result = await registerForPushNotificationsAsync();
+
+      if (result === "registered") {
+        Alert.alert("Notifications enabled", "float can now send reminders.");
+        return;
+      }
+
+      if (result === "denied") {
+        Alert.alert(
+          "Notifications are off",
+          "Enable notifications in Settings to receive reminders.",
+        );
+        return;
+      }
+
+      if (result === "unavailable") {
+        Alert.alert(
+          "Notifications",
+          "Push notifications require a physical device.",
+        );
+        return;
+      }
+
+      Alert.alert("Notifications", "Could not enable notifications.");
+    } finally {
+      setIsRegisteringNotifications(false);
+    }
+  };
+
+  const contactSupport = () => {
+    const subject = encodeURIComponent("float support");
+    const body = encodeURIComponent(
+      `Account: ${session?.user.email ?? "signed in"}\n\nHow can we help?`,
+    );
+    Linking.openURL(
+      `mailto:estes.caleb.b@gmail.com?subject=${subject}&body=${body}`,
+    ).catch(() => {
+      Alert.alert("Support", "Email estes.caleb.b@gmail.com for help.");
+    });
+  };
+
+  const reportSafetyConcern = async () => {
+    try {
+      await reportContent({
+        targetType: "general",
+        reason: "Safety concern reported from Settings.",
+        context: { email: session?.user.email ?? null },
+      });
+      Alert.alert("Report sent", "Thanks. We'll review it.");
+    } catch (reportError) {
+      Alert.alert(
+        "Could not send report",
+        reportError instanceof Error ? reportError.message : undefined,
+      );
+    }
+  };
+
+  const showCommunityStandards = () => {
+    Alert.alert(
+      "Community Standards",
+      "Share progress respectfully. Do not post abusive, harassing, hateful, sexual, threatening, or illegal content. Report anything that feels unsafe.",
+      [{ text: "OK" }],
+    );
+  };
+
+  const showPrivacySummary = () => {
+    Alert.alert(
+      "Privacy Summary",
+      "float uses your account details, goals, journal entries, photos, friends, contacts for friend lookup, notifications, and crash diagnostics to run the app. Your progress stays private unless you choose to share it.",
+      [{ text: "OK" }],
+    );
+  };
+
+  const openPrivacyPolicy = () => {
+    Linking.openURL(`${AUTH_BASE_URL}/privacy`).catch(() => {
+      Alert.alert("Privacy Policy", `${AUTH_BASE_URL}/privacy`);
+    });
+  };
+
   const profileImageUrl = session?.user.image;
   const googleCalendarValue = isGoogleConnecting
     ? "Connecting"
@@ -463,13 +599,23 @@ export function SettingsScreen() {
 
           <SettingsGroup title="Notifications">
             <SettingsRow
+              icon={sym("bell.badge.fill", "notifications_active")}
+              title="Enable device notifications"
+              value={isRegisteringNotifications ? "Enabling" : "Enable"}
+              onPress={
+                isRegisteringNotifications
+                  ? undefined
+                  : () => void enableDeviceNotifications()
+              }
+            />
+            <SettingsRow
               icon={sym("bell.fill", "notifications")}
               title="Notifications"
               value="Manage"
               onPress={() => setShowNotifications(true)}
             />
             <SettingsRow
-              icon={sym("bell.badge.fill", "notifications_active")}
+              icon={sym("paperplane.fill", "send")}
               title="Test notification"
               value={isSendingTestNotification ? "Sending" : "Send"}
               onPress={
@@ -493,13 +639,47 @@ export function SettingsScreen() {
             />
           </SettingsGroup>
 
+          <SettingsGroup title="Safety & Support">
+            <SettingsRow
+              icon={sym("exclamationmark.bubble.fill", "report")}
+              title="Report a concern"
+              value="Send"
+              onPress={() => void reportSafetyConcern()}
+            />
+            <SettingsRow
+              icon={sym("shield.lefthalf.filled", "shield")}
+              title="Community Standards"
+              value="View"
+              onPress={showCommunityStandards}
+            />
+            <SettingsRow
+              icon={sym("lock.shield.fill", "lock")}
+              title="Privacy Summary"
+              value="View"
+              onPress={showPrivacySummary}
+            />
+            <SettingsRow
+              icon={sym("doc.text.fill", "article")}
+              title="Privacy Policy"
+              value="Open"
+              onPress={openPrivacyPolicy}
+            />
+            <SettingsRow
+              icon={sym("envelope.fill", "mail")}
+              title="Contact support"
+              value="Email"
+              onPress={contactSupport}
+            />
+          </SettingsGroup>
+
           <SettingsGroup title="Account">
             <Pressable
               accessibilityRole="button"
-              disabled={isSigningOut}
+              disabled={isSigningOut || isDeletingAccount}
               onPress={confirmSignOut}
               style={({ pressed }) => [
                 styles.signOutRow,
+                { borderBottomColor: theme.tabBorder },
                 pressed && styles.pressed,
               ]}
             >
@@ -511,6 +691,36 @@ export function SettingsScreen() {
               />
               <Text style={styles.signOutText}>Sign Out</Text>
               {isSigningOut ? (
+                <ActivityIndicator color="#B4232C" size="small" />
+              ) : null}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={isSigningOut || isDeletingAccount}
+              onPress={confirmDeleteAccount}
+              style={({ pressed }) => [
+                styles.deleteAccountRow,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("trash.fill", "delete")}
+                size={20}
+                weight="semibold"
+                tintColor="#B4232C"
+              />
+              <View style={styles.deleteAccountText}>
+                <Text style={styles.deleteAccountTitle}>Delete Account</Text>
+                <Text
+                  style={[
+                    styles.deleteAccountDescription,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Permanently remove your account and data
+                </Text>
+              </View>
+              {isDeletingAccount ? (
                 <ActivityIndicator color="#B4232C" size="small" />
               ) : null}
             </Pressable>
@@ -843,8 +1053,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 16,
   },
   signOutText: { flex: 1, color: "#B4232C", fontSize: 16, fontWeight: "700" },
+  deleteAccountRow: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  deleteAccountText: { flex: 1, gap: 2 },
+  deleteAccountTitle: { color: "#B4232C", fontSize: 16, fontWeight: "700" },
+  deleteAccountDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
   pressed: { opacity: 0.6 },
 });

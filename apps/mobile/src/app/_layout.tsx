@@ -25,7 +25,6 @@ import {
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
 import {
-  registerForPushNotificationsAsync,
   syncHabitRemindersFromServerAsync,
 } from "@/lib/push-notifications";
 import {
@@ -133,7 +132,6 @@ function AuthNavigator() {
     };
 
     record();
-    void registerForPushNotificationsAsync();
     void syncHabitRemindersFromServerAsync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") record();

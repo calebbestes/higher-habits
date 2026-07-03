@@ -193,19 +193,21 @@ export async function syncHabitRemindersFromServerAsync(): Promise<void> {
 
 /**
  * Requests notification permission (if needed), retrieves the Expo push token,
- * and registers it with the backend. Safe to call on every launch; no-ops on
- * simulators and when permission is denied.
+ * and registers it with the backend. Call this from a user-initiated action so
+ * iOS only prompts when the value is clear.
  */
-export async function registerForPushNotificationsAsync(): Promise<void> {
+export async function registerForPushNotificationsAsync(): Promise<
+  "denied" | "failed" | "missing-project-id" | "registered" | "unavailable"
+> {
   try {
-    if (!Device.isDevice) return;
+    if (!Device.isDevice) return "unavailable";
 
     await ensureDefaultAndroidNotificationChannelAsync();
     const hasPermission = await requestNotificationPermissionAsync();
-    if (!hasPermission) return;
+    if (!hasPermission) return "denied";
 
     const projectId = getProjectId();
-    if (!projectId) return;
+    if (!projectId) return "missing-project-id";
 
     const tokenResponse = await Notifications.getExpoPushTokenAsync({
       projectId,
@@ -218,8 +220,10 @@ export async function registerForPushNotificationsAsync(): Promise<void> {
         platform: Platform.OS,
       }),
     });
+
+    return "registered";
   } catch {
-    // Push registration is best-effort; never block app startup.
+    return "failed";
   }
 }
 
