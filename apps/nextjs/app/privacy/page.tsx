@@ -92,7 +92,7 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold">Contact</h2>
           <p>
             For privacy or support questions, contact
-            support@higher-habits.vercel.app.
+            estes.caleb.b@gmail.com.
           </p>
         </section>
       </div>
