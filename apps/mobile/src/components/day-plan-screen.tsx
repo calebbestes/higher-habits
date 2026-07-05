@@ -222,6 +222,7 @@ export function DayPlanScreen({
   const [selectedDate, setSelectedDate] = useState(() =>
     initialDateKey ? dateFromKey(initialDateKey) : new Date(),
   );
+  const [now, setNow] = useState(() => new Date());
   const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [planGoals, setPlanGoals] = useState<Goal[]>([]);
@@ -255,6 +256,14 @@ export function DayPlanScreen({
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  const isViewingToday = useMemo(
+    () => toDateKey(now) === dateKey,
+    [now, dateKey],
+  );
+  const nowLineTop = useMemo(
+    () => ((now.getHours() * 60 + now.getMinutes()) / 60) * HOUR_HEIGHT,
+    [now],
+  );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
   const loadSequenceRef = useRef(0);
@@ -691,6 +700,20 @@ export function DayPlanScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Keep the current-time indicator in sync, ticking at the top of each minute.
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const msUntilNextMinute = 60_000 - (Date.now() % 60_000);
+    const timeout = setTimeout(() => {
+      setNow(new Date());
+      interval = setInterval(() => setNow(new Date()), 60_000);
+    }, msUntilNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
 
   useEffect(
     () => () => {
@@ -1921,6 +1944,15 @@ export function DayPlanScreen({
                           <DraftPlanBlock range={dragPlanRange} />
                         ) : null}
                       </View>
+                      {isViewingToday ? (
+                        <View
+                          pointerEvents="none"
+                          style={[styles.nowIndicator, { top: nowLineTop }]}
+                        >
+                          <View style={styles.nowDot} />
+                          <View style={styles.nowLine} />
+                        </View>
+                      ) : null}
                     </View>
                   </ScrollView>
                 </View>
@@ -3802,6 +3834,28 @@ const styles = StyleSheet.create({
     right: 6,
     bottom: 0,
     left: TIME_LABEL_WIDTH,
+  },
+  nowIndicator: {
+    position: "absolute",
+    left: TIME_LABEL_WIDTH - 6,
+    right: 6,
+    height: 2,
+    marginTop: -1,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 20,
+  },
+  nowDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    marginLeft: -5,
+    backgroundColor: "#EA4335",
+  },
+  nowLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: "#EA4335",
   },
   dragLayer: {
     position: "absolute",

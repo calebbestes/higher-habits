@@ -153,9 +153,10 @@ function getYearOptions(selectedYear: number | undefined): number[] {
   const currentYear = new Date().getFullYear();
   const years = Array.from(
     { length: 26 },
-    (_, index) => currentYear - 5 + index,
+    (_, index) => currentYear + index,
   );
 
+  // Keep an already-selected past year visible when editing an older item.
   if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);
 
   return years.sort((left, right) => left - right);

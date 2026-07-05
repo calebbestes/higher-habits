@@ -89,3 +89,10 @@ export async function uploadGoalPhoto(
     body: formData,
   }).then((response) => parseResponse<GoalPhoto>(response));
 }
+
+export function deleteGoalPhoto(id: string): Promise<{ ok: true }> {
+  return mobileApiFetch("/api/goal-photos", {
+    method: "DELETE",
+    body: JSON.stringify({ id }),
+  }).then((response) => parseResponse<{ ok: true }>(response));
+}

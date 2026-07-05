@@ -25,7 +25,9 @@ import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type CheckpointPhoto,
+  deleteCheckpointPhoto,
   fetchAllCheckpointPhotos,
+  uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
 import { addFeedComment } from "@/lib/friends-client";
 import {
@@ -40,11 +42,13 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import {
   type GoalPhoto,
+  deleteGoalPhoto,
   fetchAllGoalPhotos,
   fetchGoalPhotosForRange,
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
+import { rotateRemotePhoto } from "@/lib/photo-edit";
 import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -176,6 +180,7 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [isEditingPhoto, setIsEditingPhoto] = useState(false);
   const [checkpointGoals, setCheckpointGoals] = useState<Goal[]>([]);
   const [checkpointPhotos, setCheckpointPhotos] = useState<CheckpointPhoto[]>(
     [],
@@ -530,6 +535,92 @@ export function JournalScreen() {
     [load, uploadingPhotoSource],
   );
 
+  // Checkpoint photos are surfaced through the same GoalPhoto shape but carry an
+  // empty dateKey and store the checkpoint id in goalId (see checkpointPhotosById).
+  const isCheckpointPhoto = useCallback(
+    (photo: GoalPhoto) => photo.dateKey === "",
+    [],
+  );
+
+  const handleRotatePhoto = useCallback(
+    async (photo: GoalPhoto, degrees: number) => {
+      if (isEditingPhoto) return;
+      setIsEditingPhoto(true);
+      try {
+        // No in-place replace endpoint exists, so rotate = upload the rotated
+        // copy, then delete the original.
+        const rotated = await rotateRemotePhoto(photo.url, degrees);
+        let nextPhoto: GoalPhoto;
+        if (isCheckpointPhoto(photo)) {
+          const uploaded = await uploadCheckpointPhoto(photo.goalId, rotated);
+          await deleteCheckpointPhoto(photo.id);
+          nextPhoto = {
+            id: uploaded.id,
+            url: uploaded.url,
+            contentType: uploaded.contentType,
+            createdAt: uploaded.createdAt,
+            dateKey: "",
+            goalId: uploaded.checkpointId,
+          };
+        } else {
+          nextPhoto = await uploadGoalPhoto(
+            photo.goalId,
+            photo.dateKey,
+            rotated,
+          );
+          await deleteGoalPhoto(photo.id);
+        }
+        setActivePhoto(nextPhoto);
+        await load();
+      } catch (rotateError) {
+        Alert.alert(
+          "Could not rotate photo",
+          rotateError instanceof Error
+            ? rotateError.message
+            : "The photo could not be updated.",
+        );
+      } finally {
+        setIsEditingPhoto(false);
+      }
+    },
+    [isCheckpointPhoto, isEditingPhoto, load],
+  );
+
+  const handleDeletePhoto = useCallback(
+    (photo: GoalPhoto) => {
+      Alert.alert("Delete photo?", "This permanently removes this photo.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (isEditingPhoto) return;
+            setIsEditingPhoto(true);
+            try {
+              if (isCheckpointPhoto(photo)) {
+                await deleteCheckpointPhoto(photo.id);
+              } else {
+                await deleteGoalPhoto(photo.id);
+              }
+              setActivePhoto(null);
+              await load();
+            } catch (deleteError) {
+              Alert.alert(
+                "Could not delete photo",
+                deleteError instanceof Error
+                  ? deleteError.message
+                  : "The photo could not be deleted.",
+              );
+            } finally {
+              setIsEditingPhoto(false);
+            }
+          },
+        },
+      ]);
+    },
+    [isCheckpointPhoto, isEditingPhoto, load],
+  );
+
   const handleSubmitReply = useCallback(
     async (goalLogId: string) => {
       const body = (replyDrafts[goalLogId] ?? "").trim();
@@ -741,7 +832,17 @@ export function JournalScreen() {
           }}
         />
       ) : null}
-      <PhotoViewer photo={activePhoto} onClose={() => setActivePhoto(null)} />
+      <PhotoViewer
+        photo={activePhoto}
+        isBusy={isEditingPhoto}
+        onClose={() => setActivePhoto(null)}
+        onDelete={() => {
+          if (activePhoto) handleDeletePhoto(activePhoto);
+        }}
+        onRotate={(degrees) => {
+          if (activePhoto) void handleRotatePhoto(activePhoto, degrees);
+        }}
+      />
     </View>
   );
 }
@@ -1881,10 +1982,16 @@ function PickerRow({
 
 function PhotoViewer({
   photo,
+  isBusy,
   onClose,
+  onDelete,
+  onRotate,
 }: {
   photo: GoalPhoto | null;
+  isBusy: boolean;
   onClose: () => void;
+  onDelete: () => void;
+  onRotate: (degrees: number) => void;
 }) {
   return (
     <Modal
@@ -1905,6 +2012,7 @@ function PhotoViewer({
         ) : null}
         <Pressable
           accessibilityLabel="Close photo"
+          disabled={isBusy}
           onPress={onClose}
           style={styles.viewerClose}
         >
@@ -1915,6 +2023,66 @@ function PhotoViewer({
             tintColor="#FFFFFF"
           />
         </Pressable>
+        {photo ? (
+          <View style={styles.viewerControls}>
+            <Pressable
+              accessibilityLabel="Rotate left"
+              disabled={isBusy}
+              onPress={() => onRotate(-90)}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("rotate.left", "rotate_left")}
+                size={22}
+                weight="bold"
+                tintColor="#FFFFFF"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Rotate right"
+              disabled={isBusy}
+              onPress={() => onRotate(90)}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("rotate.right", "rotate_right")}
+                size={22}
+                weight="bold"
+                tintColor="#FFFFFF"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Delete photo"
+              disabled={isBusy}
+              onPress={onDelete}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("trash", "delete")}
+                size={22}
+                weight="bold"
+                tintColor="#FF453A"
+              />
+            </Pressable>
+          </View>
+        ) : null}
+        {isBusy ? (
+          <View
+            pointerEvents="auto"
+            style={[StyleSheet.absoluteFill, styles.viewerBusy]}
+          >
+            <ActivityIndicator color="#FFFFFF" size="large" />
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -2313,6 +2481,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
     backgroundColor: "#FFFFFF22",
+  },
+  viewerControls: {
+    position: "absolute",
+    bottom: 54,
+    flexDirection: "row",
+    gap: 18,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 28,
+    backgroundColor: "#000000AA",
+  },
+  viewerControlButton: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF1A",
+  },
+  viewerBusy: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00000066",
   },
   pressed: { opacity: 0.72 },
 });
