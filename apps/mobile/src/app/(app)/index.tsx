@@ -1,20 +1,19 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 
-import { FeedScreen } from "@/components/feed-screen";
-import { FriendsScreen } from "@/components/friends-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
-import {
-  isCollabSection,
-  setCollabSection,
-  useDefaultCollabSection,
-} from "@/lib/tab-view-store";
+import { setCollabSection, useDefaultCollabSection } from "@/lib/tab-view-store";
 
 export default function CollabScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>();
   const defaultSection = useDefaultCollabSection();
-  const activeSection = isCollabSection(section) ? section : defaultSection;
+  const activeSection =
+    section === "incentives" || section === "shared-goals"
+      ? section
+      : defaultSection === "incentives"
+        ? defaultSection
+        : "shared-goals";
 
   useEffect(() => {
     setCollabSection(activeSection);
@@ -28,9 +27,5 @@ export default function CollabScreen() {
     return <IncentivesScreen />;
   }
 
-  if (activeSection === "friends") {
-    return <FriendsScreen />;
-  }
-
-  return <FeedScreen />;
+  return <SharedGoalsScreen />;
 }

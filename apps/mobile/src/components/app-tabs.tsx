@@ -29,22 +29,22 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>Plan/Report</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="journal">
-        <NativeTabs.Trigger.Icon md="menu_book" sf="book.fill" />
-        <NativeTabs.Trigger.Label>Journal</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Icon md="groups" sf="person.2.fill" />
         <NativeTabs.Trigger.Label>Collab</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="dashboard">
+      <NativeTabs.Trigger name="friends">
+        <NativeTabs.Trigger.Icon md="feed" sf="rectangle.stack.fill" />
+        <NativeTabs.Trigger.Label>Friends</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="history">
         <NativeTabs.Trigger.Icon
           md="speed"
           sf="gauge.with.dots.needle.50percent"
         />
-        <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>History</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

@@ -1,4 +1,5 @@
 import { GoalIcon } from "@/components/goal-icon";
+import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -573,7 +574,7 @@ export function JournalScreen() {
         >
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: theme.text }]}>Journal</Text>
+              <HistoryHeaderMenu currentSection="journal" />
             </View>
           </View>
 

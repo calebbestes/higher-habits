@@ -1,4 +1,5 @@
 import { GoalIcon } from "@/components/goal-icon";
+import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import * as Clipboard from "expo-clipboard";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -330,9 +331,7 @@ export function DashboardScreen() {
         >
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderText}>
-              <Text style={[styles.pageTitle, { color: theme.text }]}>
-                Dashboard
-              </Text>
+              <HistoryHeaderMenu currentSection="dashboard" />
               <Text
                 style={[styles.pageSubtitle, { color: theme.textSecondary }]}
               >

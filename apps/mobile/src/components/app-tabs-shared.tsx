@@ -110,16 +110,6 @@ const TABS: TabItem[] = [
     },
   },
   {
-    name: "journal",
-    href: "/journal",
-    label: "Journal",
-    icon: {
-      ios: "book.fill",
-      android: "menu_book",
-      web: "menu_book",
-    },
-  },
-  {
     name: "collab",
     href: "/",
     label: "Collab",
@@ -133,12 +123,12 @@ const TABS: TabItem[] = [
       width: 220,
       items: [
         {
-          label: "Feed",
-          href: "/?section=feed",
+          label: "Shared Goals",
+          href: "/?section=shared-goals",
           icon: {
-            ios: "rectangle.stack",
-            android: "feed",
-            web: "feed",
+            ios: "person.3.fill",
+            android: "groups",
+            web: "groups",
           },
         },
         {
@@ -150,18 +140,34 @@ const TABS: TabItem[] = [
             web: "card_giftcard",
           },
         },
+      ],
+    },
+  },
+  {
+    name: "friends",
+    href: "/friends",
+    label: "Friends",
+    icon: {
+      ios: "rectangle.stack.fill",
+      android: "feed",
+      web: "feed",
+    },
+    menu: {
+      alignment: "center",
+      width: 180,
+      items: [
         {
-          label: "Shared Goals",
-          href: "/?section=shared-goals",
+          label: "Feed",
+          href: "/friends?section=feed",
           icon: {
-            ios: "person.3.fill",
-            android: "groups",
-            web: "groups",
+            ios: "rectangle.stack",
+            android: "feed",
+            web: "feed",
           },
         },
         {
           label: "Friends",
-          href: "/?section=friends",
+          href: "/friends?section=friends",
           icon: {
             ios: "person.2.fill",
             android: "group",
@@ -172,13 +178,37 @@ const TABS: TabItem[] = [
     },
   },
   {
-    name: "dashboard",
-    href: "/dashboard",
-    label: "Dashboard",
+    name: "history",
+    href: "/history",
+    label: "History",
     icon: {
       ios: "gauge.with.dots.needle.50percent",
       android: "speed",
       web: "speed",
+    },
+    menu: {
+      alignment: "right",
+      width: 190,
+      items: [
+        {
+          label: "Dashboard",
+          href: "/history?section=dashboard",
+          icon: {
+            ios: "gauge.with.dots.needle.50percent",
+            android: "speed",
+            web: "speed",
+          },
+        },
+        {
+          label: "Journal",
+          href: "/history?section=journal",
+          icon: {
+            ios: "book.fill",
+            android: "menu_book",
+            web: "menu_book",
+          },
+        },
+      ],
     },
   },
   {
@@ -482,10 +512,10 @@ function rememberSubmenuSelection(href: Href) {
     "/plan-report?view=top-tasks": "top-tasks",
   };
   const collabSections: Record<string, CollabSection> = {
-    "/?section=feed": "feed",
     "/?section=incentives": "incentives",
     "/?section=shared-goals": "shared-goals",
-    "/?section=friends": "friends",
+    "/friends?section=feed": "feed",
+    "/friends?section=friends": "friends",
   };
 
   const planReportView = planReportViews[href];
@@ -508,7 +538,17 @@ function getDefaultTabHref({
     return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView] as Href;
   }
   if (tab.name === "collab") {
-    return COLLAB_SECTION_HREFS[defaultCollabSection] as Href;
+    return (
+      defaultCollabSection === "incentives"
+        ? COLLAB_SECTION_HREFS.incentives
+        : COLLAB_SECTION_HREFS["shared-goals"]
+    ) as Href;
+  }
+  if (tab.name === "friends") {
+    return "/friends?section=feed";
+  }
+  if (tab.name === "history") {
+    return "/history?section=dashboard";
   }
   return tab.href;
 }
