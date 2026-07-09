@@ -412,6 +412,11 @@ export function DailyGoalsScreen({
       (goal.sharedGoals?.length ?? 0) > 0 || incentiveGoalIds.has(goal.id),
     [incentiveGoalIds],
   );
+  const getDailyPriorityBucket = useCallback(
+    (goal: HabitInCategory): "high" | "low" =>
+      isSharedOrIncentive(goal) || goal.priority === "high" ? "high" : "low",
+    [isSharedOrIncentive],
+  );
 
   const priorityProgress = useMemo(() => {
     const progress = {
@@ -421,7 +426,7 @@ export function DailyGoalsScreen({
 
     for (const cat of categoriesWithGoals) {
       for (const goal of cat.habits) {
-        const pr = isSharedOrIncentive(goal) ? "high" : goal.priority;
+        const pr = getDailyPriorityBucket(goal);
         progress[pr].total++;
         if (logsByHabitDate[`${goal.id}_${dateKey}`] === "complete") {
           progress[pr].completed++;
@@ -430,19 +435,19 @@ export function DailyGoalsScreen({
     }
 
     return progress;
-  }, [categoriesWithGoals, dateKey, logsByHabitDate, isSharedOrIncentive]);
+  }, [categoriesWithGoals, dateKey, logsByHabitDate, getDailyPriorityBucket]);
 
   const highGoalIds = useMemo(() => {
     const ids = new Set<string>();
     for (const cat of categoriesWithGoals) {
       for (const goal of cat.habits) {
-        if (isSharedOrIncentive(goal) || goal.priority === "high") {
+        if (getDailyPriorityBucket(goal) === "high") {
           ids.add(goal.id);
         }
       }
     }
     return ids;
-  }, [categoriesWithGoals, isSharedOrIncentive]);
+  }, [categoriesWithGoals, getDailyPriorityBucket]);
   highGoalIdsRef.current = highGoalIds;
   highProgressRef.current = priorityProgress.high;
 
@@ -493,14 +498,14 @@ export function DailyGoalsScreen({
           category: cat,
           goals: cat.habits.filter(
             (g) =>
-              (isSharedOrIncentive(g) ? "high" : g.priority) === p &&
+              getDailyPriorityBucket(g) === p &&
               logsByHabitDate[`${g.id}_${dateKey}`] !== "complete",
           ),
         }))
         .filter((g) => g.goals.length > 0);
 
     return { high: make("high"), low: make("low") };
-  }, [categoriesWithGoals, logsByHabitDate, dateKey, isSharedOrIncentive]);
+  }, [categoriesWithGoals, logsByHabitDate, dateKey, getDailyPriorityBucket]);
 
   // All completed habits for this date
   const completedList = useMemo(

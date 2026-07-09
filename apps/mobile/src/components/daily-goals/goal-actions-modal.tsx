@@ -39,7 +39,7 @@ type PlanTimeParts = { hour: number; minute: number };
 
 const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
 const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
-const PLAN_TIME_MINUTES = Array.from({ length: 60 }, (_, index) => index);
+const PLAN_TIME_MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
 
 function GoalActionsModalImpl({
   goal,
