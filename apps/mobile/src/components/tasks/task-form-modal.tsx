@@ -25,6 +25,7 @@ import {
   type TaskInput,
   getTaskDueDateForUrgency,
   getTaskUrgency,
+  isValidTaskDateKey,
   todayDateKey,
 } from "@/lib/tasks-client";
 
@@ -83,8 +84,7 @@ export function TaskFormModal({
     }
   };
 
-  const dueDateValid =
-    !form.dueDate || /^\d{4}-\d{2}-\d{2}$/.test(form.dueDate);
+  const dueDateValid = !form.dueDate || isValidTaskDateKey(form.dueDate);
 
   const save = async () => {
     if (!form.name.trim() || !dueDateValid || isSaving) return;

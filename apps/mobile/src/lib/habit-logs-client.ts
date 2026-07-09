@@ -132,6 +132,111 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function booleanOrFallback(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizePriority(value: unknown): "high" | "low" {
+  return value === "high" ? "high" : "low";
+}
+
+function mapValues<T>(
+  value: unknown,
+  normalizeValue: (value: unknown) => T | null,
+): Record<string, T> {
+  if (!isRecord(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, entry]) => {
+      const normalized = normalizeValue(entry);
+      return normalized === null ? [] : [[key, normalized]];
+    }),
+  );
+}
+
+function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
+  return { ...habit, priority: normalizePriority(habit.priority) };
+}
+
+function normalizeHabits(value: unknown): HabitInCategory[] {
+  return Array.isArray(value)
+    ? value.filter(isRecord).map((habit) => normalizeHabit(habit) as HabitInCategory)
+    : [];
+}
+
+function normalizeCategories(value: unknown): CategoryWithHabits[] {
+  return Array.isArray(value)
+    ? value.filter(isRecord).map((category) => {
+        const habits = normalizeHabits(category.habits);
+        return {
+          ...category,
+          habits,
+          goals: habits,
+        } as CategoryWithHabits;
+      })
+    : [];
+}
+
+function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
+  const payload = isRecord(value) ? value : {};
+  const plannedTimesByHabitDate = mapValues(payload.plannedTimesByHabitDate, (entry) =>
+    isRecord(entry)
+      ? {
+          startTime: nullableString(entry.startTime),
+          endTime: nullableString(entry.endTime),
+          repeatsDaily: booleanOrFallback(entry.repeatsDaily),
+        }
+      : null,
+  );
+
+  return {
+    ...(payload as Partial<HabitLogsSnapshot>),
+    categories: normalizeCategories(payload.categories),
+    periodicHabits: Array.isArray(payload.periodicHabits)
+      ? payload.periodicHabits
+          .filter(isRecord)
+          .map((habit) => normalizeHabit(habit) as PeriodicHabitInfo)
+      : [],
+    acceptedHabitIncentives: Array.isArray(payload.acceptedHabitIncentives)
+      ? (payload.acceptedHabitIncentives as AcceptedHabitIncentive[])
+      : [],
+    logsByHabitDate: mapValues(payload.logsByHabitDate, (status) =>
+      status === "complete" || status === "planned" ? status : null,
+    ),
+    notesByHabitDate: mapValues(payload.notesByHabitDate, (note) =>
+      typeof note === "string" ? note : null,
+    ),
+    photoCountsByHabitDate: mapValues(payload.photoCountsByHabitDate, (count) =>
+      typeof count === "number" && Number.isFinite(count) ? count : null,
+    ),
+    visibilityByHabitDate: mapValues(payload.visibilityByHabitDate, (visibility) =>
+      visibility === "only_me" ||
+      visibility === "all_friends" ||
+      visibility === "goal_friends"
+        ? visibility
+        : null,
+    ),
+    plannedTimesByHabitDate,
+    repeatingPlansByHabit: isRecord(payload.repeatingPlansByHabit)
+      ? (payload.repeatingPlansByHabit as HabitLogsSnapshot["repeatingPlansByHabit"])
+      : {},
+    explicitPlanDatesByHabit: isRecord(payload.explicitPlanDatesByHabit)
+      ? (payload.explicitPlanDatesByHabit as Record<string, string[]>)
+      : {},
+    socialByHabitDate: isRecord(payload.socialByHabitDate)
+      ? (payload.socialByHabitDate as HabitLogsSnapshot["socialByHabitDate"])
+      : {},
+  };
+}
+
 export function getMonthKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -148,14 +253,14 @@ export function toDateKey(date: Date): string {
 export const fetchHabitLogsSnapshot = (
   monthKey: string,
 ): Promise<HabitLogsSnapshot> =>
-  mobileApiFetch(`/api/goal-logs?month=${monthKey}`).then((r) =>
-    parseResponse<HabitLogsSnapshot>(r),
-  );
+  mobileApiFetch(`/api/goal-logs?month=${monthKey}`)
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeSnapshot);
 
 export const fetchAllHabitLogsSnapshot = (): Promise<HabitLogsSnapshot> =>
-  mobileApiFetch(`/api/goal-logs?all=true&month=${getMonthKey()}`).then((r) =>
-    parseResponse<HabitLogsSnapshot>(r),
-  );
+  mobileApiFetch(`/api/goal-logs?all=true&month=${getMonthKey()}`)
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeSnapshot);
 
 export const setHabitLog = (
   habitId: string,

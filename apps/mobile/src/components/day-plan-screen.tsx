@@ -284,6 +284,7 @@ export function DayPlanScreen({
   const plannedEventsInFlightRef = useRef(
     new Map<string, Promise<PlannedEvent[]>>(),
   );
+  const isMountedRef = useRef(true);
   const planGoalsCacheRef = useRef<Goal[] | null>(null);
   const planGoalsInFlightRef = useRef<Promise<Goal[]> | null>(null);
   const habitCategoriesCacheRef = useRef<Category[] | null>(null);
@@ -614,10 +615,12 @@ export function DayPlanScreen({
 
   const load = useCallback(
     async ({ force = false, refreshing = false } = {}) => {
+      if (!isMountedRef.current) return;
       const targetDate = selectedDate;
       const targetDateKey = dateKey;
       const targetMonthKey = monthKey;
-      const sequence = (loadSequenceRef.current += 1);
+      loadSequenceRef.current += 1;
+      const sequence = loadSequenceRef.current;
 
       if (refreshing) {
         setIsRefreshing(true);
@@ -656,7 +659,9 @@ export function DayPlanScreen({
           ensureProjects(force),
         ]);
 
-        if (sequence !== loadSequenceRef.current) return;
+        if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
+          return;
+        }
 
         setSnapshot(nextSnapshot);
         setTasks(nextTasks);
@@ -667,7 +672,9 @@ export function DayPlanScreen({
         setGoogleStatus(googleResponse.status);
         prefetchAdjacentDays(targetDate);
       } catch (loadError) {
-        if (sequence !== loadSequenceRef.current) return;
+        if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
+          return;
+        }
 
         setError(
           loadError instanceof Error
@@ -675,10 +682,10 @@ export function DayPlanScreen({
             : "Could not load day plan.",
         );
       } finally {
-        if (sequence !== loadSequenceRef.current) return;
-
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && sequence === loadSequenceRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [
@@ -716,15 +723,6 @@ export function DayPlanScreen({
     };
   }, []);
 
-  useEffect(
-    () => () => {
-      if (timelineAutoScrollRef.current) {
-        clearInterval(timelineAutoScrollRef.current);
-      }
-    },
-    [],
-  );
-
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the timeline to 7:00 when changing dates
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -740,6 +738,10 @@ export function DayPlanScreen({
 
   useEffect(
     () => () => {
+      isMountedRef.current = false;
+      if (timelineAutoScrollRef.current) {
+        clearInterval(timelineAutoScrollRef.current);
+      }
       if (timelineLongPressTimerRef.current) {
         clearTimeout(timelineLongPressTimerRef.current);
       }
@@ -1095,8 +1097,10 @@ export function DayPlanScreen({
         invalidateCurrentCaches({ google: true });
       }
 
+      if (!isMountedRef.current) return;
       await load();
     } catch (moveError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not move event",
         moveError instanceof Error
@@ -1104,7 +1108,7 @@ export function DayPlanScreen({
           : "The event could not be moved.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
   const finishTimelineGesture = () => {
@@ -1247,8 +1251,10 @@ export function DayPlanScreen({
 
       await setHabitLog(activeHabit.id, dateKey, status, nextOptions);
       invalidateCurrentCaches({ google: true, snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Day Plan",
         updateError instanceof Error
@@ -1256,7 +1262,7 @@ export function DayPlanScreen({
           : "Could not update this habit.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1268,8 +1274,10 @@ export function DayPlanScreen({
     try {
       await setHabitLogVisibility(activeHabit.id, dateKey, visibility);
       invalidateCurrentCaches({ snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Day Plan",
         updateError instanceof Error
@@ -1277,13 +1285,14 @@ export function DayPlanScreen({
           : "Could not update visibility.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
   const saveNote = async (habitId: string, notes: string) => {
     await setHabitLogNote(habitId, dateKey, notes);
     invalidateCurrentCaches({ snapshot: true });
+    if (!isMountedRef.current) return;
     await load();
   };
 
@@ -1297,8 +1306,10 @@ export function DayPlanScreen({
 
       await uploadGoalPhoto(habitId, dateKey, photo);
       invalidateCurrentCaches({ snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (photoError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add photo",
         photoError instanceof Error
@@ -1306,7 +1317,7 @@ export function DayPlanScreen({
           : "The photo could not be uploaded.",
       );
     } finally {
-      setUploadingPhotoSource(null);
+      if (isMountedRef.current) setUploadingPhotoSource(null);
     }
   };
 
@@ -1320,6 +1331,7 @@ export function DayPlanScreen({
       visibility: target.ref.checkpoint.visibility,
     });
     invalidateCurrentCaches({ planGoals: true });
+    if (!isMountedRef.current) return;
     setActiveEntry(target.entry);
     await load();
   };
@@ -1335,8 +1347,10 @@ export function DayPlanScreen({
         visibility,
       });
       invalidateCurrentCaches({ planGoals: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not update visibility",
         updateError instanceof Error
@@ -1344,7 +1358,7 @@ export function DayPlanScreen({
           : "The post visibility could not be changed.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1389,9 +1403,11 @@ export function DayPlanScreen({
         }
       }
 
+      if (!isMountedRef.current) return;
       setActiveEntry(null);
       await load();
     } catch (completeError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not update event",
         completeError instanceof Error
@@ -1399,7 +1415,7 @@ export function DayPlanScreen({
           : "The event could not be updated.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1424,9 +1440,11 @@ export function DayPlanScreen({
                 sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
               });
               invalidateCurrentCaches({ google: true, planned: true });
+              if (!isMountedRef.current) return;
               setActiveEntry(null);
               await load();
             } catch (deleteError) {
+              if (!isMountedRef.current) return;
               Alert.alert(
                 "Could not delete event",
                 deleteError instanceof Error
@@ -1434,7 +1452,7 @@ export function DayPlanScreen({
                   : "The event could not be deleted.",
               );
             } finally {
-              setUpdatingKey(null);
+              if (isMountedRef.current) setUpdatingKey(null);
             }
           },
         },
@@ -1487,6 +1505,7 @@ export function DayPlanScreen({
 
       await uploadCheckpointPhoto(checkpoint.checkpoint.id, photo);
       invalidateCurrentCaches({ planGoals: true });
+      if (!isMountedRef.current) return;
       await load();
       if (
         onboardingGuide?.createdGoalCheckpointId === checkpoint.checkpoint.id &&
@@ -1495,6 +1514,7 @@ export function DayPlanScreen({
         onboardingGuide.onStepChange("mark-complete");
       }
     } catch (photoError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add photo",
         photoError instanceof Error
@@ -1502,7 +1522,7 @@ export function DayPlanScreen({
           : "The photo could not be uploaded.",
       );
     } finally {
-      setUploadingPhotoSource(null);
+      if (isMountedRef.current) setUploadingPhotoSource(null);
     }
   };
 
@@ -1521,6 +1541,7 @@ export function DayPlanScreen({
 
   const createCategory = async (name: string, icon: string) => {
     const category = await createHabitCategory({ icon, name });
+    if (!isMountedRef.current) return category;
     setHabitCategories((current) => {
       const nextCategories = [...current, category].sort((left, right) =>
         left.name.localeCompare(right.name),
@@ -1533,6 +1554,7 @@ export function DayPlanScreen({
 
   const saveCreatedTask = async (input: TaskInput) => {
     const saved = await createTask(input);
+    if (!isMountedRef.current) return;
     invalidateCurrentCaches({ tasks: true });
     setTasks((current) => [saved, ...current]);
     setCreatingTargetType(null);
@@ -1546,6 +1568,7 @@ export function DayPlanScreen({
         timeZone,
         title: saved.name,
       });
+      if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
       await load();
@@ -1555,6 +1578,7 @@ export function DayPlanScreen({
 
   const saveCreatedHabit = async (input: HabitInput) => {
     const saved = await createHabit(input);
+    if (!isMountedRef.current) return;
     try {
       await scheduleHabitReminderAsync(saved);
     } catch (reminderError) {
@@ -1565,6 +1589,7 @@ export function DayPlanScreen({
           : "Could not schedule this habit reminder.",
       );
     }
+    if (!isMountedRef.current) return;
     snapshotCacheRef.current.clear();
     snapshotInFlightRef.current.clear();
     setCreatingTargetType(null);
@@ -1573,6 +1598,7 @@ export function DayPlanScreen({
 
   const saveCreatedGoal = async (input: GoalInput) => {
     const saved = await createPlanGoal(input);
+    if (!isMountedRef.current) return;
     invalidateCurrentCaches({ planGoals: true });
     setCreatingTargetType(null);
     const checkpoint = saved.checkpoints[0];
@@ -1586,6 +1612,7 @@ export function DayPlanScreen({
         timeZone,
         title: checkpoint.title,
       });
+      if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
     }
@@ -1615,10 +1642,12 @@ export function DayPlanScreen({
         throw new Error(getGoogleCalendarStatusMessage(response.status));
       }
 
+      if (!isMountedRef.current) return;
       setOtherEventRange(null);
       invalidateCurrentCaches({ google: true });
       await load();
     } catch (eventError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add event",
         eventError instanceof Error
@@ -1626,7 +1655,7 @@ export function DayPlanScreen({
           : "The Google Calendar event could not be created.",
       );
     } finally {
-      setIsCreatingOtherEvent(false);
+      if (isMountedRef.current) setIsCreatingOtherEvent(false);
     }
   };
 
@@ -1681,9 +1710,11 @@ export function DayPlanScreen({
         invalidateCurrentCaches({ google: true, snapshot: true });
       }
 
+      if (!isMountedRef.current) return;
       closeDraftPlan();
       await load();
     } catch (planError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add plan",
         planError instanceof Error
@@ -1691,7 +1722,7 @@ export function DayPlanScreen({
           : "The plan could not be created.",
       );
     } finally {
-      setIsCreatingPlan(false);
+      if (isMountedRef.current) setIsCreatingPlan(false);
     }
   };
 
@@ -2696,7 +2727,10 @@ function PlanSelectionModal({
               buttonLabel={onboardingTooltip.buttonLabel}
               onPress={
                 onboardingTooltip.next
-                  ? () => onOnboardingNext?.(onboardingTooltip.next!)
+                  ? () => {
+                      const nextStep = onboardingTooltip.next;
+                      if (nextStep) onOnboardingNext?.(nextStep);
+                    }
                   : undefined
               }
               title={onboardingTooltip.title}

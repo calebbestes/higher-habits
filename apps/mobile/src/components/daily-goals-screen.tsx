@@ -114,11 +114,13 @@ export function DailyGoalsScreen({
   const [celebrate, setCelebrate] = useState(false);
   const [fireCelebrate, setFireCelebrate] = useState(false);
   const allHighDoneRef = useRef(false);
+  const hasObservedHighDoneRef = useRef(false);
   const highGoalIdsRef = useRef<Set<string>>(new Set());
   const highProgressRef = useRef({ completed: 0, total: 0 });
   const updatingKeysRef = useRef(updatingKeys);
   updatingKeysRef.current = updatingKeys;
-  const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
 
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
@@ -128,10 +130,17 @@ export function DailyGoalsScreen({
   const isToday = isSameDay(selectedDate, today);
   const isFutureDate = dateKey > todayKey;
 
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
+
   const load = useCallback(
     async (refresh = false) => {
-      if (isLoadingRef.current) return;
-      isLoadingRef.current = true;
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
@@ -139,16 +148,23 @@ export function DailyGoalsScreen({
           fetchHabitLogsSnapshot(monthKey),
           fetchCategories(),
         ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
         setCategories(cats);
       } catch (err) {
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         captureHandledError(err, { handler: "load", monthKey });
         setError(err instanceof Error ? err.message : "Could not load habits.");
       } finally {
-        isLoadingRef.current = false;
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [monthKey],
@@ -457,9 +473,14 @@ export function DailyGoalsScreen({
   useEffect(() => {
     const { completed, total } = priorityProgress.high;
     const allHighDone = total > 0 && completed === total;
-    if (allHighDone && !allHighDoneRef.current) {
+    if (
+      hasObservedHighDoneRef.current &&
+      allHighDone &&
+      !allHighDoneRef.current
+    ) {
       setFireCelebrate(true);
     }
+    hasObservedHighDoneRef.current = true;
     allHighDoneRef.current = allHighDone;
   }, [priorityProgress]);
 

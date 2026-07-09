@@ -2,7 +2,7 @@ import { GoalIcon } from "@/components/goal-icon";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -169,6 +169,8 @@ function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
 export function JournalScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export function JournalScreen() {
   );
   const load = useCallback(
     async (refresh = false) => {
+      const requestId = ++loadRequestIdRef.current;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       setPhotoLoadFailed(false);
@@ -222,6 +225,7 @@ export function JournalScreen() {
         const nextSnapshot = selectedDate
           ? await fetchGoalLogsSnapshot(getMonthKey(selectedDate))
           : await fetchAllGoalLogsSnapshot();
+        let nextPhotoLoadFailed = false;
         const nextPhotos = await (range
           ? fetchGoalPhotosForRange(
               selectedGoalId,
@@ -230,30 +234,49 @@ export function JournalScreen() {
             )
           : fetchAllGoalPhotos(selectedGoalId)
         ).catch(() => {
-          setPhotoLoadFailed(true);
+          nextPhotoLoadFailed = true;
           return [];
         });
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setSnapshot(nextSnapshot);
         setPhotos(nextPhotos);
+        setPhotoLoadFailed(nextPhotoLoadFailed);
 
         const [nextGoals, nextCheckpointPhotos] = await Promise.all([
           fetchPlanGoals().catch(() => [] as Goal[]),
           fetchAllCheckpointPhotos().catch(() => [] as CheckpointPhoto[]),
         ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setCheckpointGoals(nextGoals);
         setCheckpointPhotos(nextCheckpointPhotos);
       } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load journal.",
-        );
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load journal.",
+          );
+        }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [range, selectedDate, selectedGoalId],
+  );
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -449,6 +472,7 @@ export function JournalScreen() {
 
       try {
         await setGoalLogVisibility(entry.goal.id, entry.dateKey, visibility);
+        if (!isMountedRef.current) return;
         setSnapshot((current) =>
           current
             ? {
@@ -464,14 +488,16 @@ export function JournalScreen() {
           current ? { ...current, visibility } : current,
         );
       } catch (visibilityError) {
-        Alert.alert(
-          "Could not change visibility",
-          visibilityError instanceof Error
-            ? visibilityError.message
-            : "The post visibility could not be changed.",
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not change visibility",
+            visibilityError instanceof Error
+              ? visibilityError.message
+              : "The post visibility could not be changed.",
+          );
+        }
       } finally {
-        setIsUpdatingPost(false);
+        if (isMountedRef.current) setIsUpdatingPost(false);
       }
     },
     [isUpdatingPost],
@@ -492,17 +518,20 @@ export function JournalScreen() {
 
               try {
                 await deleteGoalLog(entry.goal.id, entry.dateKey);
+                if (!isMountedRef.current) return;
                 setActivePost(null);
                 await load();
               } catch (deleteError) {
-                Alert.alert(
-                  "Could not delete log",
-                  deleteError instanceof Error
-                    ? deleteError.message
-                    : "The goal log could not be deleted.",
-                );
+                if (isMountedRef.current) {
+                  Alert.alert(
+                    "Could not delete log",
+                    deleteError instanceof Error
+                      ? deleteError.message
+                      : "The goal log could not be deleted.",
+                  );
+                }
               } finally {
-                setIsUpdatingPost(false);
+                if (isMountedRef.current) setIsUpdatingPost(false);
               }
             },
           },
@@ -518,18 +547,22 @@ export function JournalScreen() {
       setUploadingPhotoSource(source);
       try {
         const photo = await pickGoalPhoto(source);
+        if (!isMountedRef.current) return;
         if (!photo) return;
         await uploadGoalPhoto(entry.goal.id, entry.dateKey, photo);
+        if (!isMountedRef.current) return;
         await load();
       } catch (photoError) {
-        Alert.alert(
-          "Could not add photo",
-          photoError instanceof Error
-            ? photoError.message
-            : "The photo could not be uploaded.",
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not add photo",
+            photoError instanceof Error
+              ? photoError.message
+              : "The photo could not be uploaded.",
+          );
+        }
       } finally {
-        setUploadingPhotoSource(null);
+        if (isMountedRef.current) setUploadingPhotoSource(null);
       }
     },
     [load, uploadingPhotoSource],
@@ -570,17 +603,20 @@ export function JournalScreen() {
           );
           await deleteGoalPhoto(photo.id);
         }
+        if (!isMountedRef.current) return;
         setActivePhoto(nextPhoto);
         await load();
       } catch (rotateError) {
-        Alert.alert(
-          "Could not rotate photo",
-          rotateError instanceof Error
-            ? rotateError.message
-            : "The photo could not be updated.",
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not rotate photo",
+            rotateError instanceof Error
+              ? rotateError.message
+              : "The photo could not be updated.",
+          );
+        }
       } finally {
-        setIsEditingPhoto(false);
+        if (isMountedRef.current) setIsEditingPhoto(false);
       }
     },
     [isCheckpointPhoto, isEditingPhoto, load],
@@ -602,17 +638,20 @@ export function JournalScreen() {
               } else {
                 await deleteGoalPhoto(photo.id);
               }
+              if (!isMountedRef.current) return;
               setActivePhoto(null);
               await load();
             } catch (deleteError) {
-              Alert.alert(
-                "Could not delete photo",
-                deleteError instanceof Error
-                  ? deleteError.message
-                  : "The photo could not be deleted.",
-              );
+              if (isMountedRef.current) {
+                Alert.alert(
+                  "Could not delete photo",
+                  deleteError instanceof Error
+                    ? deleteError.message
+                    : "The photo could not be deleted.",
+                );
+              }
             } finally {
-              setIsEditingPhoto(false);
+              if (isMountedRef.current) setIsEditingPhoto(false);
             }
           },
         },
@@ -630,16 +669,19 @@ export function JournalScreen() {
       setSubmittingReplyGoalLogId(goalLogId);
       try {
         await addFeedComment(goalLogId, body, replyTarget.id);
+        if (!isMountedRef.current) return;
         setReplyDrafts((prev) => ({ ...prev, [goalLogId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [goalLogId]: null }));
         await load();
       } catch (replyError) {
-        Alert.alert(
-          "Could not add reply",
-          replyError instanceof Error ? replyError.message : undefined,
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not add reply",
+            replyError instanceof Error ? replyError.message : undefined,
+          );
+        }
       } finally {
-        setSubmittingReplyGoalLogId(null);
+        if (isMountedRef.current) setSubmittingReplyGoalLogId(null);
       }
     },
     [load, replyDrafts, replyTargets, submittingReplyGoalLogId],
@@ -823,11 +865,10 @@ export function JournalScreen() {
           initialValue={noteEditEntry.note?.trim() ? noteEditEntry.note : null}
           onClose={() => setNoteEditEntry(null)}
           onSave={async (notes) => {
-            await setGoalLogNote(
-              noteEditEntry.goal.id,
-              noteEditEntry.dateKey,
-              notes,
-            );
+            const entry = noteEditEntry;
+            if (!entry) return;
+            await setGoalLogNote(entry.goal.id, entry.dateKey, notes);
+            if (!isMountedRef.current) return;
             await load();
           }}
         />
@@ -1121,6 +1162,7 @@ function JournalPhotoCarousel({
   const theme = useTheme();
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
+  const visibleCarouselIndex = Math.min(carouselIndex, photos.length - 1);
 
   return (
     <View style={styles.carouselWrap}>
@@ -1173,7 +1215,7 @@ function JournalPhotoCarousel({
             ]}
           >
             <Text style={styles.carouselCounterText}>
-              {carouselIndex + 1}/{photos.length}
+              {visibleCarouselIndex + 1}/{photos.length}
             </Text>
           </View>
         ) : null}
@@ -1187,7 +1229,7 @@ function JournalPhotoCarousel({
                 styles.carouselDot,
                 {
                   backgroundColor:
-                    index === carouselIndex
+                    index === visibleCarouselIndex
                       ? theme.primary
                       : theme.backgroundSelected,
                 },
@@ -1222,7 +1264,10 @@ function JournalSocialActivity({
   const theme = useTheme();
   const propCount = social?.props.count ?? 0;
   const comments = social?.comments ?? [];
-  const commentCount = countJournalComments(comments);
+  const commentCount = useMemo(
+    () => countJournalComments(comments),
+    [comments],
+  );
 
   if (propCount === 0 && commentCount === 0) {
     return null;

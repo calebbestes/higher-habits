@@ -149,9 +149,7 @@ function formatActivityDate(dateKey: string): string {
     12,
   );
   const dayMs = 24 * 60 * 60 * 1000;
-  const diffDays = Math.round(
-    (todayAtNoon.getTime() - date.getTime()) / dayMs,
-  );
+  const diffDays = Math.round((todayAtNoon.getTime() - date.getTime()) / dayMs);
 
   if (diffDays === 0) return "today";
   if (diffDays === 1) return "yesterday";
@@ -828,10 +826,7 @@ function GoalDetailsSheet({
 
         {competitiveSummary ? (
           <Text
-            style={[
-              styles.competitiveSummary,
-              { color: theme.textSecondary },
-            ]}
+            style={[styles.competitiveSummary, { color: theme.textSecondary }]}
           >
             <Text style={{ color: theme.text, fontWeight: "800" }}>
               {competitiveSummary.title}
@@ -968,7 +963,9 @@ function GoalDetailsSheet({
                         : "Not reported today"}
                     </Text>
                   </View>
-                  <Text style={[styles.leaderboardScore, { color: theme.text }]}>
+                  <Text
+                    style={[styles.leaderboardScore, { color: theme.text }]}
+                  >
                     {score}{" "}
                     <Text
                       style={[
@@ -1347,6 +1344,7 @@ function CreateGoalModal({
   const [step, setStep] = useState<Step>(1);
   const [submitting, setSubmitting] = useState(false);
   const [showScoringInfo, setShowScoringInfo] = useState(false);
+  const isMountedRef = useRef(true);
   const [form, setForm] = useState<CreateState>({
     mode: null,
     name: "",
@@ -1366,16 +1364,28 @@ function CreateGoalModal({
   const needsTarget = form.scoringType
     ? NEEDS_TARGET.has(form.scoringType)
     : false;
+  const targetValue = Number.parseInt(form.target, 10);
+  const targetReady =
+    !needsTarget || (Number.isFinite(targetValue) && targetValue > 0);
 
   const stakeReady =
     form.stakeType === "none" || form.stakeDescription.trim().length > 0;
   // The consequence page (6) only exists when a carrot/stick is chosen.
   const lastStep: Step = form.stakeType === "none" ? 5 : 6;
 
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
+
   function canProceed() {
     if (step === 1) return form.mode !== null;
     if (step === 2)
-      return form.name.trim().length > 0 && form.scoringType !== null;
+      return (
+        form.name.trim().length > 0 && form.scoringType !== null && targetReady
+      );
     return true;
   }
 
@@ -1387,8 +1397,7 @@ function CreateGoalModal({
         name: form.name.trim(),
         mode: form.mode,
         scoringType: form.scoringType,
-        target:
-          needsTarget && form.target ? Number.parseInt(form.target, 10) : null,
+        target: needsTarget ? targetValue : null,
         startsOn: form.startsOn.trim() || null,
         endsOn: form.endsOn.trim() || null,
         personalGoalId: form.personalGoalId,
@@ -1400,7 +1409,7 @@ function CreateGoalModal({
             : form.stakeDescription.trim() || null,
       });
     } finally {
-      setSubmitting(false);
+      if (isMountedRef.current) setSubmitting(false);
     }
   }
 
@@ -2167,21 +2176,41 @@ export function SharedGoalsScreen() {
     useState<GoalPhotoSource | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     try {
       const data = await fetchSharedGoals();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setGoals(data);
       setError(null);
     } catch (e) {
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load.");
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   const loadAuxiliary = useCallback(async () => {
     const [g, f] = await Promise.allSettled([fetchGoals(), fetchFriends()]);
+    if (!isMountedRef.current) return;
     if (g.status === "fulfilled") setPersonalGoals(g.value);
     if (f.status === "fulfilled") setFriends(f.value);
   }, []);
@@ -2194,6 +2223,7 @@ export function SharedGoalsScreen() {
   const refreshLogsSnapshot = useCallback(async () => {
     try {
       const snap = await fetchGoalLogsSnapshot(getMonthKey());
+      if (!isMountedRef.current) return;
       setLogsSnapshot(snap);
     } catch {
       // Non-fatal: the dialog still works off the shared-goal snapshot.
@@ -2294,12 +2324,16 @@ export function SharedGoalsScreen() {
     setIsUpdatingStatus(true);
     try {
       await setGoalLog(actionPersonalGoalId, todayKey(), status);
+      if (!isMountedRef.current) return;
       await Promise.all([load(), refreshLogsSnapshot()]);
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     } finally {
-      setIsUpdatingStatus(false);
-      setActionGoal(null);
+      if (isMountedRef.current) {
+        setIsUpdatingStatus(false);
+        setActionGoal(null);
+      }
     }
   }
 
@@ -2310,14 +2344,16 @@ export function SharedGoalsScreen() {
       const photo = await pickGoalPhoto(source);
       if (!photo) return;
       await uploadGoalPhoto(actionPersonalGoalId, todayKey(), photo);
+      if (!isMountedRef.current) return;
       await refreshLogsSnapshot();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add photo",
         e instanceof Error ? e.message : "The photo could not be uploaded.",
       );
     } finally {
-      setUploadingPhotoSource(null);
+      if (isMountedRef.current) setUploadingPhotoSource(null);
     }
   }
 
@@ -2326,14 +2362,16 @@ export function SharedGoalsScreen() {
     setIsUpdatingVisibility(true);
     try {
       await setGoalLogVisibility(actionPersonalGoalId, todayKey(), visibility);
+      if (!isMountedRef.current) return;
       await refreshLogsSnapshot();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not change visibility",
         e instanceof Error ? e.message : "The visibility could not be changed.",
       );
     } finally {
-      setIsUpdatingVisibility(false);
+      if (isMountedRef.current) setIsUpdatingVisibility(false);
     }
   }
 
@@ -2343,8 +2381,10 @@ export function SharedGoalsScreen() {
         action: "accept",
         personalGoalId: null,
       });
+      if (!isMountedRef.current) return;
       await load();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     }
   }
@@ -2358,8 +2398,10 @@ export function SharedGoalsScreen() {
         onPress: async () => {
           try {
             await respondToSharedGoal(goal.id, { action: "decline" });
+            if (!isMountedRef.current) return;
             await load();
           } catch (e) {
+            if (!isMountedRef.current) return;
             Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
           }
         },
@@ -2377,8 +2419,10 @@ export function SharedGoalsScreen() {
           try {
             setSelectedGoal(null);
             await updateSharedGoal(goal.id, { action: "leave" });
+            if (!isMountedRef.current) return;
             await load();
           } catch (e) {
+            if (!isMountedRef.current) return;
             Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
           }
         },
@@ -2393,8 +2437,10 @@ export function SharedGoalsScreen() {
         action: "setStatus",
         status: "archived",
       });
+      if (!isMountedRef.current) return;
       await load();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     }
   }
@@ -2406,8 +2452,10 @@ export function SharedGoalsScreen() {
         action: "setStatus",
         status: "completed",
       });
+      if (!isMountedRef.current) return;
       await load();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     }
   }
@@ -2424,14 +2472,17 @@ export function SharedGoalsScreen() {
         personalGoalId: goalId,
         deletePreviousAutoCreated: deleteAuto,
       });
+      if (!isMountedRef.current) return;
       await load();
     } catch (e) {
+      if (!isMountedRef.current) return;
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     }
   }
 
   async function handleCreate(input: CreateSharedGoalInput) {
     await createSharedGoal(input);
+    if (!isMountedRef.current) return;
     setShowCreate(false);
     await load();
   }
@@ -2678,6 +2729,7 @@ export function SharedGoalsScreen() {
           onClose={() => setNoteEditGoal(null)}
           onSave={async (notes) => {
             await setGoalLogNote(noteEditGoal.id, todayKey(), notes);
+            if (!isMountedRef.current) return;
             await refreshLogsSnapshot();
           }}
         />

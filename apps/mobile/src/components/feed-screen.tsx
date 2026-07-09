@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -31,8 +31,8 @@ import {
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
-  fetchFriendsFeed,
   fetchFriends,
+  fetchFriendsFeed,
   reportContent,
   toggleFeedProp,
 } from "@/lib/friends-client";
@@ -121,24 +121,43 @@ export function FeedScreen() {
     string | null
   >(null);
   const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
 
   const load = useCallback(async (refresh = false) => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
     try {
       const data = await fetchFriendsFeed();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setEntries(data);
     } catch (err) {
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not load feed.");
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const handleToggleProp = useCallback(async (entryId: string) => {
     setEntries((prev) =>
@@ -149,7 +168,7 @@ export function FeedScreen() {
               ...e,
               props: {
                 count: e.props.hasPropped
-                  ? e.props.count - 1
+                  ? Math.max(e.props.count - 1, 0)
                   : e.props.count + 1,
                 hasPropped: !e.props.hasPropped,
               },
@@ -167,7 +186,7 @@ export function FeedScreen() {
                 ...e,
                 props: {
                   count: e.props.hasPropped
-                    ? e.props.count - 1
+                    ? Math.max(e.props.count - 1, 0)
                     : e.props.count + 1,
                   hasPropped: !e.props.hasPropped,
                 },
@@ -186,17 +205,20 @@ export function FeedScreen() {
       setSubmittingComment(entryId);
       try {
         await addFeedComment(entryId, body, replyTarget?.id ?? null);
+        if (!isMountedRef.current) return;
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [entryId]: null }));
         const data = await fetchFriendsFeed();
+        if (!isMountedRef.current) return;
         setEntries(data);
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not add comment",
           err instanceof Error ? err.message : undefined,
         );
       } finally {
-        setSubmittingComment(null);
+        if (isMountedRef.current) setSubmittingComment(null);
       }
     },
     [commentDrafts, replyTargets, submittingComment],
@@ -206,6 +228,7 @@ export function FeedScreen() {
     async (entryId: string, commentId: string) => {
       try {
         await deleteFeedComment(entryId, commentId);
+        if (!isMountedRef.current) return;
         setEntries((prev) =>
           prev.map((e) =>
             e.id !== entryId
@@ -220,6 +243,7 @@ export function FeedScreen() {
           prev[entryId]?.id === commentId ? { ...prev, [entryId]: null } : prev,
         );
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not delete comment",
           err instanceof Error ? err.message : undefined,
@@ -241,8 +265,10 @@ export function FeedScreen() {
           dateKey: entry.dateKey,
         },
       });
+      if (!isMountedRef.current) return;
       Alert.alert("Report sent", "Thanks. We'll review this post.");
     } catch (err) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not send report",
         err instanceof Error ? err.message : undefined,
@@ -263,8 +289,10 @@ export function FeedScreen() {
             parentCommentId: comment.parentCommentId,
           },
         });
+        if (!isMountedRef.current) return;
         Alert.alert("Report sent", "Thanks. We'll review this comment.");
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not send report",
           err instanceof Error ? err.message : undefined,
@@ -274,43 +302,42 @@ export function FeedScreen() {
     [],
   );
 
-  const blockFriend = useCallback(
-    async (entry: FriendFeedEntry) => {
-      try {
-        await reportContent({
-          targetType: "user",
-          targetId: entry.friend.id,
-          reason: "Blocked from feed post actions.",
-          context: { feedPostId: entry.id },
-        }).catch(() => undefined);
+  const blockFriend = useCallback(async (entry: FriendFeedEntry) => {
+    try {
+      await reportContent({
+        targetType: "user",
+        targetId: entry.friend.id,
+        reason: "Blocked from feed post actions.",
+        context: { feedPostId: entry.id },
+      }).catch(() => undefined);
 
-        const friends = await fetchFriends();
-        const friendship = friends.find(
-          (friend) =>
-            friend.friendId === entry.friend.id && friend.status === "accepted",
-        );
+      const friends = await fetchFriends();
+      const friendship = friends.find(
+        (friend) =>
+          friend.friendId === entry.friend.id && friend.status === "accepted",
+      );
 
-        if (!friendship) {
-          throw new Error("Friendship not found.");
-        }
-
-        await archiveFriend(friendship.id);
-        setEntries((prev) =>
-          prev.filter((item) => item.friend.id !== entry.friend.id),
-        );
-        setActiveCommentsEntryId((current) =>
-          current === entry.id ? null : current,
-        );
-        Alert.alert("Blocked", `${entry.friend.name} was removed.`);
-      } catch (err) {
-        Alert.alert(
-          "Could not block user",
-          err instanceof Error ? err.message : undefined,
-        );
+      if (!friendship) {
+        throw new Error("Friendship not found.");
       }
-    },
-    [],
-  );
+
+      await archiveFriend(friendship.id);
+      if (!isMountedRef.current) return;
+      setEntries((prev) =>
+        prev.filter((item) => item.friend.id !== entry.friend.id),
+      );
+      setActiveCommentsEntryId((current) =>
+        current === entry.id ? null : current,
+      );
+      Alert.alert("Blocked", `${entry.friend.name} was removed.`);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not block user",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
 
   const openPostSafetyActions = useCallback(
     (entry: FriendFeedEntry) => {
@@ -339,8 +366,10 @@ export function FeedScreen() {
         throw new Error("Friendship not found.");
       }
 
+      if (!isMountedRef.current) return;
       setProfileFriend(friendship);
     } catch (err) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not open profile",
         err instanceof Error ? err.message : undefined,

@@ -2,7 +2,7 @@ import * as Contacts from "expo-contacts";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,6 +46,8 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendsScreen() {
   const theme = useTheme();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -58,21 +60,38 @@ export function FriendsScreen() {
   >(null);
 
   const load = useCallback(async (refresh = false) => {
+    const requestId = ++loadRequestIdRef.current;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     try {
-      setFriends(await fetchFriends());
+      const nextFriends = await fetchFriends();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
+      setFriends(nextFriends);
       setError(null);
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load friends.",
-      );
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load friends.",
+        );
+      }
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     void load();
@@ -128,14 +147,17 @@ export function FriendsScreen() {
     setAcceptingFriendshipId(friend.id);
     try {
       await acceptFriendRequest(friend.id);
+      if (!isMountedRef.current) return;
       await load();
     } catch (acceptError) {
-      Alert.alert(
-        "Could not accept request",
-        acceptError instanceof Error ? acceptError.message : "Try again.",
-      );
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not accept request",
+          acceptError instanceof Error ? acceptError.message : "Try again.",
+        );
+      }
     } finally {
-      setAcceptingFriendshipId(null);
+      if (isMountedRef.current) setAcceptingFriendshipId(null);
     }
   };
 
@@ -294,6 +316,7 @@ export function FriendsScreen() {
         onClose={() => setIsAddOpen(false)}
         onAdded={async () => {
           setIsAddOpen(false);
+          if (!isMountedRef.current) return;
           await load();
         }}
       />
@@ -506,6 +529,8 @@ export function FriendProfileModal({
   onClose: () => void;
 }) {
   const theme = useTheme();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
   const [profile, setProfile] = useState<FriendProfile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -513,26 +538,44 @@ export function FriendProfileModal({
   const load = useCallback(async () => {
     if (!friend) return;
 
+    const requestId = ++loadRequestIdRef.current;
     setIsLoading(true);
     setError(null);
     try {
-      setProfile(await fetchFriendProfile(friend.id));
+      const nextProfile = await fetchFriendProfile(friend.id);
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
+      setProfile(nextProfile);
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load profile.",
-      );
-      setProfile(null);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load profile.",
+        );
+        setProfile(null);
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [friend]);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (friend) {
       void load();
     } else {
+      loadRequestIdRef.current += 1;
       setProfile(null);
       setError(null);
       setIsLoading(false);
@@ -569,10 +612,7 @@ export function FriendProfileModal({
       >
         <SafeAreaView style={styles.profileModalSafeArea}>
           <View
-            style={[
-              styles.modalHeader,
-              { borderBottomColor: theme.tabBorder },
-            ]}
+            style={[styles.modalHeader, { borderBottomColor: theme.tabBorder }]}
           >
             <Pressable
               accessibilityLabel="Close profile"
@@ -752,7 +792,9 @@ function FriendCategoryHeatmap({
           ]}
         />
       ) : null}
-      <Text style={[styles.profileCategoryLabel, { color: theme.textSecondary }]}>
+      <Text
+        style={[styles.profileCategoryLabel, { color: theme.textSecondary }]}
+      >
         {category.name.toUpperCase()}
       </Text>
       {category.habits.map((habit) => (
@@ -883,6 +925,7 @@ function AddFriendModal({
   onAdded: () => Promise<void>;
 }) {
   const theme = useTheme();
+  const isMountedRef = useRef(true);
   const [contactState, setContactState] = useState<
     "idle" | "loading" | "granted" | "denied"
   >("idle");
@@ -890,6 +933,13 @@ function AddFriendModal({
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [invite, setInvite] = useState("");
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const confirmFindFromContacts = () => {
     Alert.alert(
@@ -906,6 +956,7 @@ function AddFriendModal({
     setContactState("loading");
     try {
       const { status } = await Contacts.requestPermissionsAsync();
+      if (!isMountedRef.current) return;
       if (status !== "granted") {
         setContactState("denied");
         return;
@@ -923,11 +974,15 @@ function AddFriendModal({
           if (entry.number) phones.push(entry.number);
         }
       }
-      setMatches(await matchContacts(emails, phones));
+      const nextMatches = await matchContacts(emails, phones);
+      if (!isMountedRef.current) return;
+      setMatches(nextMatches);
       setContactState("granted");
     } catch {
-      setContactState("granted");
-      setMatches([]);
+      if (isMountedRef.current) {
+        setContactState("granted");
+        setMatches([]);
+      }
     }
   };
 
@@ -936,19 +991,24 @@ function AddFriendModal({
     setAddingIds((prev) => new Set(prev).add(match.userId));
     try {
       await addFriend(match.email);
+      if (!isMountedRef.current) return;
       setAddedIds((prev) => new Set(prev).add(match.userId));
       await onAdded();
     } catch (addError) {
-      Alert.alert(
-        "Could not add friend",
-        addError instanceof Error ? addError.message : "Try again.",
-      );
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not add friend",
+          addError instanceof Error ? addError.message : "Try again.",
+        );
+      }
     } finally {
-      setAddingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(match.userId);
-        return next;
-      });
+      if (isMountedRef.current) {
+        setAddingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(match.userId);
+          return next;
+        });
+      }
     }
   };
 
@@ -1065,8 +1125,7 @@ function AddFriendModal({
                 <Text
                   style={[styles.modalHint, { color: theme.textSecondary }]}
                 >
-                  None of your contacts are on float yet — invite them
-                  below.
+                  None of your contacts are on float yet — invite them below.
                 </Text>
               ) : null}
 

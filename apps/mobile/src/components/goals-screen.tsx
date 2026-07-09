@@ -1,6 +1,6 @@
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -191,8 +191,19 @@ export function GoalsScreen() {
   const [planningCheckpoint, setPlanningCheckpoint] =
     useState<ActiveCheckpoint | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const load = useCallback(async (refresh = false) => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
 
@@ -201,17 +212,25 @@ export function GoalsScreen() {
         fetchPlanGoals(),
         fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
       ]);
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setGoals(nextGoals);
       setPlannedEvents(nextPlannedEvents);
     } catch (loadError) {
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setError(
         loadError instanceof Error
           ? loadError.message
           : "Could not load goals.",
       );
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
@@ -824,11 +843,18 @@ function CheckpointActionsModal({
   const [uploadingSource, setUploadingSource] =
     useState<GoalPhotoSource | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const activeCheckpointIdRef = useRef<string | null>(null);
 
   const checkpointId = active?.checkpoint.id ?? null;
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      activeCheckpointIdRef.current = null;
+      setIsUpdating(false);
+      setUploadingSource(null);
+      return;
+    }
+    activeCheckpointIdRef.current = active.checkpoint.id;
     setCompleted(active.checkpoint.completed);
     setNote(active.checkpoint.notes ?? "");
     setVisibility(
@@ -838,11 +864,18 @@ function CheckpointActionsModal({
     );
     setPhotoCount(0);
     setNoteOpen(false);
+    setIsUpdating(false);
+    setUploadingSource(null);
 
     let cancelled = false;
     fetchCheckpointPhotos(active.checkpoint.id)
       .then((rows) => {
-        if (!cancelled) setPhotoCount(rows.length);
+        if (
+          !cancelled &&
+          activeCheckpointIdRef.current === active.checkpoint.id
+        ) {
+          setPhotoCount(rows.length);
+        }
       })
       .catch(() => {});
     return () => {
@@ -864,16 +897,20 @@ function CheckpointActionsModal({
     setIsUpdating(true);
     try {
       const updatedGoal = await updatePlanGoalCheckpoint(checkpointId, next);
+      if (activeCheckpointIdRef.current !== checkpointId) return;
       setCompleted(next.completed);
       setVisibility(next.visibility);
       setNote(next.notes ?? "");
       onSaved(updatedGoal);
     } catch (err) {
+      if (activeCheckpointIdRef.current !== checkpointId) return;
       onError(
         err instanceof Error ? err.message : "Could not update checkpoint.",
       );
     } finally {
-      setIsUpdating(false);
+      if (activeCheckpointIdRef.current === checkpointId) {
+        setIsUpdating(false);
+      }
     }
   };
 
@@ -885,12 +922,16 @@ function CheckpointActionsModal({
       const picked = await pickGoalPhoto(source);
       if (picked) {
         await uploadCheckpointPhoto(checkpointId, picked);
+        if (activeCheckpointIdRef.current !== checkpointId) return;
         setPhotoCount((current) => current + 1);
       }
     } catch (err) {
+      if (activeCheckpointIdRef.current !== checkpointId) return;
       onError(err instanceof Error ? err.message : "Could not add photo.");
     } finally {
-      setUploadingSource(null);
+      if (activeCheckpointIdRef.current === checkpointId) {
+        setUploadingSource(null);
+      }
     }
   };
 
@@ -1228,7 +1269,8 @@ function CheckpointPlanModal({
   const normalizedEndTime = normalizePlanTimeInput(endTime, endPeriod);
   const hasAnyTimeInput = Boolean(startTime.trim() || endTime.trim());
   const hasValidTimeRange = Boolean(normalizedStartTime && normalizedEndTime);
-  const dateIsValid = DATE_KEY_REGEX.test(dateKey.trim());
+  const trimmedDateKey = dateKey.trim();
+  const dateIsValid = Boolean(parseDateKeyParts(trimmedDateKey));
   const canSave = Boolean(
     active && dateIsValid && (!hasAnyTimeInput || hasValidTimeRange),
   );
@@ -1256,7 +1298,7 @@ function CheckpointPlanModal({
 
     try {
       await onSave({
-        dateKey: dateKey.trim(),
+        dateKey: trimmedDateKey,
         endTime: hasValidTimeRange ? normalizedEndTime : null,
         startTime: hasValidTimeRange ? normalizedStartTime : null,
         timeZone,
@@ -1366,7 +1408,7 @@ function CheckpointPlanModal({
                 Add both start and end times like 9:00.
               </Text>
             ) : null}
-            {dateKey.trim() && !dateIsValid ? (
+            {trimmedDateKey && !dateIsValid ? (
               <Text style={styles.formError}>Use date format YYYY-MM-DD.</Text>
             ) : null}
             {error ? <Text style={styles.formError}>{error}</Text> : null}
@@ -1609,7 +1651,7 @@ export function GoalFormModal({
     const invalidDate = checkpointInput.find(
       (checkpoint) =>
         checkpoint.targetDate.length > 0 &&
-        !DATE_KEY_REGEX.test(checkpoint.targetDate),
+        !parseDateKeyParts(checkpoint.targetDate),
     );
 
     if (invalidDate) {
