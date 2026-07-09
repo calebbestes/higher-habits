@@ -200,7 +200,6 @@ export function TaskFormModal({
                     key={importance}
                     label={importance}
                     selected={form.importance === importance}
-                    tone={importance === "High" ? "blush" : undefined}
                     onPress={() =>
                       setForm((current) => ({ ...current, importance }))
                     }
@@ -216,7 +215,6 @@ export function TaskFormModal({
                     key={urgency}
                     label={capitalize(urgency)}
                     selected={getTaskUrgency(form) === urgency}
-                    tone={urgency === "today" ? "blush" : undefined}
                     onPress={() =>
                       setForm((current) => ({
                         ...current,
@@ -423,15 +421,13 @@ function Choice({
   label,
   onPress,
   selected,
-  tone,
 }: {
   label: string;
   onPress: () => void;
   selected: boolean;
-  tone?: "blush";
 }) {
   const theme = useTheme();
-  const selectedBackground = tone === "blush" ? "#9D7474" : theme.primary;
+  const selectedBackground = theme.primary;
   return (
     <Pressable
       accessibilityRole="button"

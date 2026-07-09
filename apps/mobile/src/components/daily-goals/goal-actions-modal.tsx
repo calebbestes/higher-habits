@@ -1,3 +1,4 @@
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
@@ -7,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +21,9 @@ import type { GoalPhotoSource } from "@/lib/goal-photo-picker";
 import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import {
+  DEFAULT_PLAN_END_TIME,
+  DEFAULT_PLAN_PERIOD,
+  DEFAULT_PLAN_START_TIME,
   PLAN_PERIODS,
   type PlanPeriod,
   getPlanTimeInput,
@@ -30,6 +33,13 @@ import {
 import { richTextToPlainText } from "@/lib/rich-text";
 
 import { type ActionGoal, modalStyles, styles, sym } from "./shared";
+
+type PlanTimePart = "hour" | "minute";
+type PlanTimeParts = { hour: number; minute: number };
+
+const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
+const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
+const PLAN_TIME_MINUTES = Array.from({ length: 60 }, (_, index) => index);
 
 function GoalActionsModalImpl({
   goal,
@@ -138,10 +148,10 @@ function GoalActionsModalImpl({
     if (!visible) return;
     const start = getPlanTimeInput(plannedTime?.startTime);
     const end = getPlanTimeInput(plannedTime?.endTime);
-    setPlanStartTime(start.time);
-    setPlanStartPeriod(start.period);
-    setPlanEndTime(end.time);
-    setPlanEndPeriod(end.period);
+    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
+    setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
+    setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
+    setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
     setPlanRepeatsDaily(Boolean(plannedTime?.repeatsDaily));
     setIsPlanEditorOpen(isPlanned || Boolean(start.time || end.time));
   }, [
@@ -374,20 +384,9 @@ function GoalActionsModalImpl({
                             >
                               Start
                             </Text>
-                            <TextInput
-                              autoCapitalize="none"
-                              keyboardType="numbers-and-punctuation"
-                              onChangeText={setPlanStartTime}
-                              placeholder="9:00"
-                              placeholderTextColor={theme.textSecondary}
-                              selectionColor={theme.primary}
-                              style={[
-                                modalStyles.planTimeInput,
-                                {
-                                  borderColor: theme.tabBorder,
-                                  color: theme.text,
-                                },
-                              ]}
+                            <PlanTimeSelect
+                              fallbackHour={9}
+                              onChange={setPlanStartTime}
                               value={planStartTime}
                             />
                             <View style={modalStyles.planPeriodToggle}>
@@ -434,20 +433,9 @@ function GoalActionsModalImpl({
                             >
                               End
                             </Text>
-                            <TextInput
-                              autoCapitalize="none"
-                              keyboardType="numbers-and-punctuation"
-                              onChangeText={setPlanEndTime}
-                              placeholder="10:00"
-                              placeholderTextColor={theme.textSecondary}
-                              selectionColor={theme.primary}
-                              style={[
-                                modalStyles.planTimeInput,
-                                {
-                                  borderColor: theme.tabBorder,
-                                  color: theme.text,
-                                },
-                              ]}
+                            <PlanTimeSelect
+                              fallbackHour={10}
+                              onChange={setPlanEndTime}
                               value={planEndTime}
                             />
                             <View style={modalStyles.planPeriodToggle}>
@@ -630,6 +618,160 @@ function GoalActionsModalImpl({
         </SafeAreaView>
       </View>
     </Modal>
+  );
+}
+
+function parsePlanTimeInputParts(value: string): PlanTimeParts | null {
+  const match = value.trim().match(/^(0?[1-9]|1[0-2]):([0-5]\d)$/);
+  if (!match) return null;
+
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function getPlanTimePartsForPicker(
+  value: string,
+  fallbackHour: number,
+): PlanTimeParts {
+  return parsePlanTimeInputParts(value) ?? { hour: fallbackHour, minute: 0 };
+}
+
+function formatPlanTimeInput({ hour, minute }: PlanTimeParts): string {
+  return `${hour}:${String(minute).padStart(2, "0")}`;
+}
+
+function updatePlanTimePart({
+  fallbackHour,
+  part,
+  partValue,
+  value,
+}: {
+  fallbackHour: number;
+  part: PlanTimePart;
+  partValue: number;
+  value: string;
+}): string {
+  return formatPlanTimeInput({
+    ...getPlanTimePartsForPicker(value, fallbackHour),
+    [part]: partValue,
+  });
+}
+
+function menuSelectedState(selected: boolean): MenuAction["state"] {
+  return selected ? "on" : undefined;
+}
+
+function PlanTimeSelect({
+  fallbackHour,
+  value,
+  onChange,
+}: {
+  fallbackHour: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parsePlanTimeInputParts(value);
+  const pickerParts = getPlanTimePartsForPicker(value, fallbackHour);
+  const hourActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_HOURS.map((hour) => ({
+      id: String(hour),
+      title: String(hour),
+      state: menuSelectedState(selected?.hour === hour),
+    })),
+  ];
+  const minuteActions: MenuAction[] = [
+    {
+      id: CLEAR_PLAN_TIME_ACTION,
+      title: "No time",
+      state: menuSelectedState(!selected),
+    },
+    ...PLAN_TIME_MINUTES.map((minute) => ({
+      id: String(minute),
+      title: String(minute).padStart(2, "0"),
+      state: menuSelectedState(selected?.minute === minute),
+    })),
+  ];
+
+  const selectPart = (part: PlanTimePart, actionId: string) => {
+    if (actionId === CLEAR_PLAN_TIME_ACTION) {
+      onChange("");
+      return;
+    }
+
+    onChange(
+      updatePlanTimePart({
+        fallbackHour,
+        part,
+        partValue: Number(actionId),
+        value,
+      }),
+    );
+  };
+
+  return (
+    <View style={modalStyles.planTimePickerRow}>
+      <PlanTimePartSelect
+        actions={hourActions}
+        label="Hour"
+        value={selected ? String(pickerParts.hour) : null}
+        onSelect={(actionId) => selectPart("hour", actionId)}
+      />
+      <PlanTimePartSelect
+        actions={minuteActions}
+        label="Min"
+        value={selected ? String(pickerParts.minute).padStart(2, "0") : null}
+        onSelect={(actionId) => selectPart("minute", actionId)}
+      />
+    </View>
+  );
+}
+
+function PlanTimePartSelect({
+  actions,
+  label,
+  value,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  value: string | null;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={modalStyles.planTimePickerMenu}
+      title={`Select ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`Select ${label.toLowerCase()}`}
+        accessibilityRole="button"
+        style={[modalStyles.planTimePicker, { borderColor: theme.tabBorder }]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            modalStyles.planTimePickerText,
+            { color: value ? theme.text : theme.textSecondary },
+          ]}
+        >
+          {value ?? label}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "keyboard_arrow_down")}
+          size={12}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 

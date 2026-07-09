@@ -118,6 +118,12 @@ function todayKey() {
   return toDateKey(new Date());
 }
 
+function dateKeyAfterDays(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
 function formatEndDate(dateStr: string | null): string {
   if (!dateStr) return "No end date";
   try {
@@ -1346,8 +1352,8 @@ function CreateGoalModal({
     name: "",
     scoringType: null,
     target: "",
-    startsOn: "",
-    endsOn: "",
+    startsOn: todayKey(),
+    endsOn: dateKeyAfterDays(7),
     personalGoalId: null,
     invitedUserIds: [],
     stakeType: "none",

@@ -389,7 +389,11 @@ export function HabitsManagerScreen() {
 
           <View style={styles.stats}>
             <Stat label="Habits" value={habits.length} />
-            <Stat label="High priority" value={highCount} accent="#9D7474" />
+            <Stat
+              label="High priority"
+              value={highCount}
+              accent={theme.primary}
+            />
             <Stat label="Archived" value={hiddenCount} />
           </View>
 
@@ -614,7 +618,7 @@ function HabitCard({
 }) {
   const theme = useTheme();
   const priorityColor =
-    habit.priority === "high" ? "#9D7474" : theme.textSecondary;
+    habit.priority === "high" ? theme.primary : theme.textSecondary;
 
   return (
     <Pressable
@@ -1242,7 +1246,6 @@ export function HabitFormModal({
                     key={priority}
                     label={capitalize(priority)}
                     selected={form.priority === priority}
-                    tone={priority === "high" ? "blush" : undefined}
                     onPress={() =>
                       setForm((current) => ({ ...current, priority }))
                     }
@@ -1435,15 +1438,13 @@ function Choice({
   label,
   onPress,
   selected,
-  tone,
 }: {
   label: string;
   onPress: () => void;
   selected: boolean;
-  tone?: "blush";
 }) {
   const theme = useTheme();
-  const selectedBackground = tone === "blush" ? "#9D7474" : theme.primary;
+  const selectedBackground = theme.primary;
   return (
     <Pressable
       accessibilityRole="button"

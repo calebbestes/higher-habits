@@ -33,6 +33,7 @@ import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import {
   PLAN_PERIODS,
   type PlanPeriod,
+  formatStoredPlanTimeDisplay,
   getPlanTimeInput,
   normalizePlanTimeInput,
 } from "@/lib/plan-time";
@@ -151,10 +152,7 @@ function updateDatePart(
 
 function getYearOptions(selectedYear: number | undefined): number[] {
   const currentYear = new Date().getFullYear();
-  const years = Array.from(
-    { length: 26 },
-    (_, index) => currentYear + index,
-  );
+  const years = Array.from({ length: 26 }, (_, index) => currentYear + index);
 
   // Keep an already-selected past year visible when editing an older item.
   if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);
@@ -696,9 +694,7 @@ function GoalTimeline({
             : theme.backgroundElement;
         const markerBorderColor =
           checkpoint.completed || plannedEvent ? markerColor : theme.tabBorder;
-        const planTime = plannedEvent?.startTime
-          ? getPlanTimeInput(plannedEvent.startTime)
-          : null;
+        const planTime = formatStoredPlanTimeDisplay(plannedEvent?.startTime);
 
         return (
           <View key={checkpoint.id} style={styles.timelineMilestone}>
@@ -786,8 +782,8 @@ function GoalTimeline({
               >
                 {checkpoint.completed
                   ? "Complete"
-                  : planTime?.time
-                    ? `Planned ${planTime.time} ${planTime.period}`
+                  : planTime
+                    ? `Planned ${planTime}`
                     : plannedEvent
                       ? "Planned"
                       : "Tap to plan"}

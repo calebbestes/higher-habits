@@ -58,8 +58,12 @@ import {
   updateHabit,
 } from "@/lib/habits-client";
 import {
+  DEFAULT_PLAN_END_TIME,
+  DEFAULT_PLAN_PERIOD,
+  DEFAULT_PLAN_START_TIME,
   PLAN_PERIODS,
   type PlanPeriod,
+  formatStoredPlanTimeDisplay,
   getPlanTimeInput,
   normalizePlanTimeInput,
   normalizeStoredPlanTime,
@@ -1280,7 +1284,7 @@ function CalendarGrid({
       {/* Week rows */}
       {weeks.map((week) => (
         <View
-          key={toDateKey(week.at(0)?.date ?? new Date(0))}
+          key={toDateKey(week[0]?.date ?? new Date(0))}
           style={[
             styles.weekRow,
             week !== weeks[weeks.length - 1] && {
@@ -1603,9 +1607,11 @@ function SwipeableGoalRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?:
-    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
-    | null;
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  } | null;
   isUpdating: boolean;
   onDelete: () => void;
   onEdit: () => void;
@@ -1720,9 +1726,11 @@ function GoalListRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?:
-    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
-    | null;
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  } | null;
   isUpdating: boolean;
   onEdit: () => void;
   onPress: () => void;
@@ -1731,9 +1739,9 @@ function GoalListRow({
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
   const plannedTimeDisplay = isPlanned
-    ? getPlanTimeInput(plannedTime?.startTime)
+    ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
     : null;
-  const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
+  const hasPlannedTime = Boolean(plannedTimeDisplay);
   const { completed, planned, target } = getGoalMonthProgress(
     goal,
     monthKey,
@@ -1851,10 +1859,7 @@ function GoalListRow({
       {hasPlannedTime && plannedTimeDisplay ? (
         <View style={styles.planTimeBadge}>
           <Text style={[styles.planTimeBadgeTime, { color: theme.primary }]}>
-            {plannedTimeDisplay.time}
-          </Text>
-          <Text style={[styles.planTimeBadgePeriod, { color: theme.text }]}>
-            {plannedTimeDisplay.period}
+            {plannedTimeDisplay}
           </Text>
         </View>
       ) : null}
@@ -1969,10 +1974,10 @@ function GoalActionsModal({
     if (!visible) return;
     const start = getPlanTimeInput(plannedTime?.startTime);
     const end = getPlanTimeInput(plannedTime?.endTime);
-    setPlanStartTime(start.time);
-    setPlanStartPeriod(start.period);
-    setPlanEndTime(end.time);
-    setPlanEndPeriod(end.period);
+    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
+    setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
+    setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
+    setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
   }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
 
   return (

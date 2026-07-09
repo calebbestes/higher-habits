@@ -41,9 +41,11 @@ function sym(ios: string, android: string): SymbolName {
 const COMPLETE_SHARE_TILE = "🟩";
 const EMPTY_SHARE_TILE = "⬜";
 
-function getLast10Days(today: Date): string[] {
+const DAILY_DASHBOARD_DAY_COUNT = 7;
+
+function getLast7Days(today: Date): string[] {
   const days: string[] = [];
-  for (let i = 9; i >= 0; i--) {
+  for (let i = DAILY_DASHBOARD_DAY_COUNT - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     days.push(toDateKey(d));
@@ -61,13 +63,6 @@ function formatShareDate(date: Date): string {
     month: "short",
     day: "numeric",
   }).format(date);
-}
-
-function formatHeatmapDateLabel(dateKey: string): string {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  if (!year || !month || !day) return "";
-
-  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
 }
 
 function countMonthlyCompletions({
@@ -120,13 +115,13 @@ function buildHabitShareText({
   if (rows.length === 0) return "";
 
   const firstDateKey = days[0];
-  const lastDateKey = days.at(-1);
+  const lastDateKey = days[days.length - 1];
   const rangeLabel =
     firstDateKey && lastDateKey
       ? `Last ${days.length} days (${formatShareDate(
           dateFromDateKey(firstDateKey),
         )} - ${formatShareDate(dateFromDateKey(lastDateKey))})`
-      : "Last 10 days";
+      : "Last 7 days";
   const completedToday = rows.filter((row) => row.completedToday).length;
   const lines = [
     `Dashboard ${formatShareDate(currentDate)} ${completedToday}/${rows.length}`,
@@ -164,16 +159,18 @@ export function DashboardScreen() {
   const [shareFriends, setShareFriends] = useState<FriendRow[]>([]);
   const [isLoadingShareFriends, setIsLoadingShareFriends] = useState(false);
 
-  const last10Days = useMemo(() => getLast10Days(today), [today]);
+  const last7Days = useMemo(() => getLast7Days(today), [today]);
 
   const load = useCallback(
     async (refresh = false) => {
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const tenDaysAgo = new Date(today);
-        tenDaysAgo.setDate(tenDaysAgo.getDate() - 9);
-        const prevMonthKey = getMonthKey(tenDaysAgo);
+        const oldestVisibleDate = new Date(today);
+        oldestVisibleDate.setDate(
+          oldestVisibleDate.getDate() - (DAILY_DASHBOARD_DAY_COUNT - 1),
+        );
+        const prevMonthKey = getMonthKey(oldestVisibleDate);
 
         if (prevMonthKey !== currentMonthKey) {
           const [cur, prev] = await Promise.all([
@@ -252,11 +249,11 @@ export function DashboardScreen() {
         ? buildHabitShareText({
             currentDate: today,
             categories: highPriorityCats,
-            days: last10Days,
+            days: last7Days,
             logsByGoalDate: snapshot.logsByGoalDate,
           })
         : "",
-    [highPriorityCats, last10Days, snapshot, today],
+    [highPriorityCats, last7Days, snapshot, today],
   );
 
   const openShare = async () => {
@@ -387,13 +384,13 @@ export function DashboardScreen() {
                   <DashCard>
                     {highPriorityCats.length > 0 ? (
                       <>
-                        <HeatmapDateHeader days={last10Days} />
+                        <HeatmapDateHeader />
                         {highPriorityCats.map((cat, i) => (
                           <CategoryHeatmap
                             key={cat.id}
                             category={cat}
                             goals={cat.goals}
-                            days={last10Days}
+                            days={last7Days}
                             logsByGoalDate={snapshot.logsByGoalDate}
                             showDivider={i > 0}
                           />
@@ -420,13 +417,13 @@ export function DashboardScreen() {
                         <IconPreview goals={lowerPriorityGoals} />
                       }
                     >
-                      <HeatmapDateHeader days={last10Days} />
+                      <HeatmapDateHeader />
                       {lowerPriorityCats.map((cat, i) => (
                         <CategoryHeatmap
                           key={cat.id}
                           category={cat}
                           goals={cat.goals}
-                          days={last10Days}
+                          days={last7Days}
                           logsByGoalDate={snapshot.logsByGoalDate}
                           showDivider={i > 0}
                         />
@@ -722,36 +719,15 @@ function DashSection({
   );
 }
 
-function HeatmapDateHeader({ days }: { days: string[] }) {
+function HeatmapDateHeader() {
   const theme = useTheme();
-  // Today is the most recent day (rightmost column); the oldest day is labeled
-  // with its date on the far left.
-  const todayIndex = days.length - 1;
-  const startIndex = 0;
-  const startDateLabel = days[startIndex]
-    ? formatHeatmapDateLabel(days[startIndex])
-    : "";
 
   return (
     <View style={styles.heatmapDateHeader}>
       <View style={styles.heatmapDateIconSpacer} />
-      <View style={styles.dayBlocks}>
-        {days.map((day, index) => (
-          <Text
-            key={day}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.58}
-            style={[styles.heatmapDateLabel, { color: theme.textSecondary }]}
-          >
-            {index === todayIndex
-              ? "Today"
-              : index === startIndex
-                ? startDateLabel
-                : ""}
-          </Text>
-        ))}
-      </View>
+      <Text style={[styles.heatmapDateLabel, { color: theme.textSecondary }]}>
+        Last 7 Days
+      </Text>
     </View>
   );
 }

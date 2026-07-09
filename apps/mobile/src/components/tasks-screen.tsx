@@ -413,7 +413,7 @@ export function TasksScreen() {
 
           <View style={styles.stats}>
             <Stat label="Active" value={activeCount} />
-            <Stat label="Due today" value={todayCount} accent="#9D7474" />
+            <Stat label="Due today" value={todayCount} accent={theme.primary} />
             <Stat label="Done today" value={completedCount} accent="#527B65" />
           </View>
 
@@ -666,7 +666,7 @@ function TaskCard({
   const priority = getTaskPriorityLevel(task);
   const priorityColor =
     task.importance === "High"
-      ? "#9D7474"
+      ? theme.primary
       : task.importance === "Medium"
         ? theme.primary
         : theme.textSecondary;

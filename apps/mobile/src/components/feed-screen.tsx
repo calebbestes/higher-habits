@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { FriendProfileModal } from "@/components/friends-screen";
 import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -26,6 +27,7 @@ import {
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
+  type FriendRow,
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
@@ -118,6 +120,7 @@ export function FeedScreen() {
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
+  const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
@@ -324,6 +327,27 @@ export function FeedScreen() {
     [blockFriend, reportPost],
   );
 
+  const openFriendProfile = useCallback(async (entry: FriendFeedEntry) => {
+    try {
+      const friends = await fetchFriends();
+      const friendship = friends.find(
+        (friend) =>
+          friend.friendId === entry.friend.id && friend.status === "accepted",
+      );
+
+      if (!friendship) {
+        throw new Error("Friendship not found.");
+      }
+
+      setProfileFriend(friendship);
+    } catch (err) {
+      Alert.alert(
+        "Could not open profile",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
+
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
     : null;
@@ -410,6 +434,7 @@ export function FeedScreen() {
                     onToggleProp={() => void handleToggleProp(entry.id)}
                     onPhotoPress={setActivePhoto}
                     onOpenComments={() => setActiveCommentsEntryId(entry.id)}
+                    onOpenProfile={() => void openFriendProfile(entry)}
                     onOpenSafetyActions={() => openPostSafetyActions(entry)}
                   />
                 ))}
@@ -492,6 +517,10 @@ export function FeedScreen() {
           }));
         }}
       />
+      <FriendProfileModal
+        friend={profileFriend}
+        onClose={() => setProfileFriend(null)}
+      />
     </View>
   );
 }
@@ -501,12 +530,14 @@ function FeedCard({
   onToggleProp,
   onPhotoPress,
   onOpenComments,
+  onOpenProfile,
   onOpenSafetyActions,
 }: {
   entry: FriendFeedEntry;
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
+  onOpenProfile: () => void;
   onOpenSafetyActions: () => void;
 }) {
   const theme = useTheme();
@@ -526,7 +557,15 @@ function FeedCard({
     >
       {/* Header */}
       <View style={styles.cardHeader}>
-        <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
+        <Pressable
+          accessibilityLabel={`Open ${entry.friend.name}'s profile`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenProfile}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
+        </Pressable>
         <View style={styles.headerMeta}>
           <Text
             numberOfLines={1}

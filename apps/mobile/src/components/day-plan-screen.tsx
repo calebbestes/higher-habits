@@ -60,6 +60,7 @@ import {
   createCategory as createHabitCategory,
   fetchCategories,
 } from "@/lib/habits-client";
+import { formatPlanMinutesDisplay } from "@/lib/plan-time";
 import {
   type PlannedEvent,
   deletePlannedEvent,
@@ -3578,15 +3579,19 @@ function isTodayOrFutureDate(date: Date) {
 }
 
 function formatHour(hour: number) {
-  return `${String(hour).padStart(2, "0")}:00`;
+  return formatPlanMinutesDisplay(hour * 60);
 }
 
 function formatMinuteRange(startMinutes: number, endMinutes: number) {
-  return `${formatMinutes(startMinutes)} - ${formatMinutes(endMinutes)}`;
+  return `${formatPlanMinutesDisplay(startMinutes)} - ${formatPlanMinutesDisplay(
+    endMinutes,
+  )}`;
 }
 
 function formatMinuteRangeCompact(startMinutes: number, endMinutes: number) {
-  return `${formatMinutes(startMinutes)}-${formatMinutes(endMinutes)}`;
+  return `${formatPlanMinutesDisplay(startMinutes)}-${formatPlanMinutesDisplay(
+    endMinutes,
+  )}`;
 }
 
 function formatMinutes(minutes: number) {

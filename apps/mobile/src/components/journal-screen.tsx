@@ -986,33 +986,7 @@ function CheckpointJournalCard({
       ) : null}
 
       {entry.photos.length > 0 ? (
-        <View
-          style={[
-            styles.photoGrid,
-            entry.photos.length === 1 && styles.singlePhotoGrid,
-          ]}
-        >
-          {entry.photos.map((photo) => (
-            <Pressable
-              key={photo.id}
-              accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
-              onPress={() => onOpenPhoto(photo)}
-              style={({ pressed }) => [
-                styles.photoButton,
-                entry.photos.length === 1 && styles.singlePhotoButton,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Image
-                contentFit="cover"
-                source={{ uri: photo.url }}
-                style={styles.photo}
-                transition={180}
-              />
-            </Pressable>
-          ))}
-        </View>
+        <JournalPhotoCarousel photos={entry.photos} onOpenPhoto={onOpenPhoto} />
       ) : null}
     </View>
   );
@@ -1099,33 +1073,7 @@ function JournalCard({
 
       {entry.photoCount > 0 ? (
         photos.length > 0 ? (
-          <View
-            style={[
-              styles.photoGrid,
-              photos.length === 1 && styles.singlePhotoGrid,
-            ]}
-          >
-            {photos.map((photo) => (
-              <Pressable
-                key={photo.id}
-                accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
-                onPress={() => onOpenPhoto(photo)}
-                style={({ pressed }) => [
-                  styles.photoButton,
-                  photos.length === 1 && styles.singlePhotoButton,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Image
-                  contentFit="cover"
-                  source={{ uri: photo.url }}
-                  style={styles.photo}
-                  transition={180}
-                />
-              </Pressable>
-            ))}
-          </View>
+          <JournalPhotoCarousel photos={photos} onOpenPhoto={onOpenPhoto} />
         ) : (
           <View
             style={[
@@ -1159,6 +1107,95 @@ function JournalCard({
         onReplyToComment={onReplyToComment}
         onSubmitReply={onSubmitReply}
       />
+    </View>
+  );
+}
+
+function JournalPhotoCarousel({
+  photos,
+  onOpenPhoto,
+}: {
+  photos: GoalPhoto[];
+  onOpenPhoto: (photo: GoalPhoto) => void;
+}) {
+  const theme = useTheme();
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
+
+  return (
+    <View style={styles.carouselWrap}>
+      <View
+        onLayout={(event) => {
+          setCarouselWidth(event.nativeEvent.layout.width);
+        }}
+        style={[
+          styles.carouselFrame,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <ScrollView
+          horizontal
+          pagingEnabled
+          onMomentumScrollEnd={(event) => {
+            if (!carouselWidth) return;
+            setCarouselIndex(
+              Math.round(event.nativeEvent.contentOffset.x / carouselWidth),
+            );
+          }}
+          scrollEventThrottle={16}
+          showsHorizontalScrollIndicator={false}
+        >
+          {photos.map((photo) => (
+            <Pressable
+              key={photo.id}
+              accessibilityLabel="Open journal photo"
+              onPress={() => onOpenPhoto(photo)}
+              style={({ pressed }) => [
+                styles.carouselSlide,
+                { width: carouselWidth || 1 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Image
+                contentFit="contain"
+                source={{ uri: photo.url }}
+                style={styles.carouselImage}
+                transition={180}
+              />
+            </Pressable>
+          ))}
+        </ScrollView>
+        {photos.length > 1 ? (
+          <View
+            style={[
+              styles.carouselCounter,
+              { backgroundColor: "rgba(0,0,0,0.5)" },
+            ]}
+          >
+            <Text style={styles.carouselCounterText}>
+              {carouselIndex + 1}/{photos.length}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {photos.length > 1 ? (
+        <View style={styles.carouselDots}>
+          {photos.map((photo, index) => (
+            <View
+              key={photo.id}
+              style={[
+                styles.carouselDot,
+                {
+                  backgroundColor:
+                    index === carouselIndex
+                      ? theme.primary
+                      : theme.backgroundSelected,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -2193,13 +2230,17 @@ const styles = StyleSheet.create({
   },
   entryList: { gap: 12 },
   card: {
-    gap: 13,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    padding: 15,
+    borderRadius: 22,
     overflow: "hidden",
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
   goalIcon: {
     width: 36,
     height: 36,
@@ -2226,6 +2267,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "500",
     paddingHorizontal: 14,
+    paddingBottom: 12,
   },
   postMenuButton: {
     width: 34,
@@ -2234,21 +2276,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 11,
   },
-  richNote: { minWidth: 0 },
+  richNote: { minWidth: 0, paddingHorizontal: 14, paddingBottom: 12 },
   showMoreButton: { paddingTop: 4 },
   showMoreText: { fontSize: 13, fontWeight: "500" },
-  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  singlePhotoGrid: { flexDirection: "column" },
-  photoButton: {
-    width: "48.8%",
+  carouselWrap: {
+    marginBottom: 12,
+  },
+  carouselFrame: {
+    position: "relative",
+    width: "100%",
     aspectRatio: 1,
-    borderRadius: 13,
     overflow: "hidden",
   },
-  singlePhotoButton: { width: "100%", aspectRatio: 4 / 3 },
-  photo: { width: "100%", height: "100%" },
+  carouselSlide: {
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carouselImage: { width: "100%", height: "100%" },
+  carouselCounter: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  carouselCounterText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+  },
+  carouselDots: {
+    minHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingTop: 8,
+  },
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   photoPlaceholder: {
     minHeight: 100,
+    marginHorizontal: 14,
+    marginBottom: 12,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 13,
@@ -2261,7 +2337,9 @@ const styles = StyleSheet.create({
   socialPanel: {
     gap: 9,
     borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
     paddingTop: 11,
+    paddingBottom: 12,
   },
   socialSummaryRow: {
     flexDirection: "row",

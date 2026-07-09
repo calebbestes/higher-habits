@@ -45,6 +45,60 @@ export type FriendRow = {
   incentives: FriendIncentiveRow[];
 };
 
+export type FriendProfileHabit = {
+  id: string;
+  name: string;
+  iconKey: string;
+  priority: "high" | "low";
+};
+
+export type FriendProfileCategory = {
+  id: string;
+  name: string;
+  icon: string;
+  habits: FriendProfileHabit[];
+};
+
+export type FriendProfile = {
+  friend: {
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    lastOpenedAt: string | null;
+  };
+  dateKeys: string[];
+  categories: FriendProfileCategory[];
+  logsByHabitDate: Record<string, "complete" | "planned">;
+};
+
+function isFriendProfile(value: unknown): value is FriendProfile {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "friend" in value &&
+    Array.isArray((value as FriendProfile).dateKeys) &&
+    Array.isArray((value as FriendProfile).categories) &&
+    typeof (value as FriendProfile).logsByHabitDate === "object" &&
+    (value as FriendProfile).logsByHabitDate !== null
+  );
+}
+
+function toProfileDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getRecentProfileDateKeys(dayCount: number) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (dayCount - 1 - index));
+    return toProfileDateKey(date);
+  });
+}
+
 export type FriendFeedPhoto = {
   id: string;
   url: string;
@@ -95,13 +149,123 @@ async function parseResponse<T>(response: Response): Promise<T> {
       error?: string;
       message?: string;
     } | null;
-    throw new Error(body?.error ?? body?.message ?? "Request failed.");
+    throw new Error(
+      body?.error ??
+        body?.message ??
+        `Request failed (${response.status}).`,
+    );
   }
   return response.json() as Promise<T>;
 }
 
 export const fetchFriends = (): Promise<FriendRow[]> =>
   mobileApiFetch("/api/friends").then((r) => parseResponse<FriendRow[]>(r));
+
+export const fetchFriendProfile = (
+  friendshipId: string,
+): Promise<FriendProfile> => fetchFriendProfileWithFallback(friendshipId);
+
+async function fetchFriendProfileWithFallback(
+  friendshipId: string,
+): Promise<FriendProfile> {
+  const encodedFriendshipId = encodeURIComponent(friendshipId);
+  const paths = [
+    `/api/friends?profileFriendshipId=${encodedFriendshipId}`,
+    `/api/friends/${encodedFriendshipId}/profile`,
+  ];
+  let lastError: Error | null = null;
+
+  for (const path of paths) {
+    try {
+      const profile = await mobileApiFetch(path).then((r) =>
+        parseResponse<unknown>(r),
+      );
+
+      if (isFriendProfile(profile)) {
+        return profile;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Request failed.");
+    }
+  }
+
+  try {
+    return await fetchFriendProfileFromExistingData(friendshipId);
+  } catch (fallbackError) {
+    throw (
+      lastError ??
+      (fallbackError instanceof Error
+        ? fallbackError
+        : new Error("Profile data is unavailable."))
+    );
+  }
+}
+
+async function fetchFriendProfileFromExistingData(
+  friendshipId: string,
+): Promise<FriendProfile> {
+  const [friends, feed] = await Promise.all([fetchFriends(), fetchFriendsFeed()]);
+  const friend = friends.find(
+    (row) => row.id === friendshipId && row.status === "accepted",
+  );
+
+  if (!friend) {
+    throw new Error("Friendship not found.");
+  }
+
+  const dateKeys = getRecentProfileDateKeys(7);
+  const dateKeySet = new Set(dateKeys);
+  const habitsById = new Map<string, FriendProfileHabit>();
+  const logsByHabitDate: FriendProfile["logsByHabitDate"] = {};
+
+  for (const option of friend.goalOptions) {
+    habitsById.set(option.id, {
+      id: option.id,
+      name: option.name,
+      iconKey: "mdi:target",
+      priority: "low",
+    });
+  }
+
+  for (const entry of feed) {
+    if (entry.friend.id !== friend.friendId || !dateKeySet.has(entry.dateKey)) {
+      continue;
+    }
+
+    habitsById.set(entry.goal.id, {
+      id: entry.goal.id,
+      name: entry.goal.name,
+      iconKey: entry.goal.icon,
+      priority: habitsById.get(entry.goal.id)?.priority ?? "low",
+    });
+    logsByHabitDate[`${entry.goal.id}_${entry.dateKey}`] = "complete";
+  }
+
+  const habits = [...habitsById.values()];
+
+  return {
+    friend: {
+      id: friend.friendId,
+      name: friend.friendName,
+      email: friend.friendEmail,
+      image: friend.friendImage,
+      lastOpenedAt: friend.lastOpenedAt,
+    },
+    dateKeys,
+    categories:
+      habits.length > 0
+        ? [
+            {
+              id: "daily-habits",
+              name: "Daily Habits",
+              icon: "target",
+              habits,
+            },
+          ]
+        : [],
+    logsByHabitDate,
+  };
+}
 
 export const addFriend = (email: string): Promise<FriendRow> =>
   mobileApiFetch("/api/friends", {

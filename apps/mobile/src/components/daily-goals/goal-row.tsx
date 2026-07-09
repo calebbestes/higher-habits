@@ -5,7 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
-import { getPlanTimeInput } from "@/lib/plan-time";
+import { formatStoredPlanTimeDisplay } from "@/lib/plan-time";
 
 import { type ActionGoal, styles, sym } from "./shared";
 
@@ -18,9 +18,11 @@ function GoalRowImpl({
 }: {
   goal: ActionGoal;
   status: "complete" | "planned" | undefined;
-  plannedTime?:
-    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
-    | null;
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  } | null;
   isUpdating: boolean;
   onEdit?: () => void;
   onPress: () => void;
@@ -29,9 +31,9 @@ function GoalRowImpl({
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
   const plannedTimeDisplay = isPlanned
-    ? getPlanTimeInput(plannedTime?.startTime)
+    ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
     : null;
-  const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
+  const hasPlannedTime = Boolean(plannedTimeDisplay);
 
   const sharedFriends = getSharedFriends(goal).slice(0, 3);
 
@@ -40,10 +42,7 @@ function GoalRowImpl({
       accessibilityRole="button"
       accessibilityLabel={`${goal.name}, ${status ?? "not reported"}. Tap to open actions.`}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.goalRow,
-        pressed && styles.pressed,
-      ]}
+      style={({ pressed }) => [styles.goalRow, pressed && styles.pressed]}
     >
       {/* Goal icon */}
       <View style={styles.goalIcon}>
@@ -105,10 +104,7 @@ function GoalRowImpl({
       {hasPlannedTime && plannedTimeDisplay ? (
         <View style={styles.planTimeBadge}>
           <Text style={[styles.planTimeBadgeTime, { color: theme.primary }]}>
-            {plannedTimeDisplay.time}
-          </Text>
-          <Text style={[styles.planTimeBadgePeriod, { color: theme.text }]}>
-            {plannedTimeDisplay.period}
+            {plannedTimeDisplay}
           </Text>
         </View>
       ) : null}
