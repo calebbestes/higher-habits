@@ -94,6 +94,7 @@ type DayPlanEntry = {
   kind: "goal" | "google" | "habit" | "task";
   laneCount: number;
   laneIndex: number;
+  laneSpan: number;
   sourceId?: string;
   startMinutes: number;
   title: string;
@@ -111,6 +112,10 @@ type CheckpointNoteTarget = {
 type PlanRange = {
   endMinutes: number;
   startMinutes: number;
+};
+type TimelineTouch = {
+  locationY: number;
+  pageY: number;
 };
 type PlanTargetType = "dailyHabit" | "goal" | "monthlyHabit" | "task";
 type PlanTargetOption = {
@@ -168,6 +173,8 @@ const MINUTES_IN_DAY = 24 * 60;
 const PLAN_SNAP_MINUTES = 15;
 const MIN_PLAN_DURATION_MINUTES = 30;
 const LONG_PRESS_DELAY_MS = 500;
+const EVENT_DRAG_DELAY_MS = 120;
+const EVENT_DRAG_MOVE_THRESHOLD = 2;
 const TIMELINE_AUTO_SCROLL_EDGE = 54;
 const TIMELINE_AUTO_SCROLL_INTERVAL_MS = 50;
 const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
@@ -175,6 +182,8 @@ const TIMELINE_START_HOUR = 7;
 const TIMELINE_VISIBLE_HOURS = 12;
 const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
 const TIMELINE_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
+const TIMELINE_MIN_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 16;
+const TIMELINE_MAX_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 5;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_NAMES = [
   "January",
@@ -208,6 +217,10 @@ export function DayPlanScreen({
   const timelineDragLayerWidthRef = useRef(0);
   const timelineGestureRef = useRef<TimelineGesture | null>(null);
   const timelineHapticKeyRef = useRef<string | null>(null);
+  const timelinePinchRef = useRef<{
+    distance: number;
+    hourHeight: number;
+  } | null>(null);
   const timelineAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -243,11 +256,13 @@ export function DayPlanScreen({
   const [noteCheckpoint, setNoteCheckpoint] =
     useState<CheckpointNoteTarget | null>(null);
   const [dragPlanRange, setDragPlanRange] = useState<PlanRange | null>(null);
+  const [dragEntry, setDragEntry] = useState<DayPlanEntry | null>(null);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
     null,
   );
   const [isTimelineDragging, setIsTimelineDragging] = useState(false);
+  const [timelineHourHeight, setTimelineHourHeight] = useState(HOUR_HEIGHT);
   const [selectedPlanTargetType, setSelectedPlanTargetType] =
     useState<PlanTargetType | null>(null);
   const [creatingTargetType, setCreatingTargetType] =
@@ -262,8 +277,8 @@ export function DayPlanScreen({
     [now, dateKey],
   );
   const nowLineTop = useMemo(
-    () => ((now.getHours() * 60 + now.getMinutes()) / 60) * HOUR_HEIGHT,
-    [now],
+    () => ((now.getHours() * 60 + now.getMinutes()) / 60) * timelineHourHeight,
+    [now, timelineHourHeight],
   );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
@@ -726,10 +741,11 @@ export function DayPlanScreen({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the timeline to 7:00 when changing dates
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      timelineScrollYRef.current = TIMELINE_INITIAL_OFFSET;
+      const initialOffset = TIMELINE_START_HOUR * timelineHourHeight;
+      timelineScrollYRef.current = initialOffset;
       timelineScrollRef.current?.scrollTo({
         animated: false,
-        y: TIMELINE_INITIAL_OFFSET,
+        y: initialOffset,
       });
     });
 
@@ -764,43 +780,80 @@ export function DayPlanScreen({
     }
     return map;
   }, [planGoals]);
+  const scheduledHabitIds = useMemo(
+    () => getScheduledHabitIds(snapshot, dateKey),
+    [dateKey, snapshot],
+  );
+  const scheduledTaskIds = useMemo(
+    () =>
+      new Set(
+        plannedEvents
+          .filter((event) => event.sourceType === "task")
+          .map((event) => event.sourceId),
+      ),
+    [plannedEvents],
+  );
+  const scheduledCheckpointIds = useMemo(
+    () =>
+      new Set(
+        plannedEvents
+          .filter((event) => event.sourceType === "goal_checkpoint")
+          .map((event) => event.sourceId),
+      ),
+    [plannedEvents],
+  );
   const dailyHabitOptions = useMemo<PlanTargetOption[]>(
     () =>
-      snapshot?.categories.flatMap((category) =>
-        category.habits
-          .filter(
-            (habit) =>
-              habit.period === "daily" &&
-              !habit.hidden &&
-              snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] !== "complete",
-          )
-          .map((habit) => ({
-            id: habit.id,
-            subtitle: category.name,
-            title: habit.name,
-          })),
-      ) ?? [],
-    [dateKey, snapshot],
+      sortByCompletionTotal(
+        snapshot?.categories.flatMap((category) =>
+          category.habits
+            .filter(
+              (habit) =>
+                habit.period === "daily" &&
+                !habit.hidden &&
+                !scheduledHabitIds.has(habit.id),
+            )
+            .map((habit) => ({
+              completions: countHabitCompletions(
+                snapshot.logsByHabitDate,
+                habit.id,
+              ),
+              option: {
+                id: habit.id,
+                subtitle: category.name,
+                title: habit.name,
+              },
+            })),
+        ) ?? [],
+      ),
+    [scheduledHabitIds, snapshot],
   );
   const monthlyHabitOptions = useMemo<PlanTargetOption[]>(
     () =>
-      snapshot?.periodicHabits
-        .filter(
-          (habit) =>
-            habit.period === "monthly" &&
-            snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] !== "complete",
-        )
-        .map((habit) => ({
-          id: habit.id,
-          subtitle: habit.goalTitle ?? "Monthly habit",
-          title: habit.name,
-        })) ?? [],
-    [dateKey, snapshot],
+      sortByCompletionTotal(
+        snapshot?.periodicHabits
+          .filter(
+            (habit) =>
+              habit.period === "monthly" && !scheduledHabitIds.has(habit.id),
+          )
+          .map((habit) => ({
+            completions: countHabitCompletions(
+              snapshot.logsByHabitDate,
+              habit.id,
+            ),
+            option: {
+              id: habit.id,
+              subtitle: habit.goalTitle ?? "Monthly habit",
+              title: habit.name,
+            },
+          })) ?? [],
+      ),
+    [scheduledHabitIds, snapshot],
   );
   const taskOptions = useMemo<PlanTargetOption[]>(
     () =>
       tasks
-        .filter((task) => !task.completedAt)
+        .filter((task) => !task.completedAt && !scheduledTaskIds.has(task.id))
         .map((task) => ({
           id: task.id,
           subtitle: [task.timeRequired, task.importance]
@@ -808,13 +861,17 @@ export function DayPlanScreen({
             .join(" · "),
           title: task.name,
         })),
-    [tasks],
+    [scheduledTaskIds, tasks],
   );
   const goalOptions = useMemo<PlanTargetOption[]>(
     () =>
       planGoals.flatMap((goal) =>
         goal.checkpoints
-          .filter((checkpoint) => !checkpoint.completed)
+          .filter(
+            (checkpoint) =>
+              !checkpoint.completed &&
+              !scheduledCheckpointIds.has(checkpoint.id),
+          )
           .map((checkpoint) => ({
             id: checkpoint.id,
             subtitle: [
@@ -828,7 +885,7 @@ export function DayPlanScreen({
             title: checkpoint.title,
           })),
       ),
-    [planGoals],
+    [planGoals, scheduledCheckpointIds],
   );
   const entries = useMemo(
     () =>
@@ -886,14 +943,55 @@ export function DayPlanScreen({
       noteCheckpoint,
   );
   const onboardingStep = onboardingGuide?.step ?? null;
-  const timelineScrollMax = HOUR_HEIGHT * 24 - TIMELINE_VIEWPORT_HEIGHT;
+  const timelineScrollMax = timelineHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT;
   const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
     timelineViewportTopRef.current =
       pageY - timelineY + timelineScrollYRef.current;
   };
+  const getTouchDistance = (event: GestureResponderEvent) => {
+    const [first, second] = event.nativeEvent.touches;
+    if (!first || !second) return null;
+    return Math.hypot(first.pageX - second.pageX, first.pageY - second.pageY);
+  };
+  const handleTimelineTouchStart = (event: GestureResponderEvent) => {
+    const distance = getTouchDistance(event);
+    timelinePinchRef.current = distance
+      ? { distance, hourHeight: timelineHourHeight }
+      : null;
+  };
+  const handleTimelineTouchMove = (event: GestureResponderEvent) => {
+    const pinch = timelinePinchRef.current;
+    const distance = getTouchDistance(event);
+    if (!pinch || !distance) return;
+
+    const centerMinutes =
+      ((timelineScrollYRef.current + TIMELINE_VIEWPORT_HEIGHT / 2) /
+        Math.max(timelineHourHeight, 1)) *
+      60;
+    const nextHourHeight = clampNumber(
+      pinch.hourHeight * (distance / pinch.distance),
+      TIMELINE_MIN_HOUR_HEIGHT,
+      TIMELINE_MAX_HOUR_HEIGHT,
+    );
+    const nextScrollY = clampNumber(
+      (centerMinutes / 60) * nextHourHeight - TIMELINE_VIEWPORT_HEIGHT / 2,
+      0,
+      nextHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT,
+    );
+
+    timelineScrollYRef.current = nextScrollY;
+    setTimelineHourHeight(nextHourHeight);
+    timelineScrollRef.current?.scrollTo({ animated: false, y: nextScrollY });
+  };
+  const handleTimelineTouchEnd = (event: GestureResponderEvent) => {
+    if (event.nativeEvent.touches.length < 2) {
+      timelinePinchRef.current = null;
+    }
+  };
   const getTimelineMinutesFromPageY = (pageY: number) =>
     minutesFromTimelineY(
       timelineScrollYRef.current + pageY - timelineViewportTopRef.current,
+      timelineHourHeight,
     );
   const playTimelineDragStartHaptic = () => {
     const haptic =
@@ -1021,6 +1119,7 @@ export function DayPlanScreen({
     if (
       isTimelinePointOnEntry({
         entries: timedEntries,
+        hourHeight: timelineHourHeight,
         timelineWidth: timelineDragLayerWidthRef.current,
         x: press.locationX,
         y: press.locationY,
@@ -1029,7 +1128,11 @@ export function DayPlanScreen({
       return;
     }
 
-    const startMinutes = minutesFromTimelineY(press.locationY);
+    const startMinutes = minutesFromTimelineY(
+      press.locationY,
+      timelineHourHeight,
+      "floor",
+    );
     const range = normalizePlanRange(
       startMinutes,
       startMinutes + MIN_PLAN_DURATION_MINUTES,
@@ -1055,6 +1158,79 @@ export function DayPlanScreen({
     updateTimelineGestureFromPageY(pageY);
     updateTimelineAutoScroll(pageY);
   };
+  const patchHabitPlanTime = useCallback(
+    (habitId: string, startTime: string, endTime: string) => {
+      const key = `${habitId}_${dateKey}`;
+      const patchSnapshot = (
+        current: HabitLogsSnapshot | null,
+      ): HabitLogsSnapshot | null =>
+        current
+          ? {
+              ...current,
+              logsByHabitDate: {
+                ...current.logsByHabitDate,
+                [key]: current.logsByHabitDate[key] ?? "planned",
+              },
+              plannedTimesByHabitDate: {
+                ...current.plannedTimesByHabitDate,
+                [key]: {
+                  ...(current.plannedTimesByHabitDate[key] ?? {
+                    repeatsDaily: false,
+                  }),
+                  endTime,
+                  startTime,
+                },
+              },
+            }
+          : current;
+
+      setSnapshot((current) => {
+        const next = patchSnapshot(current);
+        if (next) snapshotCacheRef.current.set(monthKey, next);
+        return next;
+      });
+    },
+    [dateKey, monthKey],
+  );
+  const patchPlannedEvent = useCallback(
+    (nextEvent: PlannedEvent) => {
+      const replaceEvent = (events: PlannedEvent[]) => {
+        const nextEvents = events.filter((event) => event.id !== nextEvent.id);
+        nextEvents.push(nextEvent);
+        return nextEvents.sort((left, right) =>
+          String(left.startTime ?? "").localeCompare(
+            String(right.startTime ?? ""),
+          ),
+        );
+      };
+
+      setPlannedEvents((current) => {
+        const next = replaceEvent(current);
+        plannedEventsCacheRef.current.set(dateKey, next);
+        return next;
+      });
+    },
+    [dateKey],
+  );
+  const patchGoogleEvent = useCallback(
+    (eventId: string, nextEvent: GoogleCalendarDayEvent) => {
+      const replaceEvent = (events: GoogleCalendarDayEvent[]) =>
+        events.map((event) => (event.id === eventId ? nextEvent : event));
+
+      setGoogleEvents((current) => {
+        const next = replaceEvent(current);
+        const cached = googleEventsCacheRef.current.get(dateKey);
+        if (cached) {
+          googleEventsCacheRef.current.set(dateKey, {
+            ...cached,
+            events: replaceEvent(cached.events),
+          });
+        }
+        return next;
+      });
+    },
+    [dateKey],
+  );
   const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
     const startTime = formatPlanApiTime(range.startMinutes);
     const endTime = formatPlanApiTime(range.endMinutes);
@@ -1067,11 +1243,11 @@ export function DayPlanScreen({
           startTime,
           timeZone,
         });
-        invalidateCurrentCaches({ google: true, snapshot: true });
+        patchHabitPlanTime(entry.habitId, startTime, endTime);
       } else if (entry.kind === "task" || entry.kind === "goal") {
         if (!entry.sourceId) throw new Error("Could not find that event.");
 
-        await upsertPlannedEvent({
+        const response = await upsertPlannedEvent({
           dateKey,
           endTime,
           sourceId: entry.sourceId,
@@ -1080,13 +1256,14 @@ export function DayPlanScreen({
           timeZone,
           title: entry.title,
         });
-        invalidateCurrentCaches({ google: true, planned: true });
+        patchPlannedEvent(response.event);
       } else if (entry.kind === "google") {
+        const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
           dateKey,
           description: entry.description ?? null,
           endTime,
-          eventId: entry.sourceId ?? googleEntryId(entry.id),
+          eventId,
           startTime,
           timeZone,
           title: entry.title,
@@ -1094,11 +1271,8 @@ export function DayPlanScreen({
         if (response.status !== "synced") {
           throw new Error(getGoogleCalendarStatusMessage(response.status));
         }
-        invalidateCurrentCaches({ google: true });
+        if (response.event) patchGoogleEvent(eventId, response.event);
       }
-
-      if (!isMountedRef.current) return;
-      await load();
     } catch (moveError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -1120,6 +1294,7 @@ export function DayPlanScreen({
     timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
+    setDragEntry(null);
 
     if (!gesture) return;
 
@@ -1169,16 +1344,14 @@ export function DayPlanScreen({
     timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
+    setDragEntry(null);
   };
-  const beginMoveEntry = (
-    entry: DayPlanEntry,
-    event: GestureResponderEvent,
-  ) => {
-    const { locationY, pageY } = event.nativeEvent;
-    const entryTop = (entry.startMinutes / 60) * HOUR_HEIGHT;
+  const beginMoveEntry = (entry: DayPlanEntry, touch: TimelineTouch) => {
+    const { locationY, pageY } = touch;
+    const entryTop = (entry.startMinutes / 60) * timelineHourHeight;
     const timelineY = entryTop + locationY;
     const touchOffsetMinutes = clampNumber(
-      (locationY / HOUR_HEIGHT) * 60,
+      (locationY / timelineHourHeight) * 60,
       0,
       Math.max(0, entry.endMinutes - entry.startMinutes),
     );
@@ -1204,6 +1377,7 @@ export function DayPlanScreen({
     setDraftPlanRange(null);
     setSelectedPlanTargetType(null);
     setDragPlanRange(range);
+    setDragEntry(entry);
     setIsTimelineDragging(true);
     playTimelineDragStartHaptic();
     playTimelineRangeHaptic(range, true);
@@ -1907,22 +2081,37 @@ export function DayPlanScreen({
                 >
                   <ScrollView
                     ref={timelineScrollRef}
-                    contentOffset={{ x: 0, y: TIMELINE_INITIAL_OFFSET }}
+                    contentOffset={{
+                      x: 0,
+                      y: TIMELINE_START_HOUR * timelineHourHeight,
+                    }}
                     nestedScrollEnabled
                     onScroll={(event) => {
                       timelineScrollYRef.current =
                         event.nativeEvent.contentOffset.y;
                     }}
+                    onTouchCancel={handleTimelineTouchEnd}
+                    onTouchEnd={handleTimelineTouchEnd}
+                    onTouchMove={handleTimelineTouchMove}
+                    onTouchStart={handleTimelineTouchStart}
                     scrollEnabled={!isTimelineDragging}
                     scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                     style={styles.timelineScroller}
                   >
-                    <View style={styles.timeline}>
+                    <View
+                      style={[
+                        styles.timeline,
+                        { height: timelineHourHeight * 24 },
+                      ]}
+                    >
                       {HOURS.map((hour) => (
                         <View
                           key={hour}
-                          style={[styles.hourRow, { height: HOUR_HEIGHT }]}
+                          style={[
+                            styles.hourRow,
+                            { height: timelineHourHeight },
+                          ]}
                         >
                           <Text
                             style={[
@@ -1956,24 +2145,39 @@ export function DayPlanScreen({
                         style={styles.dragLayer}
                       />
                       <View style={styles.eventLayer} pointerEvents="box-none">
-                        {timedEntries.map((entry) => (
+                        {timedEntries
+                          .filter((entry) => entry.id !== dragEntry?.id)
+                          .map((entry) => (
+                            <TimedEntryBlock
+                              entry={entry}
+                              key={entry.id}
+                              onBeginMove={(touch) =>
+                                beginMoveEntry(entry, touch)
+                              }
+                              onPress={
+                                entry.kind !== "google"
+                                  ? () => openInternalEntry(entry)
+                                  : undefined
+                              }
+                              onMove={handleTimelinePressMove}
+                              onRelease={finishTimelineGesture}
+                              hourHeight={timelineHourHeight}
+                            />
+                          ))}
+                        {dragEntry && dragPlanRange ? (
                           <TimedEntryBlock
-                            entry={entry}
-                            key={entry.id}
-                            onLongPress={(event) =>
-                              beginMoveEntry(entry, event)
-                            }
-                            onPress={
-                              entry.kind !== "google"
-                                ? () => openInternalEntry(entry)
-                                : undefined
-                            }
-                            onPressMove={handleTimelinePressMove}
-                            onPressOut={finishTimelineGesture}
+                            entry={{
+                              ...dragEntry,
+                              endMinutes: dragPlanRange.endMinutes,
+                              startMinutes: dragPlanRange.startMinutes,
+                            }}
+                            hourHeight={timelineHourHeight}
                           />
-                        ))}
-                        {dragPlanRange ? (
-                          <DraftPlanBlock range={dragPlanRange} />
+                        ) : dragPlanRange ? (
+                          <DraftPlanBlock
+                            hourHeight={timelineHourHeight}
+                            range={dragPlanRange}
+                          />
                         ) : null}
                       </View>
                       {isViewingToday ? (
@@ -3022,11 +3226,17 @@ function OtherEventFormModal({
   );
 }
 
-function DraftPlanBlock({ range }: { range: PlanRange }) {
+function DraftPlanBlock({
+  hourHeight,
+  range,
+}: {
+  hourHeight: number;
+  range: PlanRange;
+}) {
   const theme = useTheme();
-  const top = (range.startMinutes / 60) * HOUR_HEIGHT;
+  const top = (range.startMinutes / 60) * hourHeight;
   const height = Math.max(
-    ((range.endMinutes - range.startMinutes) / 60) * HOUR_HEIGHT,
+    ((range.endMinutes - range.startMinutes) / 60) * hourHeight,
     MIN_EVENT_HEIGHT,
   );
 
@@ -3106,32 +3316,101 @@ function EntryChip({
 
 function TimedEntryBlock({
   entry,
-  onLongPress,
+  hourHeight,
+  onBeginMove,
+  onMove,
   onPress,
-  onPressMove,
-  onPressOut,
+  onRelease,
 }: {
   entry: DayPlanEntry;
-  onLongPress?: (event: GestureResponderEvent) => void;
+  hourHeight: number;
+  onBeginMove?: (touch: TimelineTouch) => void;
+  onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
-  onPressMove?: (event: GestureResponderEvent) => void;
-  onPressOut?: () => void;
+  onRelease?: () => void;
 }) {
   const theme = useTheme();
+  const dragStartRef = useRef<{
+    didStartDrag: boolean;
+    locationY: number;
+    pageY: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
-  const top = (entry.startMinutes / 60) * HOUR_HEIGHT;
-  const height = Math.max(
-    ((entry.endMinutes - entry.startMinutes) / 60) * HOUR_HEIGHT,
-    MIN_EVENT_HEIGHT,
-  );
+  const top = (entry.startMinutes / 60) * hourHeight;
+  const naturalHeight =
+    ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
+  const height = Math.max(naturalHeight, MIN_EVENT_HEIGHT);
   const laneWidth = 100 / Math.max(entry.laneCount, 1);
   const left = laneWidth * entry.laneIndex;
+  const width = laneWidth * Math.max(entry.laneSpan, 1);
+  const isTiny = naturalHeight < 24;
   const isCompact = height <= 38;
   const timeLabel = isCompact
     ? formatMinuteRangeCompact(entry.startMinutes, entry.endMinutes)
     : formatMinuteRange(entry.startMinutes, entry.endMinutes);
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    },
+    [],
+  );
+  const startMove = () => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart || dragStart.didStartDrag) return;
 
-  const content = isCompact ? (
+    dragStart.didStartDrag = true;
+    clearLongPressTimer();
+    onBeginMove?.({
+      locationY: dragStart.locationY,
+      pageY: dragStart.pageY,
+    });
+  };
+  const handleResponderGrant = (event: GestureResponderEvent) => {
+    const { locationY, pageY } = event.nativeEvent;
+    dragStartRef.current = { didStartDrag: false, locationY, pageY };
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(startMove, EVENT_DRAG_DELAY_MS);
+  };
+  const handleResponderMove = (event: GestureResponderEvent) => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart) return;
+
+    if (!dragStart.didStartDrag) {
+      const distance = Math.abs(event.nativeEvent.pageY - dragStart.pageY);
+      if (distance < EVENT_DRAG_MOVE_THRESHOLD) return;
+      startMove();
+    }
+
+    onMove?.(event);
+  };
+  const handleResponderRelease = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+
+    if (didStartDrag) {
+      onRelease?.();
+      return;
+    }
+
+    onPress?.();
+  };
+  const handleResponderTerminate = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (didStartDrag) onRelease?.();
+  };
+
+  const content = isTiny ? (
+    <View style={[styles.eventBlock, { backgroundColor }]} />
+  ) : isCompact ? (
     <View
       style={[styles.eventBlock, styles.eventBlockCompact, { backgroundColor }]}
     >
@@ -3164,33 +3443,31 @@ function TimedEntryBlock({
 
   return (
     <View
-      pointerEvents={onPress || onLongPress ? "auto" : "none"}
+      pointerEvents={onPress || onBeginMove ? "auto" : "none"}
       style={[
         styles.eventOuter,
         {
           height,
           left: `${left}%`,
           top,
-          width: `${laneWidth}%`,
+          width: `${width}%`,
         },
       ]}
     >
-      {onPress || onLongPress ? (
-        <Pressable
+      {onPress || onBeginMove ? (
+        <View
           accessibilityLabel={`Open ${entry.title}`}
           accessibilityRole="button"
-          delayLongPress={LONG_PRESS_DELAY_MS}
-          onLongPress={onLongPress}
-          onPress={onPress}
-          onPressMove={onPressMove}
-          onPressOut={onPressOut}
-          style={({ pressed }) => [
-            styles.eventPressable,
-            pressed && styles.pressed,
-          ]}
+          onResponderGrant={handleResponderGrant}
+          onResponderMove={handleResponderMove}
+          onResponderRelease={handleResponderRelease}
+          onResponderTerminate={handleResponderTerminate}
+          onResponderTerminationRequest={() => false}
+          onStartShouldSetResponder={() => true}
+          style={styles.eventPressable}
         >
           {content}
-        </Pressable>
+        </View>
       ) : (
         content
       )}
@@ -3279,6 +3556,7 @@ function buildDayPlanEntries({
         kind: "habit",
         laneCount: 1,
         laneIndex: 0,
+        laneSpan: 1,
         startMinutes: hasTimeRange ? startMinutes : 0,
         title: habit.name,
       });
@@ -3310,6 +3588,7 @@ function buildDayPlanEntries({
         kind: "habit",
         laneCount: 1,
         laneIndex: 0,
+        laneSpan: 1,
         startMinutes: hasTimeRange ? startMinutes : 0,
         title: habit.name,
       });
@@ -3347,6 +3626,7 @@ function plannedEventToEntry(
     kind: event.sourceType === "task" ? "task" : "goal",
     laneCount: 1,
     laneIndex: 0,
+    laneSpan: 1,
     sourceId: event.sourceId,
     startMinutes: hasTimeRange ? startMinutes : 0,
     title: event.title,
@@ -3367,6 +3647,7 @@ function googleEventToEntry(
       kind: "google",
       laneCount: 1,
       laneIndex: 0,
+      laneSpan: 1,
       sourceId: event.id,
       startMinutes: 0,
       title: event.title,
@@ -3406,6 +3687,7 @@ function googleEventToEntry(
     kind: "google",
     laneCount: 1,
     laneIndex: 0,
+    laneSpan: 1,
     sourceId: event.id,
     startMinutes,
     title: event.title,
@@ -3427,6 +3709,63 @@ function buildHabitMap(snapshot: HabitLogsSnapshot | null) {
   return habitById;
 }
 
+function getScheduledHabitIds(
+  snapshot: HabitLogsSnapshot | null,
+  dateKey: string,
+) {
+  const ids = new Set<string>();
+  if (!snapshot) return ids;
+
+  for (const key of Object.keys(snapshot.logsByHabitDate)) {
+    if (!key.endsWith(`_${dateKey}`)) continue;
+    const status = snapshot.logsByHabitDate[key];
+    if (status === "planned" || status === "complete") {
+      ids.add(key.slice(0, -dateKey.length - 1));
+    }
+  }
+
+  for (const [habitId, plan] of Object.entries(
+    snapshot.repeatingPlansByHabit,
+  )) {
+    if (dateKey < plan.originDate) continue;
+    if (snapshot.explicitPlanDatesByHabit?.[habitId]?.includes(dateKey)) {
+      continue;
+    }
+    if (snapshot.logsByHabitDate[`${habitId}_${dateKey}`] === "complete") {
+      continue;
+    }
+    ids.add(habitId);
+  }
+
+  return ids;
+}
+
+function countHabitCompletions(
+  logsByHabitDate: HabitLogsSnapshot["logsByHabitDate"],
+  habitId: string,
+) {
+  const prefix = `${habitId}_`;
+  let total = 0;
+
+  for (const [key, status] of Object.entries(logsByHabitDate)) {
+    if (status === "complete" && key.startsWith(prefix)) total += 1;
+  }
+
+  return total;
+}
+
+function sortByCompletionTotal(
+  rows: Array<{ completions: number; option: PlanTargetOption }>,
+) {
+  return rows
+    .sort(
+      (left, right) =>
+        right.completions - left.completions ||
+        left.option.title.localeCompare(right.option.title),
+    )
+    .map((row) => row.option);
+}
+
 function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
   const sorted = [...entries].sort(
     (a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes,
@@ -3443,13 +3782,19 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
       let laneIndex = laneEnds.findIndex((end) => end <= entry.startMinutes);
       if (laneIndex === -1) laneIndex = laneEnds.length;
       laneEnds[laneIndex] = entry.endMinutes;
-      return { ...entry, laneIndex };
+      return { ...entry, laneIndex, laneSpan: 1 };
     });
     const laneCount = Math.max(laneEnds.length, 1);
+
+    const entriesByLane = Array.from({ length: laneCount }, (_, laneIndex) =>
+      clusterEntries.filter((entry) => entry.laneIndex === laneIndex),
+    );
+
     laidOut.push(
       ...clusterEntries.map((entry) => ({
         ...entry,
         laneCount,
+        laneSpan: getLaneSpan(entry, entriesByLane),
       })),
     );
     cluster = [];
@@ -3467,6 +3812,45 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
 
   flushCluster();
   return laidOut;
+}
+
+function getLaneSpan(
+  entry: DayPlanEntry,
+  entriesByLane: DayPlanEntry[][],
+): number {
+  let span = 1;
+
+  for (
+    let laneIndex = entry.laneIndex + 1;
+    laneIndex < entriesByLane.length;
+    laneIndex += 1
+  ) {
+    const blockers = entriesByLane[laneIndex].filter((candidate) =>
+      entriesOverlap(entry, candidate),
+    );
+    if (
+      blockers.length > 0 &&
+      !blockers.every((candidate) => isStrictlyInside(candidate, entry))
+    ) {
+      break;
+    }
+    span += 1;
+  }
+
+  return span;
+}
+
+function entriesOverlap(left: DayPlanEntry, right: DayPlanEntry) {
+  return (
+    left.startMinutes < right.endMinutes && right.startMinutes < left.endMinutes
+  );
+}
+
+function isStrictlyInside(candidate: DayPlanEntry, container: DayPlanEntry) {
+  return (
+    container.startMinutes < candidate.startMinutes &&
+    candidate.endMinutes < container.endMinutes
+  );
 }
 
 function getDayRange(date: Date) {
@@ -3496,8 +3880,13 @@ function clampMinutes(minutes: number) {
   return Math.max(0, Math.min(MINUTES_IN_DAY, minutes));
 }
 
-function minutesFromTimelineY(y: number) {
-  return snapMinutes((Math.max(0, y) / HOUR_HEIGHT) * 60);
+function minutesFromTimelineY(
+  y: number,
+  hourHeight: number,
+  mode: "floor" | "round" = "round",
+) {
+  const minutes = (Math.max(0, y) / hourHeight) * 60;
+  return mode === "floor" ? snapMinutesDown(minutes) : snapMinutes(minutes);
 }
 
 function normalizePlanRange(startMinutes: number, currentMinutes: number) {
@@ -3546,19 +3935,21 @@ function movePlanRange({
 
 function isTimelinePointOnEntry({
   entries,
+  hourHeight,
   timelineWidth,
   x,
   y,
 }: {
   entries: DayPlanEntry[];
+  hourHeight: number;
   timelineWidth: number;
   x: number;
   y: number;
 }) {
   return entries.some((entry) => {
-    const top = (entry.startMinutes / 60) * HOUR_HEIGHT;
+    const top = (entry.startMinutes / 60) * hourHeight;
     const height = Math.max(
-      ((entry.endMinutes - entry.startMinutes) / 60) * HOUR_HEIGHT,
+      ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight,
       MIN_EVENT_HEIGHT,
     );
 
@@ -3567,7 +3958,8 @@ function isTimelinePointOnEntry({
 
     const laneWidth = 100 / Math.max(entry.laneCount, 1);
     const left = (laneWidth * entry.laneIndex * timelineWidth) / 100;
-    const width = (laneWidth * timelineWidth) / 100;
+    const width =
+      (laneWidth * Math.max(entry.laneSpan, 1) * timelineWidth) / 100;
 
     return x >= left && x <= left + width;
   });
@@ -3586,6 +3978,12 @@ function googleEntryId(entryId: string) {
 function snapMinutes(minutes: number) {
   return clampMinutes(
     Math.round(minutes / PLAN_SNAP_MINUTES) * PLAN_SNAP_MINUTES,
+  );
+}
+
+function snapMinutesDown(minutes: number) {
+  return clampMinutes(
+    Math.floor(minutes / PLAN_SNAP_MINUTES) * PLAN_SNAP_MINUTES,
   );
 }
 
@@ -3848,7 +4246,6 @@ const styles = StyleSheet.create({
   },
   timelineScroller: { flex: 1 },
   timeline: {
-    height: HOUR_HEIGHT * 24,
     position: "relative",
   },
   hourRow: {
