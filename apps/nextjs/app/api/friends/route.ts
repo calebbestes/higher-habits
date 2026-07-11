@@ -13,8 +13,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import { sendPushToUser } from "@/lib/push";
 import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
+import { sendPushToUser } from "@/lib/push";
 
 const createFriendSchema = z.object({
   email: z
@@ -340,6 +340,7 @@ async function getFriendProfile(
       priority: habits.priority,
       visibility: habits.visibility,
       period: habits.period,
+      defaultComplete: habits.defaultComplete,
     })
     .from(habits)
     .innerJoin(categories, eq(habits.categoryId, categories.id))
@@ -383,7 +384,12 @@ async function getFriendProfile(
       : [];
   const logsByHabitDate = Object.fromEntries(
     logRows
-      .filter((log) => log.status === "complete" || log.status === "planned")
+      .filter(
+        (log) =>
+          log.status === "complete" ||
+          log.status === "planned" ||
+          log.status === "incomplete",
+      )
       .map((log) => [`${log.goalId}_${log.date}`, log.status]),
   );
   const categoriesById = new Map<
@@ -397,6 +403,7 @@ async function getFriendProfile(
         name: string;
         iconKey: string;
         priority: "high" | "low";
+        defaultComplete: boolean;
       }>;
     }
   >();
@@ -414,6 +421,7 @@ async function getFriendProfile(
       name: habit.name,
       iconKey: habit.iconKey,
       priority: habit.priority,
+      defaultComplete: habit.defaultComplete,
     });
     categoriesById.set(habit.categoryId, category);
   }

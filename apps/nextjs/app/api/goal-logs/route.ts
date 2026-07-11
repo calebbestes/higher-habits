@@ -218,6 +218,7 @@ export async function GET(request: Request) {
       repeatInterval: habits.repeatInterval,
       repeatDays: habits.repeatDays,
       repeatMonthlyType: habits.repeatMonthlyType,
+      defaultComplete: habits.defaultComplete,
       reminderEnabled: habits.reminderEnabled,
       reminderTime: habits.reminderTime,
       createdAt: habits.createdAt,
@@ -427,6 +428,7 @@ export async function GET(request: Request) {
         visibility: g.visibility,
         period: g.period,
         frequencyGoal: g.frequencyGoal,
+        defaultComplete: g.defaultComplete,
         reminderEnabled: g.reminderEnabled,
         reminderTime: g.reminderTime,
         sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
@@ -455,6 +457,7 @@ export async function GET(request: Request) {
       repeatInterval: g.repeatInterval ?? null,
       repeatDays: (g.repeatDays as number[] | null) ?? null,
       repeatMonthlyType: g.repeatMonthlyType ?? null,
+      defaultComplete: g.defaultComplete,
       reminderEnabled: g.reminderEnabled,
       reminderTime: g.reminderTime,
       createdAt: g.createdAt.toISOString(),
@@ -476,7 +479,12 @@ export async function GET(request: Request) {
     );
     const logsByHabitDate = Object.fromEntries(
       logs
-        .filter((log) => log.status === "complete" || log.status === "planned")
+        .filter(
+          (log) =>
+            log.status === "complete" ||
+            log.status === "planned" ||
+            log.status === "incomplete",
+        )
         .map((log) => [`${log.goalId}_${log.date}`, log.status]),
     );
     const notesByHabitDate = Object.fromEntries(
@@ -704,13 +712,13 @@ export async function POST(request: Request) {
           ? normalizeTimeKey(data.plannedStartTime)
           : data.status === "complete" && data.plannedStartTime !== undefined
             ? normalizeTimeKey(data.plannedStartTime)
-          : null;
+            : null;
       const plannedEndTime =
         data.status === "planned"
           ? normalizeTimeKey(data.plannedEndTime)
           : data.status === "complete" && data.plannedEndTime !== undefined
             ? normalizeTimeKey(data.plannedEndTime)
-          : null;
+            : null;
       const plannedRepeatsDaily =
         data.status === "planned" && goal.period === "daily"
           ? data.repeatPlan

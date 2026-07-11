@@ -24,6 +24,7 @@ export type HabitInCategory = {
   visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
@@ -80,6 +81,7 @@ export type PeriodicHabitInfo = {
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   createdAt: string;
@@ -90,7 +92,7 @@ export type HabitLogsSnapshot = {
   categories: CategoryWithHabits[];
   periodicHabits: PeriodicHabitInfo[];
   acceptedHabitIncentives?: AcceptedHabitIncentive[];
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, "complete" | "incomplete" | "planned">;
   notesByHabitDate: Record<string, string>;
   photoCountsByHabitDate: Record<string, number>;
   visibilityByHabitDate: Record<string, HabitVisibility>;
@@ -109,7 +111,7 @@ export type HabitLogsSnapshot = {
   socialByHabitDate: Record<string, HabitLogSocialSummary>;
 };
 
-export type HabitLogStatus = "complete" | "planned" | null;
+export type HabitLogStatus = "complete" | "incomplete" | "planned" | null;
 
 export type GoalInCategory = HabitInCategory;
 export type AcceptedGoalIncentive = AcceptedHabitIncentive;
@@ -148,6 +150,10 @@ function normalizePriority(value: unknown): "high" | "low" {
   return value === "high" ? "high" : "low";
 }
 
+function normalizeDefaultComplete(value: unknown) {
+  return value === true;
+}
+
 function mapValues<T>(
   value: unknown,
   normalizeValue: (value: unknown) => T | null,
@@ -163,7 +169,11 @@ function mapValues<T>(
 }
 
 function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
-  return { ...habit, priority: normalizePriority(habit.priority) };
+  return {
+    ...habit,
+    defaultComplete: normalizeDefaultComplete(habit.defaultComplete),
+    priority: normalizePriority(habit.priority),
+  };
 }
 
 function normalizeHabits(value: unknown): HabitInCategory[] {
@@ -213,7 +223,9 @@ function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
       ? (payload.acceptedHabitIncentives as AcceptedHabitIncentive[])
       : [],
     logsByHabitDate: mapValues(payload.logsByHabitDate, (status) =>
-      status === "complete" || status === "planned" ? status : null,
+      status === "complete" || status === "incomplete" || status === "planned"
+        ? status
+        : null,
     ),
     notesByHabitDate: mapValues(payload.notesByHabitDate, (note) =>
       typeof note === "string" ? note : null,

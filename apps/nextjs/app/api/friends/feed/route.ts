@@ -277,6 +277,7 @@ export async function GET(request: Request) {
         dateKey: string;
         notes: string;
         updatedAt: string;
+        canDeletePhotos: boolean;
         props: {
           count: number;
           hasPropped: boolean;
@@ -320,6 +321,7 @@ export async function GET(request: Request) {
         dateKey: row.dateKey,
         notes: row.notes,
         updatedAt: row.updatedAt.toISOString(),
+        canDeletePhotos: row.friendId === user.id,
         props: {
           count: 0,
           hasPropped: false,
@@ -465,6 +467,7 @@ export async function GET(request: Request) {
         dateKey: row.completedAt.toISOString().slice(0, 10),
         notes: row.notes ?? "",
         updatedAt: row.updatedAt.toISOString(),
+        canDeletePhotos: row.friendId === user.id,
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,

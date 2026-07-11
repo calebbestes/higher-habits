@@ -19,7 +19,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
-import type { ActionGoal } from "@/components/daily-goals/shared";
+import {
+  type ActionGoal,
+  getGoalDateStatus,
+} from "@/components/daily-goals/shared";
 import { DatePartPicker } from "@/components/date-part-picker";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { useTheme } from "@/hooks/use-theme";
@@ -2293,6 +2296,7 @@ export function SharedGoalsScreen() {
           visibility: actionPersonalGoal?.visibility ?? "only_me",
           period: actionPersonalGoal?.period ?? "daily",
           frequencyGoal: actionPersonalGoal?.frequencyGoal ?? null,
+          defaultComplete: actionPersonalGoal?.defaultComplete ?? false,
           reminderEnabled: actionPersonalGoal?.reminderEnabled ?? false,
           reminderTime: actionPersonalGoal?.reminderTime ?? null,
         }
@@ -2301,8 +2305,14 @@ export function SharedGoalsScreen() {
   const actionLogKey = actionPersonalGoalId
     ? `${actionPersonalGoalId}_${todayKey()}`
     : "";
-  const actionStatus: "complete" | "planned" | undefined = actionLogKey
-    ? (logsSnapshot?.logsByGoalDate[actionLogKey] ??
+  const actionStatus = actionLogKey
+    ? ((actionGoalForModal && logsSnapshot
+        ? getGoalDateStatus(
+            actionGoalForModal,
+            todayKey(),
+            logsSnapshot.logsByGoalDate,
+          )
+        : undefined) ??
       (actionGoal?.currentUserParticipant?.completedToday
         ? "complete"
         : undefined))

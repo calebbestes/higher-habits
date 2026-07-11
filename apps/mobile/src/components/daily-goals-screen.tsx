@@ -66,6 +66,7 @@ import {
   PRIORITY_LABELS,
   addDays,
   formatDate,
+  getGoalDateStatus,
   isSameDay,
   styles,
   sym,
@@ -97,7 +98,7 @@ export function DailyGoalsScreen({
   });
   const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
   const [logsByHabitDate, setLogsByGoalDate] = useState<
-    Record<string, "complete" | "planned">
+    HabitLogsSnapshot["logsByHabitDate"]
   >({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -544,7 +545,7 @@ export function DailyGoalsScreen({
       for (const goal of cat.habits) {
         const pr = getDailyPriorityBucket(goal);
         progress[pr].total++;
-        if (logsByHabitDate[`${goal.id}_${dateKey}`] === "complete") {
+        if (getGoalDateStatus(goal, dateKey, logsByHabitDate) === "complete") {
           progress[pr].completed++;
         }
       }
@@ -620,7 +621,7 @@ export function DailyGoalsScreen({
           goals: cat.habits.filter(
             (g) =>
               getDailyPriorityBucket(g) === p &&
-              logsByHabitDate[`${g.id}_${dateKey}`] !== "complete",
+              getGoalDateStatus(g, dateKey, logsByHabitDate) !== "complete",
           ),
         }))
         .filter((g) => g.goals.length > 0);
@@ -633,7 +634,10 @@ export function DailyGoalsScreen({
     () =>
       categoriesWithGoals.flatMap((cat) =>
         cat.habits
-          .filter((g) => logsByHabitDate[`${g.id}_${dateKey}`] === "complete")
+          .filter(
+            (g) =>
+              getGoalDateStatus(g, dateKey, logsByHabitDate) === "complete",
+          )
           .map((g) => ({ goal: g, category: cat })),
       ),
     [categoriesWithGoals, logsByHabitDate, dateKey],
@@ -718,7 +722,7 @@ export function DailyGoalsScreen({
     hasPhoto: boolean;
     plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
-    status: "complete" | "planned" | undefined;
+    status: Exclude<HabitLogStatus, null> | undefined;
     isUpdating: boolean;
   } = {
     hasNote: false,
@@ -741,7 +745,7 @@ export function DailyGoalsScreen({
           snapshot?.visibilityByHabitDate?.[key] ??
           activeGoal.visibility ??
           "only_me",
-        status: logsByHabitDate?.[key],
+        status: getGoalDateStatus(activeGoal, dateKey, logsByHabitDate),
         isUpdating: updatingKeys.has(key),
       };
     } catch (modalError) {

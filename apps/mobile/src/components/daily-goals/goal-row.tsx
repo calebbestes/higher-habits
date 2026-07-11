@@ -7,7 +7,7 @@ import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
 import { formatStoredPlanTimeDisplay } from "@/lib/plan-time";
 
-import { type ActionGoal, styles, sym } from "./shared";
+import { type ActionGoal, type GoalDateStatus, styles, sym } from "./shared";
 
 function GoalRowImpl({
   goal,
@@ -17,7 +17,7 @@ function GoalRowImpl({
   onPress,
 }: {
   goal: ActionGoal;
-  status: "complete" | "planned" | undefined;
+  status: GoalDateStatus;
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
@@ -29,6 +29,7 @@ function GoalRowImpl({
 }) {
   const theme = useTheme();
   const isComplete = status === "complete";
+  const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
   const plannedTimeDisplay = isPlanned
     ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
@@ -40,7 +41,7 @@ function GoalRowImpl({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${goal.name}, ${status ?? "not reported"}. Tap to open actions.`}
+      accessibilityLabel={`${goal.name}, ${hasSlip ? "slip recorded" : (status ?? "not reported")}. Tap to open actions.`}
       onPress={onPress}
       style={({ pressed }) => [styles.goalRow, pressed && styles.pressed]}
     >

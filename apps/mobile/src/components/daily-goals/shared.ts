@@ -6,6 +6,7 @@ import type { GoalInCategory, PeriodicGoalInfo } from "@/lib/goal-logs-client";
 
 export type SymbolName = SymbolViewProps["name"];
 export type ActionGoal = GoalInCategory | PeriodicGoalInfo;
+export type GoalDateStatus = "complete" | "incomplete" | "planned" | undefined;
 
 export type CategoryConfig = { color: string; symbol: SymbolName };
 
@@ -74,6 +75,16 @@ export function addDays(date: Date, days: number): Date {
 
 export function formatDate(date: Date): string {
   return `${DAY_NAMES[date.getDay()]}, ${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`;
+}
+
+export function getGoalDateStatus(
+  goal: ActionGoal,
+  dateKey: string,
+  logsByGoalDate: Record<string, "complete" | "incomplete" | "planned">,
+): GoalDateStatus {
+  const explicitStatus = logsByGoalDate[`${goal.id}_${dateKey}`];
+  if (explicitStatus) return explicitStatus;
+  return goal.defaultComplete ? "complete" : undefined;
 }
 
 export const styles = StyleSheet.create({

@@ -24,6 +24,7 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
@@ -81,6 +82,7 @@ export type PeriodicGoalInfo = {
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   createdAt: string;
@@ -91,7 +93,7 @@ export type GoalLogsSnapshot = {
   categories: CategoryWithGoals[];
   periodicGoals: PeriodicGoalInfo[];
   acceptedGoalIncentives?: AcceptedGoalIncentive[];
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, "complete" | "incomplete" | "planned">;
   notesByGoalDate: Record<string, string>;
   photoCountsByGoalDate: Record<string, number>;
   visibilityByGoalDate: Record<string, GoalVisibility>;
@@ -102,7 +104,7 @@ export type GoalLogsSnapshot = {
   socialByGoalDate: Record<string, GoalLogSocialSummary>;
 };
 
-export type GoalLogStatus = "complete" | "planned" | null;
+export type GoalLogStatus = "complete" | "incomplete" | "planned" | null;
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -132,6 +134,10 @@ function normalizePriority(value: unknown): "high" | "low" {
   return value === "high" ? "high" : "low";
 }
 
+function normalizeDefaultComplete(value: unknown) {
+  return value === true;
+}
+
 function mapValues<T>(
   value: unknown,
   normalizeValue: (value: unknown) => T | null,
@@ -147,7 +153,11 @@ function mapValues<T>(
 }
 
 function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
-  return { ...goal, priority: normalizePriority(goal.priority) };
+  return {
+    ...goal,
+    defaultComplete: normalizeDefaultComplete(goal.defaultComplete),
+    priority: normalizePriority(goal.priority),
+  };
 }
 
 function normalizeGoals(value: unknown): GoalInCategory[] {
@@ -233,7 +243,9 @@ function normalizeSnapshot(value: unknown): GoalLogsSnapshot {
       ? (payload.acceptedGoalIncentives as AcceptedGoalIncentive[])
       : [],
     logsByGoalDate: mapValues(payload.logsByGoalDate, (status) =>
-      status === "complete" || status === "planned" ? status : null,
+      status === "complete" || status === "incomplete" || status === "planned"
+        ? status
+        : null,
     ),
     notesByGoalDate: mapValues(payload.notesByGoalDate, (note) =>
       typeof note === "string" ? note : null,

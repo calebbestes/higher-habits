@@ -45,6 +45,7 @@ import {
 } from "@/lib/google-calendar-client";
 import {
   type HabitInCategory,
+  type HabitLogStatus,
   type HabitLogsSnapshot,
   type PeriodicHabitInfo,
   fetchHabitLogsSnapshot,
@@ -1041,7 +1042,12 @@ export function DayPlanScreen({
     ? snapshot?.logsByHabitDate[activeKey]
     : undefined;
   const activeModalStatus =
-    activeHabitStatus ?? (activePlannedTime ? "planned" : undefined);
+    activeHabitStatus ??
+    (activeHabit?.defaultComplete
+      ? "complete"
+      : activePlannedTime
+        ? "planned"
+        : undefined);
   const isPlanSheetOpen = Boolean(
     activeHabit ||
       activeEntry ||
@@ -1738,7 +1744,7 @@ export function DayPlanScreen({
   };
 
   const setActiveStatus = async (
-    status: "complete" | "planned" | null,
+    status: HabitLogStatus,
     options?: {
       endTime?: string | null;
       repeatPlan?: boolean;
