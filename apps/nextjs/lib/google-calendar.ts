@@ -103,7 +103,7 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
   }
 
   const [account] = await db
-    .select({ scope: accounts.scope })
+    .select({ refreshToken: accounts.refreshToken, scope: accounts.scope })
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
     .limit(1);
@@ -111,7 +111,10 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
 
   return {
     configured,
-    connected: configured && hasGoogleCalendarWriteScope(scopes),
+    connected:
+      configured &&
+      Boolean(account?.refreshToken) &&
+      hasGoogleCalendarWriteScope(scopes),
     hasGoogleAccount: Boolean(account),
     scopes,
   };

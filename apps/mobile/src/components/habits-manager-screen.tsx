@@ -119,6 +119,7 @@ const EMPTY_HABIT: HabitInput = {
   priority: "low",
   visibility: "only_me",
   iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
+  defaultComplete: false,
   reminderEnabled: false,
   reminderTime: null,
   hidden: false,
@@ -179,6 +180,7 @@ function toInput(habit: Habit): HabitInput {
     priority: habit.priority,
     visibility: habit.visibility,
     iconKey: habit.iconKey,
+    defaultComplete: habit.defaultComplete,
     reminderEnabled: habit.reminderEnabled ?? false,
     reminderTime: habit.reminderTime ?? null,
     hidden: habit.hidden,
@@ -1206,6 +1208,40 @@ export function HabitFormModal({
                   setForm((current) => ({ ...current, iconKey }))
                 }
               />
+              <View
+                style={[
+                  styles.switchRow,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.switchCopy}>
+                  <Text style={[styles.switchTitle, { color: theme.text }]}>
+                    Default complete
+                  </Text>
+                  <Text
+                    style={[
+                      styles.switchDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Use for habits about not doing something. Record a slip when
+                    it happens.
+                  </Text>
+                </View>
+                <Switch
+                  onValueChange={(defaultComplete) =>
+                    setForm((current) => ({ ...current, defaultComplete }))
+                  }
+                  trackColor={{
+                    false: theme.backgroundSelected,
+                    true: theme.primary,
+                  }}
+                  value={form.defaultComplete}
+                />
+              </View>
             </FormSection>
 
             <FormSection title="Schedule">

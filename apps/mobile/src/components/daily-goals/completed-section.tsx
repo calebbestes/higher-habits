@@ -6,7 +6,7 @@ import { useTheme } from "@/hooks/use-theme";
 import type { CategoryWithGoals, GoalInCategory } from "@/lib/goal-logs-client";
 
 import { GoalRow } from "./goal-row";
-import { styles, sym } from "./shared";
+import { getGoalDateStatus, styles, sym } from "./shared";
 
 function CompletedSectionImpl({
   completedList,
@@ -21,7 +21,7 @@ function CompletedSectionImpl({
 }: {
   completedList: { goal: GoalInCategory; category: CategoryWithGoals }[];
   dateKey: string;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, "complete" | "incomplete" | "planned">;
   plannedTimesByGoalDate?: Record<
     string,
     { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
@@ -77,7 +77,7 @@ function CompletedSectionImpl({
               ) : null}
               <GoalRow
                 goal={goal}
-                status={logsByGoalDate[`${goal.id}_${dateKey}`]}
+                status={getGoalDateStatus(goal, dateKey, logsByGoalDate)}
                 plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}

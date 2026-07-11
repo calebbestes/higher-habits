@@ -93,6 +93,7 @@ export async function GET(
         priority: habits.priority,
         visibility: habits.visibility,
         period: habits.period,
+        defaultComplete: habits.defaultComplete,
       })
       .from(habits)
       .innerJoin(categories, eq(habits.categoryId, categories.id))
@@ -136,7 +137,12 @@ export async function GET(
         : [];
     const logsByHabitDate = Object.fromEntries(
       logRows
-        .filter((log) => log.status === "complete" || log.status === "planned")
+        .filter(
+          (log) =>
+            log.status === "complete" ||
+            log.status === "planned" ||
+            log.status === "incomplete",
+        )
         .map((log) => [`${log.goalId}_${log.date}`, log.status]),
     );
     const categoriesById = new Map<
@@ -150,6 +156,7 @@ export async function GET(
           name: string;
           iconKey: string;
           priority: "high" | "low";
+          defaultComplete: boolean;
         }>;
       }
     >();
@@ -167,6 +174,7 @@ export async function GET(
         name: habit.name,
         iconKey: habit.iconKey,
         priority: habit.priority,
+        defaultComplete: habit.defaultComplete,
       });
       categoriesById.set(habit.categoryId, category);
     }

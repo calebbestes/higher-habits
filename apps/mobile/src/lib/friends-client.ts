@@ -50,6 +50,7 @@ export type FriendProfileHabit = {
   name: string;
   iconKey: string;
   priority: "high" | "low";
+  defaultComplete: boolean;
 };
 
 export type FriendProfileCategory = {
@@ -69,7 +70,7 @@ export type FriendProfile = {
   };
   dateKeys: string[];
   categories: FriendProfileCategory[];
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, "complete" | "incomplete" | "planned">;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -151,6 +152,7 @@ function normalizeProfileHabit(value: unknown): FriendProfileHabit | null {
     name: stringOrFallback(value.name, "Habit"),
     iconKey: stringOrFallback(value.iconKey, "mdi:target"),
     priority: value.priority === "high" ? "high" : "low",
+    defaultComplete: booleanOrFallback(value.defaultComplete),
   };
 }
 
@@ -179,7 +181,9 @@ function normalizeLogsByHabitDate(
 
   return Object.fromEntries(
     Object.entries(value).flatMap(([key, status]) =>
-      status === "complete" || status === "planned" ? [[key, status]] : [],
+      status === "complete" || status === "planned" || status === "incomplete"
+        ? [[key, status]]
+        : [],
     ),
   );
 }
@@ -255,6 +259,7 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
     dateKey: stringOrFallback(value.dateKey),
     notes: stringOrFallback(value.notes),
     updatedAt: stringOrFallback(value.updatedAt),
+    canDeletePhotos: booleanOrFallback(value.canDeletePhotos),
     props: isRecord(value.props)
       ? {
           count: numberOrFallback(value.props.count),
@@ -344,6 +349,7 @@ export type FriendFeedEntry = {
   dateKey: string;
   notes: string;
   updatedAt: string;
+  canDeletePhotos: boolean;
   props: {
     count: number;
     hasPropped: boolean;
@@ -437,6 +443,7 @@ async function fetchFriendProfileFromExistingData(
       name: option.name,
       iconKey: "mdi:target",
       priority: "low",
+      defaultComplete: false,
     });
   }
 
@@ -450,6 +457,7 @@ async function fetchFriendProfileFromExistingData(
       name: entry.goal.name,
       iconKey: entry.goal.icon,
       priority: habitsById.get(entry.goal.id)?.priority ?? "low",
+      defaultComplete: habitsById.get(entry.goal.id)?.defaultComplete ?? false,
     });
     logsByHabitDate[`${entry.goal.id}_${entry.dateKey}`] = "complete";
   }

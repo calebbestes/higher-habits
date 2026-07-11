@@ -320,10 +320,12 @@ function menuSelectedState(selected: boolean): MenuAction["state"] {
   return selected ? "on" : undefined;
 }
 
+type MonthLogStatus = "complete" | "incomplete" | "planned";
+
 function getGoalMonthProgress(
   goal: PeriodicHabitInfo,
   monthKey: string,
-  logsByHabitDate: Record<string, "complete" | "planned">,
+  logsByHabitDate: Record<string, MonthLogStatus>,
 ): { completed: number; planned: number; target: number } {
   const target = Math.max(goal.frequencyGoal ?? 1, 1);
   const keyPrefix = `${goal.id}_${monthKey}`;
@@ -370,7 +372,7 @@ export function MonthlyGoalsScreen({
   const todayDateKey = useMemo(() => toDateKey(today), [today]);
   const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
   const [logsByHabitDate, setLogsByGoalDate] = useState<
-    Record<string, "complete" | "planned">
+    Record<string, MonthLogStatus>
   >({});
   const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -772,7 +774,7 @@ export function MonthlyGoalsScreen({
     hasPhoto: boolean;
     plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
-    status: "complete" | "planned" | undefined;
+    status: MonthLogStatus | undefined;
     isUpdating: boolean;
   } = {
     hasNote: false,
@@ -1289,7 +1291,7 @@ function CalendarGrid({
 }: {
   days: { date: Date; isOutside: boolean }[];
   dayLoggedMap: Record<string, PeriodicHabitInfo[]>;
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, MonthLogStatus>;
   todayDateKey: string;
   selectedDateKey: string;
   onDayPress: (dateKey: string) => void;
@@ -1383,7 +1385,7 @@ const DayCell = memo(function DayCell({
   isToday: boolean;
   isSelected: boolean;
   loggedGoals: PeriodicHabitInfo[];
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, MonthLogStatus>;
   isLastInRow: boolean;
   onPress: (dateKey: string) => void;
 }) {
@@ -1510,7 +1512,7 @@ function DayDetailPanel({
   hasMonthlyGoals: boolean;
   isFilterActive: boolean;
   isFilterOpen: boolean;
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, MonthLogStatus>;
   plannedTimesByHabitDate?: Record<
     string,
     { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
@@ -1666,9 +1668,9 @@ function SwipeableGoalRow({
   onPress,
 }: {
   goal: PeriodicHabitInfo;
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, MonthLogStatus>;
   monthKey: string;
-  status: "complete" | "planned" | undefined;
+  status: MonthLogStatus | undefined;
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
@@ -1785,9 +1787,9 @@ function GoalListRow({
   onPress,
 }: {
   goal: PeriodicHabitInfo;
-  logsByHabitDate: Record<string, "complete" | "planned">;
+  logsByHabitDate: Record<string, MonthLogStatus>;
   monthKey: string;
-  status: "complete" | "planned" | undefined;
+  status: MonthLogStatus | undefined;
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
@@ -1992,7 +1994,7 @@ function GoalActionsModal({
     repeatsDaily?: boolean;
   };
   visibility: HabitVisibility;
-  status: "complete" | "planned" | undefined;
+  status: MonthLogStatus | undefined;
   isUpdating: boolean;
   isUpdatingVisibility: boolean;
   selectedDateKey: string;

@@ -32,7 +32,13 @@ import {
 } from "@/lib/plan-time";
 import { richTextToPlainText } from "@/lib/rich-text";
 
-import { type ActionGoal, modalStyles, styles, sym } from "./shared";
+import {
+  type ActionGoal,
+  type GoalDateStatus,
+  modalStyles,
+  styles,
+  sym,
+} from "./shared";
 
 type PlanTimePart = "hour" | "minute";
 type PlanTimeParts = { hour: number; minute: number };
@@ -68,7 +74,7 @@ function GoalActionsModalImpl({
   noteText?: string | null;
   hasPhoto: boolean;
   visibility: GoalVisibility;
-  status: "complete" | "planned" | undefined;
+  status: GoalDateStatus;
   isUpdating: boolean;
   isUpdatingVisibility: boolean;
   canPlan?: boolean;
@@ -96,7 +102,9 @@ function GoalActionsModalImpl({
 }) {
   const theme = useTheme();
   const isComplete = status === "complete";
+  const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
+  const isDefaultComplete = Boolean(goal?.defaultComplete);
   const showCompleteAction = !isFutureDate || isComplete;
   const showPlanAction = canPlan && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
@@ -257,7 +265,17 @@ function GoalActionsModalImpl({
               >
                 {showCompleteAction ? (
                   <Pressable
-                    onPress={() => onSetStatus(isComplete ? null : "complete")}
+                    onPress={() =>
+                      onSetStatus(
+                        isDefaultComplete
+                          ? hasSlip
+                            ? null
+                            : "incomplete"
+                          : isComplete
+                            ? null
+                            : "complete",
+                      )
+                    }
                     style={({ pressed }) => [
                       modalStyles.actionRow,
                       { backgroundColor: theme.backgroundElement },
@@ -269,20 +287,35 @@ function GoalActionsModalImpl({
                     ) : (
                       <SymbolView
                         name={
-                          isComplete
+                          hasSlip
                             ? sym("arrow.uturn.backward.circle.fill", "undo")
-                            : sym("checkmark.circle.fill", "check_circle")
+                            : isDefaultComplete
+                              ? sym("exclamationmark.circle.fill", "error")
+                              : isComplete
+                                ? sym(
+                                    "arrow.uturn.backward.circle.fill",
+                                    "undo",
+                                  )
+                                : sym("checkmark.circle.fill", "check_circle")
                         }
                         size={26}
                         tintColor={
-                          isComplete ? theme.textSecondary : theme.primary
+                          isComplete || hasSlip
+                            ? theme.textSecondary
+                            : theme.primary
                         }
                       />
                     )}
                     <Text
                       style={[modalStyles.actionText, { color: theme.text }]}
                     >
-                      {isComplete ? "Reopen" : "Mark complete"}
+                      {isDefaultComplete
+                        ? hasSlip
+                          ? "Clear slip"
+                          : "Record slip"
+                        : isComplete
+                          ? "Reopen"
+                          : "Mark complete"}
                     </Text>
                   </Pressable>
                 ) : null}

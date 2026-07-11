@@ -24,6 +24,7 @@ const habitFields = {
     .enum(["only_me", "goal_friends", "all_friends"])
     .default("only_me"),
   iconKey: z.string().default(""),
+  defaultComplete: z.boolean().default(false),
   reminderEnabled: z.boolean().default(false),
   reminderTime: z.string().regex(TIME_REGEX).nullable().default(null),
   hidden: z.boolean().default(false),
@@ -64,6 +65,7 @@ const selectHabitShape = {
   priority: habits.priority,
   visibility: habits.visibility,
   iconKey: habits.iconKey,
+  defaultComplete: habits.defaultComplete,
   reminderEnabled: habits.reminderEnabled,
   reminderTime: habits.reminderTime,
   hidden: habits.hidden,
@@ -209,6 +211,7 @@ export async function POST(request: Request) {
       priority: d.priority,
       visibility: d.visibility,
       iconKey: d.iconKey,
+      defaultComplete: d.defaultComplete,
       reminderEnabled: d.reminderEnabled,
       reminderTime: d.reminderEnabled ? (d.reminderTime ?? "09:00") : null,
       hidden: d.hidden,

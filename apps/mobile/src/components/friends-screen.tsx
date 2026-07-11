@@ -596,7 +596,8 @@ export function FriendProfileModal({
     return {
       completed: habits.filter(
         (habit) =>
-          profile.logsByHabitDate[`${habit.id}_${todayKey}`] === "complete",
+          getFriendHabitStatus(habit, todayKey, profile.logsByHabitDate) ===
+          "complete",
       ).length,
       total: habits.length,
     };
@@ -868,7 +869,7 @@ function FriendHabitHeatmapRow({
       </Pressable>
       <View style={styles.profileDayBlocks}>
         {days.map((day) => {
-          const status = logsByHabitDate[`${habit.id}_${day}`];
+          const status = getFriendHabitStatus(habit, day, logsByHabitDate);
           return (
             <View
               key={day}
@@ -889,6 +890,16 @@ function FriendHabitHeatmapRow({
       </View>
     </View>
   );
+}
+
+function getFriendHabitStatus(
+  habit: FriendProfileHabit,
+  dateKey: string,
+  logsByHabitDate: FriendProfile["logsByHabitDate"],
+) {
+  const explicitStatus = logsByHabitDate[`${habit.id}_${dateKey}`];
+  if (explicitStatus) return explicitStatus;
+  return habit.defaultComplete ? "complete" : undefined;
 }
 
 function EmptyFriendsState({

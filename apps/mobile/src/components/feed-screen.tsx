@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,15 +14,18 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
+import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { FriendProfileModal } from "@/components/friends-screen";
 import { GoalIcon } from "@/components/goal-icon";
-import { MaxContentWidth } from "@/constants/theme";
+import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { deleteCheckpointPhoto } from "@/lib/checkpoint-photos-client";
 import {
   type FriendFeedComment,
   type FriendFeedEntry,
@@ -36,27 +39,17 @@ import {
   reportContent,
   toggleFeedProp,
 } from "@/lib/friends-client";
+import { deleteGoalPhoto } from "@/lib/goal-photos-client";
+import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
+type ActiveFeedPhoto = {
+  entry: FriendFeedEntry;
+  photo: FriendFeedPhoto;
+};
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<\/li>/gi, "\n• ")
-    .replace(/<[^>]*>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function formatFeedDate(dateKey: string): string {
@@ -116,7 +109,8 @@ export function FeedScreen() {
   const [submittingComment, setSubmittingComment] = useState<string | null>(
     null,
   );
-  const [activePhoto, setActivePhoto] = useState<FriendFeedPhoto | null>(null);
+  const [activePhoto, setActivePhoto] = useState<ActiveFeedPhoto | null>(null);
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
@@ -255,6 +249,61 @@ export function FeedScreen() {
       }
     },
     [],
+  );
+
+  const handleDeletePhoto = useCallback(
+    (active: ActiveFeedPhoto) => {
+      if (!active.entry.canDeletePhotos || deletingPhotoId) return;
+
+      Alert.alert("Delete photo?", "This permanently removes this photo.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            setDeletingPhotoId(active.photo.id);
+            const deletePhoto =
+              active.entry.kind === "goal_checkpoint"
+                ? deleteCheckpointPhoto(active.photo.id)
+                : deleteGoalPhoto(active.photo.id);
+
+            void deletePhoto
+              .then(() => {
+                if (!isMountedRef.current) return;
+                setEntries((prev) =>
+                  prev.flatMap((entry) => {
+                    if (entry.id !== active.entry.id) return [entry];
+
+                    const photos = entry.photos.filter(
+                      (photo) => photo.id !== active.photo.id,
+                    );
+                    if (
+                      !richTextToPlainText(entry.notes).trim() &&
+                      !photos.length
+                    ) {
+                      return [];
+                    }
+
+                    return [{ ...entry, photos }];
+                  }),
+                );
+                setActivePhoto(null);
+              })
+              .catch((err: unknown) => {
+                if (!isMountedRef.current) return;
+                Alert.alert(
+                  "Could not delete photo",
+                  err instanceof Error ? err.message : undefined,
+                );
+              })
+              .finally(() => {
+                if (isMountedRef.current) setDeletingPhotoId(null);
+              });
+          },
+        },
+      ]);
+    },
+    [deletingPhotoId],
   );
 
   const reportPost = useCallback(async (entry: FriendFeedEntry) => {
@@ -465,7 +514,7 @@ export function FeedScreen() {
                     key={entry.id}
                     entry={entry}
                     onToggleProp={() => void handleToggleProp(entry.id)}
-                    onPhotoPress={setActivePhoto}
+                    onPhotoPress={(photo) => setActivePhoto({ entry, photo })}
                     onOpenComments={() => setActiveCommentsEntryId(entry.id)}
                     onOpenProfile={() => void openFriendProfile(entry)}
                     onOpenSafetyActions={() => openPostSafetyActions(entry)}
@@ -484,18 +533,56 @@ export function FeedScreen() {
         statusBarTranslucent
         onRequestClose={() => setActivePhoto(null)}
       >
-        <Pressable
-          style={styles.lightboxOverlay}
-          onPress={() => setActivePhoto(null)}
-        >
+        <View style={styles.lightboxOverlay}>
           {activePhoto ? (
-            <Image
-              source={{ uri: activePhoto.url }}
-              style={styles.lightboxImage}
-              contentFit="contain"
-            />
+            <>
+              <Image
+                source={{ uri: activePhoto.photo.url }}
+                style={styles.lightboxImage}
+                contentFit="contain"
+              />
+              <Pressable
+                accessibilityLabel="Close photo"
+                hitSlop={10}
+                onPress={() => setActivePhoto(null)}
+                style={({ pressed }) => [
+                  styles.lightboxCloseButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("xmark", "close")}
+                  size={18}
+                  weight="bold"
+                  tintColor="#FFFFFF"
+                />
+              </Pressable>
+              {activePhoto.entry.canDeletePhotos ? (
+                <Pressable
+                  accessibilityLabel="Delete photo"
+                  disabled={deletingPhotoId === activePhoto.photo.id}
+                  onPress={() => handleDeletePhoto(activePhoto)}
+                  style={({ pressed }) => [
+                    styles.lightboxDeleteButton,
+                    deletingPhotoId === activePhoto.photo.id && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {deletingPhotoId === activePhoto.photo.id ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <SymbolView
+                      name={sym("trash.fill", "delete")}
+                      size={18}
+                      weight="semibold"
+                      tintColor="#FFFFFF"
+                    />
+                  )}
+                </Pressable>
+              ) : null}
+            </>
           ) : null}
-        </Pressable>
+        </View>
       </Modal>
 
       <CommentsModal
@@ -575,10 +662,9 @@ function FeedCard({
 }) {
   const theme = useTheme();
   const [notesExpanded, setNotesExpanded] = useState(false);
-  const [notesOverflows, setNotesOverflows] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
-  const strippedNotes = stripHtml(entry.notes);
+  const plainNotes = richTextToPlainText(entry.notes);
   const commentCount = countComments(entry.comments);
 
   return (
@@ -721,33 +807,12 @@ function FeedCard({
       ) : null}
 
       {/* Notes */}
-      {strippedNotes ? (
-        <View>
-          <Text
-            style={[
-              styles.notes,
-              { color: theme.text, paddingBottom: notesOverflows ? 4 : 12 },
-            ]}
-            numberOfLines={notesExpanded ? undefined : 5}
-            onTextLayout={(e) => {
-              if (!notesOverflows && e.nativeEvent.lines.length >= 5) {
-                setNotesOverflows(true);
-              }
-            }}
-          >
-            {strippedNotes}
-          </Text>
-          {notesOverflows ? (
-            <Pressable
-              onPress={() => setNotesExpanded((x) => !x)}
-              style={styles.showMoreButton}
-            >
-              <Text style={[styles.showMoreText, { color: theme.primary }]}>
-                {notesExpanded ? "Show less" : "Show more"}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+      {plainNotes ? (
+        <RichFeedNote
+          expanded={notesExpanded}
+          html={entry.notes}
+          onToggleExpanded={() => setNotesExpanded((x) => !x)}
+        />
       ) : null}
 
       {/* Actions row — props/comments are habit-only for now */}
@@ -803,6 +868,125 @@ function FeedCard({
             </Text>
           </Pressable>
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+const FEED_NOTE_COLLAPSE_HEIGHT = 112;
+
+function RichFeedNote({
+  expanded,
+  html,
+  onToggleExpanded,
+}: {
+  expanded: boolean;
+  html: string;
+  onToggleExpanded: () => void;
+}) {
+  const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.max(0, Math.min(width - 36, MaxContentWidth) - 28);
+  const plainText = richTextToPlainText(html);
+  const isLong = plainText.length > 320 || plainText.split("\n").length > 5;
+  const tagsStyles = useMemo<MixedStyleRecord>(
+    () => ({
+      p: { marginTop: 0, marginBottom: 6 },
+      h1: {
+        fontSize: 17,
+        lineHeight: 23,
+        fontWeight: "800",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      h2: {
+        fontSize: 16,
+        lineHeight: 22,
+        fontWeight: "800",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      h3: {
+        fontSize: 15,
+        lineHeight: 21,
+        fontWeight: "700",
+        marginTop: 0,
+        marginBottom: 6,
+      },
+      strong: { fontWeight: "800" },
+      b: { fontWeight: "800" },
+      em: { fontStyle: "italic" },
+      i: { fontStyle: "italic" },
+      u: { textDecorationLine: "underline" },
+      s: { textDecorationLine: "line-through" },
+      del: { textDecorationLine: "line-through" },
+      ul: { marginTop: 0, marginBottom: 6, paddingLeft: 18 },
+      ol: { marginTop: 0, marginBottom: 6, paddingLeft: 18 },
+      li: { marginBottom: 3 },
+      blockquote: {
+        borderLeftWidth: 3,
+        borderLeftColor: theme.tabBorder,
+        color: theme.textSecondary,
+        marginTop: 0,
+        marginBottom: 6,
+        marginLeft: 0,
+        paddingLeft: 10,
+      },
+      a: {
+        color: theme.primary,
+        textDecorationLine: "underline",
+      },
+      code: {
+        fontFamily: Fonts.mono,
+        backgroundColor: theme.backgroundElement,
+      },
+      pre: {
+        fontFamily: Fonts.mono,
+        backgroundColor: theme.backgroundElement,
+        borderRadius: 8,
+        marginTop: 0,
+        marginBottom: 6,
+        padding: 10,
+      },
+    }),
+    [
+      theme.backgroundElement,
+      theme.primary,
+      theme.tabBorder,
+      theme.textSecondary,
+    ],
+  );
+
+  return (
+    <View style={styles.richNote}>
+      <View
+        style={
+          isLong && !expanded
+            ? { maxHeight: FEED_NOTE_COLLAPSE_HEIGHT, overflow: "hidden" }
+            : undefined
+        }
+      >
+        <RenderHTML
+          baseStyle={{
+            color: theme.text,
+            fontSize: 14,
+            fontWeight: "500",
+            lineHeight: 21,
+          }}
+          contentWidth={contentWidth}
+          defaultTextProps={{ selectable: true }}
+          enableCSSInlineProcessing={false}
+          ignoredDomTags={["script", "style", "iframe", "img", "video"]}
+          source={{ html }}
+          tagsStyles={tagsStyles}
+        />
+      </View>
+      {isLong ? (
+        <Pressable onPress={onToggleExpanded} style={styles.showMoreButton}>
+          <Text style={[styles.showMoreText, { color: theme.primary }]}>
+            {expanded ? "Show less" : "Show more"}
+          </Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -1345,16 +1529,12 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  notes: {
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "400",
+  richNote: {
     paddingHorizontal: 14,
     paddingBottom: 12,
   },
   showMoreButton: {
-    paddingHorizontal: 14,
-    paddingBottom: 12,
+    paddingTop: 2,
   },
   showMoreText: {
     fontSize: 13,
@@ -1496,6 +1676,7 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   sendButtonDisabled: { opacity: 0.45 },
+  disabled: { opacity: 0.45 },
   pressed: { opacity: 0.72 },
   commentsModalOverlay: {
     flex: 1,
@@ -1584,5 +1765,27 @@ const styles = StyleSheet.create({
   lightboxImage: {
     width: "100%",
     height: "85%",
+  },
+  lightboxCloseButton: {
+    position: "absolute",
+    top: 56,
+    right: 18,
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  lightboxDeleteButton: {
+    position: "absolute",
+    right: 18,
+    bottom: 46,
+    width: 46,
+    height: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 23,
+    backgroundColor: "rgba(200,72,80,0.9)",
   },
 });

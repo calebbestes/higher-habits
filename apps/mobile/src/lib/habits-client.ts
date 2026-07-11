@@ -28,6 +28,7 @@ export type Habit = {
   priority: HabitPriority;
   visibility: HabitVisibility;
   iconKey: string;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   hidden: boolean;
@@ -47,6 +48,7 @@ export type HabitInput = {
   priority: HabitPriority;
   visibility: HabitVisibility;
   iconKey: string;
+  defaultComplete: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   hidden: boolean;

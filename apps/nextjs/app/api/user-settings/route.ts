@@ -131,8 +131,6 @@ export async function POST(request: Request) {
       .insert(userSettings)
       .values({
         userId: user.id,
-        ...USER_SETTING_DEFAULTS,
-        ...DEFAULTS,
         ...data,
         updatedAt: new Date(),
       })

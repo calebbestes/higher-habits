@@ -1,4 +1,5 @@
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import { getGoalDateStatus } from "@/components/daily-goals/shared";
 import { GoalIcon } from "@/components/goal-icon";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
@@ -49,6 +50,7 @@ function sym(ios: string, android: string): SymbolName {
 
 const COMPLETE_SHARE_TILE = "🟩";
 const EMPTY_SHARE_TILE = "⬜";
+type DashboardLogStatus = "complete" | "incomplete" | "planned";
 
 const DAILY_DASHBOARD_DAY_COUNT = 7;
 
@@ -81,7 +83,7 @@ function countMonthlyCompletions({
 }: {
   goalId: string;
   currentMonthKey: string;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, DashboardLogStatus>;
 }): number {
   let count = 0;
   const prefix = `${goalId}_${currentMonthKey}-`;
@@ -102,7 +104,7 @@ function buildHabitShareText({
   currentDate: Date;
   categories: CategoryWithGoals[];
   days: string[];
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, DashboardLogStatus>;
 }): string {
   const currentDateKey = toDateKey(currentDate);
   const rows = categories.flatMap((category) =>
@@ -111,13 +113,13 @@ function buildHabitShareText({
       goalName: goal.name,
       cells: days
         .map((dateKey) =>
-          logsByGoalDate[`${goal.id}_${dateKey}`] === "complete"
+          getGoalDateStatus(goal, dateKey, logsByGoalDate) === "complete"
             ? COMPLETE_SHARE_TILE
             : EMPTY_SHARE_TILE,
         )
         .join(""),
       completedToday:
-        logsByGoalDate[`${goal.id}_${currentDateKey}`] === "complete",
+        getGoalDateStatus(goal, currentDateKey, logsByGoalDate) === "complete",
     })),
   );
 
@@ -1011,7 +1013,7 @@ function MonthlyGoalRow({
 }: {
   goal: PeriodicGoalInfo;
   currentMonthKey: string;
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, DashboardLogStatus>;
   showDivider: boolean;
 }) {
   const theme = useTheme();
@@ -1088,7 +1090,7 @@ function CategoryHeatmap({
   category: CategoryWithGoals;
   goals: GoalInCategory[];
   days: string[];
-  logsByGoalDate: Record<string, "complete" | "planned">;
+  logsByGoalDate: Record<string, DashboardLogStatus>;
   onPressDay: (goal: GoalInCategory, dateKey: string) => void;
   onToggleTooltip: (goalId: string) => void;
   showDivider: boolean;
@@ -1108,7 +1110,7 @@ function CategoryHeatmap({
       </Text>
       {goals.map((goal) => {
         const dayStatuses = days.map(
-          (d) => logsByGoalDate[`${goal.id}_${d}`] === "complete",
+          (d) => getGoalDateStatus(goal, d, logsByGoalDate) === "complete",
         );
         return (
           <View key={goal.id} style={styles.heatmapRow}>
