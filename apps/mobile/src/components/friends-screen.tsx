@@ -22,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type ContactMatch,
@@ -46,6 +47,7 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendsScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const [friends, setFriends] = useState<FriendRow[]>([]);
@@ -165,7 +167,10 @@ export function FriendsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

@@ -659,7 +659,7 @@ export function DashboardScreen() {
                     <Text
                       style={[styles.emptyHint, { color: theme.textSecondary }]}
                     >
-                      No monthly goals yet.
+                      No periodic habits yet.
                     </Text>
                   )}
                 </DashCard>
@@ -882,7 +882,7 @@ function DashboardTabs({
   const theme = useTheme();
   const tabs: { key: "daily" | "monthly"; label: string }[] = [
     { key: "daily", label: "Daily" },
-    { key: "monthly", label: "Monthly" },
+    { key: "monthly", label: "Periodic" },
   ];
 
   return (

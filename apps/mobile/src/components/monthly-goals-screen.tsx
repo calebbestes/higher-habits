@@ -1440,16 +1440,28 @@ const DayCell = memo(function DayCell({
         <View style={styles.tilesRow}>
           {visibleGoals.map((goal) => {
             const status = logsByHabitDate[`${goal.id}_${dateKey}`];
-            const bg = status ? theme.primary : theme.backgroundElement;
+            const isComplete = status === "complete";
+            const isPlanned = status === "planned";
             return (
               <View
                 key={goal.id}
-                style={[styles.iconTile, { backgroundColor: bg }]}
+                style={[
+                  styles.iconTile,
+                  {
+                    backgroundColor: isComplete
+                      ? theme.primary
+                      : isPlanned
+                        ? `${theme.primary}24`
+                        : theme.backgroundElement,
+                    borderColor: isPlanned ? theme.primary : "transparent",
+                    borderWidth: isPlanned ? StyleSheet.hairlineWidth : 0,
+                  },
+                ]}
               >
                 <GoalIcon
                   iconKey={goal.iconKey}
                   size={9}
-                  color={theme.primaryForeground}
+                  color={isComplete ? theme.primaryForeground : theme.primary}
                 />
               </View>
             );
@@ -1527,10 +1539,10 @@ function DayDetailPanel({
           />
         </View>
         <Text style={[styles.emptyTitle, { color: theme.text }]}>
-          No monthly habits yet
+          No periodic habits yet
         </Text>
         <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-          Add monthly habits from the Habits section to track them here.
+          Add periodic habits from the Habits section to track them here.
         </Text>
       </View>
     );
@@ -1558,10 +1570,10 @@ function DayDetailPanel({
       {/* Section label */}
       <View style={styles.sectionLabelRow}>
         <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>
-          Monthly Habits
+          Periodic Habits
         </Text>
         <Pressable
-          accessibilityLabel="Sort and filter monthly habits list"
+          accessibilityLabel="Sort and filter periodic habits list"
           accessibilityRole="button"
           accessibilityState={{
             expanded: isFilterOpen,
@@ -1803,8 +1815,13 @@ function GoalListRow({
   const plannedWidth = `${(plannedSlots / target) * 100}%` as const;
 
   const rowBg = isComplete ? `${theme.primary}12` : "transparent";
-  const statusBg = isComplete ? theme.primary : "transparent";
-  const statusBorder = isComplete ? theme.primary : theme.tabBorder;
+  const statusBg = isComplete
+    ? theme.primary
+    : isPlanned
+      ? `${theme.primary}18`
+      : "transparent";
+  const statusBorder =
+    isComplete || isPlanned ? theme.primary : theme.tabBorder;
 
   return (
     <Pressable
@@ -1817,7 +1834,7 @@ function GoalListRow({
         pressed && styles.pressed,
       ]}
     >
-      {isUpdating || isComplete || (!isPlanned && !hasPlannedTime) ? (
+      {isUpdating || isComplete || isPlanned || !hasPlannedTime ? (
         <View
           style={[
             styles.statusBox,
@@ -1835,6 +1852,13 @@ function GoalListRow({
               size={13}
               weight="bold"
               tintColor="#FFFFFF"
+            />
+          ) : isPlanned ? (
+            <SymbolView
+              name={sym("calendar", "calendar_today")}
+              size={13}
+              weight="bold"
+              tintColor={theme.primary}
             />
           ) : null}
         </View>
@@ -2016,17 +2040,15 @@ function GoalActionsModal({
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
   const willSavePlan = showPlanAction && (!isPlanned || hasPlanTimeChanges);
   const isPlanActionDisabled =
-    willSavePlan &&
-    ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
-      (!hasNote && !hasPlanTimeRange));
+    willSavePlan && hasAnyPlanTimeInput && !hasPlanTimeRange;
 
   useEffect(() => {
     if (!visible) return;
     const start = getPlanTimeInput(plannedTime?.startTime);
     const end = getPlanTimeInput(plannedTime?.endTime);
-    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
+    setPlanStartTime(start.time);
     setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
-    setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
+    setPlanEndTime(end.time);
     setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
   }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
 
@@ -2172,7 +2194,9 @@ function GoalActionsModal({
                           ? "Remove plan"
                           : isPlanned
                             ? "Save plan"
-                            : "Plan"}
+                            : hasPlanTimeRange
+                              ? "Plan time"
+                              : "Plan for this day"}
                       </Text>
                     </Pressable>
 

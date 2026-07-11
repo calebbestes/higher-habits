@@ -26,6 +26,7 @@ const NOTIFICATION_KEYS = [
   "notifyIncentiveEarned",
   "notifyPlanTomorrow",
   "notifyWeeklyRecap",
+  "notifyScheduleEvents",
 ] as const;
 
 type NotificationKey = (typeof NOTIFICATION_KEYS)[number];
@@ -62,12 +63,7 @@ const bodySchema = z
       "shared-goals",
       "friends",
     ]),
-    defaultPlanReportView: z.enum([
-      "day-plan",
-      "habits",
-      "goals",
-      "top-tasks",
-    ]),
+    defaultPlanReportView: z.enum(["day-plan", "habits", "goals", "top-tasks"]),
     onboardingCompleted: z.boolean(),
     ...notificationSchemaShape,
   })
@@ -95,8 +91,7 @@ export async function GET(request: Request) {
       defaultAppStartPage:
         row?.defaultAppStartPage ?? USER_SETTING_DEFAULTS.defaultAppStartPage,
       defaultCollabSection:
-        row?.defaultCollabSection ??
-        USER_SETTING_DEFAULTS.defaultCollabSection,
+        row?.defaultCollabSection ?? USER_SETTING_DEFAULTS.defaultCollabSection,
       defaultPlanReportView:
         row?.defaultPlanReportView ??
         USER_SETTING_DEFAULTS.defaultPlanReportView,

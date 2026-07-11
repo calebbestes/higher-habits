@@ -961,7 +961,7 @@ export function DailyGoalsScreen({
                     color={theme.primary}
                     completed={monthlyPlannedCompleted}
                     isOpen={openPriorities.has("monthly")}
-                    label="Monthly Habits"
+                    label="Periodic Habits"
                     total={monthlyPlannedGoals.length}
                     onToggle={() => togglePriority("monthly")}
                   >

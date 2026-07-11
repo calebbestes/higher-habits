@@ -101,7 +101,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           <DashboardScreen />
           {phase === "dashboard" ? (
             <OnboardingCard
-              body="Review your progress here. This is where Float shows your daily and monthly momentum."
+              body="Review your progress here. This is where Float shows your daily and periodic momentum."
               buttonLabel="Finish"
               title="Dashboard"
               onPress={() => {
