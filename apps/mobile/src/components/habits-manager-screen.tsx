@@ -43,6 +43,7 @@ import {
   cancelHabitReminderAsync,
   scheduleHabitReminderAsync,
 } from "@/lib/push-notifications";
+import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
 type SymbolName = SymbolViewProps["name"];
 type HabitFilter = "all" | "high" | "hidden";
@@ -50,7 +51,9 @@ type HabitFilter = "all" | "high" | "hidden";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const MONTH_DAY_LETTERS = ["S", "M", "T", "W", "Th", "F", "S"];
 const MONTH_DATES = Array.from({ length: 31 }, (_, index) => index + 1);
+const MONTH_WEEK_ROWS = Array.from({ length: 5 }, (_, index) => index);
 const DEFAULT_REMINDER_TIME = "09:00";
 const REMINDER_TIME_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const WEEKDAY_NAMES = [
@@ -69,13 +72,34 @@ function getWeekOfMonth(d: Date) {
   if (d.getDate() + 7 > daysInMonth) return 4;
   return Math.ceil(d.getDate() / 7) - 1;
 }
+
+function monthlyWeekdayCell(week: number, day: number) {
+  return week * 7 + day;
+}
+
+function normalizeMonthlyWeekdayCells(
+  days: number[] | null | undefined,
+  fallbackDate: Date,
+) {
+  const valid = (days ?? []).filter((day) => day >= 0 && day <= 34);
+  if (valid.length === 0) {
+    return [
+      monthlyWeekdayCell(getWeekOfMonth(fallbackDate), fallbackDate.getDay()),
+    ];
+  }
+  if (valid.every((day) => day <= 6)) {
+    const week = getWeekOfMonth(fallbackDate);
+    return valid.map((day) => monthlyWeekdayCell(week, day));
+  }
+  return valid;
+}
 const VISIBILITY_OPTIONS: Array<{
   value: HabitVisibility;
   label: string;
 }> = [
-  { value: "only_me", label: "Only me" },
-  { value: "goal_friends", label: "Friends tied to habit" },
-  { value: "all_friends", label: "All friends" },
+  { value: "only_me", label: VISIBILITY_LABELS.only_me },
+  { value: "goal_friends", label: VISIBILITY_LABELS.goal_friends },
+  { value: "all_friends", label: VISIBILITY_LABELS.all_friends },
 ];
 const PRIORITY_ORDER: Record<string, number> = {
   high: 0,
@@ -961,7 +985,7 @@ export function HabitFormModal({
     const monthlyRepeatDates =
       form.repeatDays?.filter((day) => day >= 1 && day <= 31) ?? [];
     const monthlyRepeatWeekdays =
-      form.repeatDays?.filter((day) => day >= 0 && day <= 6) ?? [];
+      form.repeatDays?.filter((day) => day >= 0 && day <= 34) ?? [];
     const reminderTime = form.reminderEnabled
       ? normalizeReminderTime(form.reminderTime)
       : null;
@@ -1294,15 +1318,18 @@ export function HabitFormModal({
                 {form.period === "monthly"
                   ? (() => {
                       const today = new Date();
+                      const monthlyFallbackDate = habit?.createdAt
+                        ? new Date(habit.createdAt)
+                        : today;
                       const monthDates = (form.repeatDays ?? []).filter(
                         (day) => day >= 1 && day <= 31,
                       );
-                      const monthlyWeekdays = (form.repeatDays ?? []).filter(
-                        (day) => day >= 0 && day <= 6,
+                      const monthlyWeekdayCells = normalizeMonthlyWeekdayCells(
+                        form.repeatDays,
+                        monthlyFallbackDate,
                       );
                       const monthlyMode =
                         form.repeatMonthlyType ?? "day_of_month";
-                      const weekLabel = ORDINALS[getWeekOfMonth(today)];
                       return (
                         <View style={styles.inputField}>
                           <View style={styles.choiceWrap}>
@@ -1321,7 +1348,7 @@ export function HabitFormModal({
                               }
                             />
                             <Choice
-                              label={`${weekLabel} weekdays`}
+                              label="Days"
                               selected={monthlyMode === "day_of_week"}
                               onPress={() =>
                                 setForm((f) => ({
@@ -1330,7 +1357,12 @@ export function HabitFormModal({
                                   repeatDays:
                                     f.repeatMonthlyType === "day_of_week"
                                       ? f.repeatDays
-                                      : [today.getDay()],
+                                      : [
+                                          monthlyWeekdayCell(
+                                            getWeekOfMonth(today),
+                                            today.getDay(),
+                                          ),
+                                        ],
                                 }))
                               }
                             />
@@ -1397,73 +1429,80 @@ export function HabitFormModal({
                             </View>
                           ) : (
                             <View style={styles.inputField}>
-                              <Text
-                                style={[
-                                  styles.fieldHint,
-                                  { color: theme.textSecondary },
-                                ]}
-                              >
-                                Repeats on the {weekLabel.toLowerCase()} chosen
-                                weekdays.
-                              </Text>
-                              <View style={styles.dayChipRow}>
-                                {DAY_LETTERS.map((letter, idx) => {
-                                  const selected = monthlyWeekdays.length
-                                    ? monthlyWeekdays.includes(idx)
-                                    : idx === today.getDay();
-                                  return (
-                                    <Pressable
-                                      accessibilityRole="button"
-                                      accessibilityState={{ selected }}
-                                      key={`${weekLabel}-${WEEKDAY_NAMES[idx]}`}
-                                      onPress={() =>
-                                        setForm((current) => {
-                                          const days = (
-                                            current.repeatDays?.filter(
-                                              (day) => day >= 0 && day <= 6,
-                                            ).length
-                                              ? current.repeatDays
-                                              : [today.getDay()]
-                                          ) as number[];
-                                          const nextDays = selected
-                                            ? days.filter((day) => day !== idx)
-                                            : [...days, idx];
-                                          return {
-                                            ...current,
-                                            repeatDays: (nextDays.length
-                                              ? nextDays
-                                              : [today.getDay()]
-                                            ).sort((a, b) => a - b),
-                                          };
-                                        })
-                                      }
-                                      style={[
-                                        styles.dayChip,
-                                        {
-                                          backgroundColor: selected
-                                            ? theme.primary
-                                            : theme.backgroundElement,
-                                          borderColor: selected
-                                            ? theme.primary
-                                            : theme.tabBorder,
-                                        },
-                                      ]}
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.dayChipLabel,
-                                          {
-                                            color: selected
-                                              ? theme.primaryForeground
-                                              : theme.textSecondary,
-                                          },
-                                        ]}
-                                      >
-                                        {letter}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
+                              <View style={styles.monthWeekdayGrid}>
+                                {MONTH_WEEK_ROWS.map((week) => (
+                                  <View
+                                    key={ORDINALS[week]}
+                                    style={styles.monthWeekdayRow}
+                                  >
+                                    {MONTH_DAY_LETTERS.map((letter, day) => {
+                                      const cell = monthlyWeekdayCell(
+                                        week,
+                                        day,
+                                      );
+                                      const selected =
+                                        monthlyWeekdayCells.includes(cell);
+                                      return (
+                                        <Pressable
+                                          accessibilityLabel={`${ORDINALS[week]} ${WEEKDAY_NAMES[day]}`}
+                                          accessibilityRole="button"
+                                          accessibilityState={{ selected }}
+                                          key={`${ORDINALS[week]}-${letter}`}
+                                          onPress={() =>
+                                            setForm((current) => {
+                                              const cells =
+                                                normalizeMonthlyWeekdayCells(
+                                                  current.repeatDays,
+                                                  monthlyFallbackDate,
+                                                );
+                                              const nextCells = selected
+                                                ? cells.filter(
+                                                    (item) => item !== cell,
+                                                  )
+                                                : [...cells, cell];
+                                              return {
+                                                ...current,
+                                                repeatDays: (nextCells.length
+                                                  ? nextCells
+                                                  : [
+                                                      monthlyWeekdayCell(
+                                                        getWeekOfMonth(today),
+                                                        today.getDay(),
+                                                      ),
+                                                    ]
+                                                ).sort((a, b) => a - b),
+                                              };
+                                            })
+                                          }
+                                          style={[
+                                            styles.monthWeekdayChip,
+                                            {
+                                              backgroundColor: selected
+                                                ? theme.primary
+                                                : theme.backgroundElement,
+                                              borderColor: selected
+                                                ? theme.primary
+                                                : theme.tabBorder,
+                                            },
+                                          ]}
+                                        >
+                                          <Text
+                                            style={[
+                                              styles.monthWeekdayChipLabel,
+                                              {
+                                                color: selected
+                                                  ? theme.primaryForeground
+                                                  : theme.textSecondary,
+                                              },
+                                            ]}
+                                          >
+                                            {letter}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+                                ))}
                               </View>
                             </View>
                           )}
@@ -1725,7 +1764,7 @@ export function HabitFormModal({
             {moreOptionsOpen ? (
               <FormSection title="More">
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Visibility
+                  Default visibility
                 </Text>
                 <View style={styles.choiceWrap}>
                   {VISIBILITY_OPTIONS.map((option) => (
@@ -2442,6 +2481,26 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   monthDateLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  monthWeekdayGrid: {
+    gap: 6,
+  },
+  monthWeekdayRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  monthWeekdayChip: {
+    width: 38,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+  },
+  monthWeekdayChipLabel: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "800",

@@ -825,6 +825,9 @@ export const userSettings = pgTable("user_settings", {
   // Planning & recap.
   notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(true),
   notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(true),
+  notifyScheduleEvents: boolean("notify_schedule_events")
+    .notNull()
+    .default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

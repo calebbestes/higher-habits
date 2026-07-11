@@ -24,15 +24,7 @@ import {
   setCrashReportingUser,
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
-import {
-  syncHabitRemindersFromServerAsync,
-} from "@/lib/push-notifications";
-import {
-  applyColorThemePreference,
-  applyThemePreference,
-  getColorThemePreference,
-  getThemePreference,
-} from "@/lib/theme-preference";
+import { syncHabitRemindersFromServerAsync } from "@/lib/push-notifications";
 import {
   type AppStartPage,
   type CollabSection,
@@ -40,6 +32,12 @@ import {
   applyNavigationDefaults,
   getAppStartHref,
 } from "@/lib/tab-view-store";
+import {
+  applyColorThemePreference,
+  applyThemePreference,
+  getColorThemePreference,
+  getThemePreference,
+} from "@/lib/theme-preference";
 import { recordAppOpened } from "@/lib/user-activity-client";
 import { fetchUserSettings } from "@/lib/user-settings-client";
 
@@ -141,7 +139,11 @@ function AuthNavigator() {
   }, [onboardingCompleted, sessionUserId]);
 
   useEffect(() => {
-    if (!sessionUserId || onboardingCompleted !== true || !postOnboardingRoute) {
+    if (
+      !sessionUserId ||
+      onboardingCompleted !== true ||
+      !postOnboardingRoute
+    ) {
       return;
     }
 

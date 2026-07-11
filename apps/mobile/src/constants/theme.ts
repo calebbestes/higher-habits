@@ -8,124 +8,124 @@ import "@/global.css";
 import { Platform } from "react-native";
 
 export const ColorThemeOptions = {
-    sky: {
-        label: "Sky",
-        colors: {
-            primary: "#30BCED",
-            primaryForeground: "#07171D",
-            secondary: "#303036",
-            secondaryForeground: "#FFFFFF",
-        },
+  sky: {
+    label: "Sky",
+    colors: {
+      primary: "#30BCED",
+      primaryForeground: "#07171D",
+      secondary: "#303036",
+      secondaryForeground: "#FFFFFF",
     },
-    coral: {
-        label: "Coral",
-        colors: {
-            primary: "#EF767A",
-            primaryForeground: "#1A090A",
-            secondary: "#456990",
-            secondaryForeground: "#FFFFFF",
-        },
+  },
+  coral: {
+    label: "Coral",
+    colors: {
+      primary: "#EF767A",
+      primaryForeground: "#1A090A",
+      secondary: "#456990",
+      secondaryForeground: "#FFFFFF",
     },
-    berry: {
-        label: "Berry",
-        colors: {
-            primary: "#D1495B",
-            primaryForeground: "#160607",
-            secondary: "#F9DBBD",
-            secondaryForeground: "#211203",
-        },
+  },
+  berry: {
+    label: "Berry",
+    colors: {
+      primary: "#D1495B",
+      primaryForeground: "#160607",
+      secondary: "#F9DBBD",
+      secondaryForeground: "#211203",
     },
-    lavender: {
-        label: "Lavender",
-        colors: {
-            primary: "#7BC1AD",
-            primaryForeground: "#1A1225",
-            secondary: "#F5F0E8",
-            secondaryForeground: "#1A1225",
-        },
+  },
+  lavender: {
+    label: "Lavender",
+    colors: {
+      primary: "#7BC1AD",
+      primaryForeground: "#1A1225",
+      secondary: "#F5F0E8",
+      secondaryForeground: "#1A1225",
     },
-    dolphins: {
-        label: "Dolphins",
-        colors: {
-            primary: "#ff875a",
-            primaryForeground: "#1A1225",
-            secondary: "#9efbea",
-            secondaryForeground: "#211203",
-        },
+  },
+  dolphins: {
+    label: "Dolphins",
+    colors: {
+      primary: "#ff875a",
+      primaryForeground: "#1A1225",
+      secondary: "#9efbea",
+      secondaryForeground: "#211203",
     },
+  },
 } as const;
 
 export type ColorThemePreference = keyof typeof ColorThemeOptions;
 
 export const ColorThemeOrder = Object.keys(
-    ColorThemeOptions,
+  ColorThemeOptions,
 ) as ColorThemePreference[];
 
 export const DefaultColorThemePreference: ColorThemePreference = "coral";
 
 const DefaultColorThemeColors =
-    ColorThemeOptions[DefaultColorThemePreference].colors;
+  ColorThemeOptions[DefaultColorThemePreference].colors;
 
 export const Colors = {
-    light: {
-        text: "#000000",
-        background: "#ffffff",
-        backgroundElement: "#F0F0F3",
-        backgroundSelected: "#E0E1E6",
-        textSecondary: "#60646C",
-        ...DefaultColorThemeColors,
-        tabBar: "#FFFFFF",
-        tabBorder: "#E4EAEA",
-        tabIcon: "#526466",
-    },
-    dark: {
-        text: "#ffffff",
-        background: "#000000",
-        backgroundElement: "#2A2E35",
-        backgroundSelected: "#3A4049",
-        textSecondary: "#B0B4BA",
-        ...DefaultColorThemeColors,
-        tabBar: "#1B1E24",
-        tabBorder: "#3A4048",
-        tabIcon: "#ADB3BC",
-    },
+  light: {
+    text: "#000000",
+    background: "#ffffff",
+    backgroundElement: "#F0F0F3",
+    backgroundSelected: "#E0E1E6",
+    textSecondary: "#60646C",
+    ...DefaultColorThemeColors,
+    tabBar: "#FFFFFF",
+    tabBorder: "#E4EAEA",
+    tabIcon: "#526466",
+  },
+  dark: {
+    text: "#ffffff",
+    background: "#000000",
+    backgroundElement: "#2A2E35",
+    backgroundSelected: "#3A4049",
+    textSecondary: "#B0B4BA",
+    ...DefaultColorThemeColors,
+    tabBar: "#1B1E24",
+    tabBorder: "#3A4048",
+    tabIcon: "#ADB3BC",
+  },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
-    ios: {
-        /** iOS `UIFontDescriptorSystemDesignDefault` */
-        sans: "system-ui",
-        /** iOS `UIFontDescriptorSystemDesignSerif` */
-        serif: "ui-serif",
-        /** iOS `UIFontDescriptorSystemDesignRounded` */
-        rounded: "ui-rounded",
-        /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-        mono: "ui-monospace",
-    },
-    default: {
-        sans: "normal",
-        serif: "serif",
-        rounded: "normal",
-        mono: "monospace",
-    },
-    web: {
-        sans: "var(--font-display)",
-        serif: "var(--font-serif)",
-        rounded: "var(--font-rounded)",
-        mono: "var(--font-mono)",
-    },
+  ios: {
+    /** iOS `UIFontDescriptorSystemDesignDefault` */
+    sans: "system-ui",
+    /** iOS `UIFontDescriptorSystemDesignSerif` */
+    serif: "ui-serif",
+    /** iOS `UIFontDescriptorSystemDesignRounded` */
+    rounded: "ui-rounded",
+    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
+    mono: "ui-monospace",
+  },
+  default: {
+    sans: "normal",
+    serif: "serif",
+    rounded: "normal",
+    mono: "monospace",
+  },
+  web: {
+    sans: "var(--font-display)",
+    serif: "var(--font-serif)",
+    rounded: "var(--font-rounded)",
+    mono: "var(--font-mono)",
+  },
 });
 
 export const Spacing = {
-    half: 2,
-    one: 4,
-    two: 8,
-    three: 16,
-    four: 24,
-    five: 32,
-    six: 64,
+  half: 2,
+  one: 4,
+  two: 8,
+  three: 16,
+  four: 24,
+  five: 32,
+  six: 64,
 } as const;
 
 export const BottomTabInset = 0;

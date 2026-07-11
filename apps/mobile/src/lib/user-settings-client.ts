@@ -25,6 +25,7 @@ export type NotificationSettings = {
   notifyIncentiveEarned: boolean;
   notifyPlanTomorrow: boolean;
   notifyWeeklyRecap: boolean;
+  notifyScheduleEvents: boolean;
 };
 
 export type UserSettings = NotificationSettings & {
@@ -58,6 +59,7 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   notifyIncentiveEarned: true,
   notifyPlanTomorrow: true,
   notifyWeeklyRecap: true,
+  notifyScheduleEvents: true,
 };
 
 export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
@@ -81,6 +83,7 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyIncentiveEarned: USER_SETTING_DEFAULTS.notifyIncentiveEarned,
   notifyPlanTomorrow: USER_SETTING_DEFAULTS.notifyPlanTomorrow,
   notifyWeeklyRecap: USER_SETTING_DEFAULTS.notifyWeeklyRecap,
+  notifyScheduleEvents: USER_SETTING_DEFAULTS.notifyScheduleEvents,
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

@@ -88,10 +88,7 @@ function updateDatePart(
 
 function getYearOptions(selectedYear: number | undefined) {
   const currentYear = new Date().getFullYear();
-  const years = Array.from(
-    { length: 26 },
-    (_, index) => currentYear + index,
-  );
+  const years = Array.from({ length: 26 }, (_, index) => currentYear + index);
 
   // Keep an already-selected past year visible when editing an older item.
   if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);

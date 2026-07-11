@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 import type { GoalVisibility } from "@/lib/goals-client";
+import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -15,15 +16,19 @@ const OPTIONS: Array<{
   label: string;
   icon: SymbolName;
 }> = [
-  { value: "only_me", label: "Only me", icon: sym("person.fill", "person") },
+  {
+    value: "only_me",
+    label: VISIBILITY_LABELS.only_me,
+    icon: sym("person.fill", "person"),
+  },
   {
     value: "goal_friends",
-    label: "Goal friends",
+    label: VISIBILITY_LABELS.goal_friends,
     icon: sym("person.2.fill", "group"),
   },
   {
     value: "all_friends",
-    label: "All friends",
+    label: VISIBILITY_LABELS.all_friends,
     icon: sym("person.3.fill", "groups"),
   },
 ];
@@ -33,11 +38,13 @@ export function GoalLogVisibilityControl({
   value,
   onChange,
   allowed,
+  label = "Post visibility",
 }: {
   disabled: boolean;
   value: GoalVisibility;
   onChange: (visibility: GoalVisibility) => void;
   allowed?: GoalVisibility[];
+  label?: string;
 }) {
   const theme = useTheme();
   const options = allowed
@@ -53,7 +60,7 @@ export function GoalLogVisibilityControl({
       ]}
     >
       <Text style={[styles.label, { color: theme.textSecondary }]}>
-        Post visibility
+        {label}
       </Text>
       <View style={[styles.options, { backgroundColor: theme.background }]}>
         {options.map((option) => {

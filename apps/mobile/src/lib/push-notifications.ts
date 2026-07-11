@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 
 import { type Habit, fetchHabits } from "@/lib/habits-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
+import { fetchNotificationSettings } from "@/lib/user-settings-client";
 
 type HabitReminder = Pick<
   Habit,
@@ -19,6 +20,7 @@ type HabitReminder = Pick<
 >;
 
 const HABIT_REMINDER_PREFIX = "habit-reminder";
+const SCHEDULE_EVENT_PREFIX = "schedule-event";
 
 // Show notifications while the app is foregrounded.
 Notifications.setNotificationHandler({
@@ -86,6 +88,103 @@ function parseReminderTime(reminderTime: string | null) {
   }
 
   return { hour, minute };
+}
+
+function parseDateTime(dateKey: string, time: string | null) {
+  if (!time) return null;
+
+  const [yearText, monthText, dayText] = dateKey.split("-");
+  const [hourText = "", minuteText = ""] = time.split(":");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute);
+}
+
+function scheduleEventIdentifier(eventId: string) {
+  return `${SCHEDULE_EVENT_PREFIX}:${eventId}`;
+}
+
+async function cancelScheduledNotificationsByPrefix(prefix: string) {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .map((notification) => notification.identifier)
+      .filter((identifier) => identifier.startsWith(prefix))
+      .map((identifier) =>
+        Notifications.cancelScheduledNotificationAsync(identifier),
+      ),
+  );
+}
+
+export async function cancelScheduleEventNotificationAsync(eventId: string) {
+  await Notifications.cancelScheduledNotificationAsync(
+    scheduleEventIdentifier(eventId),
+  );
+}
+
+export async function cancelAllScheduleEventNotificationsAsync() {
+  await cancelScheduledNotificationsByPrefix(`${SCHEDULE_EVENT_PREFIX}:`);
+}
+
+export async function scheduleScheduleEventNotificationAsync({
+  dateKey,
+  eventId,
+  startTime,
+  title,
+}: {
+  dateKey: string;
+  eventId: string;
+  startTime: string | null;
+  title: string;
+}) {
+  await cancelScheduleEventNotificationAsync(eventId);
+
+  const settings = await fetchNotificationSettings();
+  if (!settings.notifyScheduleEvents) return;
+
+  const scheduledAt = parseDateTime(dateKey, startTime);
+  if (!scheduledAt || scheduledAt.getTime() <= Date.now()) return;
+
+  await ensureDefaultAndroidNotificationChannelAsync();
+  const hasPermission = await requestNotificationPermissionAsync();
+  if (!hasPermission) {
+    throw new Error("Notifications are not enabled for float.");
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: scheduleEventIdentifier(eventId),
+    content: {
+      title,
+      body: "Starting now on your day plan.",
+      data: { dateKey, eventId, type: "schedule-event" },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: scheduledAt,
+    },
+  });
 }
 
 export async function cancelHabitReminderAsync(habitId: string): Promise<void> {

@@ -23,6 +23,7 @@ import {
   DefaultColorThemePreference,
   MaxContentWidth,
 } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
@@ -93,6 +94,7 @@ function sym(ios: string, android: string): SymbolName {
 export function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const { data: session, refetch } = authClient.useSession();
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -464,7 +466,10 @@ export function SettingsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>

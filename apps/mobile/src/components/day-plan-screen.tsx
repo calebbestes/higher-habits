@@ -16,6 +16,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -78,10 +79,15 @@ import {
 } from "@/lib/planning-goals-client";
 import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 import {
+  cancelScheduleEventNotificationAsync,
+  scheduleScheduleEventNotificationAsync,
+} from "@/lib/push-notifications";
+import {
   type Task,
   type TaskInput,
   createTask,
   fetchTasks,
+  getTaskImportanceScore,
   updateTask,
 } from "@/lib/tasks-client";
 
@@ -119,6 +125,9 @@ type TimelineTouch = {
   pageY: number;
 };
 type PlanTargetType = "dailyHabit" | "goal" | "monthlyHabit" | "task";
+type SuggestedPlanEntry = DayPlanEntry & {
+  defaultDurationMinutes?: number;
+};
 type PlanTargetOption = {
   id: string;
   subtitle?: string;
@@ -153,6 +162,14 @@ type TimelineGesture =
   | {
       durationMinutes: number;
       entry: DayPlanEntry;
+      isOverTimeline: boolean;
+      lastPageY: number;
+      latestRange: PlanRange;
+      type: "schedule";
+    }
+  | {
+      durationMinutes: number;
+      entry: DayPlanEntry;
       lastPageY: number;
       latestRange: PlanRange;
       touchOffsetMinutes: number;
@@ -173,6 +190,7 @@ const MIN_EVENT_HEIGHT = 30;
 const MINUTES_IN_DAY = 24 * 60;
 const PLAN_SNAP_MINUTES = 15;
 const MIN_PLAN_DURATION_MINUTES = 15;
+const DEFAULT_UNSCHEDULED_DROP_MINUTES = 30;
 const LONG_PRESS_DELAY_MS = 500;
 const EVENT_DRAG_DELAY_MS = 120;
 const EVENT_DRAG_MOVE_THRESHOLD = 2;
@@ -214,9 +232,11 @@ export function DayPlanScreen({
   onboardingGuide?: DayPlanOnboardingGuide;
 }) {
   const theme = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const tabBarHeight = useTabBarHeight();
   const { projects, reloadProjects, createProject } = useTaskProjects();
   const timelineScrollRef = useRef<ScrollView>(null);
+  const timelineViewportRef = useRef<View>(null);
   const timelineScrollYRef = useRef(TIMELINE_INITIAL_OFFSET);
   const timelineViewportTopRef = useRef(0);
   const timelineDragLayerWidthRef = useRef(0);
@@ -269,6 +289,11 @@ export function DayPlanScreen({
     useState<CheckpointNoteTarget | null>(null);
   const [dragPlanRange, setDragPlanRange] = useState<PlanRange | null>(null);
   const [dragEntry, setDragEntry] = useState<DayPlanEntry | null>(null);
+  const [floatingScheduleDrag, setFloatingScheduleDrag] = useState<{
+    entry: DayPlanEntry;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
     null,
@@ -892,7 +917,7 @@ export function DayPlanScreen({
             ),
             option: {
               id: habit.id,
-              subtitle: habit.goalTitle ?? "Monthly habit",
+              subtitle: habit.goalTitle ?? "Periodic habit",
               title: habit.name,
             },
           })) ?? [],
@@ -963,7 +988,37 @@ export function DayPlanScreen({
     () => layoutTimedEntries(entries.filter((entry) => !entry.allDay)),
     [entries],
   );
-  const allDayEntries = entries.filter((entry) => entry.allDay);
+  const allDayEntries = useMemo(
+    () => entries.filter((entry) => entry.allDay),
+    [entries],
+  );
+  const calendarAllDayEntries = useMemo(
+    () => allDayEntries.filter((entry) => entry.kind === "google"),
+    [allDayEntries],
+  );
+  const suggestedPlanEntries = useMemo(
+    () =>
+      buildSuggestedPlanEntries({
+        allDayEntries,
+        dateKey,
+        planGoals,
+        scheduledCheckpointIds,
+        scheduledHabitIds,
+        scheduledTaskIds,
+        snapshot,
+        tasks,
+      }),
+    [
+      allDayEntries,
+      dateKey,
+      planGoals,
+      scheduledCheckpointIds,
+      scheduledHabitIds,
+      scheduledTaskIds,
+      snapshot,
+      tasks,
+    ],
+  );
   const activeKey = activeHabit ? `${activeHabit.id}_${dateKey}` : null;
   const activeCheckpoint =
     activeEntry?.kind === "goal" && activeEntry.sourceId
@@ -1002,6 +1057,11 @@ export function DayPlanScreen({
     timelineViewportTopRef.current =
       pageY - timelineY + timelineScrollYRef.current;
   };
+  const measureTimelineViewport = useCallback(() => {
+    timelineViewportRef.current?.measureInWindow((_x, y) => {
+      timelineViewportTopRef.current = y;
+    });
+  }, []);
   const getTouchDistance = (event: GestureResponderEvent) => {
     const [first, second] = event.nativeEvent.touches;
     if (!first || !second) return null;
@@ -1042,11 +1102,26 @@ export function DayPlanScreen({
       timelinePinchRef.current = null;
     }
   };
-  const getTimelineMinutesFromPageY = (pageY: number) =>
-    minutesFromTimelineY(
-      timelineScrollYRef.current + pageY - timelineViewportTopRef.current,
+  const getTimelineViewportY = (pageY: number) =>
+    pageY - timelineViewportTopRef.current;
+  const isPageYOverTimeline = (pageY: number) => {
+    const viewportY = getTimelineViewportY(pageY);
+    return viewportY >= 0 && viewportY <= TIMELINE_VIEWPORT_HEIGHT;
+  };
+  const getTimelineMinutesFromPageY = (
+    pageY: number,
+    options?: { clampToViewport?: boolean },
+  ) => {
+    const viewportY = getTimelineViewportY(pageY);
+    const timelineY = options?.clampToViewport
+      ? clampNumber(viewportY, 0, TIMELINE_VIEWPORT_HEIGHT)
+      : viewportY;
+
+    return minutesFromTimelineY(
+      timelineScrollYRef.current + timelineY,
       timelineHourHeight,
     );
+  };
   const playTimelineDragStartHaptic = () => {
     const haptic =
       Platform.OS === "android"
@@ -1078,26 +1153,66 @@ export function DayPlanScreen({
     const gesture = timelineGestureRef.current;
     if (!gesture) return;
 
-    const currentMinutes = getTimelineMinutesFromPageY(pageY);
+    if (gesture.type === "schedule" && !gesture.isOverTimeline) {
+      const isOverTimeline = isPageYOverTimeline(pageY);
+      timelineGestureRef.current = {
+        ...gesture,
+        isOverTimeline,
+        lastPageY: pageY,
+      };
+
+      if (!isOverTimeline) {
+        setDragPlanRange(null);
+        stopTimelineAutoScroll();
+        return;
+      }
+    }
+
+    const nextGesture = timelineGestureRef.current ?? gesture;
+    const currentMinutes = getTimelineMinutesFromPageY(pageY, {
+      clampToViewport: nextGesture.type === "schedule",
+    });
     const range =
-      gesture.type === "create"
-        ? normalizePlanRange(gesture.anchorMinutes, currentMinutes)
-        : movePlanRange({
-            durationMinutes: gesture.durationMinutes,
-            touchOffsetMinutes: gesture.touchOffsetMinutes,
-            touchMinutes: currentMinutes,
-          });
+      nextGesture.type === "create"
+        ? normalizePlanRange(nextGesture.anchorMinutes, currentMinutes)
+        : nextGesture.type === "schedule"
+          ? movePlanRange({
+              durationMinutes: nextGesture.durationMinutes,
+              touchOffsetMinutes: 0,
+              touchMinutes: currentMinutes,
+            })
+          : movePlanRange({
+              durationMinutes: nextGesture.durationMinutes,
+              touchOffsetMinutes: nextGesture.touchOffsetMinutes,
+              touchMinutes: currentMinutes,
+            });
+    const justEnteredTimeline =
+      gesture.type === "schedule" && !gesture.isOverTimeline;
 
     timelineGestureRef.current = {
-      ...gesture,
+      ...nextGesture,
+      ...(nextGesture.type === "schedule"
+        ? { isOverTimeline: true }
+        : undefined),
       lastPageY: pageY,
       latestRange: range,
     };
-    playTimelineRangeHaptic(range);
+    if (justEnteredTimeline) {
+      playTimelineDragStartHaptic();
+      playTimelineRangeHaptic(range, true);
+    } else {
+      playTimelineRangeHaptic(range);
+    }
     setDragPlanRange(range);
   };
   const updateTimelineAutoScroll = (pageY: number) => {
     const viewportY = pageY - timelineViewportTopRef.current;
+    const gesture = timelineGestureRef.current;
+    if (gesture?.type === "schedule" && !gesture.isOverTimeline) {
+      stopTimelineAutoScroll();
+      return;
+    }
+
     const topDistance = Math.max(0, TIMELINE_AUTO_SCROLL_EDGE - viewportY);
     const bottomDistance = Math.max(
       0,
@@ -1115,6 +1230,10 @@ export function DayPlanScreen({
     timelineAutoScrollRef.current = setInterval(() => {
       const current = timelineGestureRef.current;
       if (!current) {
+        stopTimelineAutoScroll();
+        return;
+      }
+      if (current.type === "schedule" && !current.isOverTimeline) {
         stopTimelineAutoScroll();
         return;
       }
@@ -1206,9 +1325,17 @@ export function DayPlanScreen({
     updateTimelineAutoScroll(press.pageY);
   };
   const handleTimelinePressMove = (event: GestureResponderEvent) => {
-    const { pageY } = event.nativeEvent;
-    if (!timelineGestureRef.current) return;
+    const { pageX, pageY } = event.nativeEvent;
+    const gesture = timelineGestureRef.current;
+    if (!gesture) return;
 
+    if (gesture.type === "schedule") {
+      setFloatingScheduleDrag(
+        isPageYOverTimeline(pageY)
+          ? null
+          : { entry: gesture.entry, pageX, pageY },
+      );
+    }
     updateTimelineGestureFromPageY(pageY);
     updateTimelineAutoScroll(pageY);
   };
@@ -1285,6 +1412,28 @@ export function DayPlanScreen({
     },
     [dateKey],
   );
+  const scheduleEntryNotification = useCallback(
+    (entry: DayPlanEntry, startTime: string | null) => {
+      const eventId = getScheduleNotificationEventId(entry, dateKey);
+      if (!eventId) return;
+
+      void scheduleScheduleEventNotificationAsync({
+        dateKey,
+        eventId,
+        startTime,
+        title: entry.title,
+      }).catch(() => undefined);
+    },
+    [dateKey],
+  );
+  const cancelEntryNotification = useCallback(
+    (entry: DayPlanEntry) => {
+      const eventId = getScheduleNotificationEventId(entry, dateKey);
+      if (!eventId) return;
+      void cancelScheduleEventNotificationAsync(eventId).catch(() => undefined);
+    },
+    [dateKey],
+  );
   const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
     const startTime = formatPlanApiTime(range.startMinutes);
     const endTime = formatPlanApiTime(range.endMinutes);
@@ -1298,6 +1447,7 @@ export function DayPlanScreen({
           timeZone,
         });
         patchHabitPlanTime(entry.habitId, startTime, endTime);
+        scheduleEntryNotification(entry, startTime);
       } else if (entry.kind === "task" || entry.kind === "goal") {
         if (!entry.sourceId) throw new Error("Could not find that event.");
 
@@ -1311,6 +1461,7 @@ export function DayPlanScreen({
           title: entry.title,
         });
         patchPlannedEvent(response.event);
+        scheduleEntryNotification(entry, startTime);
       } else if (entry.kind === "google") {
         const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
@@ -1326,6 +1477,10 @@ export function DayPlanScreen({
           throw new Error(getGoogleCalendarStatusMessage(response.status));
         }
         if (response.event) patchGoogleEvent(eventId, response.event);
+        scheduleEntryNotification(
+          { ...entry, sourceId: response.event?.id ?? eventId },
+          startTime,
+        );
       }
     } catch (moveError) {
       if (!isMountedRef.current) return;
@@ -1347,12 +1502,18 @@ export function DayPlanScreen({
     timelineGestureRef.current = null;
     timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
-    setDragPlanRange(null);
-    setDragEntry(null);
 
-    if (!gesture) return;
+    if (!gesture) {
+      setDragPlanRange(null);
+      setDragEntry(null);
+      setFloatingScheduleDrag(null);
+      return;
+    }
 
     if (gesture.type === "create") {
+      setDragPlanRange(null);
+      setDragEntry(null);
+      setFloatingScheduleDrag(null);
       setDraftPlanRange(gesture.latestRange);
       setSelectedPlanTargetType(null);
       if (onboardingGuide?.step === "drag") {
@@ -1361,6 +1522,28 @@ export function DayPlanScreen({
       return;
     }
 
+    if (gesture.type === "schedule" && !gesture.isOverTimeline) {
+      setDragPlanRange(null);
+      setDragEntry(null);
+      setFloatingScheduleDrag(null);
+      return;
+    }
+
+    if (gesture.type === "schedule") {
+      setFloatingScheduleDrag(null);
+      setDragPlanRange(gesture.latestRange);
+      setDragEntry(gesture.entry);
+      void saveMovedEntry(gesture.entry, gesture.latestRange).finally(() => {
+        if (!isMountedRef.current) return;
+        setDragPlanRange(null);
+        setDragEntry(null);
+      });
+      return;
+    }
+
+    setDragPlanRange(null);
+    setDragEntry(null);
+    setFloatingScheduleDrag(null);
     void saveMovedEntry(gesture.entry, gesture.latestRange);
   };
   const clearTimelineLongPressTimer = () => {
@@ -1399,6 +1582,7 @@ export function DayPlanScreen({
     setIsTimelineDragging(false);
     setDragPlanRange(null);
     setDragEntry(null);
+    setFloatingScheduleDrag(null);
   };
   const beginMoveEntry = (entry: DayPlanEntry, touch: TimelineTouch) => {
     const { locationY, pageY } = touch;
@@ -1436,6 +1620,58 @@ export function DayPlanScreen({
     playTimelineDragStartHaptic();
     playTimelineRangeHaptic(range, true);
     updateTimelineAutoScroll(pageY);
+  };
+  const beginScheduleEntry = (
+    entry: SuggestedPlanEntry,
+    pageX: number,
+    pageY: number,
+  ) => {
+    measureTimelineViewport();
+    const isOverTimeline = isPageYOverTimeline(pageY);
+    const durationMinutes =
+      entry.defaultDurationMinutes ??
+      (entry.kind === "habit" && entry.habitId
+        ? getLastPlannedDurationMinutes(snapshot, entry.habitId, dateKey)
+        : DEFAULT_UNSCHEDULED_DROP_MINUTES);
+    const touchMinutes = getTimelineMinutesFromPageY(pageY, {
+      clampToViewport: true,
+    });
+    const range = movePlanRange({
+      durationMinutes,
+      touchOffsetMinutes: 0,
+      touchMinutes,
+    });
+    const draggableEntry = {
+      ...entry,
+      allDay: false,
+      endMinutes: range.endMinutes,
+      startMinutes: range.startMinutes,
+    };
+
+    suppressEntryPressUntilRef.current = Date.now() + 700;
+    timelineGestureRef.current = {
+      durationMinutes,
+      entry: draggableEntry,
+      isOverTimeline,
+      lastPageY: pageY,
+      latestRange: range,
+      type: "schedule",
+    };
+    setDraftPlanRange(null);
+    setSelectedPlanTargetType(null);
+    setDragPlanRange(isOverTimeline ? range : null);
+    setDragEntry(draggableEntry);
+    setFloatingScheduleDrag(
+      isOverTimeline ? null : { entry: draggableEntry, pageX, pageY },
+    );
+    setIsTimelineDragging(true);
+    if (isOverTimeline) {
+      playTimelineDragStartHaptic();
+      playTimelineRangeHaptic(range, true);
+      updateTimelineAutoScroll(pageY);
+    } else {
+      stopTimelineAutoScroll();
+    }
   };
 
   const goToToday = useCallback(() => {
@@ -1525,6 +1761,27 @@ export function DayPlanScreen({
           : options;
 
       await setHabitLog(activeHabit.id, dateKey, status, nextOptions);
+      if (status === "planned" && nextOptions?.startTime) {
+        scheduleEntryNotification(
+          {
+            allDay: false,
+            habitId: activeHabit.id,
+            id: `habit-${activeHabit.id}`,
+            kind: "habit",
+            laneCount: 1,
+            laneIndex: 0,
+            laneSpan: 1,
+            startMinutes: 0,
+            endMinutes: MIN_PLAN_DURATION_MINUTES,
+            title: activeHabit.name,
+          },
+          nextOptions.startTime,
+        );
+      } else if (status !== "planned") {
+        void cancelScheduleEventNotificationAsync(
+          `habit:${activeHabit.id}:${dateKey}`,
+        ).catch(() => undefined);
+      }
       invalidateCurrentCaches({ google: true, snapshot: true });
       if (!isMountedRef.current) return;
       await load();
@@ -1657,6 +1914,7 @@ export function DayPlanScreen({
           projectId: task.projectId,
           timeRequired: task.timeRequired,
         });
+        cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ tasks: true });
       } else if (activeEntry.kind === "goal") {
         const checkpoint = checkpointById.get(activeEntry.sourceId);
@@ -1668,6 +1926,7 @@ export function DayPlanScreen({
         await updatePlanGoalCheckpoint(checkpoint.checkpoint.id, {
           completed: !checkpoint.checkpoint.completed,
         });
+        cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ planGoals: true });
         if (
           onboardingGuide?.createdGoalCheckpointId ===
@@ -1714,6 +1973,7 @@ export function DayPlanScreen({
                 sourceId,
                 sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
               });
+              cancelEntryNotification(entry);
               invalidateCurrentCaches({ google: true, planned: true });
               if (!isMountedRef.current) return;
               setActiveEntry(null);
@@ -1918,6 +2178,24 @@ export function DayPlanScreen({
       }
 
       if (!isMountedRef.current) return;
+      if (response.event) {
+        scheduleEntryNotification(
+          {
+            allDay: false,
+            description: response.event.description,
+            endMinutes: otherEventRange.endMinutes,
+            id: `google-${response.event.id}`,
+            kind: "google",
+            laneCount: 1,
+            laneIndex: 0,
+            laneSpan: 1,
+            sourceId: response.event.id,
+            startMinutes: otherEventRange.startMinutes,
+            title,
+          },
+          formatPlanApiTime(otherEventRange.startMinutes),
+        );
+      }
       setOtherEventRange(null);
       invalidateCurrentCaches({ google: true });
       await load();
@@ -1958,6 +2236,21 @@ export function DayPlanScreen({
           timeZone,
           title: task.name,
         });
+        scheduleEntryNotification(
+          {
+            allDay: false,
+            endMinutes: draftPlanRange.endMinutes,
+            id: `task-${task.id}`,
+            kind: "task",
+            laneCount: 1,
+            laneIndex: 0,
+            laneSpan: 1,
+            sourceId: task.id,
+            startMinutes: draftPlanRange.startMinutes,
+            title: task.name,
+          },
+          startTime,
+        );
         invalidateCurrentCaches({ google: true, planned: true });
       } else if (targetType === "goal") {
         const checkpoint = checkpointById.get(targetId);
@@ -1972,6 +2265,22 @@ export function DayPlanScreen({
           timeZone,
           title: checkpoint.checkpoint.title,
         });
+        scheduleEntryNotification(
+          {
+            allDay: false,
+            description: checkpoint.goal.title,
+            endMinutes: draftPlanRange.endMinutes,
+            id: `goal-${checkpoint.checkpoint.id}`,
+            kind: "goal",
+            laneCount: 1,
+            laneIndex: 0,
+            laneSpan: 1,
+            sourceId: checkpoint.checkpoint.id,
+            startMinutes: draftPlanRange.startMinutes,
+            title: checkpoint.checkpoint.title,
+          },
+          startTime,
+        );
         invalidateCurrentCaches({ google: true, planned: true });
       } else {
         const habit = habitById.get(targetId);
@@ -1982,6 +2291,21 @@ export function DayPlanScreen({
           startTime,
           timeZone,
         });
+        scheduleEntryNotification(
+          {
+            allDay: false,
+            endMinutes: draftPlanRange.endMinutes,
+            habitId: habit.id,
+            id: `habit-${habit.id}`,
+            kind: "habit",
+            laneCount: 1,
+            laneIndex: 0,
+            laneSpan: 1,
+            startMinutes: draftPlanRange.startMinutes,
+            title: habit.name,
+          },
+          startTime,
+        );
         invalidateCurrentCaches({ google: true, snapshot: true });
       }
 
@@ -2146,7 +2470,7 @@ export function DayPlanScreen({
                 </View>
               ) : (
                 <>
-                  {allDayEntries.length > 0 ? (
+                  {calendarAllDayEntries.length > 0 ? (
                     <View
                       style={[
                         styles.allDaySection,
@@ -2165,22 +2489,61 @@ export function DayPlanScreen({
                         All day
                       </Text>
                       <View style={styles.allDayChips}>
-                        {allDayEntries.map((entry) => (
-                          <EntryChip
-                            entry={entry}
-                            key={entry.id}
-                            onPress={
-                              entry.kind !== "google"
-                                ? () => openInternalEntry(entry)
-                                : undefined
-                            }
-                          />
+                        {calendarAllDayEntries.map((entry) => (
+                          <EntryChip entry={entry} key={entry.id} />
                         ))}
                       </View>
                     </View>
                   ) : null}
 
+                  {suggestedPlanEntries.length > 0 ? (
+                    <View
+                      style={[
+                        styles.allDaySection,
+                        {
+                          backgroundColor: theme.tabBar,
+                          borderColor: theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.allDayLabel,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Unscheduled
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        <View style={styles.unscheduledRail}>
+                          {suggestedPlanEntries.map((entry) => (
+                            <EntryChip
+                              entry={entry}
+                              key={entry.id}
+                              onBeginSchedule={(event) =>
+                                beginScheduleEntry(
+                                  entry,
+                                  event.nativeEvent.pageX,
+                                  event.nativeEvent.pageY,
+                                )
+                              }
+                              onMove={handleTimelinePressMove}
+                              onPress={() => openInternalEntry(entry)}
+                              onRelease={finishTimelineGesture}
+                            />
+                          ))}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
                   <View
+                    ref={timelineViewportRef}
                     style={[
                       styles.timelineCard,
                       {
@@ -2196,6 +2559,7 @@ export function DayPlanScreen({
                         y: TIMELINE_START_HOUR * timelineHourHeight,
                       }}
                       nestedScrollEnabled
+                      onLayout={measureTimelineViewport}
                       onScroll={(event) => {
                         timelineScrollYRef.current =
                           event.nativeEvent.contentOffset.y;
@@ -2285,6 +2649,11 @@ export function DayPlanScreen({
                                 startMinutes: dragPlanRange.startMinutes,
                               }}
                               hourHeight={timelineHourHeight}
+                              variant={
+                                timelineGestureRef.current?.type === "schedule"
+                                  ? "unscheduled"
+                                  : undefined
+                              }
                             />
                           ) : dragPlanRange ? (
                             <DraftPlanBlock
@@ -2310,6 +2679,15 @@ export function DayPlanScreen({
             </Animated.View>
           </ScrollView>
         </SafeAreaView>
+
+        {floatingScheduleDrag ? (
+          <FloatingScheduleChip
+            entry={floatingScheduleDrag.entry}
+            pageX={floatingScheduleDrag.pageX}
+            pageY={floatingScheduleDrag.pageY}
+            screenWidth={screenWidth}
+          />
+        ) : null}
 
         <GoalActionsModal
           goal={activeHabit}
@@ -2658,7 +3036,7 @@ function getPlanPickerOnboardingTooltip(step: DayPlanOnboardingStep | null): {
   }
   if (step === "habit-info") {
     return {
-      body: "Daily Habits and Monthly Habits are systems to help you achieve goals. Let's start with a goal.",
+      body: "Daily Habits and Periodic Habits are systems to help you achieve goals. Let's start with a goal.",
       buttonLabel: "Next",
       next: "select-goal",
       title: "Habits",
@@ -2881,6 +3259,7 @@ function InternalEventActionsModal({
                 disabled={isUpdating}
                 value={visibility}
                 onChange={onSetVisibility}
+                label="Event visibility"
               />
             ) : null}
 
@@ -3396,35 +3775,201 @@ function getInternalEntryStatusLabel(
   return "Mark complete";
 }
 
-function EntryChip({
+function FloatingScheduleChip({
   entry,
-  onPress,
+  pageX,
+  pageY,
+  screenWidth,
 }: {
   entry: DayPlanEntry;
-  onPress?: () => void;
+  pageX: number;
+  pageY: number;
+  screenWidth: number;
 }) {
   const theme = useTheme();
+  const width = Math.min(220, Math.max(140, screenWidth - 32));
+  const left = clampNumber(pageX - width / 2, 16, screenWidth - width - 16);
+  const top = Math.max(8, pageY - 26);
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.floatingScheduleChip,
+        styles.unscheduledHabitChip,
+        {
+          backgroundColor: theme.background,
+          borderColor: theme.primary,
+          left,
+          top,
+          width,
+        },
+      ]}
+    >
+      {entry.description ? (
+        <Text
+          numberOfLines={1}
+          style={[styles.allDayChipMeta, { color: theme.primary }]}
+        >
+          {entry.description}
+        </Text>
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={[styles.allDayChipText, { color: theme.text }]}
+      >
+        {entry.title}
+      </Text>
+    </View>
+  );
+}
+
+function EntryChip({
+  entry,
+  onBeginSchedule,
+  onMove,
+  onPress,
+  onRelease,
+}: {
+  entry: DayPlanEntry;
+  onBeginSchedule?: (event: GestureResponderEvent) => void;
+  onMove?: (event: GestureResponderEvent) => void;
+  onPress?: () => void;
+  onRelease?: () => void;
+}) {
+  const theme = useTheme();
+  const dragStartRef = useRef<{
+    didStartDrag: boolean;
+    didMove: boolean;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
+  const isUnscheduledChip = Boolean(onBeginSchedule);
+  const chipColor = isUnscheduledChip ? theme.text : color;
 
   const chip = (
-    <View style={[styles.allDayChip, { backgroundColor }]}>
-      <Text numberOfLines={1} style={[styles.allDayChipText, { color }]}>
+    <View
+      style={[
+        styles.allDayChip,
+        isUnscheduledChip
+          ? [
+              styles.unscheduledHabitChip,
+              {
+                backgroundColor: theme.background,
+                borderColor: theme.primary,
+              },
+            ]
+          : { backgroundColor },
+      ]}
+    >
+      {entry.description ? (
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.allDayChipMeta,
+            { color: isUnscheduledChip ? theme.primary : color },
+          ]}
+        >
+          {entry.description}
+        </Text>
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={[styles.allDayChipText, { color: chipColor }]}
+      >
         {entry.title}
       </Text>
     </View>
   );
 
-  if (!onPress) return chip;
+  if (!(onPress || onBeginSchedule)) return chip;
 
   return (
-    <Pressable
+    <View
       accessibilityLabel={`Open ${entry.title}`}
       accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => pressed && styles.pressed}
+      onResponderGrant={(event) => {
+        if (!onBeginSchedule) {
+          dragStartRef.current = {
+            didMove: false,
+            didStartDrag: false,
+            pageX: event.nativeEvent.pageX,
+            pageY: event.nativeEvent.pageY,
+          };
+          return;
+        }
+
+        const dragStart = dragStartRef.current;
+        if (dragStart && !dragStart.didStartDrag) {
+          dragStart.didStartDrag = true;
+          onBeginSchedule(event);
+        }
+      }}
+      onMoveShouldSetResponder={(event) => {
+        if (!onBeginSchedule) return false;
+        const dragStart = dragStartRef.current;
+        if (!dragStart) return false;
+
+        const dx = event.nativeEvent.pageX - dragStart.pageX;
+        const dy = event.nativeEvent.pageY - dragStart.pageY;
+        dragStart.didMove = Math.abs(dx) > 4 || Math.abs(dy) > 4;
+
+        return Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 1.1;
+      }}
+      onResponderMove={(event) => {
+        const dragStart = dragStartRef.current;
+        if (!dragStart) return;
+
+        if (dragStart.didStartDrag) {
+          onMove?.(event);
+          return;
+        }
+
+        dragStart.didMove =
+          Math.abs(event.nativeEvent.pageX - dragStart.pageX) > 4 ||
+          Math.abs(event.nativeEvent.pageY - dragStart.pageY) > 4;
+      }}
+      onResponderRelease={() => {
+        const dragStart = dragStartRef.current;
+        dragStartRef.current = null;
+
+        if (dragStart?.didStartDrag) {
+          onRelease?.();
+          return;
+        }
+
+        if (!dragStart?.didMove) onPress?.();
+      }}
+      onResponderTerminate={() => {
+        const didStartDrag = dragStartRef.current?.didStartDrag;
+        dragStartRef.current = null;
+        if (didStartDrag) onRelease?.();
+      }}
+      onResponderTerminationRequest={() => !dragStartRef.current?.didStartDrag}
+      onStartShouldSetResponder={() => !onBeginSchedule}
+      onTouchStart={(event) => {
+        if (!onBeginSchedule) return;
+        dragStartRef.current = {
+          didMove: false,
+          didStartDrag: false,
+          pageX: event.nativeEvent.pageX,
+          pageY: event.nativeEvent.pageY,
+        };
+      }}
+      onTouchEnd={() => {
+        if (!onBeginSchedule) return;
+        const dragStart = dragStartRef.current;
+        if (dragStart?.didStartDrag) return;
+
+        dragStartRef.current = null;
+        if (dragStart && !dragStart.didMove && !dragStart.didStartDrag) {
+          onPress?.();
+        }
+      }}
     >
       {chip}
-    </Pressable>
+    </View>
   );
 }
 
@@ -3435,6 +3980,7 @@ function TimedEntryBlock({
   onMove,
   onPress,
   onRelease,
+  variant,
 }: {
   entry: DayPlanEntry;
   hourHeight: number;
@@ -3442,6 +3988,7 @@ function TimedEntryBlock({
   onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
   onRelease?: () => void;
+  variant?: "unscheduled";
 }) {
   const theme = useTheme();
   const dragStartRef = useRef<{
@@ -3451,6 +3998,20 @@ function TimedEntryBlock({
   } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
+  const isUnscheduledPreview = variant === "unscheduled";
+  const previewColor = isUnscheduledPreview ? theme.text : color;
+  const eventBlockStyle = [
+    styles.eventBlock,
+    isUnscheduledPreview
+      ? [
+          styles.unscheduledHabitChip,
+          {
+            backgroundColor: theme.background,
+            borderColor: theme.primary,
+          },
+        ]
+      : { backgroundColor },
+  ];
   const top = (entry.startMinutes / 60) * hourHeight;
   const naturalHeight =
     ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
@@ -3523,33 +4084,42 @@ function TimedEntryBlock({
   };
 
   const content = isTiny ? (
-    <View style={[styles.eventBlock, { backgroundColor }]} />
+    <View style={eventBlockStyle} />
   ) : isCompact ? (
-    <View
-      style={[styles.eventBlock, styles.eventBlockCompact, { backgroundColor }]}
-    >
+    <View style={[eventBlockStyle, styles.eventBlockCompact]}>
       <Text
         numberOfLines={1}
-        style={[styles.eventTitle, styles.eventTitleCompact, { color }]}
+        style={[
+          styles.eventTitle,
+          styles.eventTitleCompact,
+          { color: previewColor },
+        ]}
       >
         {entry.title}
       </Text>
       <Text
         numberOfLines={1}
-        style={[styles.eventTime, styles.eventTimeCompact, { color }]}
+        style={[
+          styles.eventTime,
+          styles.eventTimeCompact,
+          { color: previewColor },
+        ]}
       >
         {timeLabel}
       </Text>
     </View>
   ) : (
-    <View style={[styles.eventBlock, { backgroundColor }]}>
+    <View style={eventBlockStyle}>
       <Text
         numberOfLines={height >= 62 ? 2 : 1}
-        style={[styles.eventTitle, { color }]}
+        style={[styles.eventTitle, { color: previewColor }]}
       >
         {entry.title}
       </Text>
-      <Text numberOfLines={1} style={[styles.eventTime, { color }]}>
+      <Text
+        numberOfLines={1}
+        style={[styles.eventTime, { color: previewColor }]}
+      >
         {timeLabel}
       </Text>
     </View>
@@ -3662,6 +4232,7 @@ function buildDayPlanEntries({
       entries.push({
         allDay: !hasTimeRange,
         completed: status === "complete",
+        description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
           ? normalizeEndMinutes(startMinutes, endMinutes)
           : MINUTES_IN_DAY,
@@ -3694,6 +4265,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
+        description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
           ? normalizeEndMinutes(startMinutes, endMinutes)
           : MINUTES_IN_DAY,
@@ -3880,6 +4452,238 @@ function sortByCompletionTotal(
     .map((row) => row.option);
 }
 
+function buildSuggestedPlanEntries({
+  allDayEntries,
+  dateKey,
+  planGoals,
+  scheduledCheckpointIds,
+  scheduledHabitIds,
+  scheduledTaskIds,
+  snapshot,
+  tasks,
+}: {
+  allDayEntries: DayPlanEntry[];
+  dateKey: string;
+  planGoals: Goal[];
+  scheduledCheckpointIds: Set<string>;
+  scheduledHabitIds: Set<string>;
+  scheduledTaskIds: Set<string>;
+  snapshot: HabitLogsSnapshot | null;
+  tasks: Task[];
+}): SuggestedPlanEntry[] {
+  const checkpointEntries = planGoals.flatMap((goal) =>
+    goal.checkpoints
+      .filter(
+        (checkpoint) =>
+          !checkpoint.completed &&
+          checkpoint.targetDate === dateKey &&
+          !scheduledCheckpointIds.has(checkpoint.id),
+      )
+      .map((checkpoint) =>
+        suggestedEntry({
+          description: goal.title,
+          id: `suggested-goal-${checkpoint.id}`,
+          kind: "goal",
+          sourceId: checkpoint.id,
+          title: checkpoint.title,
+        }),
+      ),
+  );
+
+  const periodicEntries = allDayEntries
+    .filter(
+      (entry) =>
+        entry.kind === "habit" &&
+        entry.habitId &&
+        entry.description === "Periodic habit",
+    )
+    .map((entry) => ({
+      ...entry,
+      defaultDurationMinutes:
+        entry.habitId && snapshot
+          ? getLastPlannedDurationMinutes(snapshot, entry.habitId, dateKey)
+          : DEFAULT_UNSCHEDULED_DROP_MINUTES,
+    }));
+
+  const dailyHabitEntries =
+    snapshot?.categories
+      .flatMap((category) =>
+        category.habits
+          .filter(
+            (habit) =>
+              habit.period === "daily" &&
+              habit.priority === "high" &&
+              !habit.hidden &&
+              !scheduledHabitIds.has(habit.id),
+          )
+          .map((habit) => ({
+            completions: countHabitCompletionsInLastDays(
+              snapshot.logsByHabitDate,
+              habit.id,
+              dateKey,
+              7,
+            ),
+            entry: suggestedEntry({
+              description: category.name,
+              habitId: habit.id,
+              id: `suggested-habit-${habit.id}`,
+              kind: "habit",
+              title: habit.name,
+            }),
+          })),
+      )
+      .sort(
+        (left, right) =>
+          right.completions - left.completions ||
+          left.entry.title.localeCompare(right.entry.title),
+      )
+      .map((row) => row.entry) ?? [];
+
+  const taskEntries = tasks
+    .filter(
+      (task) =>
+        !task.completedAt &&
+        !scheduledTaskIds.has(task.id) &&
+        isSuggestedTask(task, dateKey),
+    )
+    .sort((left, right) => {
+      const leftDue = left.dueDate ?? "9999-99-99";
+      const rightDue = right.dueDate ?? "9999-99-99";
+      return (
+        getTaskImportanceScore(right.importance) -
+          getTaskImportanceScore(left.importance) ||
+        leftDue.localeCompare(rightDue) ||
+        left.name.localeCompare(right.name)
+      );
+    })
+    .map((task) =>
+      suggestedEntry({
+        description: [
+          task.dueDate ? formatDisplayDate(task.dueDate) : null,
+          task.importance,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        id: `suggested-task-${task.id}`,
+        kind: "task",
+        sourceId: task.id,
+        title: task.name,
+      }),
+    );
+
+  return [
+    ...checkpointEntries,
+    ...periodicEntries,
+    ...dailyHabitEntries,
+    ...taskEntries,
+  ];
+}
+
+function countHabitCompletionsInLastDays(
+  logsByHabitDate: HabitLogsSnapshot["logsByHabitDate"],
+  habitId: string,
+  dateKey: string,
+  days: number,
+) {
+  const endDate = dateFromKey(dateKey);
+  let total = 0;
+
+  for (let offset = 0; offset < days; offset += 1) {
+    const key = `${habitId}_${toDateKey(addDays(endDate, -offset))}`;
+    if (logsByHabitDate[key] === "complete") total += 1;
+  }
+
+  return total;
+}
+
+function suggestedEntry({
+  description,
+  habitId,
+  id,
+  kind,
+  sourceId,
+  title,
+}: {
+  description?: string | null;
+  habitId?: string;
+  id: string;
+  kind: DayPlanEntry["kind"];
+  sourceId?: string;
+  title: string;
+}): SuggestedPlanEntry {
+  return {
+    allDay: true,
+    description,
+    endMinutes: MINUTES_IN_DAY,
+    habitId,
+    id,
+    kind,
+    laneCount: 1,
+    laneIndex: 0,
+    laneSpan: 1,
+    sourceId,
+    startMinutes: 0,
+    title,
+  };
+}
+
+function isSuggestedTask(task: Task, dateKey: string) {
+  if (task.importance === "High") return true;
+  if (!task.dueDate) return false;
+  return task.dueDate <= toDateKey(addDays(dateFromKey(dateKey), 3));
+}
+
+function getScheduleNotificationEventId(entry: DayPlanEntry, dateKey: string) {
+  if (entry.kind === "habit" && entry.habitId) {
+    return `habit:${entry.habitId}:${dateKey}`;
+  }
+
+  if ((entry.kind === "task" || entry.kind === "goal") && entry.sourceId) {
+    return `${entry.kind}:${entry.sourceId}:${dateKey}`;
+  }
+
+  if (entry.kind === "google") {
+    const eventId = entry.sourceId ?? googleEntryId(entry.id);
+    return `google:${eventId}:${dateKey}`;
+  }
+
+  return null;
+}
+
+function getLastPlannedDurationMinutes(
+  snapshot: HabitLogsSnapshot | null,
+  habitId: string,
+  dateKey: string,
+) {
+  if (!snapshot) return DEFAULT_UNSCHEDULED_DROP_MINUTES;
+
+  const prefix = `${habitId}_`;
+  const durations = Object.entries(snapshot.plannedTimesByHabitDate)
+    .flatMap(([key, plan]) => {
+      if (!key.startsWith(prefix)) return [];
+
+      const startMinutes = timeToMinutes(plan.startTime);
+      const endMinutes = timeToMinutes(plan.endTime);
+      if (startMinutes === null || endMinutes === null) return [];
+
+      return [
+        {
+          dateKey: key.slice(prefix.length),
+          durationMinutes: Math.max(
+            MIN_PLAN_DURATION_MINUTES,
+            normalizeEndMinutes(startMinutes, endMinutes) - startMinutes,
+          ),
+        },
+      ];
+    })
+    .sort((left, right) => right.dateKey.localeCompare(left.dateKey));
+
+  return (
+    durations.find((duration) => duration.dateKey < dateKey)?.durationMinutes ??
+    durations[0]?.durationMinutes ??
+    DEFAULT_UNSCHEDULED_DROP_MINUTES
+  );
+}
 function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
   const sorted = [...entries].sort(
     (a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes,
@@ -4187,9 +4991,9 @@ function getPlanTargetMeta(targetType: PlanTargetType) {
       };
     case "monthlyHabit":
       return {
-        emptyText: "No monthly habits to plan.",
+        emptyText: "No periodic habits to plan.",
         icon: sym("calendar", "calendar_month"),
-        label: "Monthly habit",
+        label: "Periodic habit",
       };
     case "task":
       return {
@@ -4347,11 +5151,41 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
+  unscheduledRail: {
+    flexDirection: "row",
+    gap: 8,
+    paddingRight: 12,
+  },
+  floatingScheduleChip: {
+    position: "absolute",
+    zIndex: 100,
+    elevation: 24,
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    gap: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
   allDayChip: {
     maxWidth: "100%",
     borderRadius: 9,
     paddingHorizontal: 10,
     paddingVertical: 7,
+    gap: 1,
+  },
+  unscheduledHabitChip: {
+    borderWidth: 1.5,
+    borderStyle: "dotted",
+  },
+  allDayChipMeta: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   allDayChipText: {
     fontSize: 13,

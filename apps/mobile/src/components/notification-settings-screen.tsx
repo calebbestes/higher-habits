@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { cancelAllScheduleEventNotificationsAsync } from "@/lib/push-notifications";
 import {
   NOTIFICATION_SETTING_DEFAULTS,
   type NotificationSettings,
@@ -44,10 +45,17 @@ const SECTIONS: ToggleSection[] = [
     title: "Reminders",
     items: [
       {
+        key: "notifyScheduleEvents",
+        icon: sym("calendar.badge.clock", "event_available"),
+        title: "Scheduled events",
+        description: "A reminder when an event on your day plan starts.",
+      },
+      {
         key: "notifyMonthlyGoalToday",
         icon: sym("calendar", "event"),
-        title: "Monthly goal today",
-        description: "A 9:00 AM reminder for monthly goals planned for today.",
+        title: "Periodic habit today",
+        description:
+          "A 9:00 AM reminder for periodic habits planned for today.",
       },
       {
         key: "notifyTasksDueToday",
@@ -218,6 +226,9 @@ export function NotificationSettingsModal({
     const previous = settings;
     const next = { ...settings, [key]: value };
     setSettings(next);
+    if (key === "notifyScheduleEvents" && !value) {
+      void cancelAllScheduleEventNotificationsAsync();
+    }
     // Persist just the changed field; revert on failure.
     updateNotificationSettings({ [key]: value }).catch(() => {
       setSettings(previous);

@@ -5,7 +5,7 @@ import type { HabitsTab } from "@/lib/tab-view-store";
 
 const TABS: { key: HabitsTab; label: string }[] = [
   { key: "daily", label: "Daily" },
-  { key: "monthly", label: "Monthly" },
+  { key: "monthly", label: "Periodic" },
 ];
 
 export function HabitsTabs({

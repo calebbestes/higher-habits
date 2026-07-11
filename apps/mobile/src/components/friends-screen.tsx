@@ -22,6 +22,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
+import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type ContactMatch,
@@ -46,6 +47,7 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendsScreen() {
   const theme = useTheme();
+  const tabBarHeight = useTabBarHeight();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const [friends, setFriends] = useState<FriendRow[]>([]);
@@ -165,7 +167,10 @@ export function FriendsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: tabBarHeight + 16 },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -819,10 +824,15 @@ function FriendHabitHeatmapRow({
   logsByHabitDate: FriendProfile["logsByHabitDate"];
 }) {
   const theme = useTheme();
+  const [showTooltip, setShowTooltip] = useState(false);
 
   return (
     <View style={styles.profileHeatmapRow}>
-      <View
+      <Pressable
+        accessibilityLabel={habit.name}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={() => setShowTooltip((current) => !current)}
         style={[
           styles.profileHeatmapIcon,
           { backgroundColor: theme.secondary },
@@ -833,7 +843,29 @@ function FriendHabitHeatmapRow({
           size={13}
           color={theme.secondaryForeground}
         />
-      </View>
+        {showTooltip ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.profileIconTooltip,
+              {
+                backgroundColor: theme.text,
+                borderColor: theme.tabBorder,
+              },
+            ]}
+          >
+            <Text
+              numberOfLines={2}
+              style={[
+                styles.profileIconTooltipText,
+                { color: theme.background },
+              ]}
+            >
+              {habit.name}
+            </Text>
+          </View>
+        ) : null}
+      </Pressable>
       <View style={styles.profileDayBlocks}>
         {days.map((day) => {
           const status = logsByHabitDate[`${habit.id}_${day}`];
@@ -1544,7 +1576,7 @@ const styles = StyleSheet.create({
   profileDashboardCard: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 20,
-    overflow: "hidden",
+    overflow: "visible",
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -1592,6 +1624,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    overflow: "visible",
   },
   profileHeatmapIcon: {
     width: 26,
@@ -1599,11 +1632,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 8,
+    position: "relative",
+    zIndex: 10,
+    elevation: 10,
+  },
+  profileIconTooltip: {
+    position: "absolute",
+    left: 30,
+    top: -6,
+    zIndex: 20,
+    elevation: 20,
+    minWidth: 96,
+    maxWidth: 160,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  profileIconTooltipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
   },
   profileDayBlocks: {
     flex: 1,
     flexDirection: "row",
     gap: 3,
+    zIndex: 0,
   },
   profileDayBlock: {
     flex: 1,
