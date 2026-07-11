@@ -43,13 +43,41 @@ function playCelebrationHaptics(): () => void {
     ios: Haptics.ImpactFeedbackStyle;
     android: Haptics.AndroidHaptics;
   }> = [
-    { delay: 130, ios: Haptics.ImpactFeedbackStyle.Heavy, android: Haptics.AndroidHaptics.Context_Click },
-    { delay: 260, ios: Haptics.ImpactFeedbackStyle.Medium, android: Haptics.AndroidHaptics.Context_Click },
-    { delay: 400, ios: Haptics.ImpactFeedbackStyle.Medium, android: Haptics.AndroidHaptics.Segment_Tick },
-    { delay: 550, ios: Haptics.ImpactFeedbackStyle.Light, android: Haptics.AndroidHaptics.Segment_Tick },
-    { delay: 710, ios: Haptics.ImpactFeedbackStyle.Light, android: Haptics.AndroidHaptics.Segment_Frequent_Tick },
-    { delay: 880, ios: Haptics.ImpactFeedbackStyle.Soft, android: Haptics.AndroidHaptics.Segment_Frequent_Tick },
-    { delay: 1060, ios: Haptics.ImpactFeedbackStyle.Soft, android: Haptics.AndroidHaptics.Segment_Frequent_Tick },
+    {
+      delay: 130,
+      ios: Haptics.ImpactFeedbackStyle.Heavy,
+      android: Haptics.AndroidHaptics.Context_Click,
+    },
+    {
+      delay: 260,
+      ios: Haptics.ImpactFeedbackStyle.Medium,
+      android: Haptics.AndroidHaptics.Context_Click,
+    },
+    {
+      delay: 400,
+      ios: Haptics.ImpactFeedbackStyle.Medium,
+      android: Haptics.AndroidHaptics.Segment_Tick,
+    },
+    {
+      delay: 550,
+      ios: Haptics.ImpactFeedbackStyle.Light,
+      android: Haptics.AndroidHaptics.Segment_Tick,
+    },
+    {
+      delay: 710,
+      ios: Haptics.ImpactFeedbackStyle.Light,
+      android: Haptics.AndroidHaptics.Segment_Frequent_Tick,
+    },
+    {
+      delay: 880,
+      ios: Haptics.ImpactFeedbackStyle.Soft,
+      android: Haptics.AndroidHaptics.Segment_Frequent_Tick,
+    },
+    {
+      delay: 1060,
+      ios: Haptics.ImpactFeedbackStyle.Soft,
+      android: Haptics.AndroidHaptics.Segment_Frequent_Tick,
+    },
   ];
 
   const timers = steps.map((step) =>

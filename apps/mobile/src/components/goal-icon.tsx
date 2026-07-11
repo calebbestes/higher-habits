@@ -3,12 +3,8 @@ import lucideGlyphMap from "@react-native-vector-icons/lucide/glyphmaps/Lucide.j
 import { MaterialDesignIcons } from "@react-native-vector-icons/material-design-icons";
 import materialGlyphMap from "@react-native-vector-icons/material-design-icons/glyphmaps/MaterialDesignIcons.json";
 import { isLoaded, loadAsync } from "expo-font";
-import {
-  SymbolView,
-  type AndroidSymbol,
-  type SFSymbol,
-} from "expo-symbols";
-import { useEffect, useState, type ComponentProps } from "react";
+import { type AndroidSymbol, type SFSymbol, SymbolView } from "expo-symbols";
+import { type ComponentProps, useEffect, useState } from "react";
 
 type PlatformSymbolName = {
   ios: SFSymbol;
@@ -18,7 +14,9 @@ type PlatformSymbolName = {
 
 type SymbolName = PlatformSymbolName;
 type IconPack = "mdi" | "lucide";
-type MaterialDesignIconName = ComponentProps<typeof MaterialDesignIcons>["name"];
+type MaterialDesignIconName = ComponentProps<
+  typeof MaterialDesignIcons
+>["name"];
 type LucideIconName = ComponentProps<typeof Lucide>["name"];
 
 export type ExpoSymbolIconOption = {
@@ -169,11 +167,7 @@ const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
     "church",
   ]),
   vectorOption("mdi", "soccer", "Soccer", ["sport", "sports", "ball"]),
-  vectorOption("mdi", "basketball", "Basketball", [
-    "sport",
-    "sports",
-    "ball",
-  ]),
+  vectorOption("mdi", "basketball", "Basketball", ["sport", "sports", "ball"]),
   vectorOption("mdi", "football", "Football", ["sport", "sports", "ball"]),
   vectorOption("mdi", "run", "Running", ["run", "jog", "cardio", "race"]),
   vectorOption("mdi", "walk", "Walk", ["steps", "outside", "walking"]),
@@ -199,12 +193,7 @@ const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
     "protein",
     "creatine",
   ]),
-  vectorOption("mdi", "cash", "Money", [
-    "finance",
-    "dollar",
-    "budget",
-    "cash",
-  ]),
+  vectorOption("mdi", "cash", "Money", ["finance", "dollar", "budget", "cash"]),
   vectorOption("mdi", "chart-line", "Chart", [
     "planning",
     "finance",
@@ -218,57 +207,33 @@ const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
   ]),
   vectorOption("mdi", "phone", "Phone", ["call", "contact"]),
   vectorOption("mdi", "phone-off", "No Phone", ["disconnect", "focus"]),
-  vectorOption("mdi", "linkedin", "LinkedIn", [
-    "work",
-    "career",
-    "outreach",
-  ]),
+  vectorOption("mdi", "linkedin", "LinkedIn", ["work", "career", "outreach"]),
   vectorOption("mdi", "code-braces", "Code", [
     "coding",
     "programming",
     "study",
   ]),
   vectorOption("mdi", "laptop", "Laptop", ["computer", "work", "study"]),
-  vectorOption("mdi", "school-outline", "School", [
-    "learn",
-    "class",
-    "study",
-  ]),
+  vectorOption("mdi", "school-outline", "School", ["learn", "class", "study"]),
   vectorOption("mdi", "broom", "Clean", ["room", "chores", "cleaning"]),
-  vectorOption("mdi", "home-heart", "Home", [
-    "family",
-    "ministering",
-    "house",
-  ]),
+  vectorOption("mdi", "home-heart", "Home", ["family", "ministering", "house"]),
   vectorOption("mdi", "handshake-outline", "Service", [
     "volunteer",
     "help",
     "serve",
   ]),
-  vectorOption("mdi", "church", "Church", [
-    "spiritual",
-    "worship",
-    "religion",
-  ]),
+  vectorOption("mdi", "church", "Church", ["spiritual", "worship", "religion"]),
   vectorOption("mdi", "music", "Music", ["song", "practice", "instrument"]),
   vectorOption("mdi", "piano", "Piano", ["music", "practice"]),
   vectorOption("mdi", "guitar-acoustic", "Guitar", ["music", "practice"]),
-  vectorOption("mdi", "palette-outline", "Art", [
-    "draw",
-    "paint",
-    "creative",
-  ]),
+  vectorOption("mdi", "palette-outline", "Art", ["draw", "paint", "creative"]),
   vectorOption("mdi", "chef-hat", "Cook", ["kitchen", "meal", "chef"]),
   vectorOption("mdi", "silverware-fork-knife", "Meal", [
     "lunch",
     "dinner",
     "food",
   ]),
-  vectorOption("mdi", "party-popper", "Party", [
-    "celebrate",
-    "host",
-    "fun",
-  ]),
+  vectorOption("mdi", "party-popper", "Party", ["celebrate", "host", "fun"]),
   vectorOption("mdi", "tent", "Camp", ["outdoors", "camping"]),
   vectorOption("mdi", "earth", "World", ["global", "friend", "language"]),
   vectorOption("mdi", "image-filter-hdr", "Climb", [
@@ -292,11 +257,7 @@ const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
     "clean",
     "magic",
   ]),
-  vectorOption("lucide", "notebook-pen", "Journal", [
-    "write",
-    "note",
-    "plan",
-  ]),
+  vectorOption("lucide", "notebook-pen", "Journal", ["write", "note", "plan"]),
   vectorOption("lucide", "calendar-check", "Plan", [
     "calendar",
     "schedule",

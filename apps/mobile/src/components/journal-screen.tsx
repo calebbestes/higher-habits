@@ -50,6 +50,7 @@ import {
 import type { GoalVisibility } from "@/lib/goals-client";
 import { rotateRemotePhoto } from "@/lib/photo-edit";
 import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
+import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -1509,15 +1510,19 @@ const VISIBILITY_OPTIONS: Array<{
   label: string;
   icon: SymbolName;
 }> = [
-  { value: "only_me", label: "Only me", icon: sym("person.fill", "person") },
+  {
+    value: "only_me",
+    label: VISIBILITY_LABELS.only_me,
+    icon: sym("person.fill", "person"),
+  },
   {
     value: "goal_friends",
-    label: "Goal friends",
+    label: VISIBILITY_LABELS.goal_friends,
     icon: sym("person.2.fill", "group"),
   },
   {
     value: "all_friends",
-    label: "All friends",
+    label: VISIBILITY_LABELS.all_friends,
     icon: sym("person.3.fill", "groups"),
   },
 ];
@@ -1579,7 +1584,7 @@ function PostActionsSheet({
             ]}
           />
           <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
-            Visibility
+            Post visibility
           </Text>
           {VISIBILITY_OPTIONS.map((option) => (
             <PickerRow

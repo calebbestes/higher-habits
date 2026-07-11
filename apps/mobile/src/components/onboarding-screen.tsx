@@ -8,8 +8,8 @@ import {
 } from "@/components/celebration-overlay";
 import { DashboardScreen } from "@/components/dashboard-screen";
 import {
-  DayPlanScreen,
   type DayPlanOnboardingStep,
+  DayPlanScreen,
 } from "@/components/day-plan-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
@@ -157,9 +157,7 @@ function OnboardingCard({
             pressed && styles.pressed,
           ]}
         >
-          <Text
-            style={[styles.buttonText, { color: theme.primaryForeground }]}
-          >
+          <Text style={[styles.buttonText, { color: theme.primaryForeground }]}>
             {buttonLabel}
           </Text>
         </Pressable>
@@ -207,9 +205,7 @@ function WelcomeCard({
             pressed && styles.pressed,
           ]}
         >
-          <Text
-            style={[styles.buttonText, { color: theme.primaryForeground }]}
-          >
+          <Text style={[styles.buttonText, { color: theme.primaryForeground }]}>
             Start floating
           </Text>
         </Pressable>

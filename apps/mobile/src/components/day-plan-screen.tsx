@@ -2881,6 +2881,7 @@ function InternalEventActionsModal({
                 disabled={isUpdating}
                 value={visibility}
                 onChange={onSetVisibility}
+                label="Event visibility"
               />
             ) : null}
 

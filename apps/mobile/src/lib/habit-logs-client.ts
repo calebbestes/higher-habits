@@ -168,7 +168,9 @@ function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
 
 function normalizeHabits(value: unknown): HabitInCategory[] {
   return Array.isArray(value)
-    ? value.filter(isRecord).map((habit) => normalizeHabit(habit) as HabitInCategory)
+    ? value
+        .filter(isRecord)
+        .map((habit) => normalizeHabit(habit) as HabitInCategory)
     : [];
 }
 
@@ -187,14 +189,16 @@ function normalizeCategories(value: unknown): CategoryWithHabits[] {
 
 function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
   const payload = isRecord(value) ? value : {};
-  const plannedTimesByHabitDate = mapValues(payload.plannedTimesByHabitDate, (entry) =>
-    isRecord(entry)
-      ? {
-          startTime: nullableString(entry.startTime),
-          endTime: nullableString(entry.endTime),
-          repeatsDaily: booleanOrFallback(entry.repeatsDaily),
-        }
-      : null,
+  const plannedTimesByHabitDate = mapValues(
+    payload.plannedTimesByHabitDate,
+    (entry) =>
+      isRecord(entry)
+        ? {
+            startTime: nullableString(entry.startTime),
+            endTime: nullableString(entry.endTime),
+            repeatsDaily: booleanOrFallback(entry.repeatsDaily),
+          }
+        : null,
   );
 
   return {
@@ -214,15 +218,19 @@ function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
     notesByHabitDate: mapValues(payload.notesByHabitDate, (note) =>
       typeof note === "string" ? note : null,
     ),
-    photoCountsByHabitDate: mapValues(payload.photoCountsByHabitDate, (count) =>
-      typeof count === "number" && Number.isFinite(count) ? count : null,
+    photoCountsByHabitDate: mapValues(
+      payload.photoCountsByHabitDate,
+      (count) =>
+        typeof count === "number" && Number.isFinite(count) ? count : null,
     ),
-    visibilityByHabitDate: mapValues(payload.visibilityByHabitDate, (visibility) =>
-      visibility === "only_me" ||
-      visibility === "all_friends" ||
-      visibility === "goal_friends"
-        ? visibility
-        : null,
+    visibilityByHabitDate: mapValues(
+      payload.visibilityByHabitDate,
+      (visibility) =>
+        visibility === "only_me" ||
+        visibility === "all_friends" ||
+        visibility === "goal_friends"
+          ? visibility
+          : null,
     ),
     plannedTimesByHabitDate,
     repeatingPlansByHabit: isRecord(payload.repeatingPlansByHabit)

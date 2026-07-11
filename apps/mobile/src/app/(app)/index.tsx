@@ -3,7 +3,10 @@ import { useEffect } from "react";
 
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
-import { setCollabSection, useDefaultCollabSection } from "@/lib/tab-view-store";
+import {
+  setCollabSection,
+  useDefaultCollabSection,
+} from "@/lib/tab-view-store";
 
 export default function CollabScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>();

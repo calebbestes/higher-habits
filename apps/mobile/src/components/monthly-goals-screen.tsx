@@ -207,6 +207,10 @@ function weekOfMonth(d: Date): number {
   return Math.ceil(d.getDate() / 7) - 1;
 }
 
+function monthlyWeekdayCell(date: Date) {
+  return weekOfMonth(date) * 7 + date.getDay();
+}
+
 function isGoalScheduledForDate(
   goal: import("@/lib/habit-logs-client").PeriodicHabitInfo,
   date: Date,
@@ -235,11 +239,13 @@ function isGoalScheduledForDate(
         ? dates.includes(date.getDate())
         : date.getDate() === ref.getDate();
     }
-    const days = goal.repeatDays?.filter((day) => day >= 0 && day <= 6);
-    return (
-      (days?.length ? days.includes(dow) : dow === ref.getDay()) &&
-      weekOfMonth(date) === weekOfMonth(ref)
-    );
+    const cells = goal.repeatDays?.filter((day) => day >= 0 && day <= 34);
+    if (!cells?.length)
+      return monthlyWeekdayCell(date) === monthlyWeekdayCell(ref);
+    if (cells.every((day) => day <= 6)) {
+      return cells.includes(dow) && weekOfMonth(date) === weekOfMonth(ref);
+    }
+    return cells.includes(monthlyWeekdayCell(date));
   }
 
   return false;

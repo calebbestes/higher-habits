@@ -1,4 +1,6 @@
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import { GoalIcon } from "@/components/goal-icon";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import * as Clipboard from "expo-clipboard";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -25,12 +27,19 @@ import { type FriendRow, fetchFriends } from "@/lib/friends-client";
 import {
   type CategoryWithGoals,
   type GoalInCategory,
+  type GoalLogStatus,
   type GoalLogsSnapshot,
   type PeriodicGoalInfo,
   fetchGoalLogsSnapshot,
   getMonthKey,
+  setGoalLog,
+  setGoalLogNote,
+  setGoalLogVisibility,
   toDateKey,
 } from "@/lib/goal-logs-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import type { GoalVisibility } from "@/lib/goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -158,8 +167,22 @@ export function DashboardScreen() {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareFriends, setShareFriends] = useState<FriendRow[]>([]);
   const [isLoadingShareFriends, setIsLoadingShareFriends] = useState(false);
+  const [activeLog, setActiveLog] = useState<{
+    dateKey: string;
+    goal: GoalInCategory;
+  } | null>(null);
+  const [noteLog, setNoteLog] = useState<{
+    dateKey: string;
+    goal: GoalInCategory;
+  } | null>(null);
+  const [updatingKey, setUpdatingKey] = useState<string | null>(null);
+  const [uploadingPhotoSource, setUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const [tooltipGoalId, setTooltipGoalId] = useState<string | null>(null);
 
   const last7Days = useMemo(() => getLast7Days(today), [today]);
+  const todayKey = useMemo(() => toDateKey(today), [today]);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -309,6 +332,177 @@ export function DashboardScreen() {
     }
   };
 
+  const setSnapshotLogStatus = useCallback(
+    (key: string, status: GoalLogStatus) => {
+      setSnapshot((current) => {
+        if (!current) return current;
+        const logsByGoalDate = { ...current.logsByGoalDate };
+        if (status) logsByGoalDate[key] = status;
+        else delete logsByGoalDate[key];
+        return { ...current, logsByGoalDate };
+      });
+    },
+    [],
+  );
+
+  const handleSetStatus = useCallback(
+    async (
+      goalId: string,
+      dateKey: string,
+      status: GoalLogStatus,
+      options?: {
+        endTime?: string | null;
+        repeatPlan?: boolean;
+        startTime?: string | null;
+        timeZone?: string | null;
+      },
+    ) => {
+      const key = `${goalId}_${dateKey}`;
+      if (updatingKey === key) return;
+      const previousStatus = snapshot?.logsByGoalDate[key];
+      setUpdatingKey(key);
+      setSnapshotLogStatus(key, status);
+
+      try {
+        await setGoalLog(goalId, dateKey, status, options);
+        setSnapshot((current) => {
+          if (!current) return current;
+          const plannedTimesByGoalDate = {
+            ...current.plannedTimesByGoalDate,
+          };
+          if (status === "planned") {
+            plannedTimesByGoalDate[key] = {
+              startTime: options?.startTime ?? null,
+              endTime: options?.endTime ?? null,
+              repeatsDaily: options?.repeatPlan ?? false,
+            };
+          } else {
+            delete plannedTimesByGoalDate[key];
+          }
+          return { ...current, plannedTimesByGoalDate };
+        });
+      } catch (statusError) {
+        setSnapshotLogStatus(key, previousStatus ?? null);
+        Alert.alert(
+          "Could not update habit",
+          statusError instanceof Error
+            ? statusError.message
+            : "The habit could not be updated.",
+        );
+      } finally {
+        setUpdatingKey(null);
+      }
+    },
+    [setSnapshotLogStatus, snapshot?.logsByGoalDate, updatingKey],
+  );
+
+  const handleSaveNote = useCallback(
+    async (goalId: string, dateKey: string, notes: string) => {
+      const key = `${goalId}_${dateKey}`;
+      await setGoalLogNote(goalId, dateKey, notes);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              notesByGoalDate: {
+                ...current.notesByGoalDate,
+                [key]: notes,
+              },
+            }
+          : current,
+      );
+    },
+    [],
+  );
+
+  const handleAddPhoto = useCallback(
+    async (goalId: string, dateKey: string, source: GoalPhotoSource) => {
+      if (uploadingPhotoSource) return;
+      setUploadingPhotoSource(source);
+
+      try {
+        const photo = await pickGoalPhoto(source);
+        if (!photo) return;
+        await uploadGoalPhoto(goalId, dateKey, photo);
+        const key = `${goalId}_${dateKey}`;
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                photoCountsByGoalDate: {
+                  ...current.photoCountsByGoalDate,
+                  [key]: (current.photoCountsByGoalDate[key] ?? 0) + 1,
+                },
+              }
+            : current,
+        );
+      } catch (photoError) {
+        Alert.alert(
+          "Could not add photo",
+          photoError instanceof Error
+            ? photoError.message
+            : "The photo could not be uploaded.",
+        );
+      } finally {
+        setUploadingPhotoSource(null);
+      }
+    },
+    [uploadingPhotoSource],
+  );
+
+  const handleSetVisibility = useCallback(
+    async (goalId: string, dateKey: string, visibility: GoalVisibility) => {
+      if (isUpdatingVisibility) return;
+      const key = `${goalId}_${dateKey}`;
+      setIsUpdatingVisibility(true);
+
+      try {
+        await setGoalLogVisibility(goalId, dateKey, visibility);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                visibilityByGoalDate: {
+                  ...current.visibilityByGoalDate,
+                  [key]: visibility,
+                },
+              }
+            : current,
+        );
+      } catch (visibilityError) {
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      } finally {
+        setIsUpdatingVisibility(false);
+      }
+    },
+    [isUpdatingVisibility],
+  );
+
+  const activeLogKey = activeLog
+    ? `${activeLog.goal.id}_${activeLog.dateKey}`
+    : null;
+  const activeLogStatus = activeLogKey
+    ? snapshot?.logsByGoalDate[activeLogKey]
+    : undefined;
+  const activeLogNote = activeLogKey
+    ? (snapshot?.notesByGoalDate[activeLogKey] ?? "")
+    : "";
+  const activeLogPhotoCount = activeLogKey
+    ? (snapshot?.photoCountsByGoalDate[activeLogKey] ?? 0)
+    : 0;
+  const activeLogVisibility =
+    (activeLogKey ? snapshot?.visibilityByGoalDate[activeLogKey] : null) ??
+    activeLog?.goal.visibility ??
+    "only_me";
+  const activeLogPlannedTime = activeLogKey
+    ? snapshot?.plannedTimesByGoalDate[activeLogKey]
+    : null;
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -392,7 +586,16 @@ export function DashboardScreen() {
                             goals={cat.goals}
                             days={last7Days}
                             logsByGoalDate={snapshot.logsByGoalDate}
+                            onPressDay={(goal, dateKey) =>
+                              setActiveLog({ goal, dateKey })
+                            }
+                            onToggleTooltip={(goalId) =>
+                              setTooltipGoalId((current) =>
+                                current === goalId ? null : goalId,
+                              )
+                            }
                             showDivider={i > 0}
+                            tooltipGoalId={tooltipGoalId}
                           />
                         ))}
                       </>
@@ -425,7 +628,16 @@ export function DashboardScreen() {
                           goals={cat.goals}
                           days={last7Days}
                           logsByGoalDate={snapshot.logsByGoalDate}
+                          onPressDay={(goal, dateKey) =>
+                            setActiveLog({ goal, dateKey })
+                          }
+                          onToggleTooltip={(goalId) =>
+                            setTooltipGoalId((current) =>
+                              current === goalId ? null : goalId,
+                            )
+                          }
                           showDivider={i > 0}
+                          tooltipGoalId={tooltipGoalId}
                         />
                       ))}
                     </DashSection>
@@ -456,6 +668,65 @@ export function DashboardScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <GoalActionsModal
+        canPlan={Boolean(activeLog && activeLog.dateKey >= todayKey)}
+        goal={activeLog?.goal ?? null}
+        hasNote={Boolean(activeLogNote.trim())}
+        hasPhoto={activeLogPhotoCount > 0}
+        isFutureDate={Boolean(activeLog && activeLog.dateKey > todayKey)}
+        isUpdating={Boolean(activeLogKey && updatingKey === activeLogKey)}
+        isUpdatingVisibility={isUpdatingVisibility}
+        noteText={activeLogNote}
+        plannedTime={activeLogPlannedTime ?? undefined}
+        status={activeLogStatus}
+        uploadingPhotoSource={uploadingPhotoSource}
+        visibility={activeLogVisibility}
+        visible={Boolean(activeLog)}
+        onAddPhoto={(source) => {
+          if (!activeLog) return;
+          void handleAddPhoto(activeLog.goal.id, activeLog.dateKey, source);
+        }}
+        onDismiss={() => setActiveLog(null)}
+        onShown={() => undefined}
+        onOpenNote={() => {
+          if (!activeLog) return;
+          setNoteLog(activeLog);
+          setActiveLog(null);
+        }}
+        onSetStatus={(status, planOptions) => {
+          if (!activeLog) return;
+          void handleSetStatus(
+            activeLog.goal.id,
+            activeLog.dateKey,
+            status,
+            planOptions,
+          );
+          setActiveLog(null);
+        }}
+        onSetVisibility={(visibility) => {
+          if (!activeLog) return;
+          void handleSetVisibility(
+            activeLog.goal.id,
+            activeLog.dateKey,
+            visibility,
+          );
+        }}
+      />
+      {noteLog ? (
+        <GoalNoteEditorModal
+          dateKey={noteLog.dateKey}
+          goalName={noteLog.goal.name}
+          initialValue={
+            snapshot?.notesByGoalDate[
+              `${noteLog.goal.id}_${noteLog.dateKey}`
+            ] ?? null
+          }
+          onClose={() => setNoteLog(null)}
+          onSave={(notes) =>
+            handleSaveNote(noteLog.goal.id, noteLog.dateKey, notes)
+          }
+        />
+      ) : null}
       <ShareResultsModal
         friends={shareFriends}
         isLoadingFriends={isLoadingShareFriends}
@@ -809,13 +1080,19 @@ function CategoryHeatmap({
   goals,
   days,
   logsByGoalDate,
+  onPressDay,
+  onToggleTooltip,
   showDivider,
+  tooltipGoalId,
 }: {
   category: CategoryWithGoals;
   goals: GoalInCategory[];
   days: string[];
   logsByGoalDate: Record<string, "complete" | "planned">;
+  onPressDay: (goal: GoalInCategory, dateKey: string) => void;
+  onToggleTooltip: (goalId: string) => void;
   showDivider: boolean;
+  tooltipGoalId: string | null;
 }) {
   const theme = useTheme();
 
@@ -835,7 +1112,11 @@ function CategoryHeatmap({
         );
         return (
           <View key={goal.id} style={styles.heatmapRow}>
-            <View
+            <Pressable
+              accessibilityLabel={goal.name}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => onToggleTooltip(goal.id)}
               style={[styles.heatmapIcon, { backgroundColor: theme.secondary }]}
             >
               <GoalIcon
@@ -843,11 +1124,40 @@ function CategoryHeatmap({
                 size={13}
                 color={theme.secondaryForeground}
               />
-            </View>
+              {tooltipGoalId === goal.id ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.iconTooltip,
+                    {
+                      backgroundColor: theme.text,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.iconTooltipText,
+                      { color: theme.background },
+                    ]}
+                  >
+                    {goal.name}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
             <View style={styles.dayBlocks}>
               {days.map((d, i) => (
-                <View
+                <Pressable
+                  accessibilityLabel={`${goal.name} on ${formatShareDate(
+                    dateFromDateKey(d),
+                  )}, ${
+                    dayStatuses[i] ? "complete" : "not complete"
+                  }. Tap to edit.`}
+                  accessibilityRole="button"
                   key={d}
+                  onPress={() => onPressDay(goal, d)}
                   style={[
                     styles.dayBlock,
                     {
@@ -968,7 +1278,7 @@ const styles = StyleSheet.create({
   section: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 20,
-    overflow: "hidden",
+    overflow: "visible",
   },
   cardContent: { paddingHorizontal: 14, paddingVertical: 8 },
   emptyHint: {
@@ -1072,6 +1382,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     height: 32,
+    overflow: "visible",
   },
   heatmapIcon: {
     width: 26,
@@ -1079,11 +1390,33 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+    zIndex: 10,
+    elevation: 10,
+  },
+  iconTooltip: {
+    position: "absolute",
+    left: 30,
+    top: -6,
+    zIndex: 20,
+    elevation: 20,
+    minWidth: 96,
+    maxWidth: 160,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  iconTooltipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
   },
   dayBlocks: {
     flex: 1,
     flexDirection: "row",
     gap: 3,
+    zIndex: 0,
   },
   dayBlock: {
     flex: 1,

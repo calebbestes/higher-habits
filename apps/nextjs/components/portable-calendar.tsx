@@ -282,6 +282,10 @@ function weekOfMonth(d: Date): number {
   return Math.ceil(d.getDate() / 7) - 1;
 }
 
+function monthlyWeekdayCell(date: Date) {
+  return weekOfMonth(date) * 7 + date.getDay();
+}
+
 function isGoalScheduledForDate(
   goal: Pick<
     PeriodicGoalInfo,
@@ -311,8 +315,19 @@ function isGoalScheduledForDate(
       (date.getMonth() - ref.getMonth());
     if (monthDiff % interval !== 0) return false;
     const type = goal.repeatMonthlyType ?? "day_of_month";
-    if (type === "day_of_month") return date.getDate() === ref.getDate();
-    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+    if (type === "day_of_month") {
+      const dates = goal.repeatDays?.filter((day) => day >= 1 && day <= 31);
+      return dates?.length
+        ? dates.includes(date.getDate())
+        : date.getDate() === ref.getDate();
+    }
+    const cells = goal.repeatDays?.filter((day) => day >= 0 && day <= 34);
+    if (!cells?.length)
+      return monthlyWeekdayCell(date) === monthlyWeekdayCell(ref);
+    if (cells.every((day) => day <= 6)) {
+      return cells.includes(dow) && weekOfMonth(date) === weekOfMonth(ref);
+    }
+    return cells.includes(monthlyWeekdayCell(date));
   }
 
   return false;

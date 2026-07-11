@@ -59,8 +59,7 @@ export function CollabHeaderMenu({
           (item) => item.id === "shared-goals" || item.id === "incentives",
         );
   const selectedSection =
-    isCollabSection(section) &&
-    menuItems.some((item) => item.id === section)
+    isCollabSection(section) && menuItems.some((item) => item.id === section)
       ? section
       : currentSection;
   const selectedItem =

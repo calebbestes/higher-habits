@@ -1214,6 +1214,7 @@ function CheckpointActionsModal({
                   void save({ completed, notes: notes(), visibility: next })
                 }
                 allowed={["only_me", "all_friends"]}
+                label="Checkpoint visibility"
               />
             ) : null}
 
@@ -2162,10 +2163,13 @@ const styles = StyleSheet.create({
   timelineContent: {
     paddingHorizontal: 12,
     paddingBottom: 2,
+    overflow: "visible",
   },
   timelineMilestone: {
     width: 132,
     minHeight: 122,
+    alignItems: "center",
+    overflow: "visible",
   },
   milestoneDate: {
     marginBottom: 10,
@@ -2175,9 +2179,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   milestoneTrackRow: {
-    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     height: 42,
+    width: "100%",
+    overflow: "visible",
   },
   milestoneMarker: {
     width: 42,
@@ -2190,16 +2196,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
+    zIndex: 2,
   },
   milestoneConnector: {
-    flex: 1,
+    position: "absolute",
+    left: 66,
+    width: 132,
     height: 9,
-    marginLeft: 0,
     borderRadius: 999,
+    zIndex: 1,
   },
   milestoneTitle: {
     marginTop: 11,
-    paddingRight: 12,
+    width: 120,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "900",
@@ -2207,7 +2216,7 @@ const styles = StyleSheet.create({
   },
   milestoneSubtitle: {
     marginTop: 3,
-    paddingRight: 12,
+    width: 120,
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "600",
