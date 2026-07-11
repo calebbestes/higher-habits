@@ -36,7 +36,7 @@ const DEFAULTS = Object.fromEntries(
 
 const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
-  defaultCollabSection: "feed",
+  defaultCollabSection: "shared-goals",
   defaultPlanReportView: "day-plan",
   onboardingCompleted: true,
 } as const;
@@ -51,7 +51,9 @@ const bodySchema = z
       "plan-report",
       "journal",
       "collab",
+      "friends",
       "dashboard",
+      "history",
       "settings",
     ]),
     defaultCollabSection: z.enum([

@@ -1,5 +1,5 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -96,6 +96,15 @@ export function TasksScreen() {
   const [actionTask, setActionTask] = useState<Task | null>(null);
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const { projects, reloadProjects, createProject, confirmDeleteProject } =
     useTaskProjects();
@@ -110,6 +119,8 @@ export function TasksScreen() {
 
   const load = useCallback(
     async (refresh = false) => {
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
 
@@ -119,17 +130,25 @@ export function TasksScreen() {
           fetchPlannedEvents({ sourceType: "task" }),
           reloadProjects(),
         ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setTasks(nextTasks);
         setPlannedEvents(nextPlannedEvents);
       } catch (loadError) {
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setError(
           loadError instanceof Error
             ? loadError.message
             : "Could not load tasks.",
         );
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [reloadProjects],
@@ -201,15 +220,17 @@ export function TasksScreen() {
   };
 
   const saveTask = async (input: TaskInput) => {
+    const targetTask = editingTask;
     const saved = editingTask
       ? await updateTask(editingTask.id, input)
       : await createTask(input);
-    const existingPlan = editingTask
-      ? plannedEventsByTaskId.get(editingTask.id)
+    const existingPlan = targetTask
+      ? plannedEventsByTaskId.get(targetTask.id)
       : null;
+    if (!isMountedRef.current) return;
 
     setTasks((current) =>
-      editingTask
+      targetTask
         ? current.map((task) => (task.id === saved.id ? saved : task))
         : [...current, saved],
     );
@@ -223,6 +244,7 @@ export function TasksScreen() {
         timeZone: null,
         title: saved.name,
       });
+      if (!isMountedRef.current) return;
       setPlannedEvents((current) =>
         current.map((event) =>
           event.id === result.event.id ? result.event : event,
@@ -245,6 +267,7 @@ export function TasksScreen() {
         ...toInput(task),
         completedAt: task.completedAt ? null : todayDateKey(),
       });
+      if (!isMountedRef.current) return;
       setTasks((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -256,7 +279,7 @@ export function TasksScreen() {
           : "Could not update task.",
       );
     } finally {
-      setUpdatingId(null);
+      if (isMountedRef.current) setUpdatingId(null);
     }
   };
 
@@ -277,20 +300,22 @@ export function TasksScreen() {
     timeZone: string | null;
   }) => {
     if (!planningTask) return;
+    const taskId = planningTask.id;
+    const taskName = planningTask.name;
 
     const result = await upsertPlannedEvent({
       dateKey,
       endTime,
-      sourceId: planningTask.id,
+      sourceId: taskId,
       sourceType: "task",
       startTime,
       timeZone,
-      title: planningTask.name,
+      title: taskName,
     });
+    if (!isMountedRef.current || planningTask?.id !== taskId) return;
     setPlannedEvents((current) => {
       const filtered = current.filter(
-        (event) =>
-          event.sourceType !== "task" || event.sourceId !== planningTask.id,
+        (event) => event.sourceType !== "task" || event.sourceId !== taskId,
       );
       return [...filtered, result.event];
     });
@@ -301,6 +326,7 @@ export function TasksScreen() {
 
     try {
       await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
+      if (!isMountedRef.current) return;
       setPlannedEvents((current) =>
         current.filter(
           (event) => event.sourceType !== "task" || event.sourceId !== task.id,
@@ -325,6 +351,7 @@ export function TasksScreen() {
         onPress: async () => {
           try {
             await deleteTask(task.id);
+            if (!isMountedRef.current) return;
             setTasks((current) =>
               current.filter((item) => item.id !== task.id),
             );
@@ -413,7 +440,7 @@ export function TasksScreen() {
 
           <View style={styles.stats}>
             <Stat label="Active" value={activeCount} />
-            <Stat label="Due today" value={todayCount} accent="#9D7474" />
+            <Stat label="Due today" value={todayCount} accent={theme.primary} />
             <Stat label="Done today" value={completedCount} accent="#527B65" />
           </View>
 
@@ -666,7 +693,7 @@ function TaskCard({
   const priority = getTaskPriorityLevel(task);
   const priorityColor =
     task.importance === "High"
-      ? "#9D7474"
+      ? theme.primary
       : task.importance === "Medium"
         ? theme.primary
         : theme.textSecondary;

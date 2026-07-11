@@ -10,8 +10,10 @@ import {
   type HabitsTab,
   isPlanReportView,
   setHabitsTab,
+  setPlanReportDateKey,
   setPlanReportView,
   useDefaultPlanReportView,
+  usePlanReportDateKey,
 } from "@/lib/tab-view-store";
 
 export default function PlanReportScreen() {
@@ -21,12 +23,16 @@ export default function PlanReportScreen() {
     date?: string;
   }>();
   const defaultView = useDefaultPlanReportView();
+  const rememberedDateKey = usePlanReportDateKey();
   const legacyHabitsTab = isLegacyHabitsTab(view) ? view : undefined;
   const activeView = legacyHabitsTab
     ? "habits"
     : isPlanReportView(view)
       ? view
       : defaultView;
+  const activeDateKey = isDateKey(date)
+    ? date
+    : (rememberedDateKey ?? undefined);
 
   useEffect(() => {
     if (legacyHabitsTab) {
@@ -47,7 +53,10 @@ export default function PlanReportScreen() {
   if (activeView === "day-plan") {
     return (
       <ComponentErrorBoundary name="DayPlanScreen">
-        <DayPlanScreen initialDateKey={date} />
+        <DayPlanScreen
+          initialDateKey={activeDateKey}
+          onDateChange={setPlanReportDateKey}
+        />
       </ComponentErrorBoundary>
     );
   }
@@ -68,9 +77,19 @@ export default function PlanReportScreen() {
     );
   }
 
-  return <HabitsScreen initialDateKey={date} initialTab={legacyHabitsTab} />;
+  return (
+    <HabitsScreen
+      initialDateKey={activeDateKey}
+      initialTab={legacyHabitsTab}
+      onDateChange={setPlanReportDateKey}
+    />
+  );
 }
 
 function isLegacyHabitsTab(view: string | undefined): view is HabitsTab {
   return view === "daily" || view === "monthly";
+}
+
+function isDateKey(value: string | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }

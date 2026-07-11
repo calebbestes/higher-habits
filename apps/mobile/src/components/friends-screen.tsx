@@ -2,7 +2,7 @@ import * as Contacts from "expo-contacts";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,13 +20,18 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type ContactMatch,
+  type FriendProfile,
+  type FriendProfileCategory,
+  type FriendProfileHabit,
   type FriendRow,
   acceptFriendRequest,
   addFriend,
+  fetchFriendProfile,
   fetchFriends,
   matchContacts,
 } from "@/lib/friends-client";
@@ -41,32 +46,52 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendsScreen() {
   const theme = useTheme();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
 
   const load = useCallback(async (refresh = false) => {
+    const requestId = ++loadRequestIdRef.current;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     try {
-      setFriends(await fetchFriends());
+      const nextFriends = await fetchFriends();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
+      setFriends(nextFriends);
       setError(null);
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load friends.",
-      );
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load friends.",
+        );
+      }
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     void load();
@@ -122,14 +147,17 @@ export function FriendsScreen() {
     setAcceptingFriendshipId(friend.id);
     try {
       await acceptFriendRequest(friend.id);
+      if (!isMountedRef.current) return;
       await load();
     } catch (acceptError) {
-      Alert.alert(
-        "Could not accept request",
-        acceptError instanceof Error ? acceptError.message : "Try again.",
-      );
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not accept request",
+          acceptError instanceof Error ? acceptError.message : "Try again.",
+        );
+      }
     } finally {
-      setAcceptingFriendshipId(null);
+      if (isMountedRef.current) setAcceptingFriendshipId(null);
     }
   };
 
@@ -267,6 +295,7 @@ export function FriendsScreen() {
                         key={friend.id}
                         friend={friend}
                         onMessage={() => messageFriend(friend)}
+                        onOpenProfile={() => setProfileFriend(friend)}
                       />
                     ))}
                   </View>
@@ -287,8 +316,13 @@ export function FriendsScreen() {
         onClose={() => setIsAddOpen(false)}
         onAdded={async () => {
           setIsAddOpen(false);
+          if (!isMountedRef.current) return;
           await load();
         }}
+      />
+      <FriendProfileModal
+        friend={profileFriend}
+        onClose={() => setProfileFriend(null)}
       />
     </View>
   );
@@ -317,9 +351,11 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 function FriendCard({
   friend,
   onMessage,
+  onOpenProfile,
 }: {
   friend: FriendRow;
   onMessage: () => void;
+  onOpenProfile: () => void;
 }) {
   const theme = useTheme();
 
@@ -333,7 +369,15 @@ function FriendCard({
         },
       ]}
     >
-      <FriendAvatar friend={friend} size={48} />
+      <Pressable
+        accessibilityLabel={`Open ${friend.friendName}'s profile`}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onOpenProfile}
+        style={({ pressed }) => pressed && styles.pressed}
+      >
+        <FriendAvatar friend={friend} size={48} />
+      </Pressable>
       <View style={styles.friendIdentity}>
         <Text
           numberOfLines={1}
@@ -477,6 +521,344 @@ function FriendAvatar({ friend, size }: { friend: FriendRow; size: number }) {
   );
 }
 
+export function FriendProfileModal({
+  friend,
+  onClose,
+}: {
+  friend: FriendRow | null;
+  onClose: () => void;
+}) {
+  const theme = useTheme();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
+  const [profile, setProfile] = useState<FriendProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!friend) return;
+
+    const requestId = ++loadRequestIdRef.current;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const nextProfile = await fetchFriendProfile(friend.id);
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
+      setProfile(nextProfile);
+    } catch (loadError) {
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load profile.",
+        );
+        setProfile(null);
+      }
+    } finally {
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [friend]);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (friend) {
+      void load();
+    } else {
+      loadRequestIdRef.current += 1;
+      setProfile(null);
+      setError(null);
+      setIsLoading(false);
+    }
+  }, [friend, load]);
+
+  const completionSummary = useMemo(() => {
+    if (!profile) return { completed: 0, total: 0 };
+    const todayKey = profile.dateKeys[profile.dateKeys.length - 1];
+    const habits = profile.categories.flatMap((category) => category.habits);
+    if (!todayKey) return { completed: 0, total: habits.length };
+
+    return {
+      completed: habits.filter(
+        (habit) =>
+          profile.logsByHabitDate[`${habit.id}_${todayKey}`] === "complete",
+      ).length,
+      total: habits.length,
+    };
+  }, [profile]);
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={friend !== null}
+    >
+      <View
+        style={[
+          styles.profileModalScreen,
+          { backgroundColor: theme.background },
+        ]}
+      >
+        <SafeAreaView style={styles.profileModalSafeArea}>
+          <View
+            style={[styles.modalHeader, { borderBottomColor: theme.tabBorder }]}
+          >
+            <Pressable
+              accessibilityLabel="Close profile"
+              hitSlop={12}
+              onPress={onClose}
+            >
+              <Text style={[styles.modalCancel, { color: theme.primary }]}>
+                Close
+              </Text>
+            </Pressable>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              Profile
+            </Text>
+            <View style={styles.modalHeaderSpacer} />
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.profileContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {friend ? (
+              <View
+                style={[
+                  styles.profileHeaderCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <FriendAvatar friend={friend} size={58} />
+                <View style={styles.profileHeaderText}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.profileName, { color: theme.text }]}
+                  >
+                    {friend.friendName}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.profileSubtitle,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Active: {formatLastOpened(friend)}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            {error ? (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorText}>{error}</Text>
+                <Pressable onPress={() => void load()}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {isLoading ? (
+              <View style={styles.centerState}>
+                <ActivityIndicator color={theme.primary} size="large" />
+              </View>
+            ) : profile ? (
+              <View style={styles.profileSections}>
+                <View
+                  style={[
+                    styles.profileSummaryCard,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.profileSummaryLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    TODAY
+                  </Text>
+                  <Text
+                    style={[styles.profileSummaryValue, { color: theme.text }]}
+                  >
+                    {completionSummary.completed}/{completionSummary.total}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.profileSummaryHint,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    visible daily habits complete
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.profileDashboardCard,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  {profile.categories.length > 0 ? (
+                    <>
+                      <FriendHeatmapDateHeader />
+                      {profile.categories.map((category, index) => (
+                        <FriendCategoryHeatmap
+                          key={category.id}
+                          category={category}
+                          days={profile.dateKeys}
+                          logsByHabitDate={profile.logsByHabitDate}
+                          showDivider={index > 0}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.profileEmptyText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      No shared daily habits yet.
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ) : null}
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function FriendHeatmapDateHeader() {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.profileHeatmapDateHeader}>
+      <View style={styles.profileHeatmapIconSpacer} />
+      <Text
+        numberOfLines={1}
+        style={[styles.profileHeatmapDateLabel, { color: theme.textSecondary }]}
+      >
+        Last 7 Days
+      </Text>
+    </View>
+  );
+}
+
+function FriendCategoryHeatmap({
+  category,
+  days,
+  logsByHabitDate,
+  showDivider,
+}: {
+  category: FriendProfileCategory;
+  days: string[];
+  logsByHabitDate: FriendProfile["logsByHabitDate"];
+  showDivider: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.profileCategoryHeatmap}>
+      {showDivider ? (
+        <View
+          style={[
+            styles.profileCategoryDivider,
+            { backgroundColor: theme.tabBorder },
+          ]}
+        />
+      ) : null}
+      <Text
+        style={[styles.profileCategoryLabel, { color: theme.textSecondary }]}
+      >
+        {category.name.toUpperCase()}
+      </Text>
+      {category.habits.map((habit) => (
+        <FriendHabitHeatmapRow
+          key={habit.id}
+          days={days}
+          habit={habit}
+          logsByHabitDate={logsByHabitDate}
+        />
+      ))}
+    </View>
+  );
+}
+
+function FriendHabitHeatmapRow({
+  days,
+  habit,
+  logsByHabitDate,
+}: {
+  days: string[];
+  habit: FriendProfileHabit;
+  logsByHabitDate: FriendProfile["logsByHabitDate"];
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.profileHeatmapRow}>
+      <View
+        style={[
+          styles.profileHeatmapIcon,
+          { backgroundColor: theme.secondary },
+        ]}
+      >
+        <GoalIcon
+          iconKey={habit.iconKey}
+          size={13}
+          color={theme.secondaryForeground}
+        />
+      </View>
+      <View style={styles.profileDayBlocks}>
+        {days.map((day) => {
+          const status = logsByHabitDate[`${habit.id}_${day}`];
+          return (
+            <View
+              key={day}
+              style={[
+                styles.profileDayBlock,
+                {
+                  backgroundColor:
+                    status === "complete"
+                      ? theme.primary
+                      : status === "planned"
+                        ? `${theme.primary}33`
+                        : theme.backgroundElement,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function EmptyFriendsState({
   hasSearch,
   onAdd,
@@ -543,6 +925,7 @@ function AddFriendModal({
   onAdded: () => Promise<void>;
 }) {
   const theme = useTheme();
+  const isMountedRef = useRef(true);
   const [contactState, setContactState] = useState<
     "idle" | "loading" | "granted" | "denied"
   >("idle");
@@ -550,6 +933,13 @@ function AddFriendModal({
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [invite, setInvite] = useState("");
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const confirmFindFromContacts = () => {
     Alert.alert(
@@ -566,6 +956,7 @@ function AddFriendModal({
     setContactState("loading");
     try {
       const { status } = await Contacts.requestPermissionsAsync();
+      if (!isMountedRef.current) return;
       if (status !== "granted") {
         setContactState("denied");
         return;
@@ -583,11 +974,15 @@ function AddFriendModal({
           if (entry.number) phones.push(entry.number);
         }
       }
-      setMatches(await matchContacts(emails, phones));
+      const nextMatches = await matchContacts(emails, phones);
+      if (!isMountedRef.current) return;
+      setMatches(nextMatches);
       setContactState("granted");
     } catch {
-      setContactState("granted");
-      setMatches([]);
+      if (isMountedRef.current) {
+        setContactState("granted");
+        setMatches([]);
+      }
     }
   };
 
@@ -596,19 +991,24 @@ function AddFriendModal({
     setAddingIds((prev) => new Set(prev).add(match.userId));
     try {
       await addFriend(match.email);
+      if (!isMountedRef.current) return;
       setAddedIds((prev) => new Set(prev).add(match.userId));
       await onAdded();
     } catch (addError) {
-      Alert.alert(
-        "Could not add friend",
-        addError instanceof Error ? addError.message : "Try again.",
-      );
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not add friend",
+          addError instanceof Error ? addError.message : "Try again.",
+        );
+      }
     } finally {
-      setAddingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(match.userId);
-        return next;
-      });
+      if (isMountedRef.current) {
+        setAddingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(match.userId);
+          return next;
+        });
+      }
     }
   };
 
@@ -725,8 +1125,7 @@ function AddFriendModal({
                 <Text
                   style={[styles.modalHint, { color: theme.textSecondary }]}
                 >
-                  None of your contacts are on float yet — invite them
-                  below.
+                  None of your contacts are on float yet — invite them below.
                 </Text>
               ) : null}
 
@@ -1102,6 +1501,115 @@ const styles = StyleSheet.create({
   modalAdd: { fontSize: 16, fontWeight: "800" },
   modalContent: { gap: 8, paddingHorizontal: 18, paddingTop: 24 },
   modalLabel: { paddingHorizontal: 4, fontSize: 12, fontWeight: "700" },
+  profileModalScreen: { flex: 1 },
+  profileModalSafeArea: { flex: 1 },
+  profileContent: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 34,
+    gap: 14,
+  },
+  profileHeaderCard: {
+    minHeight: 82,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 12,
+  },
+  profileHeaderText: { flex: 1, minWidth: 0, gap: 2 },
+  profileName: { fontSize: 20, fontWeight: "800", letterSpacing: -0.3 },
+  profileSubtitle: { fontSize: 13, fontWeight: "500" },
+  profileSections: { gap: 12 },
+  profileSummaryCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  profileSummaryLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  profileSummaryValue: {
+    marginTop: 2,
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+  },
+  profileSummaryHint: { marginTop: 1, fontSize: 13, fontWeight: "500" },
+  profileDashboardCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    overflow: "hidden",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  profileEmptyText: {
+    paddingVertical: 30,
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  profileHeatmapDateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    paddingBottom: 3,
+  },
+  profileHeatmapIconSpacer: { width: 26 },
+  profileHeatmapDateLabel: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "800",
+  },
+  profileCategoryHeatmap: {
+    gap: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+  },
+  profileCategoryDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginBottom: 6,
+  },
+  profileCategoryLabel: {
+    marginBottom: 2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  profileHeatmapRow: {
+    height: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  profileHeatmapIcon: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+  },
+  profileDayBlocks: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 3,
+  },
+  profileDayBlock: {
+    flex: 1,
+    height: 28,
+    borderRadius: 7,
+  },
   emailInput: {
     height: 50,
     borderWidth: StyleSheet.hairlineWidth,

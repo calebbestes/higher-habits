@@ -25,6 +25,7 @@ import {
   type TaskInput,
   getTaskDueDateForUrgency,
   getTaskUrgency,
+  isValidTaskDateKey,
   todayDateKey,
 } from "@/lib/tasks-client";
 
@@ -83,8 +84,7 @@ export function TaskFormModal({
     }
   };
 
-  const dueDateValid =
-    !form.dueDate || /^\d{4}-\d{2}-\d{2}$/.test(form.dueDate);
+  const dueDateValid = !form.dueDate || isValidTaskDateKey(form.dueDate);
 
   const save = async () => {
     if (!form.name.trim() || !dueDateValid || isSaving) return;
@@ -200,7 +200,6 @@ export function TaskFormModal({
                     key={importance}
                     label={importance}
                     selected={form.importance === importance}
-                    tone={importance === "High" ? "blush" : undefined}
                     onPress={() =>
                       setForm((current) => ({ ...current, importance }))
                     }
@@ -216,7 +215,6 @@ export function TaskFormModal({
                     key={urgency}
                     label={capitalize(urgency)}
                     selected={getTaskUrgency(form) === urgency}
-                    tone={urgency === "today" ? "blush" : undefined}
                     onPress={() =>
                       setForm((current) => ({
                         ...current,
@@ -423,15 +421,13 @@ function Choice({
   label,
   onPress,
   selected,
-  tone,
 }: {
   label: string;
   onPress: () => void;
   selected: boolean;
-  tone?: "blush";
 }) {
   const theme = useTheme();
-  const selectedBackground = tone === "blush" ? "#9D7474" : theme.primary;
+  const selectedBackground = theme.primary;
   return (
     <Pressable
       accessibilityRole="button"

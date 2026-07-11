@@ -30,6 +30,7 @@ export const TASK_TIME_OPTIONS = [
   "Multiple hours",
 ] as const;
 
+const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const IMPORTANCE_SCORE: Record<string, number> = {
   High: 3,
   Medium: 2,
@@ -63,6 +64,19 @@ function localDateKey(date = new Date()): string {
 }
 
 export const todayDateKey = localDateKey;
+
+export function isValidTaskDateKey(dateKey: string): boolean {
+  if (!DATE_KEY_REGEX.test(dateKey)) return false;
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() + 1 === month &&
+    date.getDate() === day
+  );
+}
 
 function addDaysToDateKey(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split("-").map(Number);

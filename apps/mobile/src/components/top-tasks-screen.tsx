@@ -108,13 +108,11 @@ function sym(ios: string, android: string): SymbolName {
 }
 
 const IMPORTANCE_COLOR: Record<string, string> = {
-  High: "#9D7474",
   Medium: "#B87D4D",
   Low: "#A0A0A0",
 };
 
 const URGENCY_COLOR: Record<string, string> = {
-  today: "#9D474D",
   soon: "#B87D4D",
   later: "transparent",
 };
@@ -682,9 +680,14 @@ function TaskRow({
   const theme = useTheme();
   const completed = Boolean(task.completedAt);
   const urgency = getTaskUrgency(task, today);
-  const urgencyColor = URGENCY_COLOR[urgency] ?? "transparent";
+  const urgencyColor =
+    urgency === "today"
+      ? theme.primary
+      : (URGENCY_COLOR[urgency] ?? "transparent");
   const importanceColor =
-    IMPORTANCE_COLOR[task.importance] ?? theme.textSecondary;
+    task.importance === "High"
+      ? theme.primary
+      : (IMPORTANCE_COLOR[task.importance] ?? theme.textSecondary);
   const hasUrgency = urgency !== "later" && !completed;
 
   return (

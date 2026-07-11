@@ -43,8 +43,10 @@ const MENU_ITEMS: {
 ];
 
 export function PlanReportHeaderMenu({
+  compact = false,
   currentView,
 }: {
+  compact?: boolean;
   currentView: PlanReportView;
 }) {
   const theme = useTheme();
@@ -53,8 +55,11 @@ export function PlanReportHeaderMenu({
   const selectedView = isPlanReportView(view) ? view : currentView;
   const selectedItem =
     MENU_ITEMS.find((item) => item.id === selectedView) ?? MENU_ITEMS[0];
-  const triggerWidth =
-    selectedView === "top-tasks" || selectedView === "day-plan" ? 140 : 120;
+  const triggerWidth = compact
+    ? 116
+    : selectedView === "top-tasks" || selectedView === "day-plan"
+      ? 140
+      : 120;
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -64,7 +69,12 @@ export function PlanReportHeaderMenu({
 
   if (Platform.OS === "web") {
     return (
-      <Text style={[styles.triggerLabel, { color: theme.text }]}>
+      <Text
+        style={[
+          compact ? styles.compactTriggerLabel : styles.triggerLabel,
+          { color: theme.text },
+        ]}
+      >
         {selectedItem.title}
       </Text>
     );
@@ -91,7 +101,12 @@ export function PlanReportHeaderMenu({
         accessibilityRole="button"
         style={StyleSheet.flatten([styles.trigger, { width: triggerWidth }])}
       >
-        <Text style={[styles.triggerLabel, { color: theme.text }]}>
+        <Text
+          style={[
+            compact ? styles.compactTriggerLabel : styles.triggerLabel,
+            { color: theme.text },
+          ]}
+        >
           {selectedItem.title}
         </Text>
         <SymbolView
@@ -130,5 +145,10 @@ const styles = StyleSheet.create({
     lineHeight: 29,
     fontWeight: "800",
     letterSpacing: -0.5,
+  },
+  compactTriggerLabel: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
   },
 });

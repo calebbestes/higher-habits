@@ -58,8 +58,12 @@ import {
   updateHabit,
 } from "@/lib/habits-client";
 import {
+  DEFAULT_PLAN_END_TIME,
+  DEFAULT_PLAN_PERIOD,
+  DEFAULT_PLAN_START_TIME,
   PLAN_PERIODS,
   type PlanPeriod,
+  formatStoredPlanTimeDisplay,
   getPlanTimeInput,
   normalizePlanTimeInput,
   normalizeStoredPlanTime,
@@ -129,7 +133,7 @@ const PERIOD_FILTER_OPTIONS: {
 const DAY_ABBRS = ["S", "M", "T", "W", "T", "F", "S"];
 const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
 const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
-const PLAN_TIME_MINUTES = Array.from({ length: 60 }, (_, index) => index);
+const PLAN_TIME_MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
 const MONTH_NAMES = [
   "January",
   "February",
@@ -225,8 +229,17 @@ function isGoalScheduledForDate(
       (date.getMonth() - ref.getMonth());
     if (monthDiff % interval !== 0) return false;
     const type = goal.repeatMonthlyType ?? "day_of_month";
-    if (type === "day_of_month") return date.getDate() === ref.getDate();
-    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+    if (type === "day_of_month") {
+      const dates = goal.repeatDays?.filter((day) => day >= 1 && day <= 31);
+      return dates?.length
+        ? dates.includes(date.getDate())
+        : date.getDate() === ref.getDate();
+    }
+    const days = goal.repeatDays?.filter((day) => day >= 0 && day <= 6);
+    return (
+      (days?.length ? days.includes(dow) : dow === ref.getDay()) &&
+      weekOfMonth(date) === weekOfMonth(ref)
+    );
   }
 
   return false;
@@ -306,7 +319,7 @@ function getGoalMonthProgress(
   monthKey: string,
   logsByHabitDate: Record<string, "complete" | "planned">,
 ): { completed: number; planned: number; target: number } {
-  const target = goal.frequencyGoal ?? 1;
+  const target = Math.max(goal.frequencyGoal ?? 1, 1);
   const keyPrefix = `${goal.id}_${monthKey}`;
   let completed = 0;
   let planned = 0;
@@ -322,19 +335,28 @@ function getGoalMonthProgress(
 
 export function MonthlyGoalsScreen({
   habitsTab,
+  initialDateKey,
+  onDateChange,
   onHabitsTabChange,
 }: {
   habitsTab?: HabitsTab;
+  initialDateKey?: string;
+  onDateChange?: (dateKey: string) => void;
   onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [displayMonth, setDisplayMonth] = useState(() => {
-    const now = new Date();
+    const now =
+      initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+        ? dateFromKey(initialDateKey)
+        : new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
-    toDateKey(new Date()),
+    initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+      ? initialDateKey
+      : toDateKey(new Date()),
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
@@ -354,6 +376,10 @@ export function MonthlyGoalsScreen({
     useState<GoalPhotoSource | null>(null);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+
+  useEffect(() => {
+    onDateChange?.(selectedDateKey);
+  }, [onDateChange, selectedDateKey]);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);
@@ -365,14 +391,22 @@ export function MonthlyGoalsScreen({
   updatingKeysRef.current = updatingKeys;
   const logsByHabitDateRef = useRef(logsByHabitDate);
   logsByHabitDateRef.current = logsByHabitDate;
-  const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
 
   const monthKey = useMemo(() => getMonthKey(displayMonth), [displayMonth]);
 
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
+
   const load = useCallback(
     async (refresh = false) => {
-      if (isLoadingRef.current && !refresh) return;
-      isLoadingRef.current = true;
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
@@ -380,15 +414,22 @@ export function MonthlyGoalsScreen({
           fetchHabitLogsSnapshot(monthKey),
           fetchCategories(),
         ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
         setCategories(cats);
       } catch (err) {
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Could not load habits.");
       } finally {
-        isLoadingRef.current = false;
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [monthKey],
@@ -498,6 +539,7 @@ export function MonthlyGoalsScreen({
 
       try {
         await setHabitLog(goalId, selectedDateKey, status, options);
+        if (!isMountedRef.current) return;
         setSnapshot((currentSnapshot) => {
           if (!currentSnapshot) return currentSnapshot;
 
@@ -518,6 +560,7 @@ export function MonthlyGoalsScreen({
           return { ...currentSnapshot, plannedTimesByHabitDate };
         });
       } catch (err) {
+        if (!isMountedRef.current) return;
         setLogsByGoalDate((prev) => {
           const reverted = { ...prev };
           if (current) reverted[key] = current;
@@ -526,11 +569,13 @@ export function MonthlyGoalsScreen({
         });
         setError(err instanceof Error ? err.message : "Could not save.");
       } finally {
-        setUpdatingKeys((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
+        if (isMountedRef.current) {
+          setUpdatingKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+        }
       }
     },
     [selectedDateKey],
@@ -539,11 +584,9 @@ export function MonthlyGoalsScreen({
   const handleSaveNote = useCallback(
     async (goalId: string, notes: string) => {
       await setHabitLogNote(goalId, selectedDateKey, notes);
-      const snap = await fetchHabitLogsSnapshot(monthKey);
-      setSnapshot(snap);
-      setLogsByGoalDate(snap.logsByHabitDate);
+      await load(true);
     },
-    [monthKey, selectedDateKey],
+    [load, selectedDateKey],
   );
 
   const handleAddPhoto = useCallback(
@@ -556,10 +599,9 @@ export function MonthlyGoalsScreen({
         if (!photo) return;
 
         await uploadGoalPhoto(goalId, selectedDateKey, photo);
-        const snap = await fetchHabitLogsSnapshot(monthKey);
-        setSnapshot(snap);
-        setLogsByGoalDate(snap.logsByHabitDate);
+        await load(true);
       } catch (photoError) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not add photo",
           photoError instanceof Error
@@ -567,10 +609,12 @@ export function MonthlyGoalsScreen({
             : "The photo could not be uploaded.",
         );
       } finally {
-        setUploadingPhotoSource(null);
+        if (isMountedRef.current) {
+          setUploadingPhotoSource(null);
+        }
       }
     },
-    [monthKey, selectedDateKey, uploadingPhotoSource],
+    [load, selectedDateKey, uploadingPhotoSource],
   );
 
   const handleSetVisibility = useCallback(
@@ -581,6 +625,7 @@ export function MonthlyGoalsScreen({
 
       try {
         await setHabitLogVisibility(goalId, selectedDateKey, visibility);
+        if (!isMountedRef.current) return;
         setSnapshot((current) =>
           current
             ? {
@@ -593,6 +638,7 @@ export function MonthlyGoalsScreen({
             : current,
         );
       } catch (visibilityError) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not change visibility",
           visibilityError instanceof Error
@@ -600,7 +646,9 @@ export function MonthlyGoalsScreen({
             : "The post visibility could not be changed.",
         );
       } finally {
-        setIsUpdatingVisibility(false);
+        if (isMountedRef.current) {
+          setIsUpdatingVisibility(false);
+        }
       }
     },
     [isUpdatingVisibility, selectedDateKey],
@@ -1280,7 +1328,7 @@ function CalendarGrid({
       {/* Week rows */}
       {weeks.map((week) => (
         <View
-          key={toDateKey(week.at(0)?.date ?? new Date(0))}
+          key={toDateKey(week[0]?.date ?? new Date(0))}
           style={[
             styles.weekRow,
             week !== weeks[weeks.length - 1] && {
@@ -1603,9 +1651,11 @@ function SwipeableGoalRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?:
-    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
-    | null;
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  } | null;
   isUpdating: boolean;
   onDelete: () => void;
   onEdit: () => void;
@@ -1720,9 +1770,11 @@ function GoalListRow({
   logsByHabitDate: Record<string, "complete" | "planned">;
   monthKey: string;
   status: "complete" | "planned" | undefined;
-  plannedTime?:
-    | { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
-    | null;
+  plannedTime?: {
+    startTime: string | null;
+    endTime: string | null;
+    repeatsDaily?: boolean;
+  } | null;
   isUpdating: boolean;
   onEdit: () => void;
   onPress: () => void;
@@ -1731,9 +1783,9 @@ function GoalListRow({
   const isComplete = status === "complete";
   const isPlanned = status === "planned";
   const plannedTimeDisplay = isPlanned
-    ? getPlanTimeInput(plannedTime?.startTime)
+    ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
     : null;
-  const hasPlannedTime = Boolean(plannedTimeDisplay?.time);
+  const hasPlannedTime = Boolean(plannedTimeDisplay);
   const { completed, planned, target } = getGoalMonthProgress(
     goal,
     monthKey,
@@ -1851,10 +1903,7 @@ function GoalListRow({
       {hasPlannedTime && plannedTimeDisplay ? (
         <View style={styles.planTimeBadge}>
           <Text style={[styles.planTimeBadgeTime, { color: theme.primary }]}>
-            {plannedTimeDisplay.time}
-          </Text>
-          <Text style={[styles.planTimeBadgePeriod, { color: theme.text }]}>
-            {plannedTimeDisplay.period}
+            {plannedTimeDisplay}
           </Text>
         </View>
       ) : null}
@@ -1969,10 +2018,10 @@ function GoalActionsModal({
     if (!visible) return;
     const start = getPlanTimeInput(plannedTime?.startTime);
     const end = getPlanTimeInput(plannedTime?.endTime);
-    setPlanStartTime(start.time);
-    setPlanStartPeriod(start.period);
-    setPlanEndTime(end.time);
-    setPlanEndPeriod(end.period);
+    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
+    setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
+    setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
+    setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
   }, [plannedTime?.endTime, plannedTime?.startTime, visible]);
 
   return (

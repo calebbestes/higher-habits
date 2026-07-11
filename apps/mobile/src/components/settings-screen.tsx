@@ -74,17 +74,15 @@ const PLAN_REPORT_DEFAULT_OPTIONS: {
 ];
 
 const COLLAB_DEFAULT_OPTIONS: { label: string; value: CollabSection }[] = [
-  { label: "Feed", value: "feed" },
-  { label: "Incentives", value: "incentives" },
   { label: "Shared Goals", value: "shared-goals" },
-  { label: "Friends", value: "friends" },
+  { label: "Incentives", value: "incentives" },
 ];
 
 const APP_START_DEFAULT_OPTIONS: { label: string; value: AppStartPage }[] = [
   { label: "Plan/Report", value: "plan-report" },
-  { label: "Journal", value: "journal" },
   { label: "Collab", value: "collab" },
-  { label: "Dashboard", value: "dashboard" },
+  { label: "Friends", value: "friends" },
+  { label: "History", value: "history" },
   { label: "Settings", value: "settings" },
 ];
 
@@ -825,14 +823,14 @@ function getPlanReportDefaultLabel(value: PlanReportView): string {
 function getCollabDefaultLabel(value: CollabSection): string {
   return (
     COLLAB_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
-    "Feed"
+    "Shared Goals"
   );
 }
 
 function getAppStartDefaultLabel(value: AppStartPage): string {
   return (
     APP_START_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
-    "Collab"
+    (value === "journal" || value === "dashboard" ? "History" : "Collab")
   );
 }
 

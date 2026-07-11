@@ -16,9 +16,11 @@ import {
 export function HabitsScreen({
   initialDateKey,
   initialTab,
+  onDateChange,
 }: {
   initialDateKey?: string;
   initialTab?: HabitsTab;
+  onDateChange?: (dateKey: string) => void;
 }) {
   const rememberedTab = useHabitsTab();
   const tab = initialTab ?? rememberedTab;
@@ -26,7 +28,12 @@ export function HabitsScreen({
   if (tab === "monthly") {
     return (
       <ComponentErrorBoundary name="MonthlyGoalsScreen">
-        <MonthlyGoalsScreen habitsTab={tab} onHabitsTabChange={setHabitsTab} />
+        <MonthlyGoalsScreen
+          habitsTab={tab}
+          initialDateKey={initialDateKey}
+          onDateChange={onDateChange}
+          onHabitsTabChange={setHabitsTab}
+        />
       </ComponentErrorBoundary>
     );
   }
@@ -36,6 +43,7 @@ export function HabitsScreen({
       <DailyGoalsScreen
         initialDateKey={initialDateKey}
         habitsTab={tab}
+        onDateChange={onDateChange}
         onHabitsTabChange={setHabitsTab}
       />
     </ComponentErrorBoundary>

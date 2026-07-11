@@ -20,11 +20,9 @@ import {
   normalizePlanTimeInput,
 } from "@/lib/plan-time";
 import type { PlannedEvent } from "@/lib/planned-events-client";
-import type { Task } from "@/lib/tasks-client";
+import { type Task, isValidTaskDateKey } from "@/lib/tasks-client";
 
 import { sym } from "./shared";
-
-const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function todayDateKey(date = new Date()) {
   const year = date.getFullYear();
@@ -62,7 +60,8 @@ export function TaskPlanModal({
   const normalizedEndTime = normalizePlanTimeInput(endTime, endPeriod);
   const hasAnyTimeInput = Boolean(startTime.trim() || endTime.trim());
   const hasValidTimeRange = Boolean(normalizedStartTime && normalizedEndTime);
-  const dateIsValid = DATE_KEY_REGEX.test(dateKey.trim());
+  const trimmedDateKey = dateKey.trim();
+  const dateIsValid = isValidTaskDateKey(trimmedDateKey);
   const canSave = Boolean(
     task && dateIsValid && (!hasAnyTimeInput || hasValidTimeRange),
   );
@@ -89,7 +88,7 @@ export function TaskPlanModal({
 
     try {
       await onSave({
-        dateKey: dateKey.trim(),
+        dateKey: trimmedDateKey,
         startTime: hasValidTimeRange ? normalizedStartTime : null,
         endTime: hasValidTimeRange ? normalizedEndTime : null,
         timeZone,
@@ -197,7 +196,7 @@ export function TaskPlanModal({
                 Add both start and end times like 9:00.
               </Text>
             ) : null}
-            {dateKey.trim() && !dateIsValid ? (
+            {trimmedDateKey && !dateIsValid ? (
               <Text style={styles.errorText}>Use date format YYYY-MM-DD.</Text>
             ) : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}

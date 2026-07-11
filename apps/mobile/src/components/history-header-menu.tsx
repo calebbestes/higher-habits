@@ -4,69 +4,42 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-import { type CollabSection, setCollabSection } from "@/lib/tab-view-store";
 
-export type { CollabSection };
+export type HistorySection = "dashboard" | "journal";
 
 const MENU_ITEMS: {
-  id: CollabSection;
+  id: HistorySection;
   title: string;
-  href:
-    | "/?section=incentives"
-    | "/?section=shared-goals"
-    | "/friends?section=feed"
-    | "/friends?section=friends";
-  image: "rectangle.stack" | "gift" | "person.3.fill" | "person.2.fill";
+  href: "/history?section=dashboard" | "/history?section=journal";
+  image: "gauge.with.dots.needle.50percent" | "book.fill";
 }[] = [
   {
-    id: "shared-goals",
-    title: "Shared Goals",
-    href: "/?section=shared-goals",
-    image: "person.3.fill",
+    id: "dashboard",
+    title: "Dashboard",
+    href: "/history?section=dashboard",
+    image: "gauge.with.dots.needle.50percent",
   },
   {
-    id: "incentives",
-    title: "Incentives",
-    href: "/?section=incentives",
-    image: "gift",
-  },
-  {
-    id: "feed",
-    title: "Feed",
-    href: "/friends?section=feed",
-    image: "rectangle.stack",
-  },
-  {
-    id: "friends",
-    title: "Friends",
-    href: "/friends?section=friends",
-    image: "person.2.fill",
+    id: "journal",
+    title: "Journal",
+    href: "/history?section=journal",
+    image: "book.fill",
   },
 ];
 
-export function CollabHeaderMenu({
+export function HistoryHeaderMenu({
   currentSection,
 }: {
-  currentSection: CollabSection;
+  currentSection: HistorySection;
 }) {
   const theme = useTheme();
   const router = useRouter();
   const { section } = useLocalSearchParams<{ section?: string }>();
-  const menuItems =
-    currentSection === "feed" || currentSection === "friends"
-      ? MENU_ITEMS.filter((item) => item.id === "feed" || item.id === "friends")
-      : MENU_ITEMS.filter(
-          (item) => item.id === "shared-goals" || item.id === "incentives",
-        );
-  const selectedSection =
-    isCollabSection(section) &&
-    menuItems.some((item) => item.id === section)
-      ? section
-      : currentSection;
+  const selectedSection = isHistorySection(section) ? section : currentSection;
   const selectedItem =
-    menuItems.find((item) => item.id === selectedSection) ?? menuItems[0];
-  const triggerWidth = getTriggerWidth(selectedSection);
-  const actions: MenuAction[] = menuItems.map((item) => ({
+    MENU_ITEMS.find((item) => item.id === selectedSection) ?? MENU_ITEMS[0];
+  const triggerWidth = selectedSection === "dashboard" ? 150 : 112;
+  const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
     image: item.image,
@@ -89,16 +62,15 @@ export function CollabHeaderMenu({
           (item) => item.id === nativeEvent.event,
         );
         if (selectedItem) {
-          setCollabSection(selectedItem.id);
           router.navigate(selectedItem.href);
         }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
-      title="Collab sections"
+      title="History sections"
     >
       <View
         accessible
-        accessibilityLabel="Switch Collab section"
+        accessibilityLabel="Switch History section"
         accessibilityRole="button"
         style={StyleSheet.flatten([styles.trigger, { width: triggerWidth }])}
       >
@@ -116,22 +88,10 @@ export function CollabHeaderMenu({
   );
 }
 
-function isCollabSection(
+function isHistorySection(
   section: string | undefined,
-): section is CollabSection {
-  return (
-    section === "feed" ||
-    section === "incentives" ||
-    section === "shared-goals" ||
-    section === "friends"
-  );
-}
-
-function getTriggerWidth(section: CollabSection): number {
-  if (section === "shared-goals") return 190;
-  if (section === "incentives") return 150;
-  if (section === "friends") return 115;
-  return 85;
+): section is HistorySection {
+  return section === "dashboard" || section === "journal";
 }
 
 const styles = StyleSheet.create({

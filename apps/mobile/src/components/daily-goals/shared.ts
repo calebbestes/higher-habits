@@ -464,13 +464,30 @@ export const modalStyles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  planTimeInput: {
+  planTimePickerRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  planTimePickerMenu: {
+    flex: 1,
+    minWidth: 0,
+  },
+  planTimePicker: {
     minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 13,
-    paddingHorizontal: 12,
-    fontSize: 15,
-    fontWeight: "700",
+    paddingHorizontal: 9,
+  },
+  planTimePickerText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   planPeriodToggle: {
     flexDirection: "row",

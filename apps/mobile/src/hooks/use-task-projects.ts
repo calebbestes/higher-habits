@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 import {
@@ -15,10 +15,19 @@ import {
  */
 export function useTaskProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const isMountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const reloadProjects = useCallback(async () => {
     try {
-      setProjects(await fetchProjects());
+      const nextProjects = await fetchProjects();
+      if (isMountedRef.current) setProjects(nextProjects);
     } catch {
       // Progress bars are non-critical; ignore load failures here.
     }
@@ -26,9 +35,11 @@ export function useTaskProjects() {
 
   const createProject = useCallback(async (name: string): Promise<Project> => {
     const created = await createProjectApi(name);
-    setProjects((current) =>
-      [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
-    );
+    if (isMountedRef.current) {
+      setProjects((current) =>
+        [...current, created].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    }
     return created;
   }, []);
 
@@ -45,10 +56,12 @@ export function useTaskProjects() {
             onPress: async () => {
               try {
                 await deleteProjectApi(project.id);
-                setProjects((current) =>
-                  current.filter((item) => item.id !== project.id),
-                );
-                onDeleted?.(project.id);
+                if (isMountedRef.current) {
+                  setProjects((current) =>
+                    current.filter((item) => item.id !== project.id),
+                  );
+                  onDeleted?.(project.id);
+                }
               } catch (error) {
                 Alert.alert(
                   "Could not delete project",

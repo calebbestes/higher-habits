@@ -1,5 +1,6 @@
 import {
   type GoalPriority,
+  categories,
   friendMessages,
   friends,
   getDb,
@@ -283,6 +284,154 @@ async function getFriendActivitySummary(
   };
 }
 
+async function getFriendProfile(
+  db: FriendsDb,
+  viewerId: string,
+  friendshipId: string,
+) {
+  const [friendship] = await db
+    .select({
+      userId1: friends.userId1,
+      userId2: friends.userId2,
+    })
+    .from(friends)
+    .where(
+      and(
+        eq(friends.id, friendshipId),
+        eq(friends.status, "accepted"),
+        or(eq(friends.userId1, viewerId), eq(friends.userId2, viewerId)),
+      ),
+    )
+    .limit(1);
+
+  if (!friendship) {
+    return NextResponse.json(
+      { error: "Friendship not found." },
+      { status: 404 },
+    );
+  }
+
+  const friendId =
+    friendship.userId1 === viewerId ? friendship.userId2 : friendship.userId1;
+  const [friend] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+      lastOpenedAt: users.lastOpenedAt,
+    })
+    .from(users)
+    .where(eq(users.id, friendId))
+    .limit(1);
+
+  if (!friend) {
+    return NextResponse.json({ error: "Friend not found." }, { status: 404 });
+  }
+
+  const dailyHabitRows = await db
+    .select({
+      id: habits.id,
+      name: habits.name,
+      iconKey: habits.iconKey,
+      categoryId: habits.categoryId,
+      categoryName: categories.name,
+      categoryIcon: categories.icon,
+      priority: habits.priority,
+      visibility: habits.visibility,
+      period: habits.period,
+    })
+    .from(habits)
+    .innerJoin(categories, eq(habits.categoryId, categories.id))
+    .where(
+      and(
+        eq(habits.userId, friendId),
+        eq(habits.period, "daily"),
+        eq(habits.hidden, false),
+      ),
+    )
+    .orderBy(asc(categories.name), asc(habits.name));
+
+  const visibleHabitIds = await getVisibleGoalIdsForFriend(
+    db,
+    viewerId,
+    friendId,
+    dailyHabitRows,
+  );
+  const visibleHabits = dailyHabitRows.filter((habit) =>
+    visibleHabitIds.has(habit.id),
+  );
+  const dateKeys = getRecentDateKeys(7);
+  const startDateKey = dateKeys[0] ?? mountainDateKey();
+  const visibleHabitIdList = visibleHabits.map((habit) => habit.id);
+  const logRows =
+    visibleHabitIdList.length > 0
+      ? await db
+          .select({
+            goalId: goalLogs.goalId,
+            date: goalLogs.date,
+            status: goalLogs.status,
+          })
+          .from(goalLogs)
+          .where(
+            and(
+              eq(goalLogs.userId, friendId),
+              gte(goalLogs.date, startDateKey),
+              inArray(goalLogs.goalId, visibleHabitIdList),
+            ),
+          )
+      : [];
+  const logsByHabitDate = Object.fromEntries(
+    logRows
+      .filter((log) => log.status === "complete" || log.status === "planned")
+      .map((log) => [`${log.goalId}_${log.date}`, log.status]),
+  );
+  const categoriesById = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      icon: string;
+      habits: Array<{
+        id: string;
+        name: string;
+        iconKey: string;
+        priority: "high" | "low";
+      }>;
+    }
+  >();
+
+  for (const habit of visibleHabits) {
+    const category = categoriesById.get(habit.categoryId) ?? {
+      id: habit.categoryId,
+      name: habit.categoryName,
+      icon: habit.categoryIcon,
+      habits: [],
+    };
+
+    category.habits.push({
+      id: habit.id,
+      name: habit.name,
+      iconKey: habit.iconKey,
+      priority: habit.priority,
+    });
+    categoriesById.set(habit.categoryId, category);
+  }
+
+  return NextResponse.json({
+    friend: {
+      id: friend.id,
+      name: friend.name,
+      email: friend.email,
+      image: friend.image,
+      lastOpenedAt: friend.lastOpenedAt?.toISOString() ?? null,
+    },
+    dateKeys,
+    categories: [...categoriesById.values()],
+    logsByHabitDate,
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
@@ -293,6 +442,14 @@ export async function GET(request: Request) {
         { error: "Database unavailable" },
         { status: 503 },
       );
+    }
+
+    const profileFriendshipId = new URL(request.url).searchParams.get(
+      "profileFriendshipId",
+    );
+
+    if (profileFriendshipId) {
+      return getFriendProfile(db, user.id, profileFriendshipId);
     }
 
     const rows = await db

@@ -32,11 +32,13 @@ export type AppStartPage =
   | "plan-report"
   | "journal"
   | "collab"
+  | "friends"
   | "dashboard"
+  | "history"
   | "settings";
 
 export const DEFAULT_PLAN_REPORT_VIEW: PlanReportView = "day-plan";
-export const DEFAULT_COLLAB_SECTION: CollabSection = "feed";
+export const DEFAULT_COLLAB_SECTION: CollabSection = "shared-goals";
 export const DEFAULT_APP_START_PAGE: AppStartPage = "collab";
 
 export const PLAN_REPORT_VIEW_HREFS = {
@@ -47,22 +49,24 @@ export const PLAN_REPORT_VIEW_HREFS = {
 } as const satisfies Record<PlanReportView, string>;
 
 export const COLLAB_SECTION_HREFS = {
-  feed: "/?section=feed",
+  feed: "/friends?section=feed",
   incentives: "/?section=incentives",
   "shared-goals": "/?section=shared-goals",
-  friends: "/?section=friends",
+  friends: "/friends?section=friends",
 } as const satisfies Record<CollabSection, string>;
 
-const planReportStore =
-  createSelectionStore<PlanReportView>(DEFAULT_PLAN_REPORT_VIEW);
+const planReportStore = createSelectionStore<PlanReportView>(
+  DEFAULT_PLAN_REPORT_VIEW,
+);
+const planReportDateStore = createSelectionStore<string | null>(null);
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
-const collabStore =
-  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const collabStore = createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
 const defaultPlanReportStore = createSelectionStore<PlanReportView>(
   DEFAULT_PLAN_REPORT_VIEW,
 );
-const defaultCollabStore =
-  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const defaultCollabStore = createSelectionStore<CollabSection>(
+  DEFAULT_COLLAB_SECTION,
+);
 const defaultAppStartStore = createSelectionStore<AppStartPage>(
   DEFAULT_APP_START_PAGE,
 );
@@ -77,6 +81,18 @@ export function usePlanReportView(): PlanReportView {
 
 export function setPlanReportView(view: PlanReportView): void {
   planReportStore.set(view);
+}
+
+export function usePlanReportDateKey(): string | null {
+  return useSyncExternalStore(
+    planReportDateStore.subscribe,
+    planReportDateStore.get,
+    planReportDateStore.get,
+  );
+}
+
+export function setPlanReportDateKey(dateKey: string): void {
+  planReportDateStore.set(dateKey);
 }
 
 export function useHabitsTab(): HabitsTab {
@@ -172,8 +188,12 @@ export function getAppStartHref({
     return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView];
   }
   if (defaultAppStartPage === "collab") {
-    return COLLAB_SECTION_HREFS[defaultCollabSection];
+    return defaultCollabSection === "incentives"
+      ? COLLAB_SECTION_HREFS.incentives
+      : COLLAB_SECTION_HREFS["shared-goals"];
   }
+  if (defaultAppStartPage === "friends") return "/friends?section=feed";
+  if (defaultAppStartPage === "history") return "/history?section=dashboard";
   if (defaultAppStartPage === "journal") return "/journal";
   if (defaultAppStartPage === "dashboard") return "/dashboard";
   return "/settings";
@@ -202,7 +222,9 @@ export function isAppStartPage(value: unknown): value is AppStartPage {
     value === "plan-report" ||
     value === "journal" ||
     value === "collab" ||
+    value === "friends" ||
     value === "dashboard" ||
+    value === "history" ||
     value === "settings"
   );
 }

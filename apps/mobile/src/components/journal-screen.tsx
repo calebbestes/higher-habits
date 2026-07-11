@@ -1,7 +1,8 @@
 import { GoalIcon } from "@/components/goal-icon";
+import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,7 +25,9 @@ import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type CheckpointPhoto,
+  deleteCheckpointPhoto,
   fetchAllCheckpointPhotos,
+  uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
 import { addFeedComment } from "@/lib/friends-client";
 import {
@@ -39,11 +42,13 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import {
   type GoalPhoto,
+  deleteGoalPhoto,
   fetchAllGoalPhotos,
   fetchGoalPhotosForRange,
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
+import { rotateRemotePhoto } from "@/lib/photo-edit";
 import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -164,6 +169,8 @@ function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
 export function JournalScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
@@ -175,6 +182,7 @@ export function JournalScreen() {
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
+  const [isEditingPhoto, setIsEditingPhoto] = useState(false);
   const [checkpointGoals, setCheckpointGoals] = useState<Goal[]>([]);
   const [checkpointPhotos, setCheckpointPhotos] = useState<CheckpointPhoto[]>(
     [],
@@ -208,6 +216,7 @@ export function JournalScreen() {
   );
   const load = useCallback(
     async (refresh = false) => {
+      const requestId = ++loadRequestIdRef.current;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       setPhotoLoadFailed(false);
@@ -216,6 +225,7 @@ export function JournalScreen() {
         const nextSnapshot = selectedDate
           ? await fetchGoalLogsSnapshot(getMonthKey(selectedDate))
           : await fetchAllGoalLogsSnapshot();
+        let nextPhotoLoadFailed = false;
         const nextPhotos = await (range
           ? fetchGoalPhotosForRange(
               selectedGoalId,
@@ -224,30 +234,49 @@ export function JournalScreen() {
             )
           : fetchAllGoalPhotos(selectedGoalId)
         ).catch(() => {
-          setPhotoLoadFailed(true);
+          nextPhotoLoadFailed = true;
           return [];
         });
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setSnapshot(nextSnapshot);
         setPhotos(nextPhotos);
+        setPhotoLoadFailed(nextPhotoLoadFailed);
 
         const [nextGoals, nextCheckpointPhotos] = await Promise.all([
           fetchPlanGoals().catch(() => [] as Goal[]),
           fetchAllCheckpointPhotos().catch(() => [] as CheckpointPhoto[]),
         ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
         setCheckpointGoals(nextGoals);
         setCheckpointPhotos(nextCheckpointPhotos);
       } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load journal.",
-        );
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load journal.",
+          );
+        }
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [range, selectedDate, selectedGoalId],
+  );
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      loadRequestIdRef.current += 1;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -443,6 +472,7 @@ export function JournalScreen() {
 
       try {
         await setGoalLogVisibility(entry.goal.id, entry.dateKey, visibility);
+        if (!isMountedRef.current) return;
         setSnapshot((current) =>
           current
             ? {
@@ -458,14 +488,16 @@ export function JournalScreen() {
           current ? { ...current, visibility } : current,
         );
       } catch (visibilityError) {
-        Alert.alert(
-          "Could not change visibility",
-          visibilityError instanceof Error
-            ? visibilityError.message
-            : "The post visibility could not be changed.",
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not change visibility",
+            visibilityError instanceof Error
+              ? visibilityError.message
+              : "The post visibility could not be changed.",
+          );
+        }
       } finally {
-        setIsUpdatingPost(false);
+        if (isMountedRef.current) setIsUpdatingPost(false);
       }
     },
     [isUpdatingPost],
@@ -486,17 +518,20 @@ export function JournalScreen() {
 
               try {
                 await deleteGoalLog(entry.goal.id, entry.dateKey);
+                if (!isMountedRef.current) return;
                 setActivePost(null);
                 await load();
               } catch (deleteError) {
-                Alert.alert(
-                  "Could not delete log",
-                  deleteError instanceof Error
-                    ? deleteError.message
-                    : "The goal log could not be deleted.",
-                );
+                if (isMountedRef.current) {
+                  Alert.alert(
+                    "Could not delete log",
+                    deleteError instanceof Error
+                      ? deleteError.message
+                      : "The goal log could not be deleted.",
+                  );
+                }
               } finally {
-                setIsUpdatingPost(false);
+                if (isMountedRef.current) setIsUpdatingPost(false);
               }
             },
           },
@@ -512,21 +547,117 @@ export function JournalScreen() {
       setUploadingPhotoSource(source);
       try {
         const photo = await pickGoalPhoto(source);
+        if (!isMountedRef.current) return;
         if (!photo) return;
         await uploadGoalPhoto(entry.goal.id, entry.dateKey, photo);
+        if (!isMountedRef.current) return;
         await load();
       } catch (photoError) {
-        Alert.alert(
-          "Could not add photo",
-          photoError instanceof Error
-            ? photoError.message
-            : "The photo could not be uploaded.",
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not add photo",
+            photoError instanceof Error
+              ? photoError.message
+              : "The photo could not be uploaded.",
+          );
+        }
       } finally {
-        setUploadingPhotoSource(null);
+        if (isMountedRef.current) setUploadingPhotoSource(null);
       }
     },
     [load, uploadingPhotoSource],
+  );
+
+  // Checkpoint photos are surfaced through the same GoalPhoto shape but carry an
+  // empty dateKey and store the checkpoint id in goalId (see checkpointPhotosById).
+  const isCheckpointPhoto = useCallback(
+    (photo: GoalPhoto) => photo.dateKey === "",
+    [],
+  );
+
+  const handleRotatePhoto = useCallback(
+    async (photo: GoalPhoto, degrees: number) => {
+      if (isEditingPhoto) return;
+      setIsEditingPhoto(true);
+      try {
+        // No in-place replace endpoint exists, so rotate = upload the rotated
+        // copy, then delete the original.
+        const rotated = await rotateRemotePhoto(photo.url, degrees);
+        let nextPhoto: GoalPhoto;
+        if (isCheckpointPhoto(photo)) {
+          const uploaded = await uploadCheckpointPhoto(photo.goalId, rotated);
+          await deleteCheckpointPhoto(photo.id);
+          nextPhoto = {
+            id: uploaded.id,
+            url: uploaded.url,
+            contentType: uploaded.contentType,
+            createdAt: uploaded.createdAt,
+            dateKey: "",
+            goalId: uploaded.checkpointId,
+          };
+        } else {
+          nextPhoto = await uploadGoalPhoto(
+            photo.goalId,
+            photo.dateKey,
+            rotated,
+          );
+          await deleteGoalPhoto(photo.id);
+        }
+        if (!isMountedRef.current) return;
+        setActivePhoto(nextPhoto);
+        await load();
+      } catch (rotateError) {
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not rotate photo",
+            rotateError instanceof Error
+              ? rotateError.message
+              : "The photo could not be updated.",
+          );
+        }
+      } finally {
+        if (isMountedRef.current) setIsEditingPhoto(false);
+      }
+    },
+    [isCheckpointPhoto, isEditingPhoto, load],
+  );
+
+  const handleDeletePhoto = useCallback(
+    (photo: GoalPhoto) => {
+      Alert.alert("Delete photo?", "This permanently removes this photo.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            if (isEditingPhoto) return;
+            setIsEditingPhoto(true);
+            try {
+              if (isCheckpointPhoto(photo)) {
+                await deleteCheckpointPhoto(photo.id);
+              } else {
+                await deleteGoalPhoto(photo.id);
+              }
+              if (!isMountedRef.current) return;
+              setActivePhoto(null);
+              await load();
+            } catch (deleteError) {
+              if (isMountedRef.current) {
+                Alert.alert(
+                  "Could not delete photo",
+                  deleteError instanceof Error
+                    ? deleteError.message
+                    : "The photo could not be deleted.",
+                );
+              }
+            } finally {
+              if (isMountedRef.current) setIsEditingPhoto(false);
+            }
+          },
+        },
+      ]);
+    },
+    [isCheckpointPhoto, isEditingPhoto, load],
   );
 
   const handleSubmitReply = useCallback(
@@ -538,16 +669,19 @@ export function JournalScreen() {
       setSubmittingReplyGoalLogId(goalLogId);
       try {
         await addFeedComment(goalLogId, body, replyTarget.id);
+        if (!isMountedRef.current) return;
         setReplyDrafts((prev) => ({ ...prev, [goalLogId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [goalLogId]: null }));
         await load();
       } catch (replyError) {
-        Alert.alert(
-          "Could not add reply",
-          replyError instanceof Error ? replyError.message : undefined,
-        );
+        if (isMountedRef.current) {
+          Alert.alert(
+            "Could not add reply",
+            replyError instanceof Error ? replyError.message : undefined,
+          );
+        }
       } finally {
-        setSubmittingReplyGoalLogId(null);
+        if (isMountedRef.current) setSubmittingReplyGoalLogId(null);
       }
     },
     [load, replyDrafts, replyTargets, submittingReplyGoalLogId],
@@ -573,7 +707,7 @@ export function JournalScreen() {
         >
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: theme.text }]}>Journal</Text>
+              <HistoryHeaderMenu currentSection="journal" />
             </View>
           </View>
 
@@ -731,16 +865,25 @@ export function JournalScreen() {
           initialValue={noteEditEntry.note?.trim() ? noteEditEntry.note : null}
           onClose={() => setNoteEditEntry(null)}
           onSave={async (notes) => {
-            await setGoalLogNote(
-              noteEditEntry.goal.id,
-              noteEditEntry.dateKey,
-              notes,
-            );
+            const entry = noteEditEntry;
+            if (!entry) return;
+            await setGoalLogNote(entry.goal.id, entry.dateKey, notes);
+            if (!isMountedRef.current) return;
             await load();
           }}
         />
       ) : null}
-      <PhotoViewer photo={activePhoto} onClose={() => setActivePhoto(null)} />
+      <PhotoViewer
+        photo={activePhoto}
+        isBusy={isEditingPhoto}
+        onClose={() => setActivePhoto(null)}
+        onDelete={() => {
+          if (activePhoto) handleDeletePhoto(activePhoto);
+        }}
+        onRotate={(degrees) => {
+          if (activePhoto) void handleRotatePhoto(activePhoto, degrees);
+        }}
+      />
     </View>
   );
 }
@@ -884,33 +1027,7 @@ function CheckpointJournalCard({
       ) : null}
 
       {entry.photos.length > 0 ? (
-        <View
-          style={[
-            styles.photoGrid,
-            entry.photos.length === 1 && styles.singlePhotoGrid,
-          ]}
-        >
-          {entry.photos.map((photo) => (
-            <Pressable
-              key={photo.id}
-              accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
-              onPress={() => onOpenPhoto(photo)}
-              style={({ pressed }) => [
-                styles.photoButton,
-                entry.photos.length === 1 && styles.singlePhotoButton,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Image
-                contentFit="cover"
-                source={{ uri: photo.url }}
-                style={styles.photo}
-                transition={180}
-              />
-            </Pressable>
-          ))}
-        </View>
+        <JournalPhotoCarousel photos={entry.photos} onOpenPhoto={onOpenPhoto} />
       ) : null}
     </View>
   );
@@ -997,33 +1114,7 @@ function JournalCard({
 
       {entry.photoCount > 0 ? (
         photos.length > 0 ? (
-          <View
-            style={[
-              styles.photoGrid,
-              photos.length === 1 && styles.singlePhotoGrid,
-            ]}
-          >
-            {photos.map((photo) => (
-              <Pressable
-                key={photo.id}
-                accessibilityLabel={`Open photo from ${formatDate(entry.dateKey)}`}
-                onPress={() => onOpenPhoto(photo)}
-                style={({ pressed }) => [
-                  styles.photoButton,
-                  photos.length === 1 && styles.singlePhotoButton,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Image
-                  contentFit="cover"
-                  source={{ uri: photo.url }}
-                  style={styles.photo}
-                  transition={180}
-                />
-              </Pressable>
-            ))}
-          </View>
+          <JournalPhotoCarousel photos={photos} onOpenPhoto={onOpenPhoto} />
         ) : (
           <View
             style={[
@@ -1061,6 +1152,96 @@ function JournalCard({
   );
 }
 
+function JournalPhotoCarousel({
+  photos,
+  onOpenPhoto,
+}: {
+  photos: GoalPhoto[];
+  onOpenPhoto: (photo: GoalPhoto) => void;
+}) {
+  const theme = useTheme();
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
+  const visibleCarouselIndex = Math.min(carouselIndex, photos.length - 1);
+
+  return (
+    <View style={styles.carouselWrap}>
+      <View
+        onLayout={(event) => {
+          setCarouselWidth(event.nativeEvent.layout.width);
+        }}
+        style={[
+          styles.carouselFrame,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <ScrollView
+          horizontal
+          pagingEnabled
+          onMomentumScrollEnd={(event) => {
+            if (!carouselWidth) return;
+            setCarouselIndex(
+              Math.round(event.nativeEvent.contentOffset.x / carouselWidth),
+            );
+          }}
+          scrollEventThrottle={16}
+          showsHorizontalScrollIndicator={false}
+        >
+          {photos.map((photo) => (
+            <Pressable
+              key={photo.id}
+              accessibilityLabel="Open journal photo"
+              onPress={() => onOpenPhoto(photo)}
+              style={({ pressed }) => [
+                styles.carouselSlide,
+                { width: carouselWidth || 1 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Image
+                contentFit="contain"
+                source={{ uri: photo.url }}
+                style={styles.carouselImage}
+                transition={180}
+              />
+            </Pressable>
+          ))}
+        </ScrollView>
+        {photos.length > 1 ? (
+          <View
+            style={[
+              styles.carouselCounter,
+              { backgroundColor: "rgba(0,0,0,0.5)" },
+            ]}
+          >
+            <Text style={styles.carouselCounterText}>
+              {visibleCarouselIndex + 1}/{photos.length}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {photos.length > 1 ? (
+        <View style={styles.carouselDots}>
+          {photos.map((photo, index) => (
+            <View
+              key={photo.id}
+              style={[
+                styles.carouselDot,
+                {
+                  backgroundColor:
+                    index === visibleCarouselIndex
+                      ? theme.primary
+                      : theme.backgroundSelected,
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function JournalSocialActivity({
   commentDraft,
   isSubmittingReply,
@@ -1083,7 +1264,10 @@ function JournalSocialActivity({
   const theme = useTheme();
   const propCount = social?.props.count ?? 0;
   const comments = social?.comments ?? [];
-  const commentCount = countJournalComments(comments);
+  const commentCount = useMemo(
+    () => countJournalComments(comments),
+    [comments],
+  );
 
   if (propCount === 0 && commentCount === 0) {
     return null;
@@ -1880,10 +2064,16 @@ function PickerRow({
 
 function PhotoViewer({
   photo,
+  isBusy,
   onClose,
+  onDelete,
+  onRotate,
 }: {
   photo: GoalPhoto | null;
+  isBusy: boolean;
   onClose: () => void;
+  onDelete: () => void;
+  onRotate: (degrees: number) => void;
 }) {
   return (
     <Modal
@@ -1904,6 +2094,7 @@ function PhotoViewer({
         ) : null}
         <Pressable
           accessibilityLabel="Close photo"
+          disabled={isBusy}
           onPress={onClose}
           style={styles.viewerClose}
         >
@@ -1914,6 +2105,66 @@ function PhotoViewer({
             tintColor="#FFFFFF"
           />
         </Pressable>
+        {photo ? (
+          <View style={styles.viewerControls}>
+            <Pressable
+              accessibilityLabel="Rotate left"
+              disabled={isBusy}
+              onPress={() => onRotate(-90)}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("rotate.left", "rotate_left")}
+                size={22}
+                weight="bold"
+                tintColor="#FFFFFF"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Rotate right"
+              disabled={isBusy}
+              onPress={() => onRotate(90)}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("rotate.right", "rotate_right")}
+                size={22}
+                weight="bold"
+                tintColor="#FFFFFF"
+              />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Delete photo"
+              disabled={isBusy}
+              onPress={onDelete}
+              style={({ pressed }) => [
+                styles.viewerControlButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("trash", "delete")}
+                size={22}
+                weight="bold"
+                tintColor="#FF453A"
+              />
+            </Pressable>
+          </View>
+        ) : null}
+        {isBusy ? (
+          <View
+            pointerEvents="auto"
+            style={[StyleSheet.absoluteFill, styles.viewerBusy]}
+          >
+            <ActivityIndicator color="#FFFFFF" size="large" />
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -2024,13 +2275,17 @@ const styles = StyleSheet.create({
   },
   entryList: { gap: 12 },
   card: {
-    gap: 13,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    padding: 15,
+    borderRadius: 22,
     overflow: "hidden",
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
   goalIcon: {
     width: 36,
     height: 36,
@@ -2057,6 +2312,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "500",
     paddingHorizontal: 14,
+    paddingBottom: 12,
   },
   postMenuButton: {
     width: 34,
@@ -2065,21 +2321,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 11,
   },
-  richNote: { minWidth: 0 },
+  richNote: { minWidth: 0, paddingHorizontal: 14, paddingBottom: 12 },
   showMoreButton: { paddingTop: 4 },
   showMoreText: { fontSize: 13, fontWeight: "500" },
-  photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  singlePhotoGrid: { flexDirection: "column" },
-  photoButton: {
-    width: "48.8%",
+  carouselWrap: {
+    marginBottom: 12,
+  },
+  carouselFrame: {
+    position: "relative",
+    width: "100%",
     aspectRatio: 1,
-    borderRadius: 13,
     overflow: "hidden",
   },
-  singlePhotoButton: { width: "100%", aspectRatio: 4 / 3 },
-  photo: { width: "100%", height: "100%" },
+  carouselSlide: {
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carouselImage: { width: "100%", height: "100%" },
+  carouselCounter: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  carouselCounterText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+  },
+  carouselDots: {
+    minHeight: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingTop: 8,
+  },
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
   photoPlaceholder: {
     minHeight: 100,
+    marginHorizontal: 14,
+    marginBottom: 12,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 13,
@@ -2092,7 +2382,9 @@ const styles = StyleSheet.create({
   socialPanel: {
     gap: 9,
     borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
     paddingTop: 11,
+    paddingBottom: 12,
   },
   socialSummaryRow: {
     flexDirection: "row",
@@ -2312,6 +2604,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
     backgroundColor: "#FFFFFF22",
+  },
+  viewerControls: {
+    position: "absolute",
+    bottom: 54,
+    flexDirection: "row",
+    gap: 18,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 28,
+    backgroundColor: "#000000AA",
+  },
+  viewerControlButton: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF1A",
+  },
+  viewerBusy: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#00000066",
   },
   pressed: { opacity: 0.72 },
 });

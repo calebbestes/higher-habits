@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   type GestureResponderEvent,
   KeyboardAvoidingView,
   Modal,
@@ -60,6 +61,7 @@ import {
   createCategory as createHabitCategory,
   fetchCategories,
 } from "@/lib/habits-client";
+import { formatPlanMinutesDisplay } from "@/lib/plan-time";
 import {
   type PlannedEvent,
   deletePlannedEvent,
@@ -93,6 +95,7 @@ type DayPlanEntry = {
   kind: "goal" | "google" | "habit" | "task";
   laneCount: number;
   laneIndex: number;
+  laneSpan: number;
   sourceId?: string;
   startMinutes: number;
   title: string;
@@ -110,6 +113,10 @@ type CheckpointNoteTarget = {
 type PlanRange = {
   endMinutes: number;
   startMinutes: number;
+};
+type TimelineTouch = {
+  locationY: number;
+  pageY: number;
 };
 type PlanTargetType = "dailyHabit" | "goal" | "monthlyHabit" | "task";
 type PlanTargetOption = {
@@ -165,8 +172,12 @@ const TIME_LABEL_WIDTH = 64;
 const MIN_EVENT_HEIGHT = 30;
 const MINUTES_IN_DAY = 24 * 60;
 const PLAN_SNAP_MINUTES = 15;
-const MIN_PLAN_DURATION_MINUTES = 30;
+const MIN_PLAN_DURATION_MINUTES = 15;
 const LONG_PRESS_DELAY_MS = 500;
+const EVENT_DRAG_DELAY_MS = 120;
+const EVENT_DRAG_MOVE_THRESHOLD = 2;
+const DAY_SWIPE_MIN_DISTANCE = 70;
+const DAY_CHANGE_ANIMATION_DISTANCE = 28;
 const TIMELINE_AUTO_SCROLL_EDGE = 54;
 const TIMELINE_AUTO_SCROLL_INTERVAL_MS = 50;
 const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
@@ -174,6 +185,8 @@ const TIMELINE_START_HOUR = 7;
 const TIMELINE_VISIBLE_HOURS = 12;
 const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
 const TIMELINE_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
+const TIMELINE_MIN_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 16;
+const TIMELINE_MAX_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 5;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_NAMES = [
   "January",
@@ -193,9 +206,11 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function DayPlanScreen({
   initialDateKey,
+  onDateChange,
   onboardingGuide,
 }: {
   initialDateKey?: string;
+  onDateChange?: (dateKey: string) => void;
   onboardingGuide?: DayPlanOnboardingGuide;
 }) {
   const theme = useTheme();
@@ -207,6 +222,17 @@ export function DayPlanScreen({
   const timelineDragLayerWidthRef = useRef(0);
   const timelineGestureRef = useRef<TimelineGesture | null>(null);
   const timelineHapticKeyRef = useRef<string | null>(null);
+  const timelinePinchRef = useRef<{
+    distance: number;
+    hourHeight: number;
+  } | null>(null);
+  const daySwipeRef = useRef<{
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+  const dateMotionValueRef = useRef(new Animated.Value(0));
+  const dateMotionDirectionRef = useRef(1);
+  const didMountDateMotionRef = useRef(false);
   const timelineAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -222,6 +248,7 @@ export function DayPlanScreen({
   const [selectedDate, setSelectedDate] = useState(() =>
     initialDateKey ? dateFromKey(initialDateKey) : new Date(),
   );
+  const [now, setNow] = useState(() => new Date());
   const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [planGoals, setPlanGoals] = useState<Goal[]>([]);
@@ -241,11 +268,13 @@ export function DayPlanScreen({
   const [noteCheckpoint, setNoteCheckpoint] =
     useState<CheckpointNoteTarget | null>(null);
   const [dragPlanRange, setDragPlanRange] = useState<PlanRange | null>(null);
+  const [dragEntry, setDragEntry] = useState<DayPlanEntry | null>(null);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
     null,
   );
   const [isTimelineDragging, setIsTimelineDragging] = useState(false);
+  const [timelineHourHeight, setTimelineHourHeight] = useState(HOUR_HEIGHT);
   const [selectedPlanTargetType, setSelectedPlanTargetType] =
     useState<PlanTargetType | null>(null);
   const [creatingTargetType, setCreatingTargetType] =
@@ -255,6 +284,14 @@ export function DayPlanScreen({
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  const isViewingToday = useMemo(
+    () => toDateKey(now) === dateKey,
+    [now, dateKey],
+  );
+  const nowLineTop = useMemo(
+    () => ((now.getHours() * 60 + now.getMinutes()) / 60) * timelineHourHeight,
+    [now, timelineHourHeight],
+  );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
   const loadSequenceRef = useRef(0);
@@ -274,12 +311,50 @@ export function DayPlanScreen({
   const plannedEventsInFlightRef = useRef(
     new Map<string, Promise<PlannedEvent[]>>(),
   );
+  const isMountedRef = useRef(true);
   const planGoalsCacheRef = useRef<Goal[] | null>(null);
   const planGoalsInFlightRef = useRef<Promise<Goal[]> | null>(null);
   const habitCategoriesCacheRef = useRef<Category[] | null>(null);
   const habitCategoriesInFlightRef = useRef<Promise<Category[]> | null>(null);
   const projectsLoadedRef = useRef(false);
   const projectsInFlightRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    onDateChange?.(dateKey);
+  }, [dateKey, onDateChange]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animate whenever the selected date key changes.
+  useEffect(() => {
+    if (!didMountDateMotionRef.current) {
+      didMountDateMotionRef.current = true;
+      return;
+    }
+
+    const motion = dateMotionValueRef.current;
+    motion.setValue(
+      dateMotionDirectionRef.current * DAY_CHANGE_ANIMATION_DISTANCE,
+    );
+    Animated.timing(motion, {
+      duration: 180,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [dateKey]);
+
+  const dateMotionStyle = useMemo(
+    () => ({
+      opacity: dateMotionValueRef.current.interpolate({
+        inputRange: [
+          -DAY_CHANGE_ANIMATION_DISTANCE,
+          0,
+          DAY_CHANGE_ANIMATION_DISTANCE,
+        ],
+        outputRange: [0.82, 1, 0.82],
+      }),
+      transform: [{ translateX: dateMotionValueRef.current }],
+    }),
+    [],
+  );
 
   const readCachedDayPlanData = useCallback(
     (
@@ -604,10 +679,12 @@ export function DayPlanScreen({
 
   const load = useCallback(
     async ({ force = false, refreshing = false } = {}) => {
+      if (!isMountedRef.current) return;
       const targetDate = selectedDate;
       const targetDateKey = dateKey;
       const targetMonthKey = monthKey;
-      const sequence = (loadSequenceRef.current += 1);
+      loadSequenceRef.current += 1;
+      const sequence = loadSequenceRef.current;
 
       if (refreshing) {
         setIsRefreshing(true);
@@ -646,7 +723,9 @@ export function DayPlanScreen({
           ensureProjects(force),
         ]);
 
-        if (sequence !== loadSequenceRef.current) return;
+        if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
+          return;
+        }
 
         setSnapshot(nextSnapshot);
         setTasks(nextTasks);
@@ -657,7 +736,9 @@ export function DayPlanScreen({
         setGoogleStatus(googleResponse.status);
         prefetchAdjacentDays(targetDate);
       } catch (loadError) {
-        if (sequence !== loadSequenceRef.current) return;
+        if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
+          return;
+        }
 
         setError(
           loadError instanceof Error
@@ -665,10 +746,10 @@ export function DayPlanScreen({
             : "Could not load day plan.",
         );
       } finally {
-        if (sequence !== loadSequenceRef.current) return;
-
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (isMountedRef.current && sequence === loadSequenceRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
     [
@@ -692,22 +773,28 @@ export function DayPlanScreen({
     void load();
   }, [load]);
 
-  useEffect(
-    () => () => {
-      if (timelineAutoScrollRef.current) {
-        clearInterval(timelineAutoScrollRef.current);
-      }
-    },
-    [],
-  );
+  // Keep the current-time indicator in sync, ticking at the top of each minute.
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const msUntilNextMinute = 60_000 - (Date.now() % 60_000);
+    const timeout = setTimeout(() => {
+      setNow(new Date());
+      interval = setInterval(() => setNow(new Date()), 60_000);
+    }, msUntilNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the timeline to 7:00 when changing dates
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      timelineScrollYRef.current = TIMELINE_INITIAL_OFFSET;
+      const initialOffset = TIMELINE_START_HOUR * timelineHourHeight;
+      timelineScrollYRef.current = initialOffset;
       timelineScrollRef.current?.scrollTo({
         animated: false,
-        y: TIMELINE_INITIAL_OFFSET,
+        y: initialOffset,
       });
     });
 
@@ -716,6 +803,10 @@ export function DayPlanScreen({
 
   useEffect(
     () => () => {
+      isMountedRef.current = false;
+      if (timelineAutoScrollRef.current) {
+        clearInterval(timelineAutoScrollRef.current);
+      }
       if (timelineLongPressTimerRef.current) {
         clearTimeout(timelineLongPressTimerRef.current);
       }
@@ -738,43 +829,80 @@ export function DayPlanScreen({
     }
     return map;
   }, [planGoals]);
+  const scheduledHabitIds = useMemo(
+    () => getScheduledHabitIds(snapshot, dateKey),
+    [dateKey, snapshot],
+  );
+  const scheduledTaskIds = useMemo(
+    () =>
+      new Set(
+        plannedEvents
+          .filter((event) => event.sourceType === "task")
+          .map((event) => event.sourceId),
+      ),
+    [plannedEvents],
+  );
+  const scheduledCheckpointIds = useMemo(
+    () =>
+      new Set(
+        plannedEvents
+          .filter((event) => event.sourceType === "goal_checkpoint")
+          .map((event) => event.sourceId),
+      ),
+    [plannedEvents],
+  );
   const dailyHabitOptions = useMemo<PlanTargetOption[]>(
     () =>
-      snapshot?.categories.flatMap((category) =>
-        category.habits
-          .filter(
-            (habit) =>
-              habit.period === "daily" &&
-              !habit.hidden &&
-              snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] !== "complete",
-          )
-          .map((habit) => ({
-            id: habit.id,
-            subtitle: category.name,
-            title: habit.name,
-          })),
-      ) ?? [],
-    [dateKey, snapshot],
+      sortByCompletionTotal(
+        snapshot?.categories.flatMap((category) =>
+          category.habits
+            .filter(
+              (habit) =>
+                habit.period === "daily" &&
+                !habit.hidden &&
+                !scheduledHabitIds.has(habit.id),
+            )
+            .map((habit) => ({
+              completions: countHabitCompletions(
+                snapshot.logsByHabitDate,
+                habit.id,
+              ),
+              option: {
+                id: habit.id,
+                subtitle: category.name,
+                title: habit.name,
+              },
+            })),
+        ) ?? [],
+      ),
+    [scheduledHabitIds, snapshot],
   );
   const monthlyHabitOptions = useMemo<PlanTargetOption[]>(
     () =>
-      snapshot?.periodicHabits
-        .filter(
-          (habit) =>
-            habit.period === "monthly" &&
-            snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] !== "complete",
-        )
-        .map((habit) => ({
-          id: habit.id,
-          subtitle: habit.goalTitle ?? "Monthly habit",
-          title: habit.name,
-        })) ?? [],
-    [dateKey, snapshot],
+      sortByCompletionTotal(
+        snapshot?.periodicHabits
+          .filter(
+            (habit) =>
+              habit.period === "monthly" && !scheduledHabitIds.has(habit.id),
+          )
+          .map((habit) => ({
+            completions: countHabitCompletions(
+              snapshot.logsByHabitDate,
+              habit.id,
+            ),
+            option: {
+              id: habit.id,
+              subtitle: habit.goalTitle ?? "Monthly habit",
+              title: habit.name,
+            },
+          })) ?? [],
+      ),
+    [scheduledHabitIds, snapshot],
   );
   const taskOptions = useMemo<PlanTargetOption[]>(
     () =>
       tasks
-        .filter((task) => !task.completedAt)
+        .filter((task) => !task.completedAt && !scheduledTaskIds.has(task.id))
         .map((task) => ({
           id: task.id,
           subtitle: [task.timeRequired, task.importance]
@@ -782,13 +910,17 @@ export function DayPlanScreen({
             .join(" · "),
           title: task.name,
         })),
-    [tasks],
+    [scheduledTaskIds, tasks],
   );
   const goalOptions = useMemo<PlanTargetOption[]>(
     () =>
       planGoals.flatMap((goal) =>
         goal.checkpoints
-          .filter((checkpoint) => !checkpoint.completed)
+          .filter(
+            (checkpoint) =>
+              !checkpoint.completed &&
+              !scheduledCheckpointIds.has(checkpoint.id),
+          )
           .map((checkpoint) => ({
             id: checkpoint.id,
             subtitle: [
@@ -802,7 +934,7 @@ export function DayPlanScreen({
             title: checkpoint.title,
           })),
       ),
-    [planGoals],
+    [planGoals, scheduledCheckpointIds],
   );
   const entries = useMemo(
     () =>
@@ -850,6 +982,11 @@ export function DayPlanScreen({
           }
         : undefined))
     : undefined;
+  const activeHabitStatus = activeKey
+    ? snapshot?.logsByHabitDate[activeKey]
+    : undefined;
+  const activeModalStatus =
+    activeHabitStatus ?? (activePlannedTime ? "planned" : undefined);
   const isPlanSheetOpen = Boolean(
     activeHabit ||
       activeEntry ||
@@ -860,14 +997,55 @@ export function DayPlanScreen({
       noteCheckpoint,
   );
   const onboardingStep = onboardingGuide?.step ?? null;
-  const timelineScrollMax = HOUR_HEIGHT * 24 - TIMELINE_VIEWPORT_HEIGHT;
+  const timelineScrollMax = timelineHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT;
   const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
     timelineViewportTopRef.current =
       pageY - timelineY + timelineScrollYRef.current;
   };
+  const getTouchDistance = (event: GestureResponderEvent) => {
+    const [first, second] = event.nativeEvent.touches;
+    if (!first || !second) return null;
+    return Math.hypot(first.pageX - second.pageX, first.pageY - second.pageY);
+  };
+  const handleTimelineTouchStart = (event: GestureResponderEvent) => {
+    const distance = getTouchDistance(event);
+    timelinePinchRef.current = distance
+      ? { distance, hourHeight: timelineHourHeight }
+      : null;
+  };
+  const handleTimelineTouchMove = (event: GestureResponderEvent) => {
+    const pinch = timelinePinchRef.current;
+    const distance = getTouchDistance(event);
+    if (!pinch || !distance) return;
+
+    const centerMinutes =
+      ((timelineScrollYRef.current + TIMELINE_VIEWPORT_HEIGHT / 2) /
+        Math.max(timelineHourHeight, 1)) *
+      60;
+    const nextHourHeight = clampNumber(
+      pinch.hourHeight * (distance / pinch.distance),
+      TIMELINE_MIN_HOUR_HEIGHT,
+      TIMELINE_MAX_HOUR_HEIGHT,
+    );
+    const nextScrollY = clampNumber(
+      (centerMinutes / 60) * nextHourHeight - TIMELINE_VIEWPORT_HEIGHT / 2,
+      0,
+      nextHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT,
+    );
+
+    timelineScrollYRef.current = nextScrollY;
+    setTimelineHourHeight(nextHourHeight);
+    timelineScrollRef.current?.scrollTo({ animated: false, y: nextScrollY });
+  };
+  const handleTimelineTouchEnd = (event: GestureResponderEvent) => {
+    if (event.nativeEvent.touches.length < 2) {
+      timelinePinchRef.current = null;
+    }
+  };
   const getTimelineMinutesFromPageY = (pageY: number) =>
     minutesFromTimelineY(
       timelineScrollYRef.current + pageY - timelineViewportTopRef.current,
+      timelineHourHeight,
     );
   const playTimelineDragStartHaptic = () => {
     const haptic =
@@ -995,6 +1173,7 @@ export function DayPlanScreen({
     if (
       isTimelinePointOnEntry({
         entries: timedEntries,
+        hourHeight: timelineHourHeight,
         timelineWidth: timelineDragLayerWidthRef.current,
         x: press.locationX,
         y: press.locationY,
@@ -1003,7 +1182,11 @@ export function DayPlanScreen({
       return;
     }
 
-    const startMinutes = minutesFromTimelineY(press.locationY);
+    const startMinutes = minutesFromTimelineY(
+      press.locationY,
+      timelineHourHeight,
+      "floor",
+    );
     const range = normalizePlanRange(
       startMinutes,
       startMinutes + MIN_PLAN_DURATION_MINUTES,
@@ -1029,6 +1212,79 @@ export function DayPlanScreen({
     updateTimelineGestureFromPageY(pageY);
     updateTimelineAutoScroll(pageY);
   };
+  const patchHabitPlanTime = useCallback(
+    (habitId: string, startTime: string, endTime: string) => {
+      const key = `${habitId}_${dateKey}`;
+      const patchSnapshot = (
+        current: HabitLogsSnapshot | null,
+      ): HabitLogsSnapshot | null =>
+        current
+          ? {
+              ...current,
+              logsByHabitDate: {
+                ...current.logsByHabitDate,
+                [key]: current.logsByHabitDate[key] ?? "planned",
+              },
+              plannedTimesByHabitDate: {
+                ...current.plannedTimesByHabitDate,
+                [key]: {
+                  ...(current.plannedTimesByHabitDate[key] ?? {
+                    repeatsDaily: false,
+                  }),
+                  endTime,
+                  startTime,
+                },
+              },
+            }
+          : current;
+
+      setSnapshot((current) => {
+        const next = patchSnapshot(current);
+        if (next) snapshotCacheRef.current.set(monthKey, next);
+        return next;
+      });
+    },
+    [dateKey, monthKey],
+  );
+  const patchPlannedEvent = useCallback(
+    (nextEvent: PlannedEvent) => {
+      const replaceEvent = (events: PlannedEvent[]) => {
+        const nextEvents = events.filter((event) => event.id !== nextEvent.id);
+        nextEvents.push(nextEvent);
+        return nextEvents.sort((left, right) =>
+          String(left.startTime ?? "").localeCompare(
+            String(right.startTime ?? ""),
+          ),
+        );
+      };
+
+      setPlannedEvents((current) => {
+        const next = replaceEvent(current);
+        plannedEventsCacheRef.current.set(dateKey, next);
+        return next;
+      });
+    },
+    [dateKey],
+  );
+  const patchGoogleEvent = useCallback(
+    (eventId: string, nextEvent: GoogleCalendarDayEvent) => {
+      const replaceEvent = (events: GoogleCalendarDayEvent[]) =>
+        events.map((event) => (event.id === eventId ? nextEvent : event));
+
+      setGoogleEvents((current) => {
+        const next = replaceEvent(current);
+        const cached = googleEventsCacheRef.current.get(dateKey);
+        if (cached) {
+          googleEventsCacheRef.current.set(dateKey, {
+            ...cached,
+            events: replaceEvent(cached.events),
+          });
+        }
+        return next;
+      });
+    },
+    [dateKey],
+  );
   const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
     const startTime = formatPlanApiTime(range.startMinutes);
     const endTime = formatPlanApiTime(range.endMinutes);
@@ -1041,11 +1297,11 @@ export function DayPlanScreen({
           startTime,
           timeZone,
         });
-        invalidateCurrentCaches({ google: true, snapshot: true });
+        patchHabitPlanTime(entry.habitId, startTime, endTime);
       } else if (entry.kind === "task" || entry.kind === "goal") {
         if (!entry.sourceId) throw new Error("Could not find that event.");
 
-        await upsertPlannedEvent({
+        const response = await upsertPlannedEvent({
           dateKey,
           endTime,
           sourceId: entry.sourceId,
@@ -1054,13 +1310,14 @@ export function DayPlanScreen({
           timeZone,
           title: entry.title,
         });
-        invalidateCurrentCaches({ google: true, planned: true });
+        patchPlannedEvent(response.event);
       } else if (entry.kind === "google") {
+        const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
           dateKey,
           description: entry.description ?? null,
           endTime,
-          eventId: entry.sourceId ?? googleEntryId(entry.id),
+          eventId,
           startTime,
           timeZone,
           title: entry.title,
@@ -1068,11 +1325,10 @@ export function DayPlanScreen({
         if (response.status !== "synced") {
           throw new Error(getGoogleCalendarStatusMessage(response.status));
         }
-        invalidateCurrentCaches({ google: true });
+        if (response.event) patchGoogleEvent(eventId, response.event);
       }
-
-      await load();
     } catch (moveError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not move event",
         moveError instanceof Error
@@ -1080,7 +1336,7 @@ export function DayPlanScreen({
           : "The event could not be moved.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
   const finishTimelineGesture = () => {
@@ -1092,6 +1348,7 @@ export function DayPlanScreen({
     timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
+    setDragEntry(null);
 
     if (!gesture) return;
 
@@ -1141,16 +1398,14 @@ export function DayPlanScreen({
     timelineHapticKeyRef.current = null;
     setIsTimelineDragging(false);
     setDragPlanRange(null);
+    setDragEntry(null);
   };
-  const beginMoveEntry = (
-    entry: DayPlanEntry,
-    event: GestureResponderEvent,
-  ) => {
-    const { locationY, pageY } = event.nativeEvent;
-    const entryTop = (entry.startMinutes / 60) * HOUR_HEIGHT;
+  const beginMoveEntry = (entry: DayPlanEntry, touch: TimelineTouch) => {
+    const { locationY, pageY } = touch;
+    const entryTop = (entry.startMinutes / 60) * timelineHourHeight;
     const timelineY = entryTop + locationY;
     const touchOffsetMinutes = clampNumber(
-      (locationY / HOUR_HEIGHT) * 60,
+      (locationY / timelineHourHeight) * 60,
       0,
       Math.max(0, entry.endMinutes - entry.startMinutes),
     );
@@ -1176,15 +1431,63 @@ export function DayPlanScreen({
     setDraftPlanRange(null);
     setSelectedPlanTargetType(null);
     setDragPlanRange(range);
+    setDragEntry(entry);
     setIsTimelineDragging(true);
     playTimelineDragStartHaptic();
     playTimelineRangeHaptic(range, true);
     updateTimelineAutoScroll(pageY);
   };
 
-  const goToToday = () => setSelectedDate(startOfDay(new Date()));
-  const moveDate = (days: number) =>
+  const goToToday = useCallback(() => {
+    const today = startOfDay(new Date());
+    dateMotionDirectionRef.current = today > selectedDate ? 1 : -1;
+    setSelectedDate(today);
+  }, [selectedDate]);
+  const moveDate = useCallback((days: number) => {
+    dateMotionDirectionRef.current = days > 0 ? 1 : -1;
     setSelectedDate((current) => addDays(current, days));
+  }, []);
+  const cancelDaySwipe = useCallback(() => {
+    daySwipeRef.current = null;
+  }, []);
+  const handleDaySwipeStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (
+        isPlanSheetOpen ||
+        isTimelineDragging ||
+        event.nativeEvent.touches.length !== 1
+      ) {
+        cancelDaySwipe();
+        return;
+      }
+
+      const touch = event.nativeEvent.touches[0];
+      daySwipeRef.current = { pageX: touch.pageX, pageY: touch.pageY };
+    },
+    [cancelDaySwipe, isPlanSheetOpen, isTimelineDragging],
+  );
+  const handleDaySwipeEnd = useCallback(
+    (event: GestureResponderEvent) => {
+      const start = daySwipeRef.current;
+      cancelDaySwipe();
+      if (!start || dragEntry || draftPlanRange || timelinePinchRef.current) {
+        return;
+      }
+
+      const touch = event.nativeEvent.changedTouches[0];
+      if (!touch) return;
+
+      const dx = touch.pageX - start.pageX;
+      const dy = touch.pageY - start.pageY;
+      if (
+        Math.abs(dx) >= DAY_SWIPE_MIN_DISTANCE &&
+        Math.abs(dx) > Math.abs(dy) * 1.35
+      ) {
+        moveDate(dx > 0 ? -1 : 1);
+      }
+    },
+    [cancelDaySwipe, dragEntry, draftPlanRange, moveDate],
+  );
   const openInternalEntry = (entry: DayPlanEntry) => {
     if (Date.now() < suppressEntryPressUntilRef.current) return;
 
@@ -1223,8 +1526,10 @@ export function DayPlanScreen({
 
       await setHabitLog(activeHabit.id, dateKey, status, nextOptions);
       invalidateCurrentCaches({ google: true, snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Day Plan",
         updateError instanceof Error
@@ -1232,7 +1537,7 @@ export function DayPlanScreen({
           : "Could not update this habit.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1244,8 +1549,10 @@ export function DayPlanScreen({
     try {
       await setHabitLogVisibility(activeHabit.id, dateKey, visibility);
       invalidateCurrentCaches({ snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Day Plan",
         updateError instanceof Error
@@ -1253,13 +1560,14 @@ export function DayPlanScreen({
           : "Could not update visibility.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
   const saveNote = async (habitId: string, notes: string) => {
     await setHabitLogNote(habitId, dateKey, notes);
     invalidateCurrentCaches({ snapshot: true });
+    if (!isMountedRef.current) return;
     await load();
   };
 
@@ -1273,8 +1581,10 @@ export function DayPlanScreen({
 
       await uploadGoalPhoto(habitId, dateKey, photo);
       invalidateCurrentCaches({ snapshot: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (photoError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add photo",
         photoError instanceof Error
@@ -1282,7 +1592,7 @@ export function DayPlanScreen({
           : "The photo could not be uploaded.",
       );
     } finally {
-      setUploadingPhotoSource(null);
+      if (isMountedRef.current) setUploadingPhotoSource(null);
     }
   };
 
@@ -1296,6 +1606,7 @@ export function DayPlanScreen({
       visibility: target.ref.checkpoint.visibility,
     });
     invalidateCurrentCaches({ planGoals: true });
+    if (!isMountedRef.current) return;
     setActiveEntry(target.entry);
     await load();
   };
@@ -1311,8 +1622,10 @@ export function DayPlanScreen({
         visibility,
       });
       invalidateCurrentCaches({ planGoals: true });
+      if (!isMountedRef.current) return;
       await load();
     } catch (updateError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not update visibility",
         updateError instanceof Error
@@ -1320,7 +1633,7 @@ export function DayPlanScreen({
           : "The post visibility could not be changed.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1365,9 +1678,11 @@ export function DayPlanScreen({
         }
       }
 
+      if (!isMountedRef.current) return;
       setActiveEntry(null);
       await load();
     } catch (completeError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not update event",
         completeError instanceof Error
@@ -1375,7 +1690,7 @@ export function DayPlanScreen({
           : "The event could not be updated.",
       );
     } finally {
-      setUpdatingKey(null);
+      if (isMountedRef.current) setUpdatingKey(null);
     }
   };
 
@@ -1400,9 +1715,11 @@ export function DayPlanScreen({
                 sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
               });
               invalidateCurrentCaches({ google: true, planned: true });
+              if (!isMountedRef.current) return;
               setActiveEntry(null);
               await load();
             } catch (deleteError) {
+              if (!isMountedRef.current) return;
               Alert.alert(
                 "Could not delete event",
                 deleteError instanceof Error
@@ -1410,7 +1727,7 @@ export function DayPlanScreen({
                   : "The event could not be deleted.",
               );
             } finally {
-              setUpdatingKey(null);
+              if (isMountedRef.current) setUpdatingKey(null);
             }
           },
         },
@@ -1463,6 +1780,7 @@ export function DayPlanScreen({
 
       await uploadCheckpointPhoto(checkpoint.checkpoint.id, photo);
       invalidateCurrentCaches({ planGoals: true });
+      if (!isMountedRef.current) return;
       await load();
       if (
         onboardingGuide?.createdGoalCheckpointId === checkpoint.checkpoint.id &&
@@ -1471,6 +1789,7 @@ export function DayPlanScreen({
         onboardingGuide.onStepChange("mark-complete");
       }
     } catch (photoError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add photo",
         photoError instanceof Error
@@ -1478,7 +1797,7 @@ export function DayPlanScreen({
           : "The photo could not be uploaded.",
       );
     } finally {
-      setUploadingPhotoSource(null);
+      if (isMountedRef.current) setUploadingPhotoSource(null);
     }
   };
 
@@ -1497,6 +1816,7 @@ export function DayPlanScreen({
 
   const createCategory = async (name: string, icon: string) => {
     const category = await createHabitCategory({ icon, name });
+    if (!isMountedRef.current) return category;
     setHabitCategories((current) => {
       const nextCategories = [...current, category].sort((left, right) =>
         left.name.localeCompare(right.name),
@@ -1509,6 +1829,7 @@ export function DayPlanScreen({
 
   const saveCreatedTask = async (input: TaskInput) => {
     const saved = await createTask(input);
+    if (!isMountedRef.current) return;
     invalidateCurrentCaches({ tasks: true });
     setTasks((current) => [saved, ...current]);
     setCreatingTargetType(null);
@@ -1522,6 +1843,7 @@ export function DayPlanScreen({
         timeZone,
         title: saved.name,
       });
+      if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
       await load();
@@ -1531,6 +1853,7 @@ export function DayPlanScreen({
 
   const saveCreatedHabit = async (input: HabitInput) => {
     const saved = await createHabit(input);
+    if (!isMountedRef.current) return;
     try {
       await scheduleHabitReminderAsync(saved);
     } catch (reminderError) {
@@ -1541,6 +1864,7 @@ export function DayPlanScreen({
           : "Could not schedule this habit reminder.",
       );
     }
+    if (!isMountedRef.current) return;
     snapshotCacheRef.current.clear();
     snapshotInFlightRef.current.clear();
     setCreatingTargetType(null);
@@ -1549,6 +1873,7 @@ export function DayPlanScreen({
 
   const saveCreatedGoal = async (input: GoalInput) => {
     const saved = await createPlanGoal(input);
+    if (!isMountedRef.current) return;
     invalidateCurrentCaches({ planGoals: true });
     setCreatingTargetType(null);
     const checkpoint = saved.checkpoints[0];
@@ -1562,6 +1887,7 @@ export function DayPlanScreen({
         timeZone,
         title: checkpoint.title,
       });
+      if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
     }
@@ -1591,10 +1917,12 @@ export function DayPlanScreen({
         throw new Error(getGoogleCalendarStatusMessage(response.status));
       }
 
+      if (!isMountedRef.current) return;
       setOtherEventRange(null);
       invalidateCurrentCaches({ google: true });
       await load();
     } catch (eventError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add event",
         eventError instanceof Error
@@ -1602,7 +1930,7 @@ export function DayPlanScreen({
           : "The Google Calendar event could not be created.",
       );
     } finally {
-      setIsCreatingOtherEvent(false);
+      if (isMountedRef.current) setIsCreatingOtherEvent(false);
     }
   };
 
@@ -1657,9 +1985,11 @@ export function DayPlanScreen({
         invalidateCurrentCaches({ google: true, snapshot: true });
       }
 
+      if (!isMountedRef.current) return;
       closeDraftPlan();
       await load();
     } catch (planError) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not add plan",
         planError instanceof Error
@@ -1667,7 +1997,7 @@ export function DayPlanScreen({
           : "The plan could not be created.",
       );
     } finally {
-      setIsCreatingPlan(false);
+      if (isMountedRef.current) setIsCreatingPlan(false);
     }
   };
 
@@ -1680,6 +2010,9 @@ export function DayPlanScreen({
               styles.content,
               { paddingBottom: tabBarHeight + 24 },
             ]}
+            onTouchCancel={cancelDaySwipe}
+            onTouchEnd={handleDaySwipeEnd}
+            onTouchStart={handleDaySwipeStart}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
@@ -1689,243 +2022,292 @@ export function DayPlanScreen({
             }
             scrollEnabled={!isTimelineDragging}
             showsVerticalScrollIndicator={false}
+            stickyHeaderIndices={[0]}
           >
-            <View style={styles.header}>
-              <View style={styles.headerTitle}>
-                <PlanReportHeaderMenu currentView="day-plan" />
-              </View>
-              <View style={styles.dateControls}>
-                <Pressable
-                  accessibilityLabel="Previous day"
-                  hitSlop={8}
-                  onPress={() => moveDate(-1)}
-                  style={({ pressed }) => [
-                    styles.iconButton,
-                    { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("chevron.left", "chevron_left")}
-                    size={16}
-                    tintColor={theme.tabIcon}
-                    weight="semibold"
-                  />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Go to today"
-                  onPress={goToToday}
-                  style={({ pressed }) => [
-                    styles.todayButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[styles.todayButtonText, { color: theme.primary }]}
+            <View
+              style={[
+                styles.stickyHeader,
+                {
+                  backgroundColor: theme.background,
+                  borderBottomColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <View style={styles.header}>
+                <View style={styles.headerTitle}>
+                  <PlanReportHeaderMenu compact currentView="day-plan" />
+                </View>
+                <View style={styles.dateControls}>
+                  <Pressable
+                    accessibilityLabel="Previous day"
+                    hitSlop={8}
+                    onPress={() => moveDate(-1)}
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
                   >
-                    Today
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Next day"
-                  hitSlop={8}
-                  onPress={() => moveDate(1)}
-                  style={({ pressed }) => [
-                    styles.iconButton,
+                    <SymbolView
+                      name={sym("chevron.left", "chevron_left")}
+                      size={16}
+                      tintColor={theme.tabIcon}
+                      weight="semibold"
+                    />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Go to today"
+                    onPress={goToToday}
+                    style={({ pressed }) => [
+                      styles.todayButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[styles.todayButtonText, { color: theme.primary }]}
+                    >
+                      Today
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Next day"
+                    hitSlop={8}
+                    onPress={() => moveDate(1)}
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("chevron.right", "chevron_right")}
+                      size={16}
+                      tintColor={theme.tabIcon}
+                      weight="semibold"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.dateHeader}>
+                <View
+                  style={[
+                    styles.dayBadge,
                     { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
                   ]}
                 >
-                  <SymbolView
-                    name={sym("chevron.right", "chevron_right")}
-                    size={16}
-                    tintColor={theme.tabIcon}
-                    weight="semibold"
-                  />
-                </Pressable>
+                  <Text style={[styles.weekday, { color: theme.primary }]}>
+                    {WEEKDAY_NAMES[selectedDate.getDay()]}
+                  </Text>
+                  <Text style={[styles.dayNumber, { color: theme.text }]}>
+                    {selectedDate.getDate()}
+                  </Text>
+                </View>
+                <View style={styles.dateTextBlock}>
+                  <Text style={[styles.dateTitle, { color: theme.text }]}>
+                    {MONTH_NAMES[selectedDate.getMonth()]}{" "}
+                    {selectedDate.getFullYear()}
+                  </Text>
+                </View>
               </View>
             </View>
 
-            <View style={styles.dateHeader}>
-              <View
-                style={[
-                  styles.dayBadge,
-                  { backgroundColor: theme.backgroundElement },
-                ]}
-              >
-                <Text style={[styles.weekday, { color: theme.primary }]}>
-                  {WEEKDAY_NAMES[selectedDate.getDay()]}
-                </Text>
-                <Text style={[styles.dayNumber, { color: theme.text }]}>
-                  {selectedDate.getDate()}
-                </Text>
-              </View>
-              <View style={styles.dateTextBlock}>
-                <Text style={[styles.dateTitle, { color: theme.text }]}>
-                  {MONTH_NAMES[selectedDate.getMonth()]}{" "}
-                  {selectedDate.getFullYear()}
-                </Text>
-                <Text
-                  style={[styles.dateSubtitle, { color: theme.textSecondary }]}
+            <Animated.View style={[styles.dateMotion, dateMotionStyle]}>
+              {googleStatus !== "synced" ? (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
                 >
-                  Planned habits, tasks, and goals in primary color, completed
-                  in secondary color, and other events in gray
-                </Text>
-              </View>
-            </View>
+                  <Text style={[styles.noticeText, { color: theme.text }]}>
+                    Google Calendar is not connected. Planned habits will still
+                    show here.
+                  </Text>
+                </View>
+              ) : null}
 
-            {googleStatus !== "synced" ? (
-              <View
-                style={[
-                  styles.notice,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                  },
-                ]}
-              >
-                <Text style={[styles.noticeText, { color: theme.text }]}>
-                  Google Calendar is not connected. Planned habits will still
-                  show here.
-                </Text>
-              </View>
-            ) : null}
+              {error ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorText}>{error}</Text>
+                  <Pressable onPress={() => void load({ force: true })}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : null}
 
-            {error ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load({ force: true })}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : null}
+              {isLoading ? (
+                <View style={styles.centerState}>
+                  <ActivityIndicator color={theme.primary} size="large" />
+                </View>
+              ) : (
+                <>
+                  {allDayEntries.length > 0 ? (
+                    <View
+                      style={[
+                        styles.allDaySection,
+                        {
+                          backgroundColor: theme.tabBar,
+                          borderColor: theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.allDayLabel,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        All day
+                      </Text>
+                      <View style={styles.allDayChips}>
+                        {allDayEntries.map((entry) => (
+                          <EntryChip
+                            entry={entry}
+                            key={entry.id}
+                            onPress={
+                              entry.kind !== "google"
+                                ? () => openInternalEntry(entry)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
 
-            {isLoading ? (
-              <View style={styles.centerState}>
-                <ActivityIndicator color={theme.primary} size="large" />
-              </View>
-            ) : (
-              <>
-                {allDayEntries.length > 0 ? (
                   <View
                     style={[
-                      styles.allDaySection,
+                      styles.timelineCard,
                       {
                         backgroundColor: theme.tabBar,
                         borderColor: theme.tabBorder,
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.allDayLabel,
-                        { color: theme.textSecondary },
-                      ]}
+                    <ScrollView
+                      ref={timelineScrollRef}
+                      contentOffset={{
+                        x: 0,
+                        y: TIMELINE_START_HOUR * timelineHourHeight,
+                      }}
+                      nestedScrollEnabled
+                      onScroll={(event) => {
+                        timelineScrollYRef.current =
+                          event.nativeEvent.contentOffset.y;
+                      }}
+                      onTouchCancel={handleTimelineTouchEnd}
+                      onTouchEnd={handleTimelineTouchEnd}
+                      onTouchMove={handleTimelineTouchMove}
+                      onTouchStart={handleTimelineTouchStart}
+                      scrollEnabled={!isTimelineDragging}
+                      scrollEventThrottle={16}
+                      showsVerticalScrollIndicator={false}
+                      style={styles.timelineScroller}
                     >
-                      All day
-                    </Text>
-                    <View style={styles.allDayChips}>
-                      {allDayEntries.map((entry) => (
-                        <EntryChip
-                          entry={entry}
-                          key={entry.id}
-                          onPress={
-                            entry.kind !== "google"
-                              ? () => openInternalEntry(entry)
-                              : undefined
-                          }
-                        />
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                <View
-                  style={[
-                    styles.timelineCard,
-                    {
-                      backgroundColor: theme.tabBar,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <ScrollView
-                    ref={timelineScrollRef}
-                    contentOffset={{ x: 0, y: TIMELINE_INITIAL_OFFSET }}
-                    nestedScrollEnabled
-                    onScroll={(event) => {
-                      timelineScrollYRef.current =
-                        event.nativeEvent.contentOffset.y;
-                    }}
-                    scrollEnabled={!isTimelineDragging}
-                    scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={false}
-                    style={styles.timelineScroller}
-                  >
-                    <View style={styles.timeline}>
-                      {HOURS.map((hour) => (
-                        <View
-                          key={hour}
-                          style={[styles.hourRow, { height: HOUR_HEIGHT }]}
-                        >
-                          <Text
+                      <View
+                        style={[
+                          styles.timeline,
+                          { height: timelineHourHeight * 24 },
+                        ]}
+                      >
+                        {HOURS.map((hour) => (
+                          <View
+                            key={hour}
                             style={[
-                              styles.hourLabel,
-                              { color: theme.textSecondary },
+                              styles.hourRow,
+                              { height: timelineHourHeight },
                             ]}
                           >
-                            {formatHour(hour)}
-                          </Text>
-                          <View
-                            style={[
-                              styles.hourLine,
-                              { borderTopColor: theme.tabBorder },
-                            ]}
-                          />
-                        </View>
-                      ))}
-                      <View
-                        onLayout={(event) => {
-                          timelineDragLayerWidthRef.current =
-                            event.nativeEvent.layout.width;
-                        }}
-                        onStartShouldSetResponder={() => !isPlanSheetOpen}
-                        onResponderGrant={handleTimelineResponderGrant}
-                        onResponderMove={handleTimelineResponderMove}
-                        onResponderRelease={handleTimelineResponderRelease}
-                        onResponderTerminate={cancelTimelineGesture}
-                        onResponderTerminationRequest={() =>
-                          !timelineGestureRef.current
-                        }
-                        style={styles.dragLayer}
-                      />
-                      <View style={styles.eventLayer} pointerEvents="box-none">
-                        {timedEntries.map((entry) => (
-                          <TimedEntryBlock
-                            entry={entry}
-                            key={entry.id}
-                            onLongPress={(event) =>
-                              beginMoveEntry(entry, event)
-                            }
-                            onPress={
-                              entry.kind !== "google"
-                                ? () => openInternalEntry(entry)
-                                : undefined
-                            }
-                            onPressMove={handleTimelinePressMove}
-                            onPressOut={finishTimelineGesture}
-                          />
+                            <Text
+                              style={[
+                                styles.hourLabel,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              {formatHour(hour)}
+                            </Text>
+                            <View
+                              style={[
+                                styles.hourLine,
+                                { borderTopColor: theme.tabBorder },
+                              ]}
+                            />
+                          </View>
                         ))}
-                        {dragPlanRange ? (
-                          <DraftPlanBlock range={dragPlanRange} />
+                        <View
+                          onLayout={(event) => {
+                            timelineDragLayerWidthRef.current =
+                              event.nativeEvent.layout.width;
+                          }}
+                          onStartShouldSetResponder={() => !isPlanSheetOpen}
+                          onResponderGrant={handleTimelineResponderGrant}
+                          onResponderMove={handleTimelineResponderMove}
+                          onResponderRelease={handleTimelineResponderRelease}
+                          onResponderTerminate={cancelTimelineGesture}
+                          onResponderTerminationRequest={() =>
+                            !timelineGestureRef.current
+                          }
+                          style={styles.dragLayer}
+                        />
+                        <View
+                          style={styles.eventLayer}
+                          pointerEvents="box-none"
+                        >
+                          {timedEntries
+                            .filter((entry) => entry.id !== dragEntry?.id)
+                            .map((entry) => (
+                              <TimedEntryBlock
+                                entry={entry}
+                                key={entry.id}
+                                onBeginMove={(touch) =>
+                                  beginMoveEntry(entry, touch)
+                                }
+                                onPress={
+                                  entry.kind !== "google"
+                                    ? () => openInternalEntry(entry)
+                                    : undefined
+                                }
+                                onMove={handleTimelinePressMove}
+                                onRelease={finishTimelineGesture}
+                                hourHeight={timelineHourHeight}
+                              />
+                            ))}
+                          {dragEntry && dragPlanRange ? (
+                            <TimedEntryBlock
+                              entry={{
+                                ...dragEntry,
+                                endMinutes: dragPlanRange.endMinutes,
+                                startMinutes: dragPlanRange.startMinutes,
+                              }}
+                              hourHeight={timelineHourHeight}
+                            />
+                          ) : dragPlanRange ? (
+                            <DraftPlanBlock
+                              hourHeight={timelineHourHeight}
+                              range={dragPlanRange}
+                            />
+                          ) : null}
+                        </View>
+                        {isViewingToday ? (
+                          <View
+                            pointerEvents="none"
+                            style={[styles.nowIndicator, { top: nowLineTop }]}
+                          >
+                            <View style={styles.nowDot} />
+                            <View style={styles.nowLine} />
+                          </View>
                         ) : null}
                       </View>
-                    </View>
-                  </ScrollView>
-                </View>
-              </>
-            )}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
+            </Animated.View>
           </ScrollView>
         </SafeAreaView>
 
@@ -1944,7 +2326,7 @@ export function DayPlanScreen({
               ? (snapshot?.visibilityByHabitDate[activeKey] ?? "only_me")
               : "only_me"
           }
-          status={activeKey ? snapshot?.logsByHabitDate[activeKey] : undefined}
+          status={activeModalStatus}
           isUpdating={Boolean(activeKey && updatingKey === activeKey)}
           isUpdatingVisibility={Boolean(activeKey && updatingKey === activeKey)}
           canPlan={isTodayOrFutureDate(selectedDate)}
@@ -2663,7 +3045,10 @@ function PlanSelectionModal({
               buttonLabel={onboardingTooltip.buttonLabel}
               onPress={
                 onboardingTooltip.next
-                  ? () => onOnboardingNext?.(onboardingTooltip.next!)
+                  ? () => {
+                      const nextStep = onboardingTooltip.next;
+                      if (nextStep) onOnboardingNext?.(nextStep);
+                    }
                   : undefined
               }
               title={onboardingTooltip.title}
@@ -2955,11 +3340,17 @@ function OtherEventFormModal({
   );
 }
 
-function DraftPlanBlock({ range }: { range: PlanRange }) {
+function DraftPlanBlock({
+  hourHeight,
+  range,
+}: {
+  hourHeight: number;
+  range: PlanRange;
+}) {
   const theme = useTheme();
-  const top = (range.startMinutes / 60) * HOUR_HEIGHT;
+  const top = (range.startMinutes / 60) * hourHeight;
   const height = Math.max(
-    ((range.endMinutes - range.startMinutes) / 60) * HOUR_HEIGHT,
+    ((range.endMinutes - range.startMinutes) / 60) * hourHeight,
     MIN_EVENT_HEIGHT,
   );
 
@@ -3039,32 +3430,101 @@ function EntryChip({
 
 function TimedEntryBlock({
   entry,
-  onLongPress,
+  hourHeight,
+  onBeginMove,
+  onMove,
   onPress,
-  onPressMove,
-  onPressOut,
+  onRelease,
 }: {
   entry: DayPlanEntry;
-  onLongPress?: (event: GestureResponderEvent) => void;
+  hourHeight: number;
+  onBeginMove?: (touch: TimelineTouch) => void;
+  onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
-  onPressMove?: (event: GestureResponderEvent) => void;
-  onPressOut?: () => void;
+  onRelease?: () => void;
 }) {
   const theme = useTheme();
+  const dragStartRef = useRef<{
+    didStartDrag: boolean;
+    locationY: number;
+    pageY: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
-  const top = (entry.startMinutes / 60) * HOUR_HEIGHT;
-  const height = Math.max(
-    ((entry.endMinutes - entry.startMinutes) / 60) * HOUR_HEIGHT,
-    MIN_EVENT_HEIGHT,
-  );
+  const top = (entry.startMinutes / 60) * hourHeight;
+  const naturalHeight =
+    ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
+  const height = Math.max(naturalHeight, MIN_EVENT_HEIGHT);
   const laneWidth = 100 / Math.max(entry.laneCount, 1);
   const left = laneWidth * entry.laneIndex;
+  const width = laneWidth * Math.max(entry.laneSpan, 1);
+  const isTiny = naturalHeight < 24;
   const isCompact = height <= 38;
   const timeLabel = isCompact
     ? formatMinuteRangeCompact(entry.startMinutes, entry.endMinutes)
     : formatMinuteRange(entry.startMinutes, entry.endMinutes);
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    },
+    [],
+  );
+  const startMove = () => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart || dragStart.didStartDrag) return;
 
-  const content = isCompact ? (
+    dragStart.didStartDrag = true;
+    clearLongPressTimer();
+    onBeginMove?.({
+      locationY: dragStart.locationY,
+      pageY: dragStart.pageY,
+    });
+  };
+  const handleResponderGrant = (event: GestureResponderEvent) => {
+    const { locationY, pageY } = event.nativeEvent;
+    dragStartRef.current = { didStartDrag: false, locationY, pageY };
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(startMove, EVENT_DRAG_DELAY_MS);
+  };
+  const handleResponderMove = (event: GestureResponderEvent) => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart) return;
+
+    if (!dragStart.didStartDrag) {
+      const distance = Math.abs(event.nativeEvent.pageY - dragStart.pageY);
+      if (distance < EVENT_DRAG_MOVE_THRESHOLD) return;
+      startMove();
+    }
+
+    onMove?.(event);
+  };
+  const handleResponderRelease = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+
+    if (didStartDrag) {
+      onRelease?.();
+      return;
+    }
+
+    onPress?.();
+  };
+  const handleResponderTerminate = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (didStartDrag) onRelease?.();
+  };
+
+  const content = isTiny ? (
+    <View style={[styles.eventBlock, { backgroundColor }]} />
+  ) : isCompact ? (
     <View
       style={[styles.eventBlock, styles.eventBlockCompact, { backgroundColor }]}
     >
@@ -3097,33 +3557,31 @@ function TimedEntryBlock({
 
   return (
     <View
-      pointerEvents={onPress || onLongPress ? "auto" : "none"}
+      pointerEvents={onPress || onBeginMove ? "auto" : "none"}
       style={[
         styles.eventOuter,
         {
           height,
           left: `${left}%`,
           top,
-          width: `${laneWidth}%`,
+          width: `${width}%`,
         },
       ]}
     >
-      {onPress || onLongPress ? (
-        <Pressable
+      {onPress || onBeginMove ? (
+        <View
           accessibilityLabel={`Open ${entry.title}`}
           accessibilityRole="button"
-          delayLongPress={LONG_PRESS_DELAY_MS}
-          onLongPress={onLongPress}
-          onPress={onPress}
-          onPressMove={onPressMove}
-          onPressOut={onPressOut}
-          style={({ pressed }) => [
-            styles.eventPressable,
-            pressed && styles.pressed,
-          ]}
+          onResponderGrant={handleResponderGrant}
+          onResponderMove={handleResponderMove}
+          onResponderRelease={handleResponderRelease}
+          onResponderTerminate={handleResponderTerminate}
+          onResponderTerminationRequest={() => false}
+          onStartShouldSetResponder={() => true}
+          style={styles.eventPressable}
         >
           {content}
-        </Pressable>
+        </View>
       ) : (
         content
       )}
@@ -3212,6 +3670,7 @@ function buildDayPlanEntries({
         kind: "habit",
         laneCount: 1,
         laneIndex: 0,
+        laneSpan: 1,
         startMinutes: hasTimeRange ? startMinutes : 0,
         title: habit.name,
       });
@@ -3243,6 +3702,7 @@ function buildDayPlanEntries({
         kind: "habit",
         laneCount: 1,
         laneIndex: 0,
+        laneSpan: 1,
         startMinutes: hasTimeRange ? startMinutes : 0,
         title: habit.name,
       });
@@ -3280,6 +3740,7 @@ function plannedEventToEntry(
     kind: event.sourceType === "task" ? "task" : "goal",
     laneCount: 1,
     laneIndex: 0,
+    laneSpan: 1,
     sourceId: event.sourceId,
     startMinutes: hasTimeRange ? startMinutes : 0,
     title: event.title,
@@ -3300,6 +3761,7 @@ function googleEventToEntry(
       kind: "google",
       laneCount: 1,
       laneIndex: 0,
+      laneSpan: 1,
       sourceId: event.id,
       startMinutes: 0,
       title: event.title,
@@ -3339,6 +3801,7 @@ function googleEventToEntry(
     kind: "google",
     laneCount: 1,
     laneIndex: 0,
+    laneSpan: 1,
     sourceId: event.id,
     startMinutes,
     title: event.title,
@@ -3360,6 +3823,63 @@ function buildHabitMap(snapshot: HabitLogsSnapshot | null) {
   return habitById;
 }
 
+function getScheduledHabitIds(
+  snapshot: HabitLogsSnapshot | null,
+  dateKey: string,
+) {
+  const ids = new Set<string>();
+  if (!snapshot) return ids;
+
+  for (const key of Object.keys(snapshot.logsByHabitDate)) {
+    if (!key.endsWith(`_${dateKey}`)) continue;
+    const status = snapshot.logsByHabitDate[key];
+    if (status === "planned" || status === "complete") {
+      ids.add(key.slice(0, -dateKey.length - 1));
+    }
+  }
+
+  for (const [habitId, plan] of Object.entries(
+    snapshot.repeatingPlansByHabit,
+  )) {
+    if (dateKey < plan.originDate) continue;
+    if (snapshot.explicitPlanDatesByHabit?.[habitId]?.includes(dateKey)) {
+      continue;
+    }
+    if (snapshot.logsByHabitDate[`${habitId}_${dateKey}`] === "complete") {
+      continue;
+    }
+    ids.add(habitId);
+  }
+
+  return ids;
+}
+
+function countHabitCompletions(
+  logsByHabitDate: HabitLogsSnapshot["logsByHabitDate"],
+  habitId: string,
+) {
+  const prefix = `${habitId}_`;
+  let total = 0;
+
+  for (const [key, status] of Object.entries(logsByHabitDate)) {
+    if (status === "complete" && key.startsWith(prefix)) total += 1;
+  }
+
+  return total;
+}
+
+function sortByCompletionTotal(
+  rows: Array<{ completions: number; option: PlanTargetOption }>,
+) {
+  return rows
+    .sort(
+      (left, right) =>
+        right.completions - left.completions ||
+        left.option.title.localeCompare(right.option.title),
+    )
+    .map((row) => row.option);
+}
+
 function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
   const sorted = [...entries].sort(
     (a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes,
@@ -3376,13 +3896,19 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
       let laneIndex = laneEnds.findIndex((end) => end <= entry.startMinutes);
       if (laneIndex === -1) laneIndex = laneEnds.length;
       laneEnds[laneIndex] = entry.endMinutes;
-      return { ...entry, laneIndex };
+      return { ...entry, laneIndex, laneSpan: 1 };
     });
     const laneCount = Math.max(laneEnds.length, 1);
+
+    const entriesByLane = Array.from({ length: laneCount }, (_, laneIndex) =>
+      clusterEntries.filter((entry) => entry.laneIndex === laneIndex),
+    );
+
     laidOut.push(
       ...clusterEntries.map((entry) => ({
         ...entry,
         laneCount,
+        laneSpan: getLaneSpan(entry, entriesByLane),
       })),
     );
     cluster = [];
@@ -3400,6 +3926,45 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
 
   flushCluster();
   return laidOut;
+}
+
+function getLaneSpan(
+  entry: DayPlanEntry,
+  entriesByLane: DayPlanEntry[][],
+): number {
+  let span = 1;
+
+  for (
+    let laneIndex = entry.laneIndex + 1;
+    laneIndex < entriesByLane.length;
+    laneIndex += 1
+  ) {
+    const blockers = entriesByLane[laneIndex].filter((candidate) =>
+      entriesOverlap(entry, candidate),
+    );
+    if (
+      blockers.length > 0 &&
+      !blockers.every((candidate) => isStrictlyInside(candidate, entry))
+    ) {
+      break;
+    }
+    span += 1;
+  }
+
+  return span;
+}
+
+function entriesOverlap(left: DayPlanEntry, right: DayPlanEntry) {
+  return (
+    left.startMinutes < right.endMinutes && right.startMinutes < left.endMinutes
+  );
+}
+
+function isStrictlyInside(candidate: DayPlanEntry, container: DayPlanEntry) {
+  return (
+    container.startMinutes < candidate.startMinutes &&
+    candidate.endMinutes < container.endMinutes
+  );
 }
 
 function getDayRange(date: Date) {
@@ -3429,8 +3994,13 @@ function clampMinutes(minutes: number) {
   return Math.max(0, Math.min(MINUTES_IN_DAY, minutes));
 }
 
-function minutesFromTimelineY(y: number) {
-  return snapMinutes((Math.max(0, y) / HOUR_HEIGHT) * 60);
+function minutesFromTimelineY(
+  y: number,
+  hourHeight: number,
+  mode: "floor" | "round" = "round",
+) {
+  const minutes = (Math.max(0, y) / hourHeight) * 60;
+  return mode === "floor" ? snapMinutesDown(minutes) : snapMinutes(minutes);
 }
 
 function normalizePlanRange(startMinutes: number, currentMinutes: number) {
@@ -3479,19 +4049,21 @@ function movePlanRange({
 
 function isTimelinePointOnEntry({
   entries,
+  hourHeight,
   timelineWidth,
   x,
   y,
 }: {
   entries: DayPlanEntry[];
+  hourHeight: number;
   timelineWidth: number;
   x: number;
   y: number;
 }) {
   return entries.some((entry) => {
-    const top = (entry.startMinutes / 60) * HOUR_HEIGHT;
+    const top = (entry.startMinutes / 60) * hourHeight;
     const height = Math.max(
-      ((entry.endMinutes - entry.startMinutes) / 60) * HOUR_HEIGHT,
+      ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight,
       MIN_EVENT_HEIGHT,
     );
 
@@ -3500,7 +4072,8 @@ function isTimelinePointOnEntry({
 
     const laneWidth = 100 / Math.max(entry.laneCount, 1);
     const left = (laneWidth * entry.laneIndex * timelineWidth) / 100;
-    const width = (laneWidth * timelineWidth) / 100;
+    const width =
+      (laneWidth * Math.max(entry.laneSpan, 1) * timelineWidth) / 100;
 
     return x >= left && x <= left + width;
   });
@@ -3519,6 +4092,12 @@ function googleEntryId(entryId: string) {
 function snapMinutes(minutes: number) {
   return clampMinutes(
     Math.round(minutes / PLAN_SNAP_MINUTES) * PLAN_SNAP_MINUTES,
+  );
+}
+
+function snapMinutesDown(minutes: number) {
+  return clampMinutes(
+    Math.floor(minutes / PLAN_SNAP_MINUTES) * PLAN_SNAP_MINUTES,
   );
 }
 
@@ -3546,15 +4125,19 @@ function isTodayOrFutureDate(date: Date) {
 }
 
 function formatHour(hour: number) {
-  return `${String(hour).padStart(2, "0")}:00`;
+  return formatPlanMinutesDisplay(hour * 60);
 }
 
 function formatMinuteRange(startMinutes: number, endMinutes: number) {
-  return `${formatMinutes(startMinutes)} - ${formatMinutes(endMinutes)}`;
+  return `${formatPlanMinutesDisplay(startMinutes)} - ${formatPlanMinutesDisplay(
+    endMinutes,
+  )}`;
 }
 
 function formatMinuteRangeCompact(startMinutes: number, endMinutes: number) {
-  return `${formatMinutes(startMinutes)}-${formatMinutes(endMinutes)}`;
+  return `${formatPlanMinutesDisplay(startMinutes)}-${formatPlanMinutesDisplay(
+    endMinutes,
+  )}`;
 }
 
 function formatMinutes(minutes: number) {
@@ -3636,7 +4219,18 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: 14,
     paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingTop: 0,
+  },
+  stickyHeader: {
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    paddingBottom: 10,
+    zIndex: 20,
+    elevation: 20,
+  },
+  dateMotion: {
+    gap: 14,
   },
   header: {
     flexDirection: "row",
@@ -3678,37 +4272,32 @@ const styles = StyleSheet.create({
   dateHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   dayBadge: {
-    width: 62,
-    height: 62,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 14,
   },
   weekday: {
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
   dayNumber: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "800",
-  },
-  dateTextBlock: { flex: 1, minWidth: 0, gap: 2 },
-  dateTitle: {
     fontSize: 22,
-    lineHeight: 27,
+    lineHeight: 25,
     fontWeight: "800",
   },
-  dateSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
+  dateTextBlock: { flex: 1, minWidth: 0 },
+  dateTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
   },
   notice: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -3777,7 +4366,6 @@ const styles = StyleSheet.create({
   },
   timelineScroller: { flex: 1 },
   timeline: {
-    height: HOUR_HEIGHT * 24,
     position: "relative",
   },
   hourRow: {
@@ -3786,7 +4374,7 @@ const styles = StyleSheet.create({
   },
   hourLabel: {
     width: TIME_LABEL_WIDTH,
-    paddingTop: 5,
+    marginTop: -7,
     paddingRight: 9,
     textAlign: "right",
     fontSize: 12,
@@ -3802,6 +4390,28 @@ const styles = StyleSheet.create({
     right: 6,
     bottom: 0,
     left: TIME_LABEL_WIDTH,
+  },
+  nowIndicator: {
+    position: "absolute",
+    left: TIME_LABEL_WIDTH - 6,
+    right: 6,
+    height: 2,
+    marginTop: -1,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 20,
+  },
+  nowDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    marginLeft: -5,
+    backgroundColor: "#EA4335",
+  },
+  nowLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: "#EA4335",
   },
   dragLayer: {
     position: "absolute",

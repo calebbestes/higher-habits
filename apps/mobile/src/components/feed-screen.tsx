@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import { FriendProfileModal } from "@/components/friends-screen";
 import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -26,11 +27,12 @@ import {
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
+  type FriendRow,
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
-  fetchFriendsFeed,
   fetchFriends,
+  fetchFriendsFeed,
   reportContent,
   toggleFeedProp,
 } from "@/lib/friends-client";
@@ -118,24 +120,44 @@ export function FeedScreen() {
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
+  const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
+  const isMountedRef = useRef(true);
+  const loadRequestIdRef = useRef(0);
 
   const load = useCallback(async (refresh = false) => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
     try {
       const data = await fetchFriendsFeed();
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setEntries(data);
     } catch (err) {
+      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not load feed.");
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
 
   const handleToggleProp = useCallback(async (entryId: string) => {
     setEntries((prev) =>
@@ -146,7 +168,7 @@ export function FeedScreen() {
               ...e,
               props: {
                 count: e.props.hasPropped
-                  ? e.props.count - 1
+                  ? Math.max(e.props.count - 1, 0)
                   : e.props.count + 1,
                 hasPropped: !e.props.hasPropped,
               },
@@ -155,7 +177,7 @@ export function FeedScreen() {
     );
     try {
       await toggleFeedProp(entryId);
-    } catch {
+    } catch (err) {
       setEntries((prev) =>
         prev.map((e) =>
           e.id !== entryId
@@ -164,12 +186,16 @@ export function FeedScreen() {
                 ...e,
                 props: {
                   count: e.props.hasPropped
-                    ? e.props.count - 1
+                    ? Math.max(e.props.count - 1, 0)
                     : e.props.count + 1,
                   hasPropped: !e.props.hasPropped,
                 },
               },
         ),
+      );
+      Alert.alert(
+        "Could not update props",
+        err instanceof Error ? err.message : undefined,
       );
     }
   }, []);
@@ -183,17 +209,20 @@ export function FeedScreen() {
       setSubmittingComment(entryId);
       try {
         await addFeedComment(entryId, body, replyTarget?.id ?? null);
+        if (!isMountedRef.current) return;
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [entryId]: null }));
         const data = await fetchFriendsFeed();
+        if (!isMountedRef.current) return;
         setEntries(data);
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not add comment",
           err instanceof Error ? err.message : undefined,
         );
       } finally {
-        setSubmittingComment(null);
+        if (isMountedRef.current) setSubmittingComment(null);
       }
     },
     [commentDrafts, replyTargets, submittingComment],
@@ -203,6 +232,7 @@ export function FeedScreen() {
     async (entryId: string, commentId: string) => {
       try {
         await deleteFeedComment(entryId, commentId);
+        if (!isMountedRef.current) return;
         setEntries((prev) =>
           prev.map((e) =>
             e.id !== entryId
@@ -217,6 +247,7 @@ export function FeedScreen() {
           prev[entryId]?.id === commentId ? { ...prev, [entryId]: null } : prev,
         );
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not delete comment",
           err instanceof Error ? err.message : undefined,
@@ -238,8 +269,10 @@ export function FeedScreen() {
           dateKey: entry.dateKey,
         },
       });
+      if (!isMountedRef.current) return;
       Alert.alert("Report sent", "Thanks. We'll review this post.");
     } catch (err) {
+      if (!isMountedRef.current) return;
       Alert.alert(
         "Could not send report",
         err instanceof Error ? err.message : undefined,
@@ -260,8 +293,10 @@ export function FeedScreen() {
             parentCommentId: comment.parentCommentId,
           },
         });
+        if (!isMountedRef.current) return;
         Alert.alert("Report sent", "Thanks. We'll review this comment.");
       } catch (err) {
+        if (!isMountedRef.current) return;
         Alert.alert(
           "Could not send report",
           err instanceof Error ? err.message : undefined,
@@ -271,43 +306,42 @@ export function FeedScreen() {
     [],
   );
 
-  const blockFriend = useCallback(
-    async (entry: FriendFeedEntry) => {
-      try {
-        await reportContent({
-          targetType: "user",
-          targetId: entry.friend.id,
-          reason: "Blocked from feed post actions.",
-          context: { feedPostId: entry.id },
-        }).catch(() => undefined);
+  const blockFriend = useCallback(async (entry: FriendFeedEntry) => {
+    try {
+      await reportContent({
+        targetType: "user",
+        targetId: entry.friend.id,
+        reason: "Blocked from feed post actions.",
+        context: { feedPostId: entry.id },
+      }).catch(() => undefined);
 
-        const friends = await fetchFriends();
-        const friendship = friends.find(
-          (friend) =>
-            friend.friendId === entry.friend.id && friend.status === "accepted",
-        );
+      const friends = await fetchFriends();
+      const friendship = friends.find(
+        (friend) =>
+          friend.friendId === entry.friend.id && friend.status === "accepted",
+      );
 
-        if (!friendship) {
-          throw new Error("Friendship not found.");
-        }
-
-        await archiveFriend(friendship.id);
-        setEntries((prev) =>
-          prev.filter((item) => item.friend.id !== entry.friend.id),
-        );
-        setActiveCommentsEntryId((current) =>
-          current === entry.id ? null : current,
-        );
-        Alert.alert("Blocked", `${entry.friend.name} was removed.`);
-      } catch (err) {
-        Alert.alert(
-          "Could not block user",
-          err instanceof Error ? err.message : undefined,
-        );
+      if (!friendship) {
+        throw new Error("Friendship not found.");
       }
-    },
-    [],
-  );
+
+      await archiveFriend(friendship.id);
+      if (!isMountedRef.current) return;
+      setEntries((prev) =>
+        prev.filter((item) => item.friend.id !== entry.friend.id),
+      );
+      setActiveCommentsEntryId((current) =>
+        current === entry.id ? null : current,
+      );
+      Alert.alert("Blocked", `${entry.friend.name} was removed.`);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not block user",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
 
   const openPostSafetyActions = useCallback(
     (entry: FriendFeedEntry) => {
@@ -323,6 +357,29 @@ export function FeedScreen() {
     },
     [blockFriend, reportPost],
   );
+
+  const openFriendProfile = useCallback(async (entry: FriendFeedEntry) => {
+    try {
+      const friends = await fetchFriends();
+      const friendship = friends.find(
+        (friend) =>
+          friend.friendId === entry.friend.id && friend.status === "accepted",
+      );
+
+      if (!friendship) {
+        throw new Error("Friendship not found.");
+      }
+
+      if (!isMountedRef.current) return;
+      setProfileFriend(friendship);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not open profile",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
 
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
@@ -410,6 +467,7 @@ export function FeedScreen() {
                     onToggleProp={() => void handleToggleProp(entry.id)}
                     onPhotoPress={setActivePhoto}
                     onOpenComments={() => setActiveCommentsEntryId(entry.id)}
+                    onOpenProfile={() => void openFriendProfile(entry)}
                     onOpenSafetyActions={() => openPostSafetyActions(entry)}
                   />
                 ))}
@@ -492,6 +550,10 @@ export function FeedScreen() {
           }));
         }}
       />
+      <FriendProfileModal
+        friend={profileFriend}
+        onClose={() => setProfileFriend(null)}
+      />
     </View>
   );
 }
@@ -501,12 +563,14 @@ function FeedCard({
   onToggleProp,
   onPhotoPress,
   onOpenComments,
+  onOpenProfile,
   onOpenSafetyActions,
 }: {
   entry: FriendFeedEntry;
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
+  onOpenProfile: () => void;
   onOpenSafetyActions: () => void;
 }) {
   const theme = useTheme();
@@ -526,7 +590,15 @@ function FeedCard({
     >
       {/* Header */}
       <View style={styles.cardHeader}>
-        <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
+        <Pressable
+          accessibilityLabel={`Open ${entry.friend.name}'s profile`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenProfile}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
+        </Pressable>
         <View style={styles.headerMeta}>
           <Text
             numberOfLines={1}
