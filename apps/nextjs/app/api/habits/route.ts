@@ -12,7 +12,7 @@ const habitFields = {
   frequencyGoal: z.number().int().positive().nullable().default(null),
   period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
   repeatInterval: z.number().int().min(1).max(99).nullable().default(null),
-  repeatDays: z.array(z.number().int().min(0).max(6)).nullable().default(null),
+  repeatDays: z.array(z.number().int().min(0).max(31)).nullable().default(null),
   repeatMonthlyType: z
     .enum(["day_of_month", "day_of_week"])
     .nullable()

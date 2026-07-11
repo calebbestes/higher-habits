@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   type GestureResponderEvent,
   KeyboardAvoidingView,
   Modal,
@@ -171,10 +172,12 @@ const TIME_LABEL_WIDTH = 64;
 const MIN_EVENT_HEIGHT = 30;
 const MINUTES_IN_DAY = 24 * 60;
 const PLAN_SNAP_MINUTES = 15;
-const MIN_PLAN_DURATION_MINUTES = 30;
+const MIN_PLAN_DURATION_MINUTES = 15;
 const LONG_PRESS_DELAY_MS = 500;
 const EVENT_DRAG_DELAY_MS = 120;
 const EVENT_DRAG_MOVE_THRESHOLD = 2;
+const DAY_SWIPE_MIN_DISTANCE = 70;
+const DAY_CHANGE_ANIMATION_DISTANCE = 28;
 const TIMELINE_AUTO_SCROLL_EDGE = 54;
 const TIMELINE_AUTO_SCROLL_INTERVAL_MS = 50;
 const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
@@ -203,9 +206,11 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function DayPlanScreen({
   initialDateKey,
+  onDateChange,
   onboardingGuide,
 }: {
   initialDateKey?: string;
+  onDateChange?: (dateKey: string) => void;
   onboardingGuide?: DayPlanOnboardingGuide;
 }) {
   const theme = useTheme();
@@ -221,6 +226,13 @@ export function DayPlanScreen({
     distance: number;
     hourHeight: number;
   } | null>(null);
+  const daySwipeRef = useRef<{
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+  const dateMotionValueRef = useRef(new Animated.Value(0));
+  const dateMotionDirectionRef = useRef(1);
+  const didMountDateMotionRef = useRef(false);
   const timelineAutoScrollRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -306,6 +318,43 @@ export function DayPlanScreen({
   const habitCategoriesInFlightRef = useRef<Promise<Category[]> | null>(null);
   const projectsLoadedRef = useRef(false);
   const projectsInFlightRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    onDateChange?.(dateKey);
+  }, [dateKey, onDateChange]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animate whenever the selected date key changes.
+  useEffect(() => {
+    if (!didMountDateMotionRef.current) {
+      didMountDateMotionRef.current = true;
+      return;
+    }
+
+    const motion = dateMotionValueRef.current;
+    motion.setValue(
+      dateMotionDirectionRef.current * DAY_CHANGE_ANIMATION_DISTANCE,
+    );
+    Animated.timing(motion, {
+      duration: 180,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [dateKey]);
+
+  const dateMotionStyle = useMemo(
+    () => ({
+      opacity: dateMotionValueRef.current.interpolate({
+        inputRange: [
+          -DAY_CHANGE_ANIMATION_DISTANCE,
+          0,
+          DAY_CHANGE_ANIMATION_DISTANCE,
+        ],
+        outputRange: [0.82, 1, 0.82],
+      }),
+      transform: [{ translateX: dateMotionValueRef.current }],
+    }),
+    [],
+  );
 
   const readCachedDayPlanData = useCallback(
     (
@@ -933,6 +982,11 @@ export function DayPlanScreen({
           }
         : undefined))
     : undefined;
+  const activeHabitStatus = activeKey
+    ? snapshot?.logsByHabitDate[activeKey]
+    : undefined;
+  const activeModalStatus =
+    activeHabitStatus ?? (activePlannedTime ? "planned" : undefined);
   const isPlanSheetOpen = Boolean(
     activeHabit ||
       activeEntry ||
@@ -1384,9 +1438,56 @@ export function DayPlanScreen({
     updateTimelineAutoScroll(pageY);
   };
 
-  const goToToday = () => setSelectedDate(startOfDay(new Date()));
-  const moveDate = (days: number) =>
+  const goToToday = useCallback(() => {
+    const today = startOfDay(new Date());
+    dateMotionDirectionRef.current = today > selectedDate ? 1 : -1;
+    setSelectedDate(today);
+  }, [selectedDate]);
+  const moveDate = useCallback((days: number) => {
+    dateMotionDirectionRef.current = days > 0 ? 1 : -1;
     setSelectedDate((current) => addDays(current, days));
+  }, []);
+  const cancelDaySwipe = useCallback(() => {
+    daySwipeRef.current = null;
+  }, []);
+  const handleDaySwipeStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (
+        isPlanSheetOpen ||
+        isTimelineDragging ||
+        event.nativeEvent.touches.length !== 1
+      ) {
+        cancelDaySwipe();
+        return;
+      }
+
+      const touch = event.nativeEvent.touches[0];
+      daySwipeRef.current = { pageX: touch.pageX, pageY: touch.pageY };
+    },
+    [cancelDaySwipe, isPlanSheetOpen, isTimelineDragging],
+  );
+  const handleDaySwipeEnd = useCallback(
+    (event: GestureResponderEvent) => {
+      const start = daySwipeRef.current;
+      cancelDaySwipe();
+      if (!start || dragEntry || draftPlanRange || timelinePinchRef.current) {
+        return;
+      }
+
+      const touch = event.nativeEvent.changedTouches[0];
+      if (!touch) return;
+
+      const dx = touch.pageX - start.pageX;
+      const dy = touch.pageY - start.pageY;
+      if (
+        Math.abs(dx) >= DAY_SWIPE_MIN_DISTANCE &&
+        Math.abs(dx) > Math.abs(dy) * 1.35
+      ) {
+        moveDate(dx > 0 ? -1 : 1);
+      }
+    },
+    [cancelDaySwipe, dragEntry, draftPlanRange, moveDate],
+  );
   const openInternalEntry = (entry: DayPlanEntry) => {
     if (Date.now() < suppressEntryPressUntilRef.current) return;
 
@@ -1909,6 +2010,9 @@ export function DayPlanScreen({
               styles.content,
               { paddingBottom: tabBarHeight + 24 },
             ]}
+            onTouchCancel={cancelDaySwipe}
+            onTouchEnd={handleDaySwipeEnd}
+            onTouchStart={handleDaySwipeStart}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
@@ -1918,282 +2022,292 @@ export function DayPlanScreen({
             }
             scrollEnabled={!isTimelineDragging}
             showsVerticalScrollIndicator={false}
+            stickyHeaderIndices={[0]}
           >
-            <View style={styles.header}>
-              <View style={styles.headerTitle}>
-                <PlanReportHeaderMenu currentView="day-plan" />
-              </View>
-              <View style={styles.dateControls}>
-                <Pressable
-                  accessibilityLabel="Previous day"
-                  hitSlop={8}
-                  onPress={() => moveDate(-1)}
-                  style={({ pressed }) => [
-                    styles.iconButton,
-                    { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("chevron.left", "chevron_left")}
-                    size={16}
-                    tintColor={theme.tabIcon}
-                    weight="semibold"
-                  />
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Go to today"
-                  onPress={goToToday}
-                  style={({ pressed }) => [
-                    styles.todayButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[styles.todayButtonText, { color: theme.primary }]}
+            <View
+              style={[
+                styles.stickyHeader,
+                {
+                  backgroundColor: theme.background,
+                  borderBottomColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <View style={styles.header}>
+                <View style={styles.headerTitle}>
+                  <PlanReportHeaderMenu compact currentView="day-plan" />
+                </View>
+                <View style={styles.dateControls}>
+                  <Pressable
+                    accessibilityLabel="Previous day"
+                    hitSlop={8}
+                    onPress={() => moveDate(-1)}
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
                   >
-                    Today
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Next day"
-                  hitSlop={8}
-                  onPress={() => moveDate(1)}
-                  style={({ pressed }) => [
-                    styles.iconButton,
+                    <SymbolView
+                      name={sym("chevron.left", "chevron_left")}
+                      size={16}
+                      tintColor={theme.tabIcon}
+                      weight="semibold"
+                    />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Go to today"
+                    onPress={goToToday}
+                    style={({ pressed }) => [
+                      styles.todayButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[styles.todayButtonText, { color: theme.primary }]}
+                    >
+                      Today
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Next day"
+                    hitSlop={8}
+                    onPress={() => moveDate(1)}
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("chevron.right", "chevron_right")}
+                      size={16}
+                      tintColor={theme.tabIcon}
+                      weight="semibold"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.dateHeader}>
+                <View
+                  style={[
+                    styles.dayBadge,
                     { backgroundColor: theme.backgroundElement },
-                    pressed && styles.pressed,
                   ]}
                 >
-                  <SymbolView
-                    name={sym("chevron.right", "chevron_right")}
-                    size={16}
-                    tintColor={theme.tabIcon}
-                    weight="semibold"
-                  />
-                </Pressable>
+                  <Text style={[styles.weekday, { color: theme.primary }]}>
+                    {WEEKDAY_NAMES[selectedDate.getDay()]}
+                  </Text>
+                  <Text style={[styles.dayNumber, { color: theme.text }]}>
+                    {selectedDate.getDate()}
+                  </Text>
+                </View>
+                <View style={styles.dateTextBlock}>
+                  <Text style={[styles.dateTitle, { color: theme.text }]}>
+                    {MONTH_NAMES[selectedDate.getMonth()]}{" "}
+                    {selectedDate.getFullYear()}
+                  </Text>
+                </View>
               </View>
             </View>
 
-            <View style={styles.dateHeader}>
-              <View
-                style={[
-                  styles.dayBadge,
-                  { backgroundColor: theme.backgroundElement },
-                ]}
-              >
-                <Text style={[styles.weekday, { color: theme.primary }]}>
-                  {WEEKDAY_NAMES[selectedDate.getDay()]}
-                </Text>
-                <Text style={[styles.dayNumber, { color: theme.text }]}>
-                  {selectedDate.getDate()}
-                </Text>
-              </View>
-              <View style={styles.dateTextBlock}>
-                <Text style={[styles.dateTitle, { color: theme.text }]}>
-                  {MONTH_NAMES[selectedDate.getMonth()]}{" "}
-                  {selectedDate.getFullYear()}
-                </Text>
-                <Text
-                  style={[styles.dateSubtitle, { color: theme.textSecondary }]}
+            <Animated.View style={[styles.dateMotion, dateMotionStyle]}>
+              {googleStatus !== "synced" ? (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
                 >
-                  Planned habits, tasks, and goals in primary color, completed
-                  in secondary color, and other events in gray
-                </Text>
-              </View>
-            </View>
+                  <Text style={[styles.noticeText, { color: theme.text }]}>
+                    Google Calendar is not connected. Planned habits will still
+                    show here.
+                  </Text>
+                </View>
+              ) : null}
 
-            {googleStatus !== "synced" ? (
-              <View
-                style={[
-                  styles.notice,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                  },
-                ]}
-              >
-                <Text style={[styles.noticeText, { color: theme.text }]}>
-                  Google Calendar is not connected. Planned habits will still
-                  show here.
-                </Text>
-              </View>
-            ) : null}
+              {error ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorText}>{error}</Text>
+                  <Pressable onPress={() => void load({ force: true })}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : null}
 
-            {error ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load({ force: true })}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : null}
+              {isLoading ? (
+                <View style={styles.centerState}>
+                  <ActivityIndicator color={theme.primary} size="large" />
+                </View>
+              ) : (
+                <>
+                  {allDayEntries.length > 0 ? (
+                    <View
+                      style={[
+                        styles.allDaySection,
+                        {
+                          backgroundColor: theme.tabBar,
+                          borderColor: theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.allDayLabel,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        All day
+                      </Text>
+                      <View style={styles.allDayChips}>
+                        {allDayEntries.map((entry) => (
+                          <EntryChip
+                            entry={entry}
+                            key={entry.id}
+                            onPress={
+                              entry.kind !== "google"
+                                ? () => openInternalEntry(entry)
+                                : undefined
+                            }
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
 
-            {isLoading ? (
-              <View style={styles.centerState}>
-                <ActivityIndicator color={theme.primary} size="large" />
-              </View>
-            ) : (
-              <>
-                {allDayEntries.length > 0 ? (
                   <View
                     style={[
-                      styles.allDaySection,
+                      styles.timelineCard,
                       {
                         backgroundColor: theme.tabBar,
                         borderColor: theme.tabBorder,
                       },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.allDayLabel,
-                        { color: theme.textSecondary },
-                      ]}
+                    <ScrollView
+                      ref={timelineScrollRef}
+                      contentOffset={{
+                        x: 0,
+                        y: TIMELINE_START_HOUR * timelineHourHeight,
+                      }}
+                      nestedScrollEnabled
+                      onScroll={(event) => {
+                        timelineScrollYRef.current =
+                          event.nativeEvent.contentOffset.y;
+                      }}
+                      onTouchCancel={handleTimelineTouchEnd}
+                      onTouchEnd={handleTimelineTouchEnd}
+                      onTouchMove={handleTimelineTouchMove}
+                      onTouchStart={handleTimelineTouchStart}
+                      scrollEnabled={!isTimelineDragging}
+                      scrollEventThrottle={16}
+                      showsVerticalScrollIndicator={false}
+                      style={styles.timelineScroller}
                     >
-                      All day
-                    </Text>
-                    <View style={styles.allDayChips}>
-                      {allDayEntries.map((entry) => (
-                        <EntryChip
-                          entry={entry}
-                          key={entry.id}
-                          onPress={
-                            entry.kind !== "google"
-                              ? () => openInternalEntry(entry)
-                              : undefined
-                          }
-                        />
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                <View
-                  style={[
-                    styles.timelineCard,
-                    {
-                      backgroundColor: theme.tabBar,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <ScrollView
-                    ref={timelineScrollRef}
-                    contentOffset={{
-                      x: 0,
-                      y: TIMELINE_START_HOUR * timelineHourHeight,
-                    }}
-                    nestedScrollEnabled
-                    onScroll={(event) => {
-                      timelineScrollYRef.current =
-                        event.nativeEvent.contentOffset.y;
-                    }}
-                    onTouchCancel={handleTimelineTouchEnd}
-                    onTouchEnd={handleTimelineTouchEnd}
-                    onTouchMove={handleTimelineTouchMove}
-                    onTouchStart={handleTimelineTouchStart}
-                    scrollEnabled={!isTimelineDragging}
-                    scrollEventThrottle={16}
-                    showsVerticalScrollIndicator={false}
-                    style={styles.timelineScroller}
-                  >
-                    <View
-                      style={[
-                        styles.timeline,
-                        { height: timelineHourHeight * 24 },
-                      ]}
-                    >
-                      {HOURS.map((hour) => (
-                        <View
-                          key={hour}
-                          style={[
-                            styles.hourRow,
-                            { height: timelineHourHeight },
-                          ]}
-                        >
-                          <Text
+                      <View
+                        style={[
+                          styles.timeline,
+                          { height: timelineHourHeight * 24 },
+                        ]}
+                      >
+                        {HOURS.map((hour) => (
+                          <View
+                            key={hour}
                             style={[
-                              styles.hourLabel,
-                              { color: theme.textSecondary },
+                              styles.hourRow,
+                              { height: timelineHourHeight },
                             ]}
                           >
-                            {formatHour(hour)}
-                          </Text>
-                          <View
-                            style={[
-                              styles.hourLine,
-                              { borderTopColor: theme.tabBorder },
-                            ]}
-                          />
-                        </View>
-                      ))}
-                      <View
-                        onLayout={(event) => {
-                          timelineDragLayerWidthRef.current =
-                            event.nativeEvent.layout.width;
-                        }}
-                        onStartShouldSetResponder={() => !isPlanSheetOpen}
-                        onResponderGrant={handleTimelineResponderGrant}
-                        onResponderMove={handleTimelineResponderMove}
-                        onResponderRelease={handleTimelineResponderRelease}
-                        onResponderTerminate={cancelTimelineGesture}
-                        onResponderTerminationRequest={() =>
-                          !timelineGestureRef.current
-                        }
-                        style={styles.dragLayer}
-                      />
-                      <View style={styles.eventLayer} pointerEvents="box-none">
-                        {timedEntries
-                          .filter((entry) => entry.id !== dragEntry?.id)
-                          .map((entry) => (
+                            <Text
+                              style={[
+                                styles.hourLabel,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              {formatHour(hour)}
+                            </Text>
+                            <View
+                              style={[
+                                styles.hourLine,
+                                { borderTopColor: theme.tabBorder },
+                              ]}
+                            />
+                          </View>
+                        ))}
+                        <View
+                          onLayout={(event) => {
+                            timelineDragLayerWidthRef.current =
+                              event.nativeEvent.layout.width;
+                          }}
+                          onStartShouldSetResponder={() => !isPlanSheetOpen}
+                          onResponderGrant={handleTimelineResponderGrant}
+                          onResponderMove={handleTimelineResponderMove}
+                          onResponderRelease={handleTimelineResponderRelease}
+                          onResponderTerminate={cancelTimelineGesture}
+                          onResponderTerminationRequest={() =>
+                            !timelineGestureRef.current
+                          }
+                          style={styles.dragLayer}
+                        />
+                        <View
+                          style={styles.eventLayer}
+                          pointerEvents="box-none"
+                        >
+                          {timedEntries
+                            .filter((entry) => entry.id !== dragEntry?.id)
+                            .map((entry) => (
+                              <TimedEntryBlock
+                                entry={entry}
+                                key={entry.id}
+                                onBeginMove={(touch) =>
+                                  beginMoveEntry(entry, touch)
+                                }
+                                onPress={
+                                  entry.kind !== "google"
+                                    ? () => openInternalEntry(entry)
+                                    : undefined
+                                }
+                                onMove={handleTimelinePressMove}
+                                onRelease={finishTimelineGesture}
+                                hourHeight={timelineHourHeight}
+                              />
+                            ))}
+                          {dragEntry && dragPlanRange ? (
                             <TimedEntryBlock
-                              entry={entry}
-                              key={entry.id}
-                              onBeginMove={(touch) =>
-                                beginMoveEntry(entry, touch)
-                              }
-                              onPress={
-                                entry.kind !== "google"
-                                  ? () => openInternalEntry(entry)
-                                  : undefined
-                              }
-                              onMove={handleTimelinePressMove}
-                              onRelease={finishTimelineGesture}
+                              entry={{
+                                ...dragEntry,
+                                endMinutes: dragPlanRange.endMinutes,
+                                startMinutes: dragPlanRange.startMinutes,
+                              }}
                               hourHeight={timelineHourHeight}
                             />
-                          ))}
-                        {dragEntry && dragPlanRange ? (
-                          <TimedEntryBlock
-                            entry={{
-                              ...dragEntry,
-                              endMinutes: dragPlanRange.endMinutes,
-                              startMinutes: dragPlanRange.startMinutes,
-                            }}
-                            hourHeight={timelineHourHeight}
-                          />
-                        ) : dragPlanRange ? (
-                          <DraftPlanBlock
-                            hourHeight={timelineHourHeight}
-                            range={dragPlanRange}
-                          />
+                          ) : dragPlanRange ? (
+                            <DraftPlanBlock
+                              hourHeight={timelineHourHeight}
+                              range={dragPlanRange}
+                            />
+                          ) : null}
+                        </View>
+                        {isViewingToday ? (
+                          <View
+                            pointerEvents="none"
+                            style={[styles.nowIndicator, { top: nowLineTop }]}
+                          >
+                            <View style={styles.nowDot} />
+                            <View style={styles.nowLine} />
+                          </View>
                         ) : null}
                       </View>
-                      {isViewingToday ? (
-                        <View
-                          pointerEvents="none"
-                          style={[styles.nowIndicator, { top: nowLineTop }]}
-                        >
-                          <View style={styles.nowDot} />
-                          <View style={styles.nowLine} />
-                        </View>
-                      ) : null}
-                    </View>
-                  </ScrollView>
-                </View>
-              </>
-            )}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
+            </Animated.View>
           </ScrollView>
         </SafeAreaView>
 
@@ -2212,7 +2326,7 @@ export function DayPlanScreen({
               ? (snapshot?.visibilityByHabitDate[activeKey] ?? "only_me")
               : "only_me"
           }
-          status={activeKey ? snapshot?.logsByHabitDate[activeKey] : undefined}
+          status={activeModalStatus}
           isUpdating={Boolean(activeKey && updatingKey === activeKey)}
           isUpdatingVisibility={Boolean(activeKey && updatingKey === activeKey)}
           canPlan={isTodayOrFutureDate(selectedDate)}
@@ -4105,7 +4219,18 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     gap: 14,
     paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingTop: 0,
+  },
+  stickyHeader: {
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    paddingBottom: 10,
+    zIndex: 20,
+    elevation: 20,
+  },
+  dateMotion: {
+    gap: 14,
   },
   header: {
     flexDirection: "row",
@@ -4147,37 +4272,32 @@ const styles = StyleSheet.create({
   dateHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   dayBadge: {
-    width: 62,
-    height: 62,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 14,
   },
   weekday: {
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
   dayNumber: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "800",
-  },
-  dateTextBlock: { flex: 1, minWidth: 0, gap: 2 },
-  dateTitle: {
     fontSize: 22,
-    lineHeight: 27,
+    lineHeight: 25,
     fontWeight: "800",
   },
-  dateSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
+  dateTextBlock: { flex: 1, minWidth: 0 },
+  dateTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
   },
   notice: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -4254,7 +4374,7 @@ const styles = StyleSheet.create({
   },
   hourLabel: {
     width: TIME_LABEL_WIDTH,
-    paddingTop: 5,
+    marginTop: -7,
     paddingRight: 9,
     textAlign: "right",
     fontSize: 12,

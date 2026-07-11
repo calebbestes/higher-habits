@@ -32,9 +32,11 @@ import {
   type HabitVisibility,
   createCategory,
   createHabit,
+  deleteCategory,
   deleteHabit,
   fetchCategories,
   fetchHabits,
+  updateCategory,
   updateHabit,
 } from "@/lib/habits-client";
 import {
@@ -48,6 +50,7 @@ type HabitFilter = "all" | "high" | "hidden";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+const MONTH_DATES = Array.from({ length: 31 }, (_, index) => index + 1);
 const DEFAULT_REMINDER_TIME = "09:00";
 const REMINDER_TIME_REGEX = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const WEEKDAY_NAMES = [
@@ -131,12 +134,19 @@ function normalizeReminderTime(value: string | null | undefined) {
 }
 
 function toInput(habit: Habit): HabitInput {
+  const today = new Date();
   return {
     name: habit.name,
     frequencyGoal: habit.frequencyGoal,
     period: habit.period,
     repeatInterval: habit.repeatInterval ?? 1,
-    repeatDays: habit.repeatDays ?? [new Date().getDay()],
+    repeatDays:
+      habit.repeatDays ??
+      (habit.period === "weekly"
+        ? [today.getDay()]
+        : habit.period === "monthly"
+          ? [today.getDate()]
+          : null),
     repeatMonthlyType:
       (habit.repeatMonthlyType as HabitRepeatMonthlyType | null) ??
       "day_of_month",
@@ -268,6 +278,32 @@ export function HabitsManagerScreen() {
       ),
     );
     return category;
+  };
+
+  const editCategory = async (id: string, name: string, icon: string) => {
+    const category = await updateCategory(id, { name, icon });
+    setCategories((current) =>
+      current
+        .map((item) => (item.id === category.id ? category : item))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    );
+    setHabits((current) =>
+      current.map((habit) =>
+        habit.categoryId === category.id
+          ? {
+              ...habit,
+              categoryIcon: category.icon,
+              categoryName: category.name,
+            }
+          : habit,
+      ),
+    );
+    return category;
+  };
+
+  const removeCategory = async (id: string) => {
+    await deleteCategory(id);
+    setCategories((current) => current.filter((item) => item.id !== id));
   };
 
   const toggleHidden = async (habit: Habit) => {
@@ -517,6 +553,8 @@ export function HabitsManagerScreen() {
         habit={editingHabit}
         isOpen={formOpen}
         onAddCategory={addCategory}
+        onDeleteCategory={removeCategory}
+        onUpdateCategory={editCategory}
         onClose={() => {
           setFormOpen(false);
           setEditingHabit(null);
@@ -864,6 +902,8 @@ export function HabitFormModal({
   initialValues,
   isOpen,
   onAddCategory,
+  onDeleteCategory,
+  onUpdateCategory,
   onClose,
   onSave,
 }: {
@@ -872,6 +912,12 @@ export function HabitFormModal({
   initialValues?: Partial<HabitInput>;
   isOpen: boolean;
   onAddCategory: (name: string, icon: string) => Promise<Category>;
+  onDeleteCategory?: (id: string) => Promise<void>;
+  onUpdateCategory?: (
+    id: string,
+    name: string,
+    icon: string,
+  ) => Promise<Category>;
   onClose: () => void;
   onSave: (input: HabitInput) => Promise<void>;
 }) {
@@ -880,6 +926,8 @@ export function HabitFormModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [categoryIcon, setCategoryIcon] = useState<string>("mdi:heart-outline");
   const categoriesRef = useRef(categories);
@@ -900,11 +948,20 @@ export function HabitFormModal({
     );
     setError(null);
     setAddingCategory(false);
+    setEditingCategory(null);
+    setMoreOptionsOpen(Boolean(habit));
     setCategoryName("");
   }, [habit, isOpen]);
 
   const save = async () => {
     if (!form.name.trim() || !form.categoryId || isSaving) return;
+    const today = new Date();
+    const weeklyRepeatDays =
+      form.repeatDays?.filter((day) => day >= 0 && day <= 6) ?? [];
+    const monthlyRepeatDates =
+      form.repeatDays?.filter((day) => day >= 1 && day <= 31) ?? [];
+    const monthlyRepeatWeekdays =
+      form.repeatDays?.filter((day) => day >= 0 && day <= 6) ?? [];
     const reminderTime = form.reminderEnabled
       ? normalizeReminderTime(form.reminderTime)
       : null;
@@ -919,6 +976,22 @@ export function HabitFormModal({
       await onSave({
         ...form,
         name: form.name.trim(),
+        repeatDays:
+          form.period === "weekly"
+            ? weeklyRepeatDays.length
+              ? weeklyRepeatDays
+              : [today.getDay()]
+            : form.period === "monthly"
+              ? form.repeatMonthlyType === "day_of_week"
+                ? monthlyRepeatWeekdays.length
+                  ? monthlyRepeatWeekdays
+                  : [today.getDay()]
+                : monthlyRepeatDates.length
+                  ? monthlyRepeatDates
+                  : [today.getDate()]
+              : null,
+        repeatMonthlyType:
+          form.period === "monthly" ? form.repeatMonthlyType : null,
         reminderTime,
       });
     } catch (saveError) {
@@ -951,6 +1024,82 @@ export function HabitFormModal({
       setIsSaving(false);
     }
   };
+
+  const saveCategoryEdit = async () => {
+    if (
+      !editingCategory ||
+      !onUpdateCategory ||
+      !categoryName.trim() ||
+      isSaving
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    try {
+      const category = await onUpdateCategory(
+        editingCategory.id,
+        categoryName.trim(),
+        categoryIcon,
+      );
+      setForm((current) => ({ ...current, categoryId: category.id }));
+      setEditingCategory(null);
+      setCategoryName("");
+    } catch (categoryError) {
+      setError(
+        categoryError instanceof Error
+          ? categoryError.message
+          : "Could not update category.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const confirmDeleteCategory = (category: Category) => {
+    if (!onDeleteCategory || isSaving) return;
+    Alert.alert(
+      "Delete category?",
+      `Delete "${category.name}"? This only works when no habits use it.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setIsSaving(true);
+            setError(null);
+            try {
+              await onDeleteCategory(category.id);
+              if (form.categoryId === category.id) {
+                setForm((current) => ({
+                  ...current,
+                  categoryId:
+                    categoriesRef.current.find(
+                      (item) => item.id !== category.id,
+                    )?.id ?? "",
+                }));
+              }
+              setEditingCategory(null);
+            } catch (categoryError) {
+              setError(
+                categoryError instanceof Error
+                  ? categoryError.message
+                  : "Could not delete category.",
+              );
+            } finally {
+              setIsSaving(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const selectedCategory = categories.find(
+    (category) => category.id === form.categoryId,
+  );
 
   return (
     <Modal
@@ -1035,79 +1184,6 @@ export function HabitFormModal({
               />
             </FormSection>
 
-            <FormSection title="Category">
-              {categories.length ? (
-                <View style={styles.choiceWrap}>
-                  {categories.map((category) => (
-                    <Choice
-                      key={category.id}
-                      label={category.name}
-                      selected={form.categoryId === category.id}
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          categoryId: category.id,
-                        }))
-                      }
-                    />
-                  ))}
-                </View>
-              ) : null}
-              {addingCategory ? (
-                <View
-                  style={[
-                    styles.newCategory,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <LabeledInput
-                    label="New category"
-                    onChangeText={setCategoryName}
-                    placeholder="Category name"
-                    value={categoryName}
-                  />
-                  <IconSearchPicker
-                    value={categoryIcon}
-                    onChange={setCategoryIcon}
-                  />
-                  <View style={styles.inlineActions}>
-                    <SmallButton
-                      label="Cancel"
-                      onPress={() => setAddingCategory(false)}
-                    />
-                    <SmallButton
-                      primary
-                      disabled={!categoryName.trim() || isSaving}
-                      label="Add category"
-                      onPress={() => void saveCategory()}
-                    />
-                  </View>
-                </View>
-              ) : (
-                <Pressable
-                  onPress={() => setAddingCategory(true)}
-                  style={({ pressed }) => [
-                    styles.inlineAdd,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={symbol("plus.circle", "add_circle")}
-                    size={18}
-                    tintColor={theme.primary}
-                  />
-                  <Text
-                    style={[styles.inlineAddLabel, { color: theme.primary }]}
-                  >
-                    Create category
-                  </Text>
-                </Pressable>
-              )}
-            </FormSection>
-
             <FormSection title="Schedule">
               <View style={styles.inputField}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
@@ -1120,7 +1196,23 @@ export function HabitFormModal({
                       label={capitalize(period)}
                       selected={form.period === period}
                       onPress={() =>
-                        setForm((current) => ({ ...current, period }))
+                        setForm((current) => {
+                          const today = new Date();
+                          return {
+                            ...current,
+                            period,
+                            repeatDays:
+                              period === "weekly"
+                                ? [today.getDay()]
+                                : period === "monthly"
+                                  ? [today.getDate()]
+                                  : null,
+                            repeatMonthlyType:
+                              period === "monthly"
+                                ? "day_of_month"
+                                : current.repeatMonthlyType,
+                          };
+                        })
                       }
                     />
                   ))}
@@ -1202,44 +1294,259 @@ export function HabitFormModal({
                 {form.period === "monthly"
                   ? (() => {
                       const today = new Date();
-                      const weekdayLabel = `${ORDINALS[getWeekOfMonth(today)]} ${WEEKDAY_NAMES[today.getDay()]}`;
+                      const monthDates = (form.repeatDays ?? []).filter(
+                        (day) => day >= 1 && day <= 31,
+                      );
+                      const monthlyWeekdays = (form.repeatDays ?? []).filter(
+                        (day) => day >= 0 && day <= 6,
+                      );
+                      const monthlyMode =
+                        form.repeatMonthlyType ?? "day_of_month";
+                      const weekLabel = ORDINALS[getWeekOfMonth(today)];
                       return (
                         <View style={styles.inputField}>
                           <View style={styles.choiceWrap}>
                             <Choice
-                              label={`Day ${today.getDate()}`}
-                              selected={
-                                (form.repeatMonthlyType ?? "day_of_month") ===
-                                "day_of_month"
-                              }
+                              label="Dates"
+                              selected={monthlyMode === "day_of_month"}
                               onPress={() =>
                                 setForm((f) => ({
                                   ...f,
                                   repeatMonthlyType: "day_of_month",
+                                  repeatDays:
+                                    f.repeatMonthlyType === "day_of_month"
+                                      ? f.repeatDays
+                                      : [today.getDate()],
                                 }))
                               }
                             />
                             <Choice
-                              label={weekdayLabel}
-                              selected={
-                                form.repeatMonthlyType === "day_of_week"
-                              }
+                              label={`${weekLabel} weekdays`}
+                              selected={monthlyMode === "day_of_week"}
                               onPress={() =>
                                 setForm((f) => ({
                                   ...f,
                                   repeatMonthlyType: "day_of_week",
+                                  repeatDays:
+                                    f.repeatMonthlyType === "day_of_week"
+                                      ? f.repeatDays
+                                      : [today.getDay()],
                                 }))
                               }
                             />
                           </View>
+                          {monthlyMode === "day_of_month" ? (
+                            <View style={styles.monthDateGrid}>
+                              {MONTH_DATES.map((date) => {
+                                const selected = monthDates.length
+                                  ? monthDates.includes(date)
+                                  : date === today.getDate();
+                                return (
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected }}
+                                    key={date}
+                                    onPress={() =>
+                                      setForm((current) => {
+                                        const dates = (
+                                          current.repeatDays?.filter(
+                                            (day) => day >= 1 && day <= 31,
+                                          ).length
+                                            ? current.repeatDays
+                                            : [today.getDate()]
+                                        ) as number[];
+                                        const nextDates = selected
+                                          ? dates.filter((day) => day !== date)
+                                          : [...dates, date];
+                                        return {
+                                          ...current,
+                                          repeatDays: (nextDates.length
+                                            ? nextDates
+                                            : [today.getDate()]
+                                          ).sort((a, b) => a - b),
+                                        };
+                                      })
+                                    }
+                                    style={[
+                                      styles.monthDateChip,
+                                      {
+                                        backgroundColor: selected
+                                          ? theme.primary
+                                          : theme.backgroundElement,
+                                        borderColor: selected
+                                          ? theme.primary
+                                          : theme.tabBorder,
+                                      },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.monthDateLabel,
+                                        {
+                                          color: selected
+                                            ? theme.primaryForeground
+                                            : theme.textSecondary,
+                                        },
+                                      ]}
+                                    >
+                                      {date}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          ) : (
+                            <View style={styles.inputField}>
+                              <Text
+                                style={[
+                                  styles.fieldHint,
+                                  { color: theme.textSecondary },
+                                ]}
+                              >
+                                Repeats on the {weekLabel.toLowerCase()} chosen
+                                weekdays.
+                              </Text>
+                              <View style={styles.dayChipRow}>
+                                {DAY_LETTERS.map((letter, idx) => {
+                                  const selected = monthlyWeekdays.length
+                                    ? monthlyWeekdays.includes(idx)
+                                    : idx === today.getDay();
+                                  return (
+                                    <Pressable
+                                      accessibilityRole="button"
+                                      accessibilityState={{ selected }}
+                                      key={`${weekLabel}-${WEEKDAY_NAMES[idx]}`}
+                                      onPress={() =>
+                                        setForm((current) => {
+                                          const days = (
+                                            current.repeatDays?.filter(
+                                              (day) => day >= 0 && day <= 6,
+                                            ).length
+                                              ? current.repeatDays
+                                              : [today.getDay()]
+                                          ) as number[];
+                                          const nextDays = selected
+                                            ? days.filter((day) => day !== idx)
+                                            : [...days, idx];
+                                          return {
+                                            ...current,
+                                            repeatDays: (nextDays.length
+                                              ? nextDays
+                                              : [today.getDay()]
+                                            ).sort((a, b) => a - b),
+                                          };
+                                        })
+                                      }
+                                      style={[
+                                        styles.dayChip,
+                                        {
+                                          backgroundColor: selected
+                                            ? theme.primary
+                                            : theme.backgroundElement,
+                                          borderColor: selected
+                                            ? theme.primary
+                                            : theme.tabBorder,
+                                        },
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.dayChipLabel,
+                                          {
+                                            color: selected
+                                              ? theme.primaryForeground
+                                              : theme.textSecondary,
+                                          },
+                                        ]}
+                                      >
+                                        {letter}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            </View>
+                          )}
                         </View>
                       );
                     })()
                   : null}
+
+                <View style={styles.reminderRow}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: form.reminderEnabled }}
+                    onPress={() =>
+                      setForm((current) => ({
+                        ...current,
+                        reminderEnabled: !current.reminderEnabled,
+                        reminderTime: current.reminderEnabled
+                          ? null
+                          : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
+                      }))
+                    }
+                    style={({ pressed }) => [
+                      styles.reminderToggle,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.checkboxBox,
+                        {
+                          backgroundColor: form.reminderEnabled
+                            ? theme.primary
+                            : theme.backgroundElement,
+                          borderColor: form.reminderEnabled
+                            ? theme.primary
+                            : theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      {form.reminderEnabled ? (
+                        <SymbolView
+                          name={symbol("checkmark", "check")}
+                          size={15}
+                          tintColor={theme.primaryForeground}
+                        />
+                      ) : null}
+                    </View>
+                    <Text style={[styles.reminderLabel, { color: theme.text }]}>
+                      Reminder
+                    </Text>
+                  </Pressable>
+                  <TextInput
+                    accessibilityLabel="Reminder time"
+                    editable={form.reminderEnabled}
+                    keyboardType="numbers-and-punctuation"
+                    maxLength={5}
+                    onChangeText={(reminderTime) =>
+                      setForm((current) => ({ ...current, reminderTime }))
+                    }
+                    placeholder={DEFAULT_REMINDER_TIME}
+                    placeholderTextColor={theme.textSecondary}
+                    selectionColor={theme.primary}
+                    style={[
+                      styles.reminderTimeInput,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                        color: form.reminderEnabled
+                          ? theme.text
+                          : theme.textSecondary,
+                      },
+                      !form.reminderEnabled && styles.disabled,
+                    ]}
+                    value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
+                  />
+                </View>
               </>
             </FormSection>
 
-            <FormSection title="Priority">
+            <FormSection title="Details">
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Priority
+              </Text>
               <View style={styles.choiceWrap}>
                 {PRIORITIES.map((priority) => (
                   <Choice
@@ -1252,127 +1559,227 @@ export function HabitFormModal({
                   />
                 ))}
               </View>
-            </FormSection>
 
-            <FormSection title="Visibility">
-              <View style={styles.choiceWrap}>
-                {VISIBILITY_OPTIONS.map((option) => (
-                  <Choice
-                    key={option.value}
-                    label={option.label}
-                    selected={form.visibility === option.value}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        visibility: option.value,
-                      }))
-                    }
-                  />
-                ))}
-              </View>
-            </FormSection>
-
-            <FormSection title="Reminder">
-              <View style={styles.reminderRow}>
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: form.reminderEnabled }}
-                  onPress={() =>
-                    setForm((current) => ({
-                      ...current,
-                      reminderEnabled: !current.reminderEnabled,
-                      reminderTime: current.reminderEnabled
-                        ? null
-                        : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
-                    }))
-                  }
-                  style={({ pressed }) => [
-                    styles.reminderToggle,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.checkboxBox,
-                      {
-                        backgroundColor: form.reminderEnabled
-                          ? theme.primary
-                          : theme.backgroundElement,
-                        borderColor: form.reminderEnabled
-                          ? theme.primary
-                          : theme.tabBorder,
-                      },
-                    ]}
-                  >
-                    {form.reminderEnabled ? (
-                      <SymbolView
-                        name={symbol("checkmark", "check")}
-                        size={15}
-                        tintColor={theme.primaryForeground}
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={[styles.reminderLabel, { color: theme.text }]}>
-                    Notify me at
-                  </Text>
-                </Pressable>
-                <TextInput
-                  accessibilityLabel="Reminder time"
-                  editable={form.reminderEnabled}
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={5}
-                  onChangeText={(reminderTime) =>
-                    setForm((current) => ({ ...current, reminderTime }))
-                  }
-                  placeholder={DEFAULT_REMINDER_TIME}
-                  placeholderTextColor={theme.textSecondary}
-                  selectionColor={theme.primary}
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Category
+              </Text>
+              {categories.length ? (
+                <View style={styles.choiceWrap}>
+                  {categories.map((category) => (
+                    <Choice
+                      key={category.id}
+                      label={category.name}
+                      selected={form.categoryId === category.id}
+                      onPress={() =>
+                        setForm((current) => ({
+                          ...current,
+                          categoryId: category.id,
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {selectedCategory && (onUpdateCategory || onDeleteCategory) ? (
+                <View style={styles.categoryActions}>
+                  {onUpdateCategory ? (
+                    <SmallButton
+                      label="Edit category"
+                      onPress={() => {
+                        setAddingCategory(false);
+                        setEditingCategory(selectedCategory);
+                        setCategoryName(selectedCategory.name);
+                        setCategoryIcon(selectedCategory.icon);
+                      }}
+                    />
+                  ) : null}
+                  {onDeleteCategory ? (
+                    <SmallButton
+                      label="Delete category"
+                      onPress={() => confirmDeleteCategory(selectedCategory)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+              {editingCategory ? (
+                <View
                   style={[
-                    styles.reminderTimeInput,
+                    styles.newCategory,
                     {
                       backgroundColor: theme.backgroundElement,
                       borderColor: theme.tabBorder,
-                      color: form.reminderEnabled
-                        ? theme.text
-                        : theme.textSecondary,
                     },
-                    !form.reminderEnabled && styles.disabled,
-                  ]}
-                  value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
-                />
-              </View>
-            </FormSection>
-
-            <View
-              style={[
-                styles.switchRow,
-                { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-              ]}
-            >
-              <View style={styles.switchCopy}>
-                <Text style={[styles.switchTitle, { color: theme.text }]}>
-                  Archive
-                </Text>
-                <Text
-                  style={[
-                    styles.switchDescription,
-                    { color: theme.textSecondary },
                   ]}
                 >
-                  Archive this habit and keep it out of planning views.
-                </Text>
-              </View>
-              <Switch
-                onValueChange={(hidden) =>
-                  setForm((current) => ({ ...current, hidden }))
-                }
-                trackColor={{
-                  false: theme.backgroundSelected,
-                  true: theme.primary,
-                }}
-                value={form.hidden}
+                  <LabeledInput
+                    label="Category name"
+                    onChangeText={setCategoryName}
+                    placeholder="Category name"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => {
+                        setEditingCategory(null);
+                        setCategoryName("");
+                      }}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Save category"
+                      onPress={() => void saveCategoryEdit()}
+                    />
+                  </View>
+                </View>
+              ) : addingCategory ? (
+                <View
+                  style={[
+                    styles.newCategory,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <LabeledInput
+                    label="New category"
+                    onChangeText={setCategoryName}
+                    placeholder="Category name"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => setAddingCategory(false)}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Add category"
+                      onPress={() => void saveCategory()}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    setEditingCategory(null);
+                    setAddingCategory(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.inlineAdd,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("plus.circle", "add_circle")}
+                    size={18}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inlineAddLabel, { color: theme.primary }]}
+                  >
+                    Create category
+                  </Text>
+                </Pressable>
+              )}
+            </FormSection>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: moreOptionsOpen }}
+              onPress={() => setMoreOptionsOpen((open) => !open)}
+              style={({ pressed }) => [
+                styles.moreOptionsButton,
+                {
+                  backgroundColor: theme.tabBar,
+                  borderColor: theme.tabBorder,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.moreOptionsLabel, { color: theme.text }]}>
+                More options
+              </Text>
+              <SymbolView
+                name={symbol(
+                  moreOptionsOpen ? "chevron.up" : "chevron.down",
+                  moreOptionsOpen ? "keyboard_arrow_up" : "keyboard_arrow_down",
+                )}
+                size={17}
+                weight="semibold"
+                tintColor={theme.textSecondary}
               />
-            </View>
+            </Pressable>
+
+            {moreOptionsOpen ? (
+              <FormSection title="More">
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Visibility
+                </Text>
+                <View style={styles.choiceWrap}>
+                  {VISIBILITY_OPTIONS.map((option) => (
+                    <Choice
+                      key={option.value}
+                      label={option.label}
+                      selected={form.visibility === option.value}
+                      onPress={() =>
+                        setForm((current) => ({
+                          ...current,
+                          visibility: option.value,
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
+
+                {habit ? (
+                  <View
+                    style={[
+                      styles.switchRow,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.switchCopy}>
+                      <Text style={[styles.switchTitle, { color: theme.text }]}>
+                        Archive
+                      </Text>
+                      <Text
+                        style={[
+                          styles.switchDescription,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Keep this habit out of planning views.
+                      </Text>
+                    </View>
+                    <Switch
+                      onValueChange={(hidden) =>
+                        setForm((current) => ({ ...current, hidden }))
+                      }
+                      trackColor={{
+                        false: theme.backgroundSelected,
+                        true: theme.primary,
+                      }}
+                      value={form.hidden}
+                    />
+                  </View>
+                ) : null}
+              </FormSection>
+            ) : null}
 
             {error ? <Text style={styles.formError}>{error}</Text> : null}
           </ScrollView>
@@ -1573,7 +1980,7 @@ function IconSearchPicker({
         )
       : EXPO_SYMBOL_ICON_OPTIONS;
 
-    return matchingOptions.slice(0, 24);
+    return matchingOptions.slice(0, 12);
   }, [query]);
 
   return (
@@ -1934,6 +2341,7 @@ const styles = StyleSheet.create({
   },
   inputField: { gap: 7 },
   fieldLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  fieldHint: { fontSize: 12, lineHeight: 17, fontWeight: "600" },
   input: {
     minHeight: 49,
     borderWidth: StyleSheet.hairlineWidth,
@@ -2020,6 +2428,24 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   dayChipLabel: { fontSize: 12, fontWeight: "700" },
+  monthDateGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  monthDateChip: {
+    width: 38,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+  },
+  monthDateLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
   choice: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
@@ -2066,6 +2492,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     padding: 13,
   },
+  categoryActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   inlineActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   inlineAdd: {
     flexDirection: "row",
@@ -2084,6 +2511,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
   },
   smallButtonLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  moreOptionsButton: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+  },
+  moreOptionsLabel: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",

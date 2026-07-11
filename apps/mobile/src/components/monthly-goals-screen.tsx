@@ -229,8 +229,17 @@ function isGoalScheduledForDate(
       (date.getMonth() - ref.getMonth());
     if (monthDiff % interval !== 0) return false;
     const type = goal.repeatMonthlyType ?? "day_of_month";
-    if (type === "day_of_month") return date.getDate() === ref.getDate();
-    return dow === ref.getDay() && weekOfMonth(date) === weekOfMonth(ref);
+    if (type === "day_of_month") {
+      const dates = goal.repeatDays?.filter((day) => day >= 1 && day <= 31);
+      return dates?.length
+        ? dates.includes(date.getDate())
+        : date.getDate() === ref.getDate();
+    }
+    const days = goal.repeatDays?.filter((day) => day >= 0 && day <= 6);
+    return (
+      (days?.length ? days.includes(dow) : dow === ref.getDay()) &&
+      weekOfMonth(date) === weekOfMonth(ref)
+    );
   }
 
   return false;
@@ -326,19 +335,28 @@ function getGoalMonthProgress(
 
 export function MonthlyGoalsScreen({
   habitsTab,
+  initialDateKey,
+  onDateChange,
   onHabitsTabChange,
 }: {
   habitsTab?: HabitsTab;
+  initialDateKey?: string;
+  onDateChange?: (dateKey: string) => void;
   onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [displayMonth, setDisplayMonth] = useState(() => {
-    const now = new Date();
+    const now =
+      initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+        ? dateFromKey(initialDateKey)
+        : new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
-    toDateKey(new Date()),
+    initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+      ? initialDateKey
+      : toDateKey(new Date()),
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
@@ -358,6 +376,10 @@ export function MonthlyGoalsScreen({
     useState<GoalPhotoSource | null>(null);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+
+  useEffect(() => {
+    onDateChange?.(selectedDateKey);
+  }, [onDateChange, selectedDateKey]);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);

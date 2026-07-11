@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  type GestureResponderEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -69,13 +71,18 @@ import {
   sym,
 } from "./daily-goals/shared";
 
+const DAY_SWIPE_MIN_DISTANCE = 70;
+const DAY_CHANGE_ANIMATION_DISTANCE = 28;
+
 export function DailyGoalsScreen({
   initialDateKey,
   habitsTab,
+  onDateChange,
   onHabitsTabChange,
 }: {
   initialDateKey?: string;
   habitsTab?: HabitsTab;
+  onDateChange?: (dateKey: string) => void;
   onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
   const theme = useTheme();
@@ -113,6 +120,13 @@ export function DailyGoalsScreen({
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [fireCelebrate, setFireCelebrate] = useState(false);
+  const daySwipeRef = useRef<{
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+  const dateMotionValueRef = useRef(new Animated.Value(0));
+  const dateMotionDirectionRef = useRef(1);
+  const didMountDateMotionRef = useRef(false);
   const allHighDoneRef = useRef(false);
   const hasObservedHighDoneRef = useRef(false);
   const highGoalIdsRef = useRef<Set<string>>(new Set());
@@ -129,6 +143,92 @@ export function DailyGoalsScreen({
   const todayKey = useMemo(() => toDateKey(today), [today]);
   const isToday = isSameDay(selectedDate, today);
   const isFutureDate = dateKey > todayKey;
+
+  useEffect(() => {
+    onDateChange?.(dateKey);
+  }, [dateKey, onDateChange]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animate whenever the selected date key changes.
+  useEffect(() => {
+    if (!didMountDateMotionRef.current) {
+      didMountDateMotionRef.current = true;
+      return;
+    }
+
+    const motion = dateMotionValueRef.current;
+    motion.setValue(
+      dateMotionDirectionRef.current * DAY_CHANGE_ANIMATION_DISTANCE,
+    );
+    Animated.timing(motion, {
+      duration: 180,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [dateKey]);
+
+  const dateMotionStyle = useMemo(
+    () => ({
+      opacity: dateMotionValueRef.current.interpolate({
+        inputRange: [
+          -DAY_CHANGE_ANIMATION_DISTANCE,
+          0,
+          DAY_CHANGE_ANIMATION_DISTANCE,
+        ],
+        outputRange: [0.82, 1, 0.82],
+      }),
+      transform: [{ translateX: dateMotionValueRef.current }],
+    }),
+    [],
+  );
+
+  const moveDate = useCallback((days: number) => {
+    dateMotionDirectionRef.current = days > 0 ? 1 : -1;
+    setSelectedDate((current) => addDays(current, days));
+  }, []);
+
+  const goToToday = useCallback(() => {
+    const nextToday = new Date(today);
+    dateMotionDirectionRef.current = nextToday > selectedDate ? 1 : -1;
+    setSelectedDate(nextToday);
+  }, [selectedDate, today]);
+
+  const cancelDaySwipe = useCallback(() => {
+    daySwipeRef.current = null;
+  }, []);
+
+  const handleDaySwipeStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (event.nativeEvent.touches.length !== 1) {
+        cancelDaySwipe();
+        return;
+      }
+
+      const touch = event.nativeEvent.touches[0];
+      daySwipeRef.current = { pageX: touch.pageX, pageY: touch.pageY };
+    },
+    [cancelDaySwipe],
+  );
+
+  const handleDaySwipeEnd = useCallback(
+    (event: GestureResponderEvent) => {
+      const start = daySwipeRef.current;
+      cancelDaySwipe();
+      if (!start) return;
+
+      const touch = event.nativeEvent.changedTouches[0];
+      if (!touch) return;
+
+      const dx = touch.pageX - start.pageX;
+      const dy = touch.pageY - start.pageY;
+      if (
+        Math.abs(dx) >= DAY_SWIPE_MIN_DISTANCE &&
+        Math.abs(dx) > Math.abs(dy) * 1.35
+      ) {
+        moveDate(dx > 0 ? -1 : 1);
+      }
+    },
+    [cancelDaySwipe, moveDate],
+  );
 
   useEffect(
     () => () => {
@@ -666,6 +766,9 @@ export function DailyGoalsScreen({
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
           ]}
+          onTouchCancel={cancelDaySwipe}
+          onTouchEnd={handleDaySwipeEnd}
+          onTouchStart={handleDaySwipeStart}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -714,7 +817,7 @@ export function DailyGoalsScreen({
             <Pressable
               accessibilityLabel="Previous day"
               hitSlop={8}
-              onPress={() => setSelectedDate((d) => addDays(d, -1))}
+              onPress={() => moveDate(-1)}
               style={({ pressed }) => [
                 styles.navArrow,
                 pressed && styles.pressed,
@@ -755,7 +858,7 @@ export function DailyGoalsScreen({
               {!isToday ? (
                 <Pressable
                   accessibilityLabel="Go to today"
-                  onPress={() => setSelectedDate(new Date(today))}
+                  onPress={goToToday}
                   style={({ pressed }) => [
                     styles.todayButton,
                     { borderColor: theme.primary },
@@ -772,7 +875,7 @@ export function DailyGoalsScreen({
               <Pressable
                 accessibilityLabel="Next day"
                 hitSlop={8}
-                onPress={() => setSelectedDate((d) => addDays(d, 1))}
+                onPress={() => moveDate(1)}
                 style={({ pressed }) => [
                   styles.navArrow,
                   pressed && styles.pressed,
@@ -788,166 +891,170 @@ export function DailyGoalsScreen({
             </View>
           </View>
 
-          {/* Error */}
-          {error ? (
-            <View style={styles.errorBanner}>
-              <SymbolView
-                name={sym("exclamationmark.circle.fill", "error")}
-                size={18}
-                tintColor="#9D474D"
-              />
-              <Text style={styles.errorText}>{error}</Text>
-              <Pressable onPress={() => void load()}>
-                <Text style={styles.retryText}>Retry</Text>
-              </Pressable>
-            </View>
-          ) : null}
+          <Animated.View style={[{ gap: 14 }, dateMotionStyle]}>
+            {/* Error */}
+            {error ? (
+              <View style={styles.errorBanner}>
+                <SymbolView
+                  name={sym("exclamationmark.circle.fill", "error")}
+                  size={18}
+                  tintColor="#9D474D"
+                />
+                <Text style={styles.errorText}>{error}</Text>
+                <Pressable onPress={() => void load()}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
 
-          {/* Content */}
-          {isLoading ? (
-            <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
-            </View>
-          ) : categoriesWithGoals.length === 0 &&
-            monthlyPlannedGoals.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <View style={styles.prioritySections}>
-              {(["high"] as const).map((p) => {
-                const groups = priorityGroups[p];
-                const progress = priorityProgress[p];
-                if (progress.total === 0) return null;
-                const isOpen = openPriorities.has(p);
-                return (
-                  <PriorityAccordion
-                    color={theme.primary}
-                    completed={progress.completed}
-                    key={p}
-                    label={PRIORITY_LABELS[p] ?? p}
-                    isOpen={isOpen}
-                    total={progress.total}
-                    onToggle={() => togglePriority(p)}
-                  >
-                    {groups.map(({ category, goals }) => {
-                      const catKey = `${p}_${category.id}`;
-                      const isExpanded = expandedCatKeys.has(catKey);
-                      return (
-                        <CategoryAccordionRow
-                          key={catKey}
-                          category={category}
-                          goals={goals}
-                          dateKey={dateKey}
-                          logsByGoalDate={logsByHabitDate}
-                          plannedTimesByGoalDate={
-                            snapshot?.plannedTimesByHabitDate
-                          }
-                          updatingKeys={updatingKeys}
-                          isExpanded={isExpanded}
-                          onToggleExpand={() => toggleCatKey(catKey)}
-                          onEditGoal={openEditGoal}
-                          onPressGoal={openGoalActions}
-                        />
-                      );
-                    })}
-                  </PriorityAccordion>
-                );
-              })}
-              {monthlyPlannedGoals.length > 0 ? (
-                <PriorityAccordion
-                  color={theme.primary}
-                  completed={monthlyPlannedCompleted}
-                  isOpen={openPriorities.has("monthly")}
-                  label="Monthly Habits"
-                  total={monthlyPlannedGoals.length}
-                  onToggle={() => togglePriority("monthly")}
-                >
-                  <View
-                    style={[
-                      styles.goalSurface,
-                      {
-                        backgroundColor: theme.tabBar,
-                        borderColor: theme.tabBorder,
-                      },
-                    ]}
-                  >
-                    {monthlyActionGoals.map((goal, index) => (
-                      <View key={goal.id}>
-                        {index > 0 ? (
-                          <View
-                            style={[
-                              styles.divider,
-                              { backgroundColor: theme.tabBorder },
-                            ]}
+            {/* Content */}
+            {isLoading ? (
+              <View style={styles.centerState}>
+                <ActivityIndicator color={theme.primary} size="large" />
+              </View>
+            ) : categoriesWithGoals.length === 0 &&
+              monthlyPlannedGoals.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <View style={styles.prioritySections}>
+                {(["high"] as const).map((p) => {
+                  const groups = priorityGroups[p];
+                  const progress = priorityProgress[p];
+                  if (progress.total === 0) return null;
+                  const isOpen = openPriorities.has(p);
+                  return (
+                    <PriorityAccordion
+                      color={theme.primary}
+                      completed={progress.completed}
+                      key={p}
+                      label={PRIORITY_LABELS[p] ?? p}
+                      isOpen={isOpen}
+                      total={progress.total}
+                      onToggle={() => togglePriority(p)}
+                    >
+                      {groups.map(({ category, goals }) => {
+                        const catKey = `${p}_${category.id}`;
+                        const isExpanded = expandedCatKeys.has(catKey);
+                        return (
+                          <CategoryAccordionRow
+                            key={catKey}
+                            category={category}
+                            goals={goals}
+                            dateKey={dateKey}
+                            logsByGoalDate={logsByHabitDate}
+                            plannedTimesByGoalDate={
+                              snapshot?.plannedTimesByHabitDate
+                            }
+                            updatingKeys={updatingKeys}
+                            isExpanded={isExpanded}
+                            onToggleExpand={() => toggleCatKey(catKey)}
+                            onEditGoal={openEditGoal}
+                            onPressGoal={openGoalActions}
                           />
-                        ) : null}
-                        <GoalRow
-                          goal={goal}
-                          status={logsByHabitDate[`${goal.id}_${dateKey}`]}
-                          plannedTime={
-                            snapshot?.plannedTimesByHabitDate?.[
-                              `${goal.id}_${dateKey}`
-                            ] ?? null
-                          }
-                          isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
-                          onPress={() => openGoalActions(goal)}
-                        />
-                      </View>
-                    ))}
-                  </View>
-                </PriorityAccordion>
-              ) : null}
-              {(["low"] as const).map((p) => {
-                const groups = priorityGroups[p];
-                const progress = priorityProgress[p];
-                if (progress.total === 0) return null;
-                const isOpen = openPriorities.has(p);
-                return (
+                        );
+                      })}
+                    </PriorityAccordion>
+                  );
+                })}
+                {monthlyPlannedGoals.length > 0 ? (
                   <PriorityAccordion
                     color={theme.primary}
-                    completed={progress.completed}
-                    key={p}
-                    label={PRIORITY_LABELS[p] ?? p}
-                    isOpen={isOpen}
-                    total={progress.total}
-                    onToggle={() => togglePriority(p)}
+                    completed={monthlyPlannedCompleted}
+                    isOpen={openPriorities.has("monthly")}
+                    label="Monthly Habits"
+                    total={monthlyPlannedGoals.length}
+                    onToggle={() => togglePriority("monthly")}
                   >
-                    {groups.map(({ category, goals }) => {
-                      const catKey = `${p}_${category.id}`;
-                      const isExpanded = expandedCatKeys.has(catKey);
-                      return (
-                        <CategoryAccordionRow
-                          key={catKey}
-                          category={category}
-                          goals={goals}
-                          dateKey={dateKey}
-                          logsByGoalDate={logsByHabitDate}
-                          plannedTimesByGoalDate={
-                            snapshot?.plannedTimesByHabitDate
-                          }
-                          updatingKeys={updatingKeys}
-                          isExpanded={isExpanded}
-                          onToggleExpand={() => toggleCatKey(catKey)}
-                          onEditGoal={openEditGoal}
-                          onPressGoal={openGoalActions}
-                        />
-                      );
-                    })}
+                    <View
+                      style={[
+                        styles.goalSurface,
+                        {
+                          backgroundColor: theme.tabBar,
+                          borderColor: theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      {monthlyActionGoals.map((goal, index) => (
+                        <View key={goal.id}>
+                          {index > 0 ? (
+                            <View
+                              style={[
+                                styles.divider,
+                                { backgroundColor: theme.tabBorder },
+                              ]}
+                            />
+                          ) : null}
+                          <GoalRow
+                            goal={goal}
+                            status={logsByHabitDate[`${goal.id}_${dateKey}`]}
+                            plannedTime={
+                              snapshot?.plannedTimesByHabitDate?.[
+                                `${goal.id}_${dateKey}`
+                              ] ?? null
+                            }
+                            isUpdating={updatingKeys.has(
+                              `${goal.id}_${dateKey}`,
+                            )}
+                            onPress={() => openGoalActions(goal)}
+                          />
+                        </View>
+                      ))}
+                    </View>
                   </PriorityAccordion>
-                );
-              })}
-              <CompletedSection
-                completedList={completedList}
-                dateKey={dateKey}
-                logsByGoalDate={logsByHabitDate}
-                plannedTimesByGoalDate={snapshot?.plannedTimesByHabitDate}
-                updatingKeys={updatingKeys}
-                isOpen={showCompleted}
-                onToggle={() => setShowCompleted((v) => !v)}
-                onEditGoal={openEditGoal}
-                onPressGoal={openGoalActions}
-              />
-            </View>
-          )}
+                ) : null}
+                {(["low"] as const).map((p) => {
+                  const groups = priorityGroups[p];
+                  const progress = priorityProgress[p];
+                  if (progress.total === 0) return null;
+                  const isOpen = openPriorities.has(p);
+                  return (
+                    <PriorityAccordion
+                      color={theme.primary}
+                      completed={progress.completed}
+                      key={p}
+                      label={PRIORITY_LABELS[p] ?? p}
+                      isOpen={isOpen}
+                      total={progress.total}
+                      onToggle={() => togglePriority(p)}
+                    >
+                      {groups.map(({ category, goals }) => {
+                        const catKey = `${p}_${category.id}`;
+                        const isExpanded = expandedCatKeys.has(catKey);
+                        return (
+                          <CategoryAccordionRow
+                            key={catKey}
+                            category={category}
+                            goals={goals}
+                            dateKey={dateKey}
+                            logsByGoalDate={logsByHabitDate}
+                            plannedTimesByGoalDate={
+                              snapshot?.plannedTimesByHabitDate
+                            }
+                            updatingKeys={updatingKeys}
+                            isExpanded={isExpanded}
+                            onToggleExpand={() => toggleCatKey(catKey)}
+                            onEditGoal={openEditGoal}
+                            onPressGoal={openGoalActions}
+                          />
+                        );
+                      })}
+                    </PriorityAccordion>
+                  );
+                })}
+                <CompletedSection
+                  completedList={completedList}
+                  dateKey={dateKey}
+                  logsByGoalDate={logsByHabitDate}
+                  plannedTimesByGoalDate={snapshot?.plannedTimesByHabitDate}
+                  updatingKeys={updatingKeys}
+                  isOpen={showCompleted}
+                  onToggle={() => setShowCompleted((v) => !v)}
+                  onEditGoal={openEditGoal}
+                  onPressGoal={openGoalActions}
+                />
+              </View>
+            )}
+          </Animated.View>
         </ScrollView>
       </SafeAreaView>
       <HabitFormModal

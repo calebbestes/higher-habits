@@ -114,7 +114,13 @@ async function findAccessibleFeedEntry(
     db,
     userId,
     entry.ownerId,
-    [entry],
+    [
+      {
+        id: entry.goalId,
+        period: entry.period,
+        priority: entry.priority,
+      },
+    ],
   );
 
   return relatedGoalIds.has(entry.goalId) ? entry : null;

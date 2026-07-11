@@ -55,16 +55,18 @@ export const COLLAB_SECTION_HREFS = {
   friends: "/friends?section=friends",
 } as const satisfies Record<CollabSection, string>;
 
-const planReportStore =
-  createSelectionStore<PlanReportView>(DEFAULT_PLAN_REPORT_VIEW);
+const planReportStore = createSelectionStore<PlanReportView>(
+  DEFAULT_PLAN_REPORT_VIEW,
+);
+const planReportDateStore = createSelectionStore<string | null>(null);
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
-const collabStore =
-  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const collabStore = createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
 const defaultPlanReportStore = createSelectionStore<PlanReportView>(
   DEFAULT_PLAN_REPORT_VIEW,
 );
-const defaultCollabStore =
-  createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const defaultCollabStore = createSelectionStore<CollabSection>(
+  DEFAULT_COLLAB_SECTION,
+);
 const defaultAppStartStore = createSelectionStore<AppStartPage>(
   DEFAULT_APP_START_PAGE,
 );
@@ -79,6 +81,18 @@ export function usePlanReportView(): PlanReportView {
 
 export function setPlanReportView(view: PlanReportView): void {
   planReportStore.set(view);
+}
+
+export function usePlanReportDateKey(): string | null {
+  return useSyncExternalStore(
+    planReportDateStore.subscribe,
+    planReportDateStore.get,
+    planReportDateStore.get,
+  );
+}
+
+export function setPlanReportDateKey(dateKey: string): void {
+  planReportDateStore.set(dateKey);
 }
 
 export function useHabitsTab(): HabitsTab {

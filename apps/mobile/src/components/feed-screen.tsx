@@ -177,7 +177,7 @@ export function FeedScreen() {
     );
     try {
       await toggleFeedProp(entryId);
-    } catch {
+    } catch (err) {
       setEntries((prev) =>
         prev.map((e) =>
           e.id !== entryId
@@ -192,6 +192,10 @@ export function FeedScreen() {
                 },
               },
         ),
+      );
+      Alert.alert(
+        "Could not update props",
+        err instanceof Error ? err.message : undefined,
       );
     }
   }, []);

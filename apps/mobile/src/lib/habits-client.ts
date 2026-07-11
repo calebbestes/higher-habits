@@ -85,6 +85,18 @@ export const createCategory = (input: CategoryInput) =>
     body: JSON.stringify(input),
   }).then((response) => parseResponse<Category>(response));
 
+export const updateCategory = (id: string, input: CategoryInput) =>
+  mobileApiFetch("/api/categories", {
+    method: "POST",
+    body: JSON.stringify({ type: "update", id, ...input }),
+  }).then((response) => parseResponse<Category>(response));
+
+export const deleteCategory = (id: string) =>
+  mobileApiFetch("/api/categories", {
+    method: "POST",
+    body: JSON.stringify({ type: "delete", id }),
+  }).then((response) => parseResponse<{ ok: true }>(response));
+
 export const createHabit = (input: HabitInput) =>
   mobileApiFetch("/api/habits", {
     method: "POST",
