@@ -24,6 +24,7 @@ import {
   type FriendProfileHabit,
   fetchFriendProfile,
   fetchFriendsFeed,
+  fetchMyProfile,
 } from "@/lib/friends-client";
 import { richTextToPlainText } from "@/lib/rich-text";
 
@@ -35,9 +36,11 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendProfileScreen({
   friendshipId,
+  self = false,
   onBack,
 }: {
-  friendshipId: string;
+  friendshipId?: string;
+  self?: boolean;
   onBack: () => void;
 }) {
   const theme = useTheme();
@@ -59,7 +62,7 @@ export function FriendProfileScreen({
 
   const load = useCallback(
     async (refresh = false) => {
-      if (!friendshipId) {
+      if (!self && !friendshipId) {
         setError("Profile data is unavailable.");
         setIsLoading(false);
         return;
@@ -69,21 +72,32 @@ export function FriendProfileScreen({
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const [nextProfile, feed] = await Promise.all([
-          fetchFriendProfile(friendshipId),
-          fetchFriendsFeed(),
-        ]);
+        if (self) {
+          const nextProfile = await fetchMyProfile();
 
-        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
-          return;
+          if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+            return;
+          }
+
+          setProfile(nextProfile);
+          setPosts([]);
+        } else {
+          const [nextProfile, feed] = await Promise.all([
+            fetchFriendProfile(friendshipId as string),
+            fetchFriendsFeed(),
+          ]);
+
+          if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+            return;
+          }
+
+          setProfile(nextProfile);
+          setPosts(
+            feed
+              .filter((entry) => entry.friend.id === nextProfile.friend.id)
+              .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
+          );
         }
-
-        setProfile(nextProfile);
-        setPosts(
-          feed
-            .filter((entry) => entry.friend.id === nextProfile.friend.id)
-            .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
-        );
       } catch (loadError) {
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
           setError(
@@ -101,7 +115,7 @@ export function FriendProfileScreen({
         }
       }
     },
-    [friendshipId],
+    [friendshipId, self],
   );
 
   useEffect(
@@ -140,7 +154,7 @@ export function FriendProfileScreen({
             numberOfLines={1}
             style={[styles.headerTitle, { color: theme.text }]}
           >
-            {profile?.friend.name ?? "Profile"}
+            {profile?.friend.name ?? (self ? "You" : "Profile")}
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -219,7 +233,7 @@ export function FriendProfileScreen({
                 )}
               </View>
 
-              {posts.length > 0 ? (
+              {self ? null : posts.length > 0 ? (
                 <View style={styles.postGrid}>
                   {posts.map((post) => (
                     <PostTile key={post.id} post={post} size={tileSize} />

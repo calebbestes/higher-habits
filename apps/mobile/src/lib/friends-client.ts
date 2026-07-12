@@ -390,6 +390,17 @@ export const fetchFriendProfile = (
   friendshipId: string,
 ): Promise<FriendProfile> => fetchFriendProfileWithFallback(friendshipId);
 
+export async function fetchMyProfile(): Promise<FriendProfile> {
+  const profile = await mobileApiFetch("/api/users/profile").then((r) =>
+    parseResponse<unknown>(r),
+  );
+  const normalized = normalizeFriendProfile(profile);
+  if (!normalized) {
+    throw new Error("Profile data is unavailable.");
+  }
+  return normalized;
+}
+
 async function fetchFriendProfileWithFallback(
   friendshipId: string,
 ): Promise<FriendProfile> {
