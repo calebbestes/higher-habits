@@ -205,7 +205,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <Image
         contentFit="contain"
-        source={require("../../assets/images/icon.png")}
+        source={require("@/assets/images/abi-logo-no-background.png")}
         style={styles.backgroundLogo}
       />
       <SafeAreaView style={styles.safeArea}>
@@ -219,7 +219,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
             <View style={styles.brand}>
               <Image
                 contentFit="contain"
-                source={require("../../assets/images/icon.png")}
+                source={require("@/assets/images/abi-logo-no-background.png")}
                 style={styles.brandLogo}
               />
               <Text style={[styles.brandName, { color: theme.text }]}>

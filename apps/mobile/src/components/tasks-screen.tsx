@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,6 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
+import {
+  CelebrationOverlay,
+  confettiSource,
+} from "@/components/celebration-overlay";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { toInput } from "@/components/tasks/shared";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
@@ -40,6 +46,7 @@ import {
   getTaskUrgency,
   todayDateKey,
   updateTask,
+  updateTaskCompletion,
 } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -96,6 +103,7 @@ export function TasksScreen() {
   const [actionTask, setActionTask] = useState<Task | null>(null);
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const [celebrate, setCelebrate] = useState(false);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
 
@@ -263,13 +271,19 @@ export function TasksScreen() {
     setUpdatingId(task.id);
     setError(null);
     try {
-      const updated = await updateTask(task.id, {
-        ...toInput(task),
-        completedAt: task.completedAt ? null : todayDateKey(),
-      });
+      const { nextTask, task: updated } = await updateTaskCompletion(
+        task,
+        task.completedAt ? null : todayDateKey(),
+      );
       if (!isMountedRef.current) return;
+      if (!task.completedAt && updated.completedAt) {
+        setCelebrate(true);
+      }
       setTasks((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
+        [
+          ...current.map((item) => (item.id === updated.id ? updated : item)),
+          nextTask,
+        ].filter((item): item is Task => Boolean(item)),
       );
       void reloadProjects();
     } catch (updateError) {
@@ -529,7 +543,7 @@ export function TasksScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : groups.length ? (
             <View style={styles.groups}>
@@ -604,6 +618,12 @@ export function TasksScreen() {
         task={planningTask}
         onClose={() => setPlanningTask(null)}
         onSave={saveTaskPlan}
+      />
+      <CelebrationOverlay
+        visible={celebrate}
+        source={confettiSource}
+        withLogo
+        onDone={() => setCelebrate(false)}
       />
     </View>
   );
@@ -824,26 +844,35 @@ function EmptyState({
   const theme = useTheme();
   return (
     <View style={styles.centerState}>
-      <View
-        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
-      >
-        <SymbolView
-          name={symbol(
-            hasTasks ? "magnifyingglass" : "checklist",
-            hasTasks ? "search" : "checklist",
-          )}
-          size={28}
-          tintColor={theme.primary}
+      {hasTasks ? (
+        <>
+          <View
+            style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <SymbolView
+              name={symbol("magnifyingglass", "search")}
+              size={28}
+              tintColor={theme.primary}
+            />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            No tasks found
+          </Text>
+          <Text
+            style={[styles.emptyDescription, { color: theme.textSecondary }]}
+          >
+            Try a different search or filter.
+          </Text>
+        </>
+      ) : (
+        <BrandedEmptyState
+          title="Create your first task"
+          description="Choose what matters, set the urgency, and clear it."
         />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        {hasTasks ? "No tasks found" : "Create your first task"}
-      </Text>
-      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        {hasTasks
-          ? "Try a different search or filter."
-          : "Choose what matters, set the urgency, and clear it."}
-      </Text>
+      )}
       {!hasTasks ? (
         <Pressable
           onPress={onAdd}

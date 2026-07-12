@@ -7,6 +7,9 @@ export type Task = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  recurrence: TaskRecurrence;
+  recurrenceWeekday: number | null;
+  recurrenceMonthDay: number | null;
   projectId: string | null;
   createdAt: string;
 };
@@ -17,18 +20,44 @@ export type TaskInput = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  recurrence: TaskRecurrence;
+  recurrenceWeekday: number | null;
+  recurrenceMonthDay: number | null;
   projectId: string | null;
 };
 
+export type TaskRecurrence = "none" | "daily" | "weekly" | "monthly";
 export type TaskUrgency = "today" | "soon" | "later";
 
 export const TASK_IMPORTANCES = ["High", "Medium", "Low"] as const;
 export const TASK_URGENCIES = ["today", "soon", "later"] as const;
+export const TASK_RECURRENCES: Array<{
+  label: string;
+  value: TaskRecurrence;
+}> = [
+  { label: "None", value: "none" },
+  { label: "Daily", value: "daily" },
+  { label: "Weekly", value: "weekly" },
+  { label: "Monthly", value: "monthly" },
+];
 export const TASK_TIME_OPTIONS = [
   "~30 min",
   "~1 hr",
   "Multiple hours",
 ] as const;
+export const TASK_WEEKDAY_OPTIONS = [
+  { label: "S", value: 0 },
+  { label: "M", value: 1 },
+  { label: "T", value: 2 },
+  { label: "W", value: 3 },
+  { label: "Th", value: 4 },
+  { label: "F", value: 5 },
+  { label: "S", value: 6 },
+] as const;
+export const TASK_MONTH_DAY_OPTIONS = Array.from(
+  { length: 31 },
+  (_, index) => index + 1,
+);
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const IMPORTANCE_SCORE: Record<string, number> = {
@@ -84,6 +113,123 @@ function addDaysToDateKey(dateKey: string, days: number): string {
   date.setDate(date.getDate() + days);
 
   return localDateKey(date);
+}
+
+function dateFromDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function compareDateKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function getTaskDateWeekday(dateKey: string | null): number | null {
+  if (!dateKey || !isValidTaskDateKey(dateKey)) return null;
+  return dateFromDateKey(dateKey).getDay();
+}
+
+export function getTaskDateMonthDay(dateKey: string | null): number | null {
+  if (!dateKey || !isValidTaskDateKey(dateKey)) return null;
+  return dateFromDateKey(dateKey).getDate();
+}
+
+export function getNextWeekdayDateKey(
+  weekday: number,
+  fromDateKey = todayDateKey(),
+  includeFromDate = true,
+): string {
+  const fromDate = dateFromDateKey(fromDateKey);
+  let dayDelta = (weekday - fromDate.getDay() + 7) % 7;
+  if (!includeFromDate && dayDelta === 0) dayDelta = 7;
+  return addDaysToDateKey(fromDateKey, dayDelta);
+}
+
+export function getNextMonthDayDateKey(
+  monthDay: number,
+  fromDateKey = todayDateKey(),
+  includeFromDate = true,
+): string {
+  const fromDate = dateFromDateKey(fromDateKey);
+  const candidate = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+  const lastDay = new Date(
+    candidate.getFullYear(),
+    candidate.getMonth() + 1,
+    0,
+  ).getDate();
+  candidate.setDate(Math.min(monthDay, lastDay));
+
+  if (!includeFromDate && localDateKey(candidate) <= fromDateKey) {
+    candidate.setMonth(candidate.getMonth() + 1, 1);
+  } else if (includeFromDate && localDateKey(candidate) < fromDateKey) {
+    candidate.setMonth(candidate.getMonth() + 1, 1);
+  }
+
+  const nextLastDay = new Date(
+    candidate.getFullYear(),
+    candidate.getMonth() + 1,
+    0,
+  ).getDate();
+  candidate.setDate(Math.min(monthDay, nextLastDay));
+
+  return localDateKey(candidate);
+}
+
+export function getNextRecurringTaskDueDate(
+  task: Pick<
+    Task,
+    "dueDate" | "recurrence" | "recurrenceMonthDay" | "recurrenceWeekday"
+  >,
+  completedAt = todayDateKey(),
+): string | null {
+  if (task.recurrence === "none") return null;
+
+  const baseDate =
+    task.dueDate && compareDateKeys(task.dueDate, completedAt) > 0
+      ? task.dueDate
+      : completedAt;
+  if (task.recurrence === "daily") return addDaysToDateKey(baseDate, 1);
+  if (task.recurrence === "weekly") {
+    return getNextWeekdayDateKey(
+      task.recurrenceWeekday ?? getTaskDateWeekday(task.dueDate) ?? 0,
+      baseDate,
+      false,
+    );
+  }
+
+  return getNextMonthDayDateKey(
+    task.recurrenceMonthDay ?? getTaskDateMonthDay(task.dueDate) ?? 1,
+    baseDate,
+    false,
+  );
+}
+
+export function taskToInput(task: Task): TaskInput {
+  return {
+    name: task.name,
+    importance: task.importance,
+    dueDate: task.dueDate,
+    completedAt: task.completedAt,
+    timeRequired: task.timeRequired,
+    recurrence: task.recurrence,
+    recurrenceWeekday: task.recurrenceWeekday,
+    recurrenceMonthDay: task.recurrenceMonthDay,
+    projectId: task.projectId,
+  };
+}
+
+export function nextRecurringTaskInput(
+  task: Task,
+  completedAt = todayDateKey(),
+): TaskInput | null {
+  const dueDate = getNextRecurringTaskDueDate(task, completedAt);
+  if (!dueDate) return null;
+
+  return {
+    ...taskToInput(task),
+    completedAt: null,
+    dueDate,
+  };
 }
 
 export function getTaskUrgency(
@@ -167,6 +313,23 @@ export const updateTask = (id: string, input: TaskInput) =>
     method: "POST",
     body: JSON.stringify({ type: "update", id, ...input }),
   }).then((response) => parseResponse<Task>(response));
+
+export async function updateTaskCompletion(
+  task: Task,
+  completedAt: string | null,
+): Promise<{ nextTask: Task | null; task: Task }> {
+  const updated = await updateTask(task.id, {
+    ...taskToInput(task),
+    completedAt,
+  });
+  const nextInput =
+    task.completedAt || !completedAt
+      ? null
+      : nextRecurringTaskInput(task, completedAt);
+  const nextTask = nextInput ? await createTask(nextInput) : null;
+
+  return { nextTask, task: updated };
+}
 
 export const deleteTask = (id: string) =>
   mobileApiFetch("/api/tasks", {

@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
@@ -961,7 +962,7 @@ export function IncentivesScreen({
       {/* Content */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={accent} size="large" />
+          <FloatingLogoLoader />
         </View>
       ) : error ? (
         <View style={styles.center}>

@@ -2,6 +2,7 @@
 
 import {
   TASK_IMPORTANCES,
+  TASK_RECURRENCES,
   TASK_URGENCIES,
   type Task,
   type TaskInput,
@@ -14,8 +15,10 @@ import {
   getTaskPriorityLevel,
   getTaskUrgency,
   getTaskUrgencyScore,
+  taskToInput,
   todayDateKey,
   updateTask,
+  updateTaskCompletion,
 } from "@/lib/tasks-client";
 import {
   Button,
@@ -99,6 +102,9 @@ const EMPTY_FORM: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  recurrence: "none",
+  recurrenceWeekday: null,
+  recurrenceMonthDay: null,
 };
 
 function formatCreatedAt(value: string): string {
@@ -133,16 +139,6 @@ function priorityLevelColor(value: number): string {
   }
 
   return "bg-default-200 text-foreground-500";
-}
-
-function taskToInput(task: Task): TaskInput {
-  return {
-    name: task.name,
-    importance: task.importance,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    timeRequired: task.timeRequired,
-  };
 }
 
 function TopContent({
@@ -343,6 +339,26 @@ function TaskFormModal({
                 <SelectItem key={time}>{time}</SelectItem>
               ))}
             </Select>
+            <Select
+              label="Repeat"
+              placeholder="Select repeat"
+              selectedKeys={
+                form.recurrence ? new Set([form.recurrence]) : new Set()
+              }
+              onSelectionChange={(keys) =>
+                setForm((prev) => ({
+                  ...prev,
+                  recurrence:
+                    ([...keys][0] as TaskInput["recurrence"]) ?? "none",
+                }))
+              }
+            >
+              {TASK_RECURRENCES.map((recurrence) => (
+                <SelectItem key={recurrence.value}>
+                  {recurrence.label}
+                </SelectItem>
+              ))}
+            </Select>
             <Input
               label="Date Completed"
               type="date"
@@ -479,6 +495,25 @@ export function TasksTable() {
       });
     },
   });
+  const completionMutation = useMutation({
+    mutationFn: ({
+      completedAt,
+      task,
+    }: {
+      completedAt: string | null;
+      task: Task;
+    }) => updateTaskCompletion(task, completedAt),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+    },
+    onError: (err) => {
+      addToast({
+        title: "Could not update task",
+        description: err instanceof Error ? err.message : undefined,
+        color: "danger",
+      });
+    },
+  });
 
   const deleteMutation = useMutation({
     mutationFn: (ids: string[]) => deleteManyTasks(ids),
@@ -505,6 +540,11 @@ export function TasksTable() {
   ) => {
     const task = data.find((item) => item.id === id);
     if (!task) return;
+
+    if (field === "completedAt") {
+      completionMutation.mutate({ completedAt: value, task });
+      return;
+    }
 
     inlineUpdateMutation.mutate({
       id,

@@ -68,6 +68,10 @@ export type FriendProfile = {
     image: string | null;
     lastOpenedAt: string | null;
   };
+  stats: {
+    friendCount: number;
+    habitCompletions: number;
+  };
   dateKeys: string[];
   categories: FriendProfileCategory[];
   logsByHabitDate: Record<string, "complete" | "incomplete" | "planned">;
@@ -199,6 +203,12 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
       image: nullableString(value.friend.image),
       lastOpenedAt: nullableString(value.friend.lastOpenedAt),
     },
+    stats: isRecord(value.stats)
+      ? {
+          friendCount: numberOrFallback(value.stats.friendCount),
+          habitCompletions: numberOrFallback(value.stats.habitCompletions),
+        }
+      : { friendCount: 0, habitCompletions: 0 },
     dateKeys: Array.isArray(value.dateKeys)
       ? value.dateKeys.filter(
           (dateKey): dateKey is string => typeof dateKey === "string",
@@ -471,6 +481,12 @@ async function fetchFriendProfileFromExistingData(
       email: friend.friendEmail,
       image: friend.friendImage,
       lastOpenedAt: friend.lastOpenedAt,
+    },
+    stats: {
+      friendCount: 0,
+      habitCompletions: feed.filter(
+        (entry) => entry.friend.id === friend.friendId,
+      ).length,
     },
     dateKeys,
     categories:

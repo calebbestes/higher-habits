@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { GoalIcon } from "@/components/goal-icon";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -19,6 +20,7 @@ import ReanimatedSwipeable, {
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import {
   CelebrationOverlay,
   confettiSource,
@@ -936,7 +938,7 @@ export function MonthlyGoalsScreen({
           {/* Calendar grid */}
           {isLoading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : (
             <CalendarGrid
@@ -1058,6 +1060,7 @@ export function MonthlyGoalsScreen({
       <CelebrationOverlay
         visible={celebrate}
         source={confettiSource}
+        withLogo
         onDone={() => setCelebrate(false)}
       />
     </View>
@@ -1528,24 +1531,10 @@ function DayDetailPanel({
   if (!hasMonthlyGoals) {
     return (
       <View style={styles.emptyState}>
-        <View
-          style={[
-            styles.emptyIcon,
-            { backgroundColor: theme.backgroundElement },
-          ]}
-        >
-          <SymbolView
-            name={sym("calendar", "calendar_today")}
-            size={26}
-            tintColor={theme.secondary}
-          />
-        </View>
-        <Text style={[styles.emptyTitle, { color: theme.text }]}>
-          No periodic habits yet
-        </Text>
-        <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
-          Add periodic habits from the Habits section to track them here.
-        </Text>
+        <BrandedEmptyState
+          title="No periodic habits yet"
+          description="Add periodic habits from the Habits section to track them here."
+        />
       </View>
     );
   }

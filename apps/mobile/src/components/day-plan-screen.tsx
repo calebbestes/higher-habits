@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +21,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import {
+  CelebrationOverlay,
+  confettiSource,
+} from "@/components/celebration-overlay";
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
@@ -90,6 +95,7 @@ import {
   fetchTasks,
   getTaskImportanceScore,
   updateTask,
+  updateTaskCompletion,
 } from "@/lib/tasks-client";
 
 type DayPlanEntry = {
@@ -251,6 +257,7 @@ export function DayPlanScreen({
     pageX: number;
     pageY: number;
   } | null>(null);
+  const suppressDaySwipeRef = useRef(false);
   const dateMotionValueRef = useRef(new Animated.Value(0));
   const dateMotionDirectionRef = useRef(1);
   const didMountDateMotionRef = useRef(false);
@@ -309,6 +316,7 @@ export function DayPlanScreen({
   const [isCreatingOtherEvent, setIsCreatingOtherEvent] = useState(false);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
+  const [celebrate, setCelebrate] = useState(false);
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   const isViewingToday = useMemo(
     () => toDateKey(now) === dateKey,
@@ -1695,6 +1703,7 @@ export function DayPlanScreen({
   const handleDaySwipeStart = useCallback(
     (event: GestureResponderEvent) => {
       if (
+        suppressDaySwipeRef.current ||
         isPlanSheetOpen ||
         isTimelineDragging ||
         event.nativeEvent.touches.length !== 1
@@ -1730,6 +1739,14 @@ export function DayPlanScreen({
     },
     [cancelDaySwipe, dragEntry, draftPlanRange, moveDate],
   );
+  const blockDaySwipeFromUnscheduled = useCallback(() => {
+    suppressDaySwipeRef.current = true;
+    cancelDaySwipe();
+  }, [cancelDaySwipe]);
+  const unblockDaySwipeFromUnscheduled = useCallback(() => {
+    suppressDaySwipeRef.current = false;
+    cancelDaySwipe();
+  }, [cancelDaySwipe]);
   const openInternalEntry = (entry: DayPlanEntry) => {
     if (Date.now() < suppressEntryPressUntilRef.current) return;
 
@@ -1755,6 +1772,7 @@ export function DayPlanScreen({
     if (!activeHabit) return;
 
     const key = `${activeHabit.id}_${dateKey}`;
+    const wasComplete = activeModalStatus === "complete";
     setUpdatingKey(key);
     try {
       const nextOptions =
@@ -1767,6 +1785,9 @@ export function DayPlanScreen({
           : options;
 
       await setHabitLog(activeHabit.id, dateKey, status, nextOptions);
+      if (status === "complete" && !wasComplete) {
+        setCelebrate(true);
+      }
       if (status === "planned" && nextOptions?.startTime) {
         scheduleEntryNotification(
           {
@@ -1911,15 +1932,12 @@ export function DayPlanScreen({
           Alert.alert("Day Plan", "Could not find that task.");
           return;
         }
+        const wasComplete = Boolean(task.completedAt);
 
-        await updateTask(task.id, {
-          completedAt: task.completedAt ? null : dateKey,
-          dueDate: task.dueDate,
-          importance: task.importance,
-          name: task.name,
-          projectId: task.projectId,
-          timeRequired: task.timeRequired,
-        });
+        await updateTaskCompletion(task, task.completedAt ? null : dateKey);
+        if (!wasComplete) {
+          setCelebrate(true);
+        }
         cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ tasks: true });
       } else if (activeEntry.kind === "goal") {
@@ -1928,10 +1946,14 @@ export function DayPlanScreen({
           Alert.alert("Day Plan", "Could not find that checkpoint.");
           return;
         }
+        const wasComplete = checkpoint.checkpoint.completed;
 
         await updatePlanGoalCheckpoint(checkpoint.checkpoint.id, {
           completed: !checkpoint.checkpoint.completed,
         });
+        if (!wasComplete) {
+          setCelebrate(true);
+        }
         cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ planGoals: true });
         if (
@@ -2472,7 +2494,7 @@ export function DayPlanScreen({
 
               {isLoading ? (
                 <View style={styles.centerState}>
-                  <ActivityIndicator color={theme.primary} size="large" />
+                  <FloatingLogoLoader />
                 </View>
               ) : (
                 <>
@@ -2524,6 +2546,12 @@ export function DayPlanScreen({
                         horizontal
                         keyboardShouldPersistTaps="handled"
                         nestedScrollEnabled
+                        onMomentumScrollEnd={unblockDaySwipeFromUnscheduled}
+                        onScrollBeginDrag={blockDaySwipeFromUnscheduled}
+                        onScrollEndDrag={unblockDaySwipeFromUnscheduled}
+                        onTouchCancel={unblockDaySwipeFromUnscheduled}
+                        onTouchEnd={unblockDaySwipeFromUnscheduled}
+                        onTouchStart={blockDaySwipeFromUnscheduled}
                         showsHorizontalScrollIndicator={false}
                       >
                         <View style={styles.unscheduledRail}>
@@ -2877,6 +2905,12 @@ export function DayPlanScreen({
           onComplete={onboardingGuide?.onComplete}
           onNext={onboardingGuide?.onStepChange}
           step={onboardingStep}
+        />
+        <CelebrationOverlay
+          visible={celebrate}
+          source={confettiSource}
+          withLogo
+          onDone={() => setCelebrate(false)}
         />
       </View>
     </ComponentErrorBoundary>
@@ -4261,7 +4295,8 @@ function buildDayPlanEntries({
       if (snapshot.explicitPlanDatesByHabit?.[habit.id]?.includes(dateKey)) {
         continue;
       }
-      if (snapshot.logsByHabitDate[`${habit.id}_${dateKey}`] === "complete") {
+      const dayLogStatus = snapshot.logsByHabitDate[`${habit.id}_${dateKey}`];
+      if (dayLogStatus === "planned" || dayLogStatus === "complete") {
         continue;
       }
 
