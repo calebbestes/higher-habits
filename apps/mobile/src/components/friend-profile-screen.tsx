@@ -24,6 +24,7 @@ import {
   type FriendProfileHabit,
   fetchFriendProfile,
   fetchFriendsFeed,
+  fetchMyPosts,
   fetchMyProfile,
 } from "@/lib/friends-client";
 import { richTextToPlainText } from "@/lib/rich-text";
@@ -73,14 +74,21 @@ export function FriendProfileScreen({
       setError(null);
       try {
         if (self) {
-          const nextProfile = await fetchMyProfile();
+          const [nextProfile, myPosts] = await Promise.all([
+            fetchMyProfile(),
+            fetchMyPosts().catch(() => []),
+          ]);
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
 
           setProfile(nextProfile);
-          setPosts([]);
+          setPosts(
+            myPosts.sort((left, right) =>
+              right.dateKey.localeCompare(left.dateKey),
+            ),
+          );
         } else {
           const [nextProfile, feed] = await Promise.all([
             fetchFriendProfile(friendshipId as string),
@@ -233,7 +241,7 @@ export function FriendProfileScreen({
                 )}
               </View>
 
-              {self ? null : posts.length > 0 ? (
+              {posts.length > 0 ? (
                 <View style={styles.postGrid}>
                   {posts.map((post) => (
                     <PostTile key={post.id} post={post} size={tileSize} />
@@ -243,8 +251,12 @@ export function FriendProfileScreen({
                 <View style={styles.emptyPosts}>
                   <BrandedEmptyState
                     compact
-                    title="No visible posts yet"
-                    description="Posts this friend shares with you will appear here."
+                    title={self ? "No posts yet" : "No visible posts yet"}
+                    description={
+                      self
+                        ? "Completed habits with a note or photo will show up here."
+                        : "Posts this friend shares with you will appear here."
+                    }
                   />
                 </View>
               )}

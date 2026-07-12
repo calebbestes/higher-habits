@@ -565,6 +565,11 @@ export const fetchFriendsFeed = () =>
     .then((r) => parseResponse<unknown>(r))
     .then(normalizeFeed);
 
+export const fetchMyPosts = () =>
+  mobileApiFetch("/api/users/posts")
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeFeed);
+
 export const toggleFeedProp = (goalLogId: string) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {
     method: "POST",
