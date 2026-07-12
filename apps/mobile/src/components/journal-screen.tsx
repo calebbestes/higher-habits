@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { GoalIcon } from "@/components/goal-icon";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { Image } from "expo-image";
@@ -19,6 +20,7 @@ import {
 import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -742,7 +744,7 @@ export function JournalScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : mergedEntries.length === 0 ? (
             <EmptyState
@@ -1770,25 +1772,12 @@ function EmptyState({
   goalName: string | null;
   dateLabel: string | null;
 }) {
-  const theme = useTheme();
   return (
     <View style={styles.centerState}>
-      <View
-        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
-      >
-        <SymbolView
-          name={sym("book", "menu_book")}
-          size={28}
-          tintColor={theme.primary}
-        />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        No journal entries
-      </Text>
-      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        {goalName ? `${goalName} has` : "No goals have"} notes or photos from
-        completed days{dateLabel ? ` in ${dateLabel}` : ""}.
-      </Text>
+      <BrandedEmptyState
+        title="No journal entries"
+        description={`${goalName ? `${goalName} has` : "No goals have"} notes or photos from completed days${dateLabel ? ` in ${dateLabel}` : ""}.`}
+      />
     </View>
   );
 }

@@ -1,6 +1,8 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import * as Contacts from "expo-contacts";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,20 +21,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
-import { GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type ContactMatch,
-  type FriendProfile,
-  type FriendProfileCategory,
-  type FriendProfileHabit,
   type FriendRow,
   acceptFriendRequest,
   addFriend,
-  fetchFriendProfile,
   fetchFriends,
   matchContacts,
 } from "@/lib/friends-client";
@@ -47,6 +45,7 @@ function sym(ios: string, android: string): SymbolName {
 
 export function FriendsScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -56,7 +55,6 @@ export function FriendsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
@@ -265,7 +263,7 @@ export function FriendsScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : (
             <>
@@ -300,7 +298,12 @@ export function FriendsScreen() {
                         key={friend.id}
                         friend={friend}
                         onMessage={() => messageFriend(friend)}
-                        onOpenProfile={() => setProfileFriend(friend)}
+                        onOpenProfile={() =>
+                          router.push({
+                            pathname: "/friend-profile",
+                            params: { friendshipId: friend.id },
+                          })
+                        }
                       />
                     ))}
                   </View>
@@ -324,10 +327,6 @@ export function FriendsScreen() {
           if (!isMountedRef.current) return;
           await load();
         }}
-      />
-      <FriendProfileModal
-        friend={profileFriend}
-        onClose={() => setProfileFriend(null)}
       />
     </View>
   );
@@ -526,382 +525,6 @@ function FriendAvatar({ friend, size }: { friend: FriendRow; size: number }) {
   );
 }
 
-export function FriendProfileModal({
-  friend,
-  onClose,
-}: {
-  friend: FriendRow | null;
-  onClose: () => void;
-}) {
-  const theme = useTheme();
-  const isMountedRef = useRef(true);
-  const loadRequestIdRef = useRef(0);
-  const [profile, setProfile] = useState<FriendProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    if (!friend) return;
-
-    const requestId = ++loadRequestIdRef.current;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const nextProfile = await fetchFriendProfile(friend.id);
-      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
-        return;
-      }
-      setProfile(nextProfile);
-    } catch (loadError) {
-      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load profile.",
-        );
-        setProfile(null);
-      }
-    } finally {
-      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [friend]);
-
-  useEffect(
-    () => () => {
-      isMountedRef.current = false;
-      loadRequestIdRef.current += 1;
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (friend) {
-      void load();
-    } else {
-      loadRequestIdRef.current += 1;
-      setProfile(null);
-      setError(null);
-      setIsLoading(false);
-    }
-  }, [friend, load]);
-
-  const completionSummary = useMemo(() => {
-    if (!profile) return { completed: 0, total: 0 };
-    const todayKey = profile.dateKeys[profile.dateKeys.length - 1];
-    const habits = profile.categories.flatMap((category) => category.habits);
-    if (!todayKey) return { completed: 0, total: habits.length };
-
-    return {
-      completed: habits.filter(
-        (habit) =>
-          getFriendHabitStatus(habit, todayKey, profile.logsByHabitDate) ===
-          "complete",
-      ).length,
-      total: habits.length,
-    };
-  }, [profile]);
-
-  return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      presentationStyle="pageSheet"
-      visible={friend !== null}
-    >
-      <View
-        style={[
-          styles.profileModalScreen,
-          { backgroundColor: theme.background },
-        ]}
-      >
-        <SafeAreaView style={styles.profileModalSafeArea}>
-          <View
-            style={[styles.modalHeader, { borderBottomColor: theme.tabBorder }]}
-          >
-            <Pressable
-              accessibilityLabel="Close profile"
-              hitSlop={12}
-              onPress={onClose}
-            >
-              <Text style={[styles.modalCancel, { color: theme.primary }]}>
-                Close
-              </Text>
-            </Pressable>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>
-              Profile
-            </Text>
-            <View style={styles.modalHeaderSpacer} />
-          </View>
-
-          <ScrollView
-            contentContainerStyle={styles.profileContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {friend ? (
-              <View
-                style={[
-                  styles.profileHeaderCard,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                  },
-                ]}
-              >
-                <FriendAvatar friend={friend} size={58} />
-                <View style={styles.profileHeaderText}>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.profileName, { color: theme.text }]}
-                  >
-                    {friend.friendName}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.profileSubtitle,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    Active: {formatLastOpened(friend)}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {error ? (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load()}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {isLoading ? (
-              <View style={styles.centerState}>
-                <ActivityIndicator color={theme.primary} size="large" />
-              </View>
-            ) : profile ? (
-              <View style={styles.profileSections}>
-                <View
-                  style={[
-                    styles.profileSummaryCard,
-                    {
-                      backgroundColor: theme.tabBar,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.profileSummaryLabel,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    TODAY
-                  </Text>
-                  <Text
-                    style={[styles.profileSummaryValue, { color: theme.text }]}
-                  >
-                    {completionSummary.completed}/{completionSummary.total}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.profileSummaryHint,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    visible daily habits complete
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.profileDashboardCard,
-                    {
-                      backgroundColor: theme.tabBar,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  {profile.categories.length > 0 ? (
-                    <>
-                      <FriendHeatmapDateHeader />
-                      {profile.categories.map((category, index) => (
-                        <FriendCategoryHeatmap
-                          key={category.id}
-                          category={category}
-                          days={profile.dateKeys}
-                          logsByHabitDate={profile.logsByHabitDate}
-                          showDivider={index > 0}
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    <Text
-                      style={[
-                        styles.profileEmptyText,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      No shared daily habits yet.
-                    </Text>
-                  )}
-                </View>
-              </View>
-            ) : null}
-          </ScrollView>
-        </SafeAreaView>
-      </View>
-    </Modal>
-  );
-}
-
-function FriendHeatmapDateHeader() {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.profileHeatmapDateHeader}>
-      <View style={styles.profileHeatmapIconSpacer} />
-      <Text
-        numberOfLines={1}
-        style={[styles.profileHeatmapDateLabel, { color: theme.textSecondary }]}
-      >
-        Last 7 Days
-      </Text>
-    </View>
-  );
-}
-
-function FriendCategoryHeatmap({
-  category,
-  days,
-  logsByHabitDate,
-  showDivider,
-}: {
-  category: FriendProfileCategory;
-  days: string[];
-  logsByHabitDate: FriendProfile["logsByHabitDate"];
-  showDivider: boolean;
-}) {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.profileCategoryHeatmap}>
-      {showDivider ? (
-        <View
-          style={[
-            styles.profileCategoryDivider,
-            { backgroundColor: theme.tabBorder },
-          ]}
-        />
-      ) : null}
-      <Text
-        style={[styles.profileCategoryLabel, { color: theme.textSecondary }]}
-      >
-        {category.name.toUpperCase()}
-      </Text>
-      {category.habits.map((habit) => (
-        <FriendHabitHeatmapRow
-          key={habit.id}
-          days={days}
-          habit={habit}
-          logsByHabitDate={logsByHabitDate}
-        />
-      ))}
-    </View>
-  );
-}
-
-function FriendHabitHeatmapRow({
-  days,
-  habit,
-  logsByHabitDate,
-}: {
-  days: string[];
-  habit: FriendProfileHabit;
-  logsByHabitDate: FriendProfile["logsByHabitDate"];
-}) {
-  const theme = useTheme();
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  return (
-    <View style={styles.profileHeatmapRow}>
-      <Pressable
-        accessibilityLabel={habit.name}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={() => setShowTooltip((current) => !current)}
-        style={[
-          styles.profileHeatmapIcon,
-          { backgroundColor: theme.secondary },
-        ]}
-      >
-        <GoalIcon
-          iconKey={habit.iconKey}
-          size={13}
-          color={theme.secondaryForeground}
-        />
-        {showTooltip ? (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.profileIconTooltip,
-              {
-                backgroundColor: theme.text,
-                borderColor: theme.tabBorder,
-              },
-            ]}
-          >
-            <Text
-              numberOfLines={2}
-              style={[
-                styles.profileIconTooltipText,
-                { color: theme.background },
-              ]}
-            >
-              {habit.name}
-            </Text>
-          </View>
-        ) : null}
-      </Pressable>
-      <View style={styles.profileDayBlocks}>
-        {days.map((day) => {
-          const status = getFriendHabitStatus(habit, day, logsByHabitDate);
-          return (
-            <View
-              key={day}
-              style={[
-                styles.profileDayBlock,
-                {
-                  backgroundColor:
-                    status === "complete"
-                      ? theme.primary
-                      : status === "planned"
-                        ? `${theme.primary}33`
-                        : theme.backgroundElement,
-                },
-              ]}
-            />
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function getFriendHabitStatus(
-  habit: FriendProfileHabit,
-  dateKey: string,
-  logsByHabitDate: FriendProfile["logsByHabitDate"],
-) {
-  const explicitStatus = logsByHabitDate[`${habit.id}_${dateKey}`];
-  if (explicitStatus) return explicitStatus;
-  return habit.defaultComplete ? "complete" : undefined;
-}
-
 function EmptyFriendsState({
   hasSearch,
   onAdd,
@@ -921,23 +544,28 @@ function EmptyFriendsState({
         },
       ]}
     >
-      <SymbolView
-        name={sym(
-          hasSearch ? "magnifyingglass" : "person.2.fill",
-          hasSearch ? "search" : "groups",
-        )}
-        size={28}
-        weight="semibold"
-        tintColor={theme.primary}
-      />
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        {hasSearch ? "No matching friends" : "No friends yet"}
-      </Text>
-      <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-        {hasSearch
-          ? "Try another name or email."
-          : "Add someone by email to start encouraging each other."}
-      </Text>
+      {hasSearch ? (
+        <>
+          <SymbolView
+            name={sym("magnifyingglass", "search")}
+            size={28}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            No matching friends
+          </Text>
+          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+            Try another name or email.
+          </Text>
+        </>
+      ) : (
+        <BrandedEmptyState
+          compact
+          title="No friends yet"
+          description="Add someone by email to start encouraging each other."
+        />
+      )}
       {!hasSearch ? (
         <Pressable
           onPress={onAdd}
@@ -1544,138 +1172,6 @@ const styles = StyleSheet.create({
   modalAdd: { fontSize: 16, fontWeight: "800" },
   modalContent: { gap: 8, paddingHorizontal: 18, paddingTop: 24 },
   modalLabel: { paddingHorizontal: 4, fontSize: 12, fontWeight: "700" },
-  profileModalScreen: { flex: 1 },
-  profileModalSafeArea: { flex: 1 },
-  profileContent: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 34,
-    gap: 14,
-  },
-  profileHeaderCard: {
-    minHeight: 82,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    padding: 12,
-  },
-  profileHeaderText: { flex: 1, minWidth: 0, gap: 2 },
-  profileName: { fontSize: 20, fontWeight: "800", letterSpacing: -0.3 },
-  profileSubtitle: { fontSize: 13, fontWeight: "500" },
-  profileSections: { gap: 12 },
-  profileSummaryCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  profileSummaryLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  profileSummaryValue: {
-    marginTop: 2,
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  profileSummaryHint: { marginTop: 1, fontSize: 13, fontWeight: "500" },
-  profileDashboardCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    overflow: "visible",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  profileEmptyText: {
-    paddingVertical: 30,
-    textAlign: "center",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  profileHeatmapDateHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 4,
-    paddingTop: 2,
-    paddingBottom: 3,
-  },
-  profileHeatmapIconSpacer: { width: 26 },
-  profileHeatmapDateLabel: {
-    flex: 1,
-    minWidth: 0,
-    textAlign: "center",
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: "800",
-  },
-  profileCategoryHeatmap: {
-    gap: 5,
-    paddingHorizontal: 4,
-    paddingVertical: 10,
-  },
-  profileCategoryDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginBottom: 6,
-  },
-  profileCategoryLabel: {
-    marginBottom: 2,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  profileHeatmapRow: {
-    height: 32,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    overflow: "visible",
-  },
-  profileHeatmapIcon: {
-    width: 26,
-    height: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-    position: "relative",
-    zIndex: 10,
-    elevation: 10,
-  },
-  profileIconTooltip: {
-    position: "absolute",
-    left: 30,
-    top: -6,
-    zIndex: 20,
-    elevation: 20,
-    minWidth: 96,
-    maxWidth: 160,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  profileIconTooltipText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-  },
-  profileDayBlocks: {
-    flex: 1,
-    flexDirection: "row",
-    gap: 3,
-    zIndex: 0,
-  },
-  profileDayBlock: {
-    flex: 1,
-    height: 28,
-    borderRadius: 7,
-  },
   emailInput: {
     height: 50,
     borderWidth: StyleSheet.hairlineWidth,

@@ -184,7 +184,7 @@ function WelcomeCard({
         ]}
       >
         <Image
-          source={require("@/assets/images/icon.png")}
+          source={require("@/assets/images/abi-logo-no-background.png")}
           style={styles.logo}
           contentFit="contain"
         />

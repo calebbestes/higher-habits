@@ -71,7 +71,7 @@ export function AnimatedIcon() {
         <Image
           style={styles.image}
           contentFit="contain"
-          source={require("@/assets/images/expo-logo.png")}
+          source={require("@/assets/images/abi-logo-no-background.png")}
         />
       </Animated.View>
     </View>

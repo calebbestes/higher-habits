@@ -1,7 +1,7 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   type GestureResponderEvent,
@@ -914,7 +914,7 @@ export function DailyGoalsScreen({
             {/* Content */}
             {isLoading ? (
               <View style={styles.centerState}>
-                <ActivityIndicator color={theme.primary} size="large" />
+                <FloatingLogoLoader />
               </View>
             ) : categoriesWithGoals.length === 0 &&
               monthlyPlannedGoals.length === 0 ? (
@@ -1172,6 +1172,7 @@ export function DailyGoalsScreen({
       <CelebrationOverlay
         visible={celebrate}
         source={confettiSource}
+        withLogo
         onDone={() => setCelebrate(false)}
       />
       <CelebrationOverlay

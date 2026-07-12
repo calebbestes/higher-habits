@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { EXPO_SYMBOL_ICON_OPTIONS, GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -536,7 +538,7 @@ export function HabitsManagerScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : groupedHabits.length ? (
             <View style={styles.groups}>
@@ -791,26 +793,35 @@ function EmptyState({
   const theme = useTheme();
   return (
     <View style={styles.centerState}>
-      <View
-        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
-      >
-        <SymbolView
-          name={symbol(
-            hasHabits ? "magnifyingglass" : "target",
-            hasHabits ? "search" : "target",
-          )}
-          size={28}
-          tintColor={theme.primary}
+      {hasHabits ? (
+        <>
+          <View
+            style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <SymbolView
+              name={symbol("magnifyingglass", "search")}
+              size={28}
+              tintColor={theme.primary}
+            />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            No habits found
+          </Text>
+          <Text
+            style={[styles.emptyDescription, { color: theme.textSecondary }]}
+          >
+            Try a different search or filter.
+          </Text>
+        </>
+      ) : (
+        <BrandedEmptyState
+          title="Create your first habit"
+          description="Set a priority and schedule, then start building momentum."
         />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        {hasHabits ? "No habits found" : "Create your first habit"}
-      </Text>
-      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        {hasHabits
-          ? "Try a different search or filter."
-          : "Set a priority and schedule, then start building momentum."}
-      </Text>
+      )}
       {!hasHabits ? (
         <Pressable
           onPress={onAdd}
@@ -1208,40 +1219,6 @@ export function HabitFormModal({
                   setForm((current) => ({ ...current, iconKey }))
                 }
               />
-              <View
-                style={[
-                  styles.switchRow,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                  },
-                ]}
-              >
-                <View style={styles.switchCopy}>
-                  <Text style={[styles.switchTitle, { color: theme.text }]}>
-                    Default complete
-                  </Text>
-                  <Text
-                    style={[
-                      styles.switchDescription,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    Use for habits about not doing something. Record a slip when
-                    it happens.
-                  </Text>
-                </View>
-                <Switch
-                  onValueChange={(defaultComplete) =>
-                    setForm((current) => ({ ...current, defaultComplete }))
-                  }
-                  trackColor={{
-                    false: theme.backgroundSelected,
-                    true: theme.primary,
-                  }}
-                  value={form.defaultComplete}
-                />
-              </View>
             </FormSection>
 
             <FormSection title="Schedule">
@@ -1816,6 +1793,41 @@ export function HabitFormModal({
                       }
                     />
                   ))}
+                </View>
+
+                <View
+                  style={[
+                    styles.switchRow,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.switchCopy}>
+                    <Text style={[styles.switchTitle, { color: theme.text }]}>
+                      Default complete
+                    </Text>
+                    <Text
+                      style={[
+                        styles.switchDescription,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Use for habits about not doing something. Record a slip
+                      when it happens.
+                    </Text>
+                  </View>
+                  <Switch
+                    onValueChange={(defaultComplete) =>
+                      setForm((current) => ({ ...current, defaultComplete }))
+                    }
+                    trackColor={{
+                      false: theme.backgroundSelected,
+                      true: theme.primary,
+                    }}
+                    value={form.defaultComplete}
+                  />
                 </View>
 
                 {habit ? (

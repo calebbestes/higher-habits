@@ -8,21 +8,13 @@ import {
   getTaskUrgency,
   getTaskUrgencyScore,
   todayDateKey,
-  updateTask,
+  updateTaskCompletion,
 } from "@/lib/tasks-client";
 import { addToast, cn } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { SettingsLink } from "@/components/settings-link";
-
-const taskToInput = (task: Task) => ({
-  name: task.name,
-  importance: task.importance,
-  dueDate: task.dueDate,
-  completedAt: task.completedAt,
-  timeRequired: task.timeRequired,
-});
 
 const compareTasksByPriority = (a: Task, b: Task, today: string) => {
   const priorityCompare =
@@ -100,10 +92,15 @@ export function TopTasksPage() {
     );
     setUpdatingTaskIds((previous) => new Set(previous).add(task.id));
 
-    void updateTask(task.id, taskToInput(nextTask))
-      .then((savedTask) => {
+    void updateTaskCompletion(task, today)
+      .then(({ nextTask: nextRecurringTask, task: savedTask }) => {
         setTasks((previous) =>
-          previous.map((item) => (item.id === savedTask.id ? savedTask : item)),
+          [
+            ...previous.map((item) =>
+              item.id === savedTask.id ? savedTask : item,
+            ),
+            nextRecurringTask,
+          ].filter((item): item is Task => Boolean(item)),
         );
       })
       .catch((error) => {

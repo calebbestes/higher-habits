@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import {
@@ -2164,6 +2166,7 @@ export function SharedGoalsScreen() {
     null,
   );
   const [showCreate, setShowCreate] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [relinkGoal, setRelinkGoal] = useState<SharedGoalSnapshot | null>(null);
 
   // ─── Report-today action dialog (shared with daily/monthly goals) ──────────
@@ -2508,6 +2511,7 @@ export function SharedGoalsScreen() {
   const completed = goals.filter(
     (g) => g.status === "completed" || g.status === "archived",
   );
+  const hasVisibleGoals = invitations.length > 0 || active.length > 0;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
@@ -2547,7 +2551,7 @@ export function SharedGoalsScreen() {
       {/* Content */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={theme.primary} size="large" />
+          <FloatingLogoLoader />
         </View>
       ) : error ? (
         <View style={styles.center}>
@@ -2628,21 +2632,57 @@ export function SharedGoalsScreen() {
             </View>
           )}
 
+          {!hasVisibleGoals && (
+            <View style={styles.center}>
+              <BrandedEmptyState
+                compact
+                title="No active shared goals"
+                description="Completed and archived goals are hidden."
+              />
+            </View>
+          )}
+
           {completed.length > 0 && (
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Completed / Archived
-              </Text>
-              {completed.map((g) => (
-                <GoalCard
-                  key={g.id}
-                  goal={g}
-                  onDetails={() => setSelectedGoal(g)}
-                  onReport={() => openGoalActions(g)}
-                  onRelink={() => setRelinkGoal(g)}
-                  onMenu={() => setMenuGoal(g)}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showCompleted }}
+                onPress={() => setShowCompleted((value) => !value)}
+                style={({ pressed }) => [
+                  styles.completedToggle,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym(
+                    showCompleted ? "chevron.down" : "chevron.right",
+                    showCompleted ? "expand_more" : "chevron_right",
+                  )}
+                  size={13}
+                  weight="bold"
+                  tintColor={theme.textSecondary}
                 />
-              ))}
+                <Text
+                  style={[
+                    styles.completedToggleText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {`SHOW COMPLETED (${completed.length})`}
+                </Text>
+              </Pressable>
+              {showCompleted
+                ? completed.map((g) => (
+                    <GoalCard
+                      key={g.id}
+                      goal={g}
+                      onDetails={() => setSelectedGoal(g)}
+                      onReport={() => openGoalActions(g)}
+                      onRelink={() => setRelinkGoal(g)}
+                      onMenu={() => setMenuGoal(g)}
+                    />
+                  ))
+                : null}
             </View>
           )}
         </ScrollView>
@@ -2939,6 +2979,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginHorizontal: 16,
     marginBottom: 10,
+  },
+  completedToggle: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  completedToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0,
   },
   // Card
   card: {

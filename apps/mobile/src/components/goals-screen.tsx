@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
+import {
+  CelebrationOverlay,
+  confettiSource,
+} from "@/components/celebration-overlay";
 import { modalStyles } from "@/components/daily-goals/shared";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
@@ -191,6 +197,7 @@ export function GoalsScreen() {
   const [planningCheckpoint, setPlanningCheckpoint] =
     useState<ActiveCheckpoint | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const [celebrate, setCelebrate] = useState(false);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
 
@@ -511,7 +518,7 @@ export function GoalsScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : visibleGoals.length ? (
             <View style={styles.goalList}>
@@ -562,6 +569,7 @@ export function GoalsScreen() {
         }}
         onPlan={openCheckpointPlan}
         onSaved={handleCheckpointSaved}
+        onCompleted={() => setCelebrate(true)}
         onError={setError}
       />
       <CheckpointPlanModal
@@ -573,6 +581,12 @@ export function GoalsScreen() {
         }
         onClose={() => setPlanningCheckpoint(null)}
         onSave={saveCheckpointPlan}
+      />
+      <CelebrationOverlay
+        visible={celebrate}
+        source={confettiSource}
+        withLogo
+        onDone={() => setCelebrate(false)}
       />
     </View>
   );
@@ -821,6 +835,7 @@ function CheckpointActionsModal({
   onClearPlan,
   onClose,
   onEditGoal,
+  onCompleted,
   onPlan,
   onSaved,
   onError,
@@ -830,6 +845,7 @@ function CheckpointActionsModal({
   onClearPlan: (active: ActiveCheckpoint) => void;
   onClose: () => void;
   onEditGoal: (goal: Goal) => void;
+  onCompleted: () => void;
   onPlan: (active: ActiveCheckpoint) => void;
   onSaved: (updatedGoal: Goal | null) => void;
   onError: (message: string | null) => void;
@@ -902,6 +918,9 @@ function CheckpointActionsModal({
       setVisibility(next.visibility);
       setNote(next.notes ?? "");
       onSaved(updatedGoal);
+      if (!completed && next.completed) {
+        onCompleted();
+      }
     } catch (err) {
       if (activeCheckpointIdRef.current !== checkpointId) return;
       onError(
@@ -1532,26 +1551,35 @@ function EmptyState({
   const theme = useTheme();
   return (
     <View style={styles.centerState}>
-      <View
-        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
-      >
-        <SymbolView
-          name={symbol(
-            hasGoals ? "magnifyingglass" : "target",
-            hasGoals ? "search" : "target",
-          )}
-          size={28}
-          tintColor={theme.primary}
+      {hasGoals ? (
+        <>
+          <View
+            style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <SymbolView
+              name={symbol("magnifyingglass", "search")}
+              size={28}
+              tintColor={theme.primary}
+            />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            No goals found
+          </Text>
+          <Text
+            style={[styles.emptyDescription, { color: theme.textSecondary }]}
+          >
+            {`Nothing matched "${query.trim()}".`}
+          </Text>
+        </>
+      ) : (
+        <BrandedEmptyState
+          title="Create your first goal"
+          description="Add a bigger outcome and break it into checkpoints."
         />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        {hasGoals ? "No goals found" : "Create your first goal"}
-      </Text>
-      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        {hasGoals
-          ? `Nothing matched "${query.trim()}".`
-          : "Add a bigger outcome and break it into checkpoints."}
-      </Text>
+      )}
       {!hasGoals ? (
         <Pressable
           onPress={onAdd}

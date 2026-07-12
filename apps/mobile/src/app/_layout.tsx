@@ -7,16 +7,11 @@ import {
   useRouter,
 } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  AppState,
-  StyleSheet,
-  View,
-  useColorScheme,
-} from "react-native";
+import { AppState, StyleSheet, View, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { OnboardingScreen } from "@/components/onboarding-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
@@ -176,7 +171,7 @@ function AuthNavigator() {
   if (isPending || (session && onboardingCompleted === null)) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.background }]}>
-        <ActivityIndicator color={theme.primary} size="large" />
+        <FloatingLogoLoader />
       </View>
     );
   }
@@ -200,6 +195,7 @@ function AuthNavigator() {
       </Stack.Protected>
       <Stack.Protected guard={Boolean(session)}>
         <Stack.Screen name="(app)" />
+        <Stack.Screen name="friend-profile" />
       </Stack.Protected>
     </Stack>
   );

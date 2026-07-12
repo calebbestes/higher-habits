@@ -1,3 +1,4 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,6 +14,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
+import {
+  CelebrationOverlay,
+  confettiSource,
+} from "@/components/celebration-overlay";
 import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
@@ -39,6 +45,7 @@ import {
   getTaskUrgency,
   todayDateKey,
   updateTask,
+  updateTaskCompletion,
 } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -147,6 +154,7 @@ export function TopTasksScreen() {
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   const { projects, reloadProjects, createProject, confirmDeleteProject } =
     useTaskProjects();
@@ -217,15 +225,19 @@ export function TopTasksScreen() {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? next : t)));
 
       try {
-        const saved = await updateTask(task.id, {
-          name: task.name,
-          importance: task.importance,
-          dueDate: task.dueDate,
-          completedAt: newCompletedAt,
-          timeRequired: task.timeRequired,
-          projectId: task.projectId,
-        });
-        setTasks((prev) => prev.map((t) => (t.id === saved.id ? saved : t)));
+        const { nextTask, task: saved } = await updateTaskCompletion(
+          task,
+          newCompletedAt,
+        );
+        if (!task.completedAt && saved.completedAt) {
+          setCelebrate(true);
+        }
+        setTasks((prev) =>
+          [
+            ...prev.map((t) => (t.id === saved.id ? saved : t)),
+            nextTask,
+          ].filter((item): item is Task => Boolean(item)),
+        );
         void reloadProjects();
       } catch (err) {
         setTasks((prev) =>
@@ -459,7 +471,7 @@ export function TopTasksScreen() {
           {/* Task list */}
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : activeTasks.length === 0 && completedTasks.length === 0 ? (
             <EmptyState />
@@ -660,6 +672,12 @@ export function TopTasksScreen() {
           </View>
         </View>
       </Modal>
+      <CelebrationOverlay
+        visible={celebrate}
+        source={confettiSource}
+        withLogo
+        onDone={() => setCelebrate(false)}
+      />
     </View>
   );
 }
@@ -809,24 +827,12 @@ function TaskRow({
 }
 
 function EmptyState() {
-  const theme = useTheme();
   return (
     <View style={styles.centerState}>
-      <View
-        style={[styles.emptyIcon, { backgroundColor: theme.backgroundElement }]}
-      >
-        <SymbolView
-          name={sym("checkmark.circle", "check_circle")}
-          size={28}
-          tintColor={theme.primary}
-        />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-        No active tasks
-      </Text>
-      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
-        All caught up! Add new tasks to get started.
-      </Text>
+      <BrandedEmptyState
+        title="No active tasks"
+        description="All caught up! Add new tasks to get started."
+      />
     </View>
   );
 }

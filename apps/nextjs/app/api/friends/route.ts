@@ -365,6 +365,28 @@ async function getFriendProfile(
   const dateKeys = getRecentDateKeys(7);
   const startDateKey = dateKeys[0] ?? mountainDateKey();
   const visibleHabitIdList = visibleHabits.map((habit) => habit.id);
+  const friendRows = await db
+    .select({ id: friends.id })
+    .from(friends)
+    .where(
+      and(
+        eq(friends.status, "accepted"),
+        or(eq(friends.userId1, friendId), eq(friends.userId2, friendId)),
+      ),
+    );
+  const completedHabitRows =
+    visibleHabitIdList.length > 0
+      ? await db
+          .select({ id: goalLogs.id })
+          .from(goalLogs)
+          .where(
+            and(
+              eq(goalLogs.userId, friendId),
+              eq(goalLogs.status, "complete"),
+              inArray(goalLogs.goalId, visibleHabitIdList),
+            ),
+          )
+      : [];
   const logRows =
     visibleHabitIdList.length > 0
       ? await db
@@ -433,6 +455,10 @@ async function getFriendProfile(
       email: friend.email,
       image: friend.image,
       lastOpenedAt: friend.lastOpenedAt?.toISOString() ?? null,
+    },
+    stats: {
+      friendCount: friendRows.length,
+      habitCompletions: completedHabitRows.length,
     },
     dateKeys,
     categories: [...categoriesById.values()],

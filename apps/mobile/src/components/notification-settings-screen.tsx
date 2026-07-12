@@ -1,7 +1,7 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -268,7 +268,7 @@ export function NotificationSettingsModal({
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : (
             <ScrollView

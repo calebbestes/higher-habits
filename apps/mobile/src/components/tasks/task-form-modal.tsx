@@ -7,10 +7,12 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -19,10 +21,18 @@ import { useTheme } from "@/hooks/use-theme";
 import type { Project } from "@/lib/projects-client";
 import {
   TASK_IMPORTANCES,
+  TASK_MONTH_DAY_OPTIONS,
+  TASK_RECURRENCES,
   TASK_TIME_OPTIONS,
   TASK_URGENCIES,
+  TASK_WEEKDAY_OPTIONS,
   type Task,
   type TaskInput,
+  type TaskRecurrence,
+  getNextMonthDayDateKey,
+  getNextWeekdayDateKey,
+  getTaskDateMonthDay,
+  getTaskDateWeekday,
   getTaskDueDateForUrgency,
   getTaskUrgency,
   isValidTaskDateKey,
@@ -85,6 +95,82 @@ export function TaskFormModal({
   };
 
   const dueDateValid = !form.dueDate || isValidTaskDateKey(form.dueDate);
+  const selectedWeekday =
+    form.recurrenceWeekday ?? getTaskDateWeekday(form.dueDate) ?? 0;
+  const selectedMonthDay =
+    form.recurrenceMonthDay ?? getTaskDateMonthDay(form.dueDate) ?? 1;
+
+  const setDueDate = (dueDate: string | null) => {
+    setForm((current) => ({
+      ...current,
+      dueDate,
+      recurrenceWeekday:
+        current.recurrence === "weekly"
+          ? getTaskDateWeekday(dueDate)
+          : current.recurrenceWeekday,
+      recurrenceMonthDay:
+        current.recurrence === "monthly"
+          ? getTaskDateMonthDay(dueDate)
+          : current.recurrenceMonthDay,
+    }));
+  };
+
+  const setRecurrence = (recurrence: TaskRecurrence) => {
+    setForm((current) => {
+      if (recurrence === "weekly") {
+        const weekday =
+          current.recurrenceWeekday ??
+          getTaskDateWeekday(current.dueDate) ??
+          getTaskDateWeekday(todayDateKey()) ??
+          0;
+        return {
+          ...current,
+          dueDate: getNextWeekdayDateKey(weekday),
+          recurrence,
+          recurrenceWeekday: weekday,
+          recurrenceMonthDay: null,
+        };
+      }
+
+      if (recurrence === "monthly") {
+        const monthDay =
+          current.recurrenceMonthDay ??
+          getTaskDateMonthDay(current.dueDate) ??
+          getTaskDateMonthDay(todayDateKey()) ??
+          1;
+        return {
+          ...current,
+          dueDate: getNextMonthDayDateKey(monthDay),
+          recurrence,
+          recurrenceWeekday: null,
+          recurrenceMonthDay: monthDay,
+        };
+      }
+
+      return {
+        ...current,
+        recurrence,
+        recurrenceWeekday: null,
+        recurrenceMonthDay: null,
+      };
+    });
+  };
+
+  const setWeeklyRecurrence = (weekday: number) => {
+    setForm((current) => ({
+      ...current,
+      dueDate: getNextWeekdayDateKey(weekday),
+      recurrenceWeekday: weekday,
+    }));
+  };
+
+  const setMonthlyRecurrence = (monthDay: number) => {
+    setForm((current) => ({
+      ...current,
+      dueDate: getNextMonthDayDateKey(monthDay),
+      recurrenceMonthDay: monthDay,
+    }));
+  };
 
   const save = async () => {
     if (!form.name.trim() || !dueDateValid || isSaving) return;
@@ -231,12 +317,7 @@ export function TaskFormModal({
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
                   Exact due date
                 </Text>
-                <DatePartPicker
-                  value={form.dueDate}
-                  onChange={(dueDate) =>
-                    setForm((current) => ({ ...current, dueDate }))
-                  }
-                />
+                <DatePartPicker value={form.dueDate} onChange={setDueDate} />
               </View>
               {!dueDateValid ? (
                 <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
@@ -256,6 +337,54 @@ export function TaskFormModal({
                   />
                 ))}
               </View>
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Repeat
+              </Text>
+              <View style={styles.choiceWrap}>
+                {TASK_RECURRENCES.map((recurrence) => (
+                  <Choice
+                    key={recurrence.value}
+                    label={recurrence.label}
+                    selected={form.recurrence === recurrence.value}
+                    onPress={() => setRecurrence(recurrence.value)}
+                  />
+                ))}
+              </View>
+              {form.recurrence === "weekly" ? (
+                <View style={styles.inputField}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Day
+                  </Text>
+                  <View style={styles.choiceWrap}>
+                    {TASK_WEEKDAY_OPTIONS.map((weekday) => (
+                      <Choice
+                        key={weekday.value}
+                        label={weekday.label}
+                        selected={selectedWeekday === weekday.value}
+                        onPress={() => setWeeklyRecurrence(weekday.value)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {form.recurrence === "monthly" ? (
+                <View style={styles.inputField}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Day
+                  </Text>
+                  <View style={styles.monthDayGrid}>
+                    {TASK_MONTH_DAY_OPTIONS.map((monthDay) => (
+                      <Choice
+                        key={monthDay}
+                        label={String(monthDay)}
+                        selected={selectedMonthDay === monthDay}
+                        onPress={() => setMonthlyRecurrence(monthDay)}
+                        style={styles.monthDayChoice}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
             </FormSection>
 
             <FormSection title="Project">
@@ -421,10 +550,12 @@ function Choice({
   label,
   onPress,
   selected,
+  style,
 }: {
   label: string;
   onPress: () => void;
   selected: boolean;
+  style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
   const selectedBackground = theme.primary;
@@ -441,6 +572,7 @@ function Choice({
             : theme.backgroundElement,
           borderColor: selected ? selectedBackground : theme.tabBorder,
         },
+        style,
         pressed && styles.pressed,
       ]}
     >
@@ -525,11 +657,17 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  monthDayGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   choice: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 8,
+  },
+  monthDayChoice: {
+    width: 43,
+    alignItems: "center",
+    paddingHorizontal: 0,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   statusChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

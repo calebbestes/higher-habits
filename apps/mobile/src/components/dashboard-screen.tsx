@@ -1,5 +1,7 @@
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import { getGoalDateStatus } from "@/components/daily-goals/shared";
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { GoalIcon } from "@/components/goal-icon";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
@@ -569,7 +571,7 @@ export function DashboardScreen() {
 
           {isLoading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator color={theme.primary} size="large" />
+              <FloatingLogoLoader />
             </View>
           ) : snapshot ? (
             <View style={styles.sections}>
@@ -602,14 +604,7 @@ export function DashboardScreen() {
                         ))}
                       </>
                     ) : (
-                      <Text
-                        style={[
-                          styles.emptyHint,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        No daily goals yet.
-                      </Text>
+                      <BrandedEmptyState compact title="No daily goals yet." />
                     )}
                   </DashCard>
 
@@ -658,11 +653,10 @@ export function DashboardScreen() {
                       />
                     ))
                   ) : (
-                    <Text
-                      style={[styles.emptyHint, { color: theme.textSecondary }]}
-                    >
-                      No periodic habits yet.
-                    </Text>
+                    <BrandedEmptyState
+                      compact
+                      title="No periodic habits yet."
+                    />
                   )}
                 </DashCard>
               )}

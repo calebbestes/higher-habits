@@ -282,6 +282,9 @@ export const tasks = pgTable(
     dueDate: date("due_date", { mode: "string" }),
     completedAt: date("completed_at", { mode: "string" }),
     timeRequired: text("time_required").default("").notNull(),
+    recurrence: text("recurrence").default("none").notNull(),
+    recurrenceWeekday: integer("recurrence_weekday"),
+    recurrenceMonthDay: integer("recurrence_month_day"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

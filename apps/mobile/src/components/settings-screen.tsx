@@ -58,6 +58,7 @@ import {
 } from "@/lib/user-settings-client";
 
 type SymbolName = SymbolViewProps["name"];
+const abiLogoSource = require("@/assets/images/abi-logo-no-background.png");
 type NavigationDefaultKey =
   | "defaultAppStartPage"
   | "defaultCollabSection"
@@ -728,6 +729,18 @@ export function SettingsScreen() {
               ) : null}
             </Pressable>
           </SettingsGroup>
+          <View style={styles.brandFooter}>
+            <Image
+              source={abiLogoSource}
+              style={styles.brandFooterLogo}
+              contentFit="contain"
+            />
+            <Text
+              style={[styles.brandFooterText, { color: theme.textSecondary }]}
+            >
+              float
+            </Text>
+          </View>
         </ScrollView>
       </SafeAreaView>
 
@@ -1074,6 +1087,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",
+  },
+  brandFooter: {
+    alignItems: "center",
+    gap: 2,
+    paddingTop: 6,
+    paddingBottom: 18,
+  },
+  brandFooterLogo: {
+    width: 48,
+    height: 48,
+  },
+  brandFooterText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    letterSpacing: 0.8,
   },
   pressed: { opacity: 0.6 },
 });

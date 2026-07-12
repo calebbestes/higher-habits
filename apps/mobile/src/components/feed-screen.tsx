@@ -1,4 +1,7 @@
+import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,9 +22,8 @@ import {
 import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
-import { FriendProfileModal } from "@/components/friends-screen";
-import { GoalIcon } from "@/components/goal-icon";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -30,7 +32,6 @@ import {
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
-  type FriendRow,
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
@@ -48,18 +49,46 @@ type ActiveFeedPhoto = {
   photo: FriendFeedPhoto;
 };
 
+const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
+
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
+}
+
+function feedGoalKey(entry: Pick<FriendFeedEntry, "goal" | "kind">): string {
+  return `${entry.kind}:${entry.goal.id}`;
 }
 
 function formatFeedDate(dateKey: string): string {
   const [y, m, d] = dateKey.split("-").map(Number);
   const date = new Date(y as number, (m as number) - 1, d as number);
   if (Number.isNaN(date.getTime())) return dateKey;
+
+  const today = new Date();
+  const todayAtNoon = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+    12,
+  );
+  const postAtNoon = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    12,
+  );
+  const diffDays = Math.round(
+    (todayAtNoon.getTime() - postAtNoon.getTime()) / 86_400_000,
+  );
+
+  if (diffDays >= 0 && diffDays < 7) {
+    return `${new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date)}.`;
+  }
+
   return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
     day: "numeric",
+    month: "numeric",
+    year: "2-digit",
   }).format(date);
 }
 
@@ -93,8 +122,39 @@ function removeCommentById(
     }));
 }
 
+async function getStoredHiddenFeedGoals(): Promise<Set<string>> {
+  const stored =
+    Platform.OS === "web"
+      ? globalThis.localStorage?.getItem(HIDDEN_FEED_GOALS_KEY)
+      : await SecureStore.getItemAsync(HIDDEN_FEED_GOALS_KEY);
+
+  if (!stored) return new Set();
+
+  try {
+    const parsed = JSON.parse(stored);
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+async function setStoredHiddenFeedGoals(keys: Set<string>) {
+  const value = JSON.stringify([...keys]);
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(HIDDEN_FEED_GOALS_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(HIDDEN_FEED_GOALS_KEY, value);
+}
+
 export function FeedScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -111,10 +171,12 @@ export function FeedScreen() {
   );
   const [activePhoto, setActivePhoto] = useState<ActiveFeedPhoto | null>(null);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [hiddenFeedGoalKeys, setHiddenFeedGoalKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
-  const [profileFriend, setProfileFriend] = useState<FriendRow | null>(null);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
 
@@ -145,6 +207,12 @@ export function FeedScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void getStoredHiddenFeedGoals().then((keys) => {
+      if (isMountedRef.current) setHiddenFeedGoalKeys(keys);
+    });
+  }, []);
 
   useEffect(
     () => () => {
@@ -392,22 +460,7 @@ export function FeedScreen() {
     }
   }, []);
 
-  const openPostSafetyActions = useCallback(
-    (entry: FriendFeedEntry) => {
-      Alert.alert(entry.friend.name, "Choose a safety action.", [
-        { text: "Report Post", onPress: () => void reportPost(entry) },
-        {
-          text: "Block User",
-          style: "destructive",
-          onPress: () => void blockFriend(entry),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    },
-    [blockFriend, reportPost],
-  );
-
-  const openFriendProfile = useCallback(async (entry: FriendFeedEntry) => {
+  const unfollowFriend = useCallback(async (entry: FriendFeedEntry) => {
     try {
       const friends = await fetchFriends();
       const friendship = friends.find(
@@ -419,20 +472,114 @@ export function FeedScreen() {
         throw new Error("Friendship not found.");
       }
 
+      await archiveFriend(friendship.id);
       if (!isMountedRef.current) return;
-      setProfileFriend(friendship);
+      setEntries((prev) =>
+        prev.filter((item) => item.friend.id !== entry.friend.id),
+      );
+      setActiveCommentsEntryId((current) =>
+        current === entry.id ? null : current,
+      );
+      Alert.alert("Unfollowed", `${entry.friend.name} was removed.`);
     } catch (err) {
       if (!isMountedRef.current) return;
       Alert.alert(
-        "Could not open profile",
+        "Could not unfollow user",
         err instanceof Error ? err.message : undefined,
       );
     }
   }, []);
 
+  const unfollowFeedGoal = useCallback(
+    async (entry: FriendFeedEntry) => {
+      const key = feedGoalKey(entry);
+      const next = new Set(hiddenFeedGoalKeys);
+      next.add(key);
+      setHiddenFeedGoalKeys(next);
+      setEntries((prev) => prev.filter((item) => feedGoalKey(item) !== key));
+      setActiveCommentsEntryId((current) =>
+        current === entry.id ? null : current,
+      );
+
+      try {
+        await setStoredHiddenFeedGoals(next);
+        Alert.alert(
+          "Unfollowed",
+          `${entry.goal.name} will no longer show in your feed.`,
+        );
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        setHiddenFeedGoalKeys(hiddenFeedGoalKeys);
+        Alert.alert(
+          "Could not unfollow",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [hiddenFeedGoalKeys],
+  );
+
+  const openPostSafetyActions = useCallback(
+    (entry: FriendFeedEntry) => {
+      const goalLabel = entry.kind === "habit" ? "habit" : "goal";
+      Alert.alert(entry.friend.name, "Choose an action.", [
+        {
+          text: `Unfollow ${entry.friend.name}`,
+          onPress: () => void unfollowFriend(entry),
+        },
+        {
+          text: `Unfollow this ${goalLabel}`,
+          onPress: () => void unfollowFeedGoal(entry),
+        },
+        { text: "Report Post", onPress: () => void reportPost(entry) },
+        {
+          text: "Block User",
+          style: "destructive",
+          onPress: () => void blockFriend(entry),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [blockFriend, reportPost, unfollowFeedGoal, unfollowFriend],
+  );
+
+  const openFriendProfile = useCallback(
+    async (entry: FriendFeedEntry) => {
+      try {
+        const friends = await fetchFriends();
+        const friendship = friends.find(
+          (friend) =>
+            friend.friendId === entry.friend.id && friend.status === "accepted",
+        );
+
+        if (!friendship) {
+          throw new Error("Friendship not found.");
+        }
+
+        if (!isMountedRef.current) return;
+        router.push({
+          pathname: "/friend-profile",
+          params: { friendshipId: friendship.id },
+        });
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not open profile",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [router],
+  );
+
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
     : null;
+  const visibleEntries = useMemo(
+    () =>
+      entries.filter((entry) => !hiddenFeedGoalKeys.has(feedGoalKey(entry))),
+    [entries, hiddenFeedGoalKeys],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -479,37 +626,18 @@ export function FeedScreen() {
 
             {isLoading ? (
               <View style={styles.centerState}>
-                <ActivityIndicator color={theme.primary} size="large" />
+                <FloatingLogoLoader />
               </View>
-            ) : entries.length === 0 && !error ? (
+            ) : visibleEntries.length === 0 && !error ? (
               <View style={styles.centerState}>
-                <View
-                  style={[
-                    styles.emptyIcon,
-                    { backgroundColor: theme.backgroundElement },
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("rectangle.stack", "feed")}
-                    size={28}
-                    tintColor={theme.primary}
-                  />
-                </View>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                  No activity yet
-                </Text>
-                <Text
-                  style={[
-                    styles.emptyDescription,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  Friends&apos; journal entries with photos will appear here.
-                </Text>
+                <BrandedEmptyState
+                  title="No activity yet"
+                  description="Friends' journal entries with photos will appear here."
+                />
               </View>
             ) : (
               <View style={styles.feedList}>
-                {entries.map((entry) => (
+                {visibleEntries.map((entry) => (
                   <FeedCard
                     key={entry.id}
                     entry={entry}
@@ -534,13 +662,32 @@ export function FeedScreen() {
         onRequestClose={() => setActivePhoto(null)}
       >
         <View style={styles.lightboxOverlay}>
+          <Pressable
+            accessibilityLabel="Close photo"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setActivePhoto(null)}
+          />
           {activePhoto ? (
             <>
-              <Image
-                source={{ uri: activePhoto.photo.url }}
-                style={styles.lightboxImage}
-                contentFit="contain"
-              />
+              <ScrollView
+                key={activePhoto.photo.id}
+                bounces={false}
+                bouncesZoom
+                centerContent
+                contentContainerStyle={styles.lightboxZoomContent}
+                maximumZoomScale={4}
+                minimumZoomScale={1}
+                pinchGestureEnabled
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                style={styles.lightboxZoomFrame}
+              >
+                <Image
+                  source={{ uri: activePhoto.photo.url }}
+                  style={styles.lightboxImage}
+                  contentFit="contain"
+                />
+              </ScrollView>
               <Pressable
                 accessibilityLabel="Close photo"
                 hitSlop={10}
@@ -637,10 +784,6 @@ export function FeedScreen() {
           }));
         }}
       />
-      <FriendProfileModal
-        friend={profileFriend}
-        onClose={() => setProfileFriend(null)}
-      />
     </View>
   );
 }
@@ -686,32 +829,27 @@ function FeedCard({
           <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
         </Pressable>
         <View style={styles.headerMeta}>
-          <Text
-            numberOfLines={1}
-            style={[styles.friendName, { color: theme.text }]}
-          >
-            {entry.friend.name}
-          </Text>
-          <View style={styles.headerGoalRow}>
-            <GoalIcon
-              iconKey={entry.goal.icon}
-              size={14}
-              color={theme.textSecondary}
-            />
+          <View style={styles.headerNameRow}>
             <Text
               numberOfLines={1}
-              style={[styles.goalText, { color: theme.textSecondary }]}
+              style={[styles.friendName, { color: theme.text }]}
             >
-              {entry.goal.name}
+              {entry.friend.name}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={[styles.dateText, { color: theme.textSecondary }]}
+            >
+              {formatFeedDate(entry.dateKey)}
             </Text>
           </View>
+          <Text
+            numberOfLines={1}
+            style={[styles.goalText, { color: theme.textSecondary }]}
+          >
+            {entry.goal.name}
+          </Text>
         </View>
-        <Text
-          numberOfLines={1}
-          style={[styles.dateText, { color: theme.textSecondary }]}
-        >
-          {formatFeedDate(entry.dateKey)}
-        </Text>
         <Pressable
           accessibilityLabel="Post safety actions"
           hitSlop={8}
@@ -1454,13 +1592,20 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 1,
   },
+  headerNameRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+  },
   friendName: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "700",
   },
   dateText: {
-    maxWidth: 138,
+    maxWidth: 68,
     flexShrink: 0,
     textAlign: "right",
     fontSize: 12,
@@ -1474,17 +1619,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 15,
   },
-  headerGoalRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
   goalText: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",
-    flex: 1,
-    minWidth: 0,
   },
   carouselWrap: {
     marginBottom: 12,
@@ -1762,14 +1900,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  lightboxZoomFrame: {
+    width: "92%",
+    maxWidth: 720,
+    height: 560,
+    maxHeight: "82%",
+    zIndex: 1,
+  },
+  lightboxZoomContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   lightboxImage: {
     width: "100%",
-    height: "85%",
+    height: "100%",
   },
   lightboxCloseButton: {
     position: "absolute",
     top: 56,
     right: 18,
+    zIndex: 2,
     width: 42,
     height: 42,
     alignItems: "center",
@@ -1781,6 +1931,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 18,
     bottom: 46,
+    zIndex: 2,
     width: 46,
     height: 46,
     alignItems: "center",

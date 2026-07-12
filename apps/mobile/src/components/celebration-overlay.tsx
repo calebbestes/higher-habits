@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import LottieView from "lottie-react-native";
-import { type ComponentProps, useEffect } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { type ComponentProps, useEffect, useRef } from "react";
+import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 
 type LottieSource = ComponentProps<typeof LottieView>["source"];
 
@@ -9,6 +9,7 @@ type LottieSource = ComponentProps<typeof LottieView>["source"];
 // (same path/filename) to change the effect.
 export const confettiSource: LottieSource = require("@/assets/animations/celebration.json");
 export const fireSource: LottieSource = require("@/assets/animations/Fire.json");
+const logoSource = require("@/assets/images/abi-logo-no-background.png");
 
 // One impact, mapped to the closest feedback on each platform.
 function fireImpact(
@@ -92,18 +93,36 @@ function playCelebrationHaptics(): () => void {
 export function CelebrationOverlay({
   visible,
   source,
+  withLogo = false,
   withHaptics = true,
   onDone,
 }: {
   visible: boolean;
   source: LottieSource;
+  withLogo?: boolean;
   withHaptics?: boolean;
   onDone: () => void;
 }) {
+  const floatProgress = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     if (!visible || !withHaptics) return;
     return playCelebrationHaptics();
   }, [visible, withHaptics]);
+
+  useEffect(() => {
+    if (!visible || !withLogo) return;
+
+    floatProgress.setValue(0);
+    const animation = Animated.timing(floatProgress, {
+      toValue: 1,
+      duration: 1350,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [floatProgress, visible, withLogo]);
 
   if (!visible) return null;
 
@@ -117,6 +136,40 @@ export function CelebrationOverlay({
         style={styles.animation}
         onAnimationFinish={onDone}
       />
+      {withLogo ? (
+        <Animated.Image
+          source={logoSource}
+          style={[
+            styles.logo,
+            {
+              opacity: floatProgress.interpolate({
+                inputRange: [0, 0.15, 0.82, 1],
+                outputRange: [0, 1, 1, 0],
+              }),
+              transform: [
+                {
+                  translateY: floatProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [260, -380],
+                  }),
+                },
+                {
+                  scale: floatProgress.interpolate({
+                    inputRange: [0, 0.2, 1],
+                    outputRange: [0.72, 1, 0.88],
+                  }),
+                },
+                {
+                  rotate: floatProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["-5deg", "8deg"],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ) : null}
     </View>
   );
 }
@@ -136,5 +189,10 @@ const styles = StyleSheet.create({
   animation: {
     width: "100%",
     height: "100%",
+  },
+  logo: {
+    position: "absolute",
+    width: 104,
+    height: 104,
   },
 });

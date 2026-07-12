@@ -1,6 +1,6 @@
 import type { SymbolViewProps } from "expo-symbols";
 
-import type { Task, TaskInput } from "@/lib/tasks-client";
+import { type TaskInput, taskToInput } from "@/lib/tasks-client";
 
 export type SymbolName = SymbolViewProps["name"];
 
@@ -14,19 +14,13 @@ export const EMPTY_TASK: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  recurrence: "none",
+  recurrenceWeekday: null,
+  recurrenceMonthDay: null,
   projectId: null,
 };
 
-export function toInput(task: Task): TaskInput {
-  return {
-    name: task.name,
-    importance: task.importance,
-    dueDate: task.dueDate,
-    completedAt: task.completedAt,
-    timeRequired: task.timeRequired,
-    projectId: task.projectId,
-  };
-}
+export const toInput = taskToInput;
 
 export function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
