@@ -245,6 +245,51 @@ export const friends = pgTable(
   ],
 );
 
+export const friendGroups = pgTable(
+  "friend_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("friend_groups_owner_id_idx").on(table.ownerId),
+    unique("friend_groups_owner_id_name_uidx").on(table.ownerId, table.name),
+  ],
+);
+
+export const friendGroupMembers = pgTable(
+  "friend_group_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => friendGroups.id, { onDelete: "cascade" }),
+    memberUserId: text("member_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("friend_group_members_group_id_idx").on(table.groupId),
+    index("friend_group_members_member_user_id_idx").on(table.memberUserId),
+    unique("friend_group_members_group_id_member_user_id_uidx").on(
+      table.groupId,
+      table.memberUserId,
+    ),
+  ],
+);
+
 export const projects = pgTable(
   "projects",
   {
@@ -671,6 +716,10 @@ export type NewContact = typeof contacts.$inferInsert;
 export type Friend = typeof friends.$inferSelect;
 export type NewFriend = typeof friends.$inferInsert;
 export type FriendStatus = (typeof FRIEND_STATUSES)[number];
+export type FriendGroup = typeof friendGroups.$inferSelect;
+export type NewFriendGroup = typeof friendGroups.$inferInsert;
+export type FriendGroupMember = typeof friendGroupMembers.$inferSelect;
+export type NewFriendGroupMember = typeof friendGroupMembers.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type PlannedEventSourceType =

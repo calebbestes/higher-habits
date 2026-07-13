@@ -28,9 +28,12 @@ import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type ContactMatch,
+  type FriendGroupRow,
   type FriendRow,
   acceptFriendRequest,
   addFriend,
+  createFriendGroup,
+  fetchFriendGroups,
   fetchFriends,
   matchContacts,
 } from "@/lib/friends-client";
@@ -50,11 +53,14 @@ export function FriendsScreen() {
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
@@ -63,11 +69,15 @@ export function FriendsScreen() {
     const requestId = ++loadRequestIdRef.current;
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     try {
-      const nextFriends = await fetchFriends();
+      const [nextFriends, nextFriendGroups] = await Promise.all([
+        fetchFriends(),
+        fetchFriendGroups().catch(() => []),
+      ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
       setFriends(nextFriends);
+      setFriendGroups(nextFriendGroups);
       setError(null);
     } catch (loadError) {
       if (isMountedRef.current && requestId === loadRequestIdRef.current) {
@@ -226,30 +236,94 @@ export function FriendsScreen() {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
-              accessibilityLabel="Add friend"
-              onPress={() => setIsAddOpen(true)}
-              style={({ pressed }) => [
-                styles.addButton,
-                { backgroundColor: theme.primary },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("person.badge.plus", "person_add")}
-                size={17}
-                weight="semibold"
-                tintColor={theme.primaryForeground}
-              />
-              <Text
-                style={[
-                  styles.addButtonText,
-                  { color: theme.primaryForeground },
+            <View style={styles.addMenuWrap}>
+              <Pressable
+                accessibilityLabel="Add"
+                onPress={() => setIsAddMenuOpen((open) => !open)}
+                style={({ pressed }) => [
+                  styles.addButton,
+                  { backgroundColor: theme.primary },
+                  pressed && styles.pressed,
                 ]}
               >
-                Add
-              </Text>
-            </Pressable>
+                <SymbolView
+                  name={sym("plus", "add")}
+                  size={17}
+                  weight="bold"
+                  tintColor={theme.primaryForeground}
+                />
+                <Text
+                  style={[
+                    styles.addButtonText,
+                    { color: theme.primaryForeground },
+                  ]}
+                >
+                  Add
+                </Text>
+                <SymbolView
+                  name={sym("chevron.down", "keyboard_arrow_down")}
+                  size={12}
+                  weight="bold"
+                  tintColor={theme.primaryForeground}
+                />
+              </Pressable>
+              {isAddMenuOpen ? (
+                <View
+                  style={[
+                    styles.addMenu,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setIsAddMenuOpen(false);
+                      setIsAddOpen(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.addMenuItem,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("person.badge.plus", "person_add")}
+                      size={17}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                    <Text style={[styles.addMenuText, { color: theme.text }]}>
+                      Friend
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={acceptedFriends.length === 0}
+                    onPress={() => {
+                      setIsAddMenuOpen(false);
+                      setIsCreateGroupOpen(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.addMenuItem,
+                      acceptedFriends.length === 0 && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("person.3.fill", "groups")}
+                      size={17}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                    <Text style={[styles.addMenuText, { color: theme.text }]}>
+                      Group
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           {error ? (
@@ -267,6 +341,17 @@ export function FriendsScreen() {
             </View>
           ) : (
             <>
+              {friendGroups.length > 0 ? (
+                <View style={styles.section}>
+                  <SectionHeader title="Groups" count={friendGroups.length} />
+                  <View style={styles.groupList}>
+                    {friendGroups.map((group) => (
+                      <FriendGroupCard key={group.id} group={group} />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
               {pendingFriends.length > 0 ? (
                 <View style={styles.section}>
                   <SectionHeader
@@ -326,6 +411,19 @@ export function FriendsScreen() {
           setIsAddOpen(false);
           if (!isMountedRef.current) return;
           await load();
+        }}
+      />
+      <CreateGroupModal
+        friends={acceptedFriends}
+        visible={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        onCreated={(group) => {
+          setFriendGroups((prev) =>
+            [...prev, group].sort((left, right) =>
+              left.name.localeCompare(right.name),
+            ),
+          );
+          setIsCreateGroupOpen(false);
         }}
       />
     </View>
@@ -413,6 +511,120 @@ function FriendCard({
           tintColor={theme.primary}
         />
       </Pressable>
+    </View>
+  );
+}
+
+function FriendGroupCard({ group }: { group: FriendGroupRow }) {
+  const theme = useTheme();
+
+  const messageGroup = () => {
+    const phones = group.members
+      .map((member) => member.phoneNumber?.trim())
+      .filter((phone): phone is string => Boolean(phone));
+
+    if (phones.length === 0) {
+      Alert.alert(
+        "No phone numbers",
+        "None of this group's members have phone numbers yet.",
+      );
+      return;
+    }
+
+    Linking.openURL(`sms:${phones.map(encodeURIComponent).join(",")}`).catch(
+      () => {
+        Alert.alert("Could not open", "No messaging app is available.");
+      },
+    );
+  };
+
+  return (
+    <View
+      style={[
+        styles.groupCard,
+        { backgroundColor: theme.background, borderColor: theme.tabBorder },
+      ]}
+    >
+      <View style={styles.groupAvatarStack}>
+        {group.members.slice(0, 3).map((member, index) => (
+          <View
+            key={member.id}
+            style={[styles.groupAvatarOffset, { left: index * 18 }]}
+          >
+            <GroupMemberAvatar member={member} size={34} />
+          </View>
+        ))}
+      </View>
+      <View style={styles.friendIdentity}>
+        <Text
+          numberOfLines={1}
+          style={[styles.friendName, { color: theme.text }]}
+        >
+          {group.name}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.friendActive, { color: theme.textSecondary }]}
+        >
+          {group.members.length}{" "}
+          {group.members.length === 1 ? "member" : "members"}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel={`Message ${group.name}`}
+        hitSlop={8}
+        onPress={messageGroup}
+        style={({ pressed }) => [
+          styles.messageButton,
+          { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
+        ]}
+      >
+        <SymbolView
+          name={sym("message.fill", "message")}
+          size={19}
+          weight="semibold"
+          tintColor={theme.primary}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
+function GroupMemberAvatar({
+  member,
+  size,
+}: {
+  member: FriendGroupRow["members"][number];
+  size: number;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.avatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: theme.backgroundSelected,
+          borderColor: theme.background,
+          borderWidth: 2,
+        },
+      ]}
+    >
+      {member.image ? (
+        <Image
+          contentFit="cover"
+          source={{ uri: member.image }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <Text style={[styles.avatarText, { color: theme.primary }]}>
+          {member.name.slice(0, 1).toUpperCase()}
+        </Text>
+      )}
     </View>
   );
 }
@@ -583,6 +795,211 @@ function EmptyFriendsState({
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+function CreateGroupModal({
+  friends,
+  visible,
+  onClose,
+  onCreated,
+}: {
+  friends: FriendRow[];
+  visible: boolean;
+  onClose: () => void;
+  onCreated: (group: FriendGroupRow) => void;
+}) {
+  const theme = useTheme();
+  const [name, setName] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSaving, setIsSaving] = useState(false);
+  const canSave = name.trim().length > 0 && selectedIds.size > 0 && !isSaving;
+
+  useEffect(() => {
+    if (!visible) {
+      setName("");
+      setSelectedIds(new Set());
+      setIsSaving(false);
+    }
+  }, [visible]);
+
+  const toggleFriend = (friendId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.has(friendId) ? next.delete(friendId) : next.add(friendId);
+      return next;
+    });
+  };
+
+  const saveGroup = async () => {
+    if (!canSave) return;
+    setIsSaving(true);
+    try {
+      const group = await createFriendGroup({
+        name: name.trim(),
+        memberIds: [...selectedIds],
+      });
+      onCreated(group);
+    } catch (saveError) {
+      Alert.alert(
+        "Could not create group",
+        saveError instanceof Error ? saveError.message : "Try again.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={visible}
+    >
+      <View style={[styles.modalScreen, { backgroundColor: theme.background }]}>
+        <SafeAreaView style={styles.modalSafeArea}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalKeyboard}
+          >
+            <View
+              style={[
+                styles.modalHeader,
+                { borderBottomColor: theme.tabBorder },
+              ]}
+            >
+              <Pressable
+                accessibilityLabel="Cancel"
+                hitSlop={12}
+                onPress={onClose}
+              >
+                <Text style={[styles.modalCancel, { color: theme.primary }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                Create Group
+              </Text>
+              <Pressable
+                accessibilityLabel="Create group"
+                disabled={!canSave}
+                hitSlop={12}
+                onPress={() => void saveGroup()}
+              >
+                <Text
+                  style={[
+                    styles.modalAdd,
+                    { color: canSave ? theme.primary : theme.textSecondary },
+                  ]}
+                >
+                  {isSaving ? "Saving" : "Create"}
+                </Text>
+              </Pressable>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.addFriendContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                Group name
+              </Text>
+              <TextInput
+                accessibilityLabel="Group name"
+                autoCapitalize="words"
+                autoCorrect
+                onChangeText={setName}
+                placeholder="Family, study group, roommates..."
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.emailInput,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    color: theme.text,
+                  },
+                ]}
+                value={name}
+              />
+
+              <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                Members
+              </Text>
+              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
+                Pick friends for feed filters, group chats, and shared goal
+                shortcuts.
+              </Text>
+
+              <View style={styles.selectionList}>
+                {friends.map((friend) => {
+                  const selected = selectedIds.has(friend.friendId);
+                  return (
+                    <Pressable
+                      key={friend.id}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => toggleFriend(friend.friendId)}
+                      style={({ pressed }) => [
+                        styles.selectionRow,
+                        {
+                          backgroundColor: selected
+                            ? `${theme.primary}18`
+                            : theme.background,
+                          borderColor: selected
+                            ? theme.primary
+                            : theme.tabBorder,
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <FriendAvatar friend={friend} size={42} />
+                      <View style={styles.friendIdentity}>
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.friendName, { color: theme.text }]}
+                        >
+                          {friend.friendName}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.friendEmail,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {friend.friendEmail}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.checkCircle,
+                          {
+                            backgroundColor: selected
+                              ? theme.primary
+                              : theme.backgroundElement,
+                          },
+                        ]}
+                      >
+                        {selected ? (
+                          <SymbolView
+                            name={sym("checkmark", "check")}
+                            size={15}
+                            weight="bold"
+                            tintColor={theme.primaryForeground}
+                          />
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1029,6 +1446,7 @@ const styles = StyleSheet.create({
   },
   pageSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
+  addMenuWrap: { position: "relative", zIndex: 20 },
   searchBox: {
     height: 44,
     flex: 1,
@@ -1050,6 +1468,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addButtonText: { fontSize: 14, fontWeight: "800" },
+  addMenu: {
+    position: "absolute",
+    top: 50,
+    right: 0,
+    zIndex: 30,
+    elevation: 30,
+    minWidth: 132,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+  },
+  addMenuItem: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+  },
+  addMenuText: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1085,6 +1529,26 @@ const styles = StyleSheet.create({
   },
   countText: { fontSize: 11, fontWeight: "800" },
   pendingList: { gap: 8 },
+  groupList: { gap: 10 },
+  groupCard: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  groupAvatarStack: {
+    width: 72,
+    height: 38,
+    position: "relative",
+  },
+  groupAvatarOffset: {
+    position: "absolute",
+    top: 2,
+  },
   pendingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1156,6 +1620,7 @@ const styles = StyleSheet.create({
   },
   emptyButtonText: { fontSize: 13, fontWeight: "800" },
   pressed: { opacity: 0.65 },
+  disabled: { opacity: 0.45 },
   modalScreen: { flex: 1 },
   modalSafeArea: { flex: 1 },
   modalKeyboard: { flex: 1 },
@@ -1204,6 +1669,24 @@ const styles = StyleSheet.create({
   },
   contactsButtonText: { fontSize: 15, fontWeight: "700" },
   contactsLoading: { paddingVertical: 20, alignItems: "center" },
+  selectionList: { gap: 8, paddingTop: 2 },
+  selectionRow: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  checkCircle: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
+  },
   matchRow: {
     flexDirection: "row",
     alignItems: "center",

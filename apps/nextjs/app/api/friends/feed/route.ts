@@ -1,4 +1,5 @@
 import {
+  categories,
   feedComments,
   feedProps,
   friends,
@@ -158,6 +159,9 @@ export async function GET(request: Request) {
         goalId: habits.id,
         goalName: habits.name,
         goalIcon: habits.iconKey,
+        categoryId: categories.id,
+        categoryName: categories.name,
+        categoryIcon: categories.icon,
         visibility: goalLogs.visibility,
         goalPeriod: habits.period,
         goalPriority: habits.priority,
@@ -167,6 +171,7 @@ export async function GET(request: Request) {
       })
       .from(goalLogs)
       .innerJoin(habits, eq(goalLogs.goalId, habits.id))
+      .innerJoin(categories, eq(habits.categoryId, categories.id))
       .where(
         and(
           inArray(goalLogs.userId, friendIds),
@@ -274,6 +279,7 @@ export async function GET(request: Request) {
         kind: "habit" | "goal_checkpoint";
         friend: { id: string; name: string; image: string | null };
         goal: { id: string; name: string; icon: string };
+        category: { id: string; name: string; icon: string } | null;
         dateKey: string;
         notes: string;
         updatedAt: string;
@@ -317,6 +323,11 @@ export async function GET(request: Request) {
           id: row.goalId,
           name: row.goalName,
           icon: row.goalIcon || "mdi:circle",
+        },
+        category: {
+          id: row.categoryId,
+          name: row.categoryName,
+          icon: row.categoryIcon,
         },
         dateKey: row.dateKey,
         notes: row.notes,
@@ -464,6 +475,7 @@ export async function GET(request: Request) {
           name: `${row.goalTitle} · ${row.checkpointTitle}`,
           icon: "checkmark.seal.fill",
         },
+        category: null,
         dateKey: row.completedAt.toISOString().slice(0, 10),
         notes: row.notes ?? "",
         updatedAt: row.updatedAt.toISOString(),
