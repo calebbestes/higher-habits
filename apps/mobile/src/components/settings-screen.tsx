@@ -324,7 +324,12 @@ export function SettingsScreen() {
       const response = await authClient.linkSocial({
         provider: "google",
         callbackURL: "/",
-        scopes: ["https://www.googleapis.com/auth/calendar.events"],
+        scopes: [
+          "openid",
+          "email",
+          "profile",
+          "https://www.googleapis.com/auth/calendar.events",
+        ],
       });
 
       if (response.error) {

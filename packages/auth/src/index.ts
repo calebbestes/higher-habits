@@ -91,6 +91,7 @@ export function createAuth() {
       skipStateCookieCheck: true,
       accountLinking: {
         enabled: true,
+        allowDifferentEmails: true,
         requireLocalEmailVerified: false,
         trustedProviders: ["google", "apple"],
       },
