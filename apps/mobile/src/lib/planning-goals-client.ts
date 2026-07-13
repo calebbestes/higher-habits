@@ -4,10 +4,14 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type Goal = {
   id: string;
   title: string;
+  timing: GoalTiming;
+  sortOrder: number;
   checkpoints: GoalCheckpoint[];
   createdAt: string;
   updatedAt: string;
 };
+
+export type GoalTiming = "current" | "later";
 
 export type GoalCheckpoint = {
   id: string;
@@ -30,6 +34,7 @@ export type GoalCheckpointInput = {
 
 export type GoalInput = {
   title: string;
+  timing: GoalTiming;
   checkpoints: GoalCheckpointInput[];
 };
 
@@ -79,4 +84,10 @@ export const deletePlanGoal = (id: string) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
     body: JSON.stringify({ type: "delete", id }),
+  }).then((response) => parseResponse<{ ok: true }>(response));
+
+export const reorderPlanGoals = (goalIds: string[]) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({ type: "reorder", goalIds }),
   }).then((response) => parseResponse<{ ok: true }>(response));

@@ -43,6 +43,11 @@ import {
   toggleFeedProp,
 } from "@/lib/friends-client";
 import { deleteGoalPhoto } from "@/lib/goal-photos-client";
+import {
+  playSelectionHaptic,
+  playSuccessHaptic,
+  playWarningHaptic,
+} from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
@@ -199,6 +204,12 @@ export function FeedScreen() {
   const theme = useTheme();
   const router = useRouter();
   const tabBarHeight = useTabBarHeight();
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
+  const lightboxViewportStyle = useMemo(
+    () => ({ width: viewportWidth, height: viewportHeight }),
+    [viewportHeight, viewportWidth],
+  );
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
@@ -280,25 +291,14 @@ export function FeedScreen() {
     [],
   );
 
-  const handleToggleProp = useCallback(async (entryId: string) => {
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id !== entryId
-          ? e
-          : {
-              ...e,
-              props: {
-                count: e.props.hasPropped
-                  ? Math.max(e.props.count - 1, 0)
-                  : e.props.count + 1,
-                hasPropped: !e.props.hasPropped,
-              },
-            },
-      ),
-    );
-    try {
-      await toggleFeedProp(entryId);
-    } catch (err) {
+  const handleToggleProp = useCallback(
+    async (entryId: string) => {
+      const entry = entries.find((item) => item.id === entryId);
+      if (!entry?.props.hasPropped) {
+        playSuccessHaptic();
+      } else {
+        playSelectionHaptic();
+      }
       setEntries((prev) =>
         prev.map((e) =>
           e.id !== entryId
@@ -314,12 +314,32 @@ export function FeedScreen() {
               },
         ),
       );
-      Alert.alert(
-        "Could not update props",
-        err instanceof Error ? err.message : undefined,
-      );
-    }
-  }, []);
+      try {
+        await toggleFeedProp(entryId);
+      } catch (err) {
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id !== entryId
+              ? e
+              : {
+                  ...e,
+                  props: {
+                    count: e.props.hasPropped
+                      ? Math.max(e.props.count - 1, 0)
+                      : e.props.count + 1,
+                    hasPropped: !e.props.hasPropped,
+                  },
+                },
+          ),
+        );
+        Alert.alert(
+          "Could not update props",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [entries],
+  );
 
   const handleAddComment = useCallback(
     async (entryId: string) => {
@@ -330,6 +350,7 @@ export function FeedScreen() {
       setSubmittingComment(entryId);
       try {
         await addFeedComment(entryId, body, replyTarget?.id ?? null);
+        playSuccessHaptic();
         if (!isMountedRef.current) return;
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [entryId]: null }));
@@ -353,6 +374,7 @@ export function FeedScreen() {
     async (entryId: string, commentId: string) => {
       try {
         await deleteFeedComment(entryId, commentId);
+        playWarningHaptic();
         if (!isMountedRef.current) return;
         setEntries((prev) =>
           prev.map((e) =>
@@ -382,6 +404,7 @@ export function FeedScreen() {
     (active: ActiveFeedPhoto) => {
       if (!active.entry.canDeletePhotos || deletingPhotoId) return;
 
+      playWarningHaptic();
       Alert.alert("Delete photo?", "This permanently removes this photo.", [
         { text: "Cancel", style: "cancel" },
         {
@@ -799,8 +822,14 @@ export function FeedScreen() {
                     key={entry.id}
                     entry={entry}
                     onToggleProp={() => void handleToggleProp(entry.id)}
-                    onPhotoPress={(photo) => setActivePhoto({ entry, photo })}
-                    onOpenComments={() => setActiveCommentsEntryId(entry.id)}
+                    onPhotoPress={(photo) => {
+                      playSelectionHaptic();
+                      setActivePhoto({ entry, photo });
+                    }}
+                    onOpenComments={() => {
+                      playSelectionHaptic();
+                      setActiveCommentsEntryId(entry.id);
+                    }}
                     onOpenProfile={() => void openFriendProfile(entry)}
                     onOpenSafetyActions={() => openPostSafetyActions(entry)}
                   />
@@ -831,7 +860,10 @@ export function FeedScreen() {
                 bounces={false}
                 bouncesZoom
                 centerContent
-                contentContainerStyle={styles.lightboxZoomContent}
+                contentContainerStyle={[
+                  styles.lightboxZoomContent,
+                  lightboxViewportStyle,
+                ]}
                 maximumZoomScale={4}
                 minimumZoomScale={1}
                 pinchGestureEnabled
@@ -839,11 +871,13 @@ export function FeedScreen() {
                 showsVerticalScrollIndicator={false}
                 style={styles.lightboxZoomFrame}
               >
-                <Image
-                  source={{ uri: activePhoto.photo.url }}
-                  style={styles.lightboxImage}
-                  contentFit="contain"
-                />
+                <View style={lightboxViewportStyle}>
+                  <Image
+                    source={{ uri: activePhoto.photo.url }}
+                    style={styles.lightboxImage}
+                    contentFit="contain"
+                  />
+                </View>
               </ScrollView>
               <Pressable
                 accessibilityLabel="Close photo"
@@ -2333,10 +2367,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lightboxZoomFrame: {
-    width: "92%",
-    maxWidth: 720,
-    height: 560,
-    maxHeight: "82%",
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 1,
   },
   lightboxZoomContent: {
@@ -2344,8 +2379,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lightboxImage: {
-    width: "100%",
-    height: "100%",
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   lightboxCloseButton: {
     position: "absolute",
