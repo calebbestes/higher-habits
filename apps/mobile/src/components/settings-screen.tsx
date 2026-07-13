@@ -31,6 +31,11 @@ import {
   type GoogleCalendarStatus,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
+import {
+  playSelectionHaptic,
+  playSuccessHaptic,
+  playWarningHaptic,
+} from "@/lib/haptics";
 import { mobileApiFetch } from "@/lib/mobile-api";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
@@ -215,6 +220,7 @@ export function SettingsScreen() {
 
   const chooseAppearance = () => {
     const choose = (preference: ThemePreference) => {
+      playSelectionHaptic();
       setAppearance(preference);
       void setThemePreference(preference);
     };
@@ -228,6 +234,7 @@ export function SettingsScreen() {
   };
 
   const chooseColorTheme = (preference: ColorThemePreference) => {
+    playSelectionHaptic();
     setColorTheme(preference);
     void setColorThemePreference(preference);
   };
@@ -242,8 +249,11 @@ export function SettingsScreen() {
     applyNavigationDefaults(next);
 
     updateUserSettings({ [key]: value })
-      .then(() => undefined)
+      .then(() => {
+        playSuccessHaptic();
+      })
       .catch(() => {
+        playWarningHaptic();
         setNavigationDefaults(previous);
         applyNavigationDefaults(previous);
         Alert.alert("Settings", "Could not save that default page.");
@@ -359,7 +369,9 @@ export function SettingsScreen() {
     setIsSendingTestNotification(true);
     try {
       await sendTestNotificationAsync();
+      playSuccessHaptic();
     } catch (notificationError) {
+      playWarningHaptic();
       Alert.alert(
         "Notifications",
         notificationError instanceof Error
@@ -379,11 +391,13 @@ export function SettingsScreen() {
       const result = await registerForPushNotificationsAsync();
 
       if (result === "registered") {
+        playSuccessHaptic();
         Alert.alert("Notifications enabled", "float can now send reminders.");
         return;
       }
 
       if (result === "denied") {
+        playWarningHaptic();
         Alert.alert(
           "Notifications are off",
           "Enable notifications in Settings to receive reminders.",
@@ -392,6 +406,7 @@ export function SettingsScreen() {
       }
 
       if (result === "unavailable") {
+        playWarningHaptic();
         Alert.alert(
           "Notifications",
           "Push notifications require a physical device.",
@@ -399,6 +414,7 @@ export function SettingsScreen() {
         return;
       }
 
+      playWarningHaptic();
       Alert.alert("Notifications", "Could not enable notifications.");
     } finally {
       setIsRegisteringNotifications(false);
@@ -621,7 +637,10 @@ export function SettingsScreen() {
               icon={sym("bell.fill", "notifications")}
               title="Notifications"
               value="Manage"
-              onPress={() => setShowNotifications(true)}
+              onPress={() => {
+                playSelectionHaptic();
+                setShowNotifications(true);
+              }}
             />
             <SettingsRow
               icon={sym("paperplane.fill", "send")}

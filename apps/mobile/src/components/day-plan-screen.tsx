@@ -68,6 +68,7 @@ import {
   createCategory as createHabitCategory,
   fetchCategories,
 } from "@/lib/habits-client";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { formatPlanMinutesDisplay } from "@/lib/plan-time";
 import {
   type PlannedEvent,
@@ -317,6 +318,10 @@ export function DayPlanScreen({
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
   const [celebrate, setCelebrate] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(() =>
+    startOfMonth(initialDateKey ? dateFromKey(initialDateKey) : new Date()),
+  );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   const isViewingToday = useMemo(
     () => toDateKey(now) === dateKey,
@@ -1697,6 +1702,21 @@ export function DayPlanScreen({
     dateMotionDirectionRef.current = days > 0 ? 1 : -1;
     setSelectedDate((current) => addDays(current, days));
   }, []);
+  const openDatePicker = useCallback(() => {
+    playSelectionHaptic();
+    setDatePickerMonth(startOfMonth(selectedDate));
+    setDatePickerOpen(true);
+  }, [selectedDate]);
+  const selectPickerDate = useCallback(
+    (date: Date) => {
+      playSelectionHaptic();
+      const nextDate = startOfDay(date);
+      dateMotionDirectionRef.current = nextDate > selectedDate ? 1 : -1;
+      setSelectedDate(nextDate);
+      setDatePickerOpen(false);
+    },
+    [selectedDate],
+  );
   const cancelDaySwipe = useCallback(() => {
     daySwipeRef.current = null;
   }, []);
@@ -1936,6 +1956,7 @@ export function DayPlanScreen({
 
         await updateTaskCompletion(task, task.completedAt ? null : dateKey);
         if (!wasComplete) {
+          playSuccessHaptic();
           setCelebrate(true);
         }
         cancelEntryNotification(activeEntry);
@@ -1952,6 +1973,7 @@ export function DayPlanScreen({
           completed: !checkpoint.checkpoint.completed,
         });
         if (!wasComplete) {
+          playSuccessHaptic();
           setCelebrate(true);
         }
         cancelEntryNotification(activeEntry);
@@ -2443,10 +2465,14 @@ export function DayPlanScreen({
               </View>
 
               <View style={styles.dateHeader}>
-                <View
-                  style={[
+                <Pressable
+                  accessibilityLabel="Choose date"
+                  accessibilityRole="button"
+                  onPress={openDatePicker}
+                  style={({ pressed }) => [
                     styles.dayBadge,
                     { backgroundColor: theme.backgroundElement },
+                    pressed && styles.pressed,
                   ]}
                 >
                   <Text style={[styles.weekday, { color: theme.primary }]}>
@@ -2455,7 +2481,7 @@ export function DayPlanScreen({
                   <Text style={[styles.dayNumber, { color: theme.text }]}>
                     {selectedDate.getDate()}
                   </Text>
-                </View>
+                </Pressable>
                 <View style={styles.dateTextBlock}>
                   <Text style={[styles.dateTitle, { color: theme.text }]}>
                     {MONTH_NAMES[selectedDate.getMonth()]}{" "}
@@ -2857,6 +2883,7 @@ export function DayPlanScreen({
             onboardingGuide
               ? {
                   title: "I joined float",
+                  timing: "current",
                   checkpoints: [
                     {
                       completed: false,
@@ -2905,6 +2932,14 @@ export function DayPlanScreen({
           onComplete={onboardingGuide?.onComplete}
           onNext={onboardingGuide?.onStepChange}
           step={onboardingStep}
+        />
+        <DayPlanDatePicker
+          month={datePickerMonth}
+          onChangeMonth={setDatePickerMonth}
+          onClose={() => setDatePickerOpen(false)}
+          onSelectDate={selectPickerDate}
+          selectedDate={selectedDate}
+          visible={datePickerOpen}
         />
         <CelebrationOverlay
           visible={celebrate}
@@ -2998,6 +3033,147 @@ function DayPlanOnboardingOverlay({
         title={item.title}
       />
     </View>
+  );
+}
+
+function DayPlanDatePicker({
+  month,
+  onChangeMonth,
+  onClose,
+  onSelectDate,
+  selectedDate,
+  visible,
+}: {
+  month: Date;
+  onChangeMonth: (month: Date) => void;
+  onClose: () => void;
+  onSelectDate: (date: Date) => void;
+  selectedDate: Date;
+  visible: boolean;
+}) {
+  const theme = useTheme();
+  const todayKey = toDateKey(new Date());
+  const selectedKey = toDateKey(selectedDate);
+  const days = useMemo(() => getCalendarMonthDays(month), [month]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+      <View style={styles.datePickerOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.datePickerCard,
+            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+          ]}
+        >
+          <View style={styles.datePickerHeader}>
+            <Pressable
+              accessibilityLabel="Previous month"
+              hitSlop={8}
+              onPress={() => {
+                playSelectionHaptic();
+                onChangeMonth(addMonths(month, -1));
+              }}
+              style={({ pressed }) => [
+                styles.datePickerNavButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("chevron.left", "chevron_left")}
+                size={16}
+                tintColor={theme.tabIcon}
+                weight="semibold"
+              />
+            </Pressable>
+            <Text style={[styles.datePickerTitle, { color: theme.text }]}>
+              {MONTH_NAMES[month.getMonth()]} {month.getFullYear()}
+            </Text>
+            <Pressable
+              accessibilityLabel="Next month"
+              hitSlop={8}
+              onPress={() => {
+                playSelectionHaptic();
+                onChangeMonth(addMonths(month, 1));
+              }}
+              style={({ pressed }) => [
+                styles.datePickerNavButton,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("chevron.right", "chevron_right")}
+                size={16}
+                tintColor={theme.tabIcon}
+                weight="semibold"
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.datePickerWeekdays}>
+            {WEEKDAY_NAMES.map((day) => (
+              <Text
+                key={day}
+                style={[
+                  styles.datePickerWeekday,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {day.slice(0, day === "Thu" ? 2 : 1)}
+              </Text>
+            ))}
+          </View>
+
+          <View style={styles.datePickerGrid}>
+            {days.map((day) => {
+              const dayKey = toDateKey(day);
+              const isSelected = dayKey === selectedKey;
+              const isToday = dayKey === todayKey;
+              const inMonth = day.getMonth() === month.getMonth();
+
+              return (
+                <Pressable
+                  accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
+                  accessibilityRole="button"
+                  key={dayKey}
+                  onPress={() => onSelectDate(day)}
+                  style={({ pressed }) => [
+                    styles.datePickerDay,
+                    {
+                      backgroundColor: isSelected
+                        ? theme.primary
+                        : theme.backgroundElement,
+                      borderColor: isToday ? theme.primary : theme.tabBorder,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.datePickerDayText,
+                      {
+                        color: isSelected
+                          ? theme.primaryForeground
+                          : inMonth
+                            ? theme.text
+                            : theme.textSecondary,
+                        opacity: inMonth || isSelected ? 1 : 0.48,
+                      },
+                    ]}
+                  >
+                    {day.getDate()}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -4961,6 +5137,20 @@ function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function getCalendarMonthDays(month: Date) {
+  const firstDay = startOfMonth(month);
+  const firstGridDay = addDays(firstDay, -firstDay.getDay());
+  return Array.from({ length: 42 }, (_, index) => addDays(firstGridDay, index));
+}
+
 function isFutureDate(date: Date) {
   return startOfDay(date).getTime() > startOfDay(new Date()).getTime();
 }
@@ -5143,6 +5333,79 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 23,
     fontWeight: "800",
+  },
+  datePickerOverlay: {
+    flex: 1,
+    justifyContent: "flex-start",
+    backgroundColor: "#00000033",
+    paddingHorizontal: 18,
+    paddingTop: 118,
+  },
+  datePickerCard: {
+    width: "100%",
+    maxWidth: 340,
+    alignSelf: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 12,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  datePickerHeader: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  datePickerTitle: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: "center",
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  datePickerNavButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  datePickerWeekdays: {
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 10,
+  },
+  datePickerWeekday: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+  },
+  datePickerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 7,
+  },
+  datePickerDay: {
+    width: "13.15%",
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 11,
+  },
+  datePickerDayText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "900",
   },
   notice: {
     borderWidth: StyleSheet.hairlineWidth,

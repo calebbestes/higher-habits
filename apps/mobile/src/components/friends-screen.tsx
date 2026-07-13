@@ -37,6 +37,7 @@ import {
   fetchFriends,
   matchContacts,
 } from "@/lib/friends-client";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -157,6 +158,7 @@ export function FriendsScreen() {
     setAcceptingFriendshipId(friend.id);
     try {
       await acceptFriendRequest(friend.id);
+      playSuccessHaptic();
       if (!isMountedRef.current) return;
       await load();
     } catch (acceptError) {
@@ -824,6 +826,7 @@ function CreateGroupModal({
   }, [visible]);
 
   const toggleFriend = (friendId: string) => {
+    playSelectionHaptic();
     setSelectedIds((current) => {
       const next = new Set(current);
       next.has(friendId) ? next.delete(friendId) : next.add(friendId);
@@ -839,6 +842,7 @@ function CreateGroupModal({
         name: name.trim(),
         memberIds: [...selectedIds],
       });
+      playSuccessHaptic();
       onCreated(group);
     } catch (saveError) {
       Alert.alert(

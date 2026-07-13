@@ -41,6 +41,7 @@ import {
   updateCategory,
   updateHabit,
 } from "@/lib/habits-client";
+import { playSelectionHaptic } from "@/lib/haptics";
 import {
   cancelHabitReminderAsync,
   scheduleHabitReminderAsync,
@@ -651,7 +652,10 @@ function FilterChip({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      onPress={onPress}
+      onPress={() => {
+        playSelectionHaptic();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.filterChip,
         {
@@ -1391,7 +1395,8 @@ export function HabitFormModal({
                                     accessibilityRole="button"
                                     accessibilityState={{ selected }}
                                     key={date}
-                                    onPress={() =>
+                                    onPress={() => {
+                                      playSelectionHaptic();
                                       setForm((current) => {
                                         const dates = (
                                           current.repeatDays?.filter(
@@ -1410,8 +1415,8 @@ export function HabitFormModal({
                                             : [today.getDate()]
                                           ).sort((a, b) => a - b),
                                         };
-                                      })
-                                    }
+                                      });
+                                    }}
                                     style={[
                                       styles.monthDateChip,
                                       {
@@ -1461,7 +1466,8 @@ export function HabitFormModal({
                                           accessibilityRole="button"
                                           accessibilityState={{ selected }}
                                           key={`${ORDINALS[week]}-${letter}`}
-                                          onPress={() =>
+                                          onPress={() => {
+                                            playSelectionHaptic();
                                             setForm((current) => {
                                               const cells =
                                                 normalizeMonthlyWeekdayCells(
@@ -1485,8 +1491,8 @@ export function HabitFormModal({
                                                     ]
                                                 ).sort((a, b) => a - b),
                                               };
-                                            })
-                                          }
+                                            });
+                                          }}
                                           style={[
                                             styles.monthWeekdayChip,
                                             {
@@ -1750,7 +1756,10 @@ export function HabitFormModal({
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ expanded: moreOptionsOpen }}
-              onPress={() => setMoreOptionsOpen((open) => !open)}
+              onPress={() => {
+                playSelectionHaptic();
+                setMoreOptionsOpen((open) => !open);
+              }}
               style={({ pressed }) => [
                 styles.moreOptionsButton,
                 {
@@ -1819,9 +1828,10 @@ export function HabitFormModal({
                     </Text>
                   </View>
                   <Switch
-                    onValueChange={(defaultComplete) =>
-                      setForm((current) => ({ ...current, defaultComplete }))
-                    }
+                    onValueChange={(defaultComplete) => {
+                      playSelectionHaptic();
+                      setForm((current) => ({ ...current, defaultComplete }));
+                    }}
                     trackColor={{
                       false: theme.backgroundSelected,
                       true: theme.primary,
@@ -1854,9 +1864,10 @@ export function HabitFormModal({
                       </Text>
                     </View>
                     <Switch
-                      onValueChange={(hidden) =>
-                        setForm((current) => ({ ...current, hidden }))
-                      }
+                      onValueChange={(hidden) => {
+                        playSelectionHaptic();
+                        setForm((current) => ({ ...current, hidden }));
+                      }}
                       trackColor={{
                         false: theme.backgroundSelected,
                         true: theme.primary,

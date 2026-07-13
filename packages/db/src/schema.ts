@@ -373,6 +373,8 @@ export const goals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    timing: text("timing").default("current").notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -382,6 +384,7 @@ export const goals = pgTable(
   },
   (table) => [
     index("goals_user_id_idx").on(table.userId),
+    index("goals_user_sort_order_idx").on(table.userId, table.sortOrder),
     index("goals_created_at_idx").on(table.createdAt),
   ],
 );

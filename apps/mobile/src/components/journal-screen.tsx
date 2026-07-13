@@ -50,6 +50,11 @@ import {
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
+import {
+  playSelectionHaptic,
+  playSuccessHaptic,
+  playWarningHaptic,
+} from "@/lib/haptics";
 import { rotateRemotePhoto } from "@/lib/photo-edit";
 import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
 import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
@@ -508,6 +513,7 @@ export function JournalScreen() {
 
   const confirmDeletePost = useCallback(
     (entry: JournalEntry) => {
+      playWarningHaptic();
       Alert.alert(
         "Delete log?",
         "This permanently deletes the report, note, photos, and feed activity for this goal instance.",
@@ -627,6 +633,7 @@ export function JournalScreen() {
 
   const handleDeletePhoto = useCallback(
     (photo: GoalPhoto) => {
+      playWarningHaptic();
       Alert.alert("Delete photo?", "This permanently removes this photo.", [
         { text: "Cancel", style: "cancel" },
         {
@@ -672,6 +679,7 @@ export function JournalScreen() {
       setSubmittingReplyGoalLogId(goalLogId);
       try {
         await addFeedComment(goalLogId, body, replyTarget.id);
+        playSuccessHaptic();
         if (!isMountedRef.current) return;
         setReplyDrafts((prev) => ({ ...prev, [goalLogId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [goalLogId]: null }));
@@ -719,12 +727,18 @@ export function JournalScreen() {
               icon={sym("book", "menu_book")}
               label="Goal"
               value={selectedGoal?.name ?? "All goals"}
-              onPress={() => setPicker("goal")}
+              onPress={() => {
+                playSelectionHaptic();
+                setPicker("goal");
+              }}
             />
             <MonthButton
               month={selectedMonth}
               year={selectedYear}
-              onPress={() => setPicker("monthYear")}
+              onPress={() => {
+                playSelectionHaptic();
+                setPicker("monthYear");
+              }}
             />
           </View>
 
@@ -763,7 +777,10 @@ export function JournalScreen() {
                     <CheckpointJournalCard
                       key={`checkpoint_${item.entry.id}`}
                       entry={item.entry}
-                      onOpenPhoto={setActivePhoto}
+                      onOpenPhoto={(photo) => {
+                        playSelectionHaptic();
+                        setActivePhoto(photo);
+                      }}
                     />
                   );
                 }
@@ -804,10 +821,17 @@ export function JournalScreen() {
                         [goalLogId]: value,
                       }));
                     }}
-                    onOpenPhoto={setActivePhoto}
-                    onOpenMenu={setActivePost}
+                    onOpenPhoto={(photo) => {
+                      playSelectionHaptic();
+                      setActivePhoto(photo);
+                    }}
+                    onOpenMenu={(entry) => {
+                      playSelectionHaptic();
+                      setActivePost(entry);
+                    }}
                     onReplyToComment={(comment) => {
                       if (!goalLogId) return;
+                      playSelectionHaptic();
                       setReplyTargets((prev) => ({
                         ...prev,
                         [goalLogId]: comment,
@@ -831,6 +855,7 @@ export function JournalScreen() {
         selectedGoalId={selectedGoalId}
         onClose={() => setPicker(null)}
         onSelect={(goalId) => {
+          playSelectionHaptic();
           setSelectedGoalId(goalId);
           setPicker(null);
         }}
@@ -841,6 +866,7 @@ export function JournalScreen() {
         selectedYear={selectedYear}
         onClose={() => setPicker(null)}
         onSelect={(month, year) => {
+          playSelectionHaptic();
           setSelectedMonth(month);
           setSelectedYear(year);
           setPicker(null);
@@ -2076,6 +2102,13 @@ function PhotoViewer({
   onDelete: () => void;
   onRotate: (degrees: number) => void;
 }) {
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
+  const viewerViewportStyle = useMemo(
+    () => ({ width: viewportWidth, height: viewportHeight }),
+    [viewportHeight, viewportWidth],
+  );
+
   return (
     <Modal
       animationType="fade"
@@ -2087,11 +2120,30 @@ function PhotoViewer({
       <View style={styles.photoViewer}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         {photo ? (
-          <Image
-            contentFit="contain"
-            source={{ uri: photo.url }}
-            style={styles.fullPhoto}
-          />
+          <ScrollView
+            key={photo.id}
+            bounces={false}
+            bouncesZoom
+            centerContent
+            contentContainerStyle={[
+              styles.photoZoomContent,
+              viewerViewportStyle,
+            ]}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            pinchGestureEnabled
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            style={styles.photoZoomFrame}
+          >
+            <View style={viewerViewportStyle}>
+              <Image
+                contentFit="contain"
+                source={{ uri: photo.url }}
+                style={styles.fullPhoto}
+              />
+            </View>
+          </ScrollView>
         ) : null}
         <Pressable
           accessibilityLabel="Close photo"
@@ -2594,11 +2646,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#000000E8",
   },
-  fullPhoto: { width: "100%", height: "84%" },
+  photoZoomFrame: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+  },
+  photoZoomContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fullPhoto: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
   viewerClose: {
     position: "absolute",
     top: 54,
     right: 20,
+    zIndex: 2,
     width: 40,
     height: 40,
     alignItems: "center",
@@ -2609,6 +2680,7 @@ const styles = StyleSheet.create({
   viewerControls: {
     position: "absolute",
     bottom: 54,
+    zIndex: 2,
     flexDirection: "row",
     gap: 18,
     paddingHorizontal: 22,

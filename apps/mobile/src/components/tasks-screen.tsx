@@ -28,6 +28,7 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
   type PlannedEvent,
   deletePlannedEvent,
@@ -277,7 +278,10 @@ export function TasksScreen() {
       );
       if (!isMountedRef.current) return;
       if (!task.completedAt && updated.completedAt) {
+        playSuccessHaptic();
         setCelebrate(true);
+      } else {
+        playSelectionHaptic();
       }
       setTasks((current) =>
         [

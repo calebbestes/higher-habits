@@ -1,10 +1,12 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
+import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  type GestureResponderEvent,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -36,6 +38,7 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
   PLAN_PERIODS,
   type PlanPeriod,
@@ -53,9 +56,11 @@ import {
   type Goal,
   type GoalCheckpoint,
   type GoalInput,
+  type GoalTiming,
   createPlanGoal,
   deletePlanGoal,
   fetchPlanGoals,
+  reorderPlanGoals,
   updatePlanGoal,
   updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
@@ -73,6 +78,7 @@ type ActiveCheckpoint = {
 };
 type DateKeyParts = { year: number; month: number; day: number };
 type TargetDatePart = "year" | "month" | "day";
+type GoalDragSlot = { id: string; y: number; height: number };
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
@@ -198,8 +204,19 @@ export function GoalsScreen() {
     useState<ActiveCheckpoint | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
   const [celebrate, setCelebrate] = useState(false);
+  const [showLaterGoals, setShowLaterGoals] = useState(false);
+  const [draggingGoalId, setDraggingGoalId] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
+  const goalsRef = useRef<Goal[]>([]);
+  const goalLayoutsRef = useRef<Record<string, { y: number; height: number }>>(
+    {},
+  );
+  const visibleGoalIdsRef = useRef<string[]>([]);
+  const dragSlotLayoutsRef = useRef<GoalDragSlot[]>([]);
+  const dragVisibleGoalIdsRef = useRef<string[]>([]);
+  const dragStartGoalIdsRef = useRef<string[]>([]);
+  const draggingGoalIdRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -207,6 +224,10 @@ export function GoalsScreen() {
     },
     [],
   );
+
+  useEffect(() => {
+    goalsRef.current = goals;
+  }, [goals]);
 
   const load = useCallback(async (refresh = false) => {
     const requestId = loadRequestIdRef.current + 1;
@@ -245,7 +266,7 @@ export function GoalsScreen() {
     void load();
   }, [load]);
 
-  const visibleGoals = useMemo(() => {
+  const searchedGoals = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return goals;
 
@@ -257,6 +278,31 @@ export function GoalsScreen() {
         .includes(normalizedQuery),
     );
   }, [goals, query]);
+  const queryIsActive = query.trim().length > 0;
+  const currentGoals = useMemo(
+    () => searchedGoals.filter((goal) => goal.timing !== "later"),
+    [searchedGoals],
+  );
+  const laterGoals = useMemo(
+    () => searchedGoals.filter((goal) => goal.timing === "later"),
+    [searchedGoals],
+  );
+  const visibleGoals = useMemo(
+    () =>
+      queryIsActive || showLaterGoals
+        ? searchedGoals
+        : searchedGoals.filter((goal) => goal.timing !== "later"),
+    [queryIsActive, searchedGoals, showLaterGoals],
+  );
+  const onlyLaterGoalsHidden =
+    !queryIsActive &&
+    !showLaterGoals &&
+    currentGoals.length === 0 &&
+    laterGoals.length > 0;
+
+  useEffect(() => {
+    visibleGoalIdsRef.current = visibleGoals.map((goal) => goal.id);
+  }, [visibleGoals]);
 
   const plannedEventsByCheckpointId = useMemo(() => {
     const map = new Map<string, PlannedEvent>();
@@ -279,13 +325,20 @@ export function GoalsScreen() {
   };
 
   const saveGoal = async (input: GoalInput) => {
-    if (editingGoal) {
-      await updatePlanGoal(editingGoal.id, input);
-    } else {
-      await createPlanGoal(input);
-    }
+    const savedGoal = editingGoal
+      ? await updatePlanGoal(editingGoal.id, input)
+      : await createPlanGoal(input);
 
-    await load();
+    setGoals((current) => {
+      const next = editingGoal
+        ? current.map((goal) => (goal.id === savedGoal.id ? savedGoal : goal))
+        : [...current, savedGoal];
+      goalsRef.current = next;
+      return next;
+    });
+    fetchPlannedEvents({ sourceType: "goal_checkpoint" })
+      .then(setPlannedEvents)
+      .catch(() => {});
     setFormOpen(false);
     setEditingGoal(null);
   };
@@ -417,6 +470,121 @@ export function GoalsScreen() {
     );
   };
 
+  const measureGoalCard = useCallback(
+    (goalId: string, y: number, height: number) => {
+      goalLayoutsRef.current[goalId] = { y, height };
+    },
+    [],
+  );
+
+  const playReorderHaptic = useCallback(() => {
+    void (
+      Platform.OS === "android"
+        ? Haptics.performAndroidHapticsAsync(
+            Haptics.AndroidHaptics.Segment_Tick,
+          )
+        : Haptics.selectionAsync()
+    ).catch(() => {});
+  }, []);
+
+  const moveGoalToVisibleIndex = useCallback(
+    (dragGoalId: string, destinationIndex: number) => {
+      const visibleGoalIds = dragVisibleGoalIdsRef.current;
+      const fromVisibleIndex = visibleGoalIds.indexOf(dragGoalId);
+      const nextVisibleIndex = Math.max(
+        0,
+        Math.min(destinationIndex, visibleGoalIds.length - 1),
+      );
+
+      if (
+        fromVisibleIndex < 0 ||
+        nextVisibleIndex < 0 ||
+        fromVisibleIndex === nextVisibleIndex
+      ) {
+        return;
+      }
+
+      const nextVisibleGoalIds = [...visibleGoalIds];
+      const [movedGoalId] = nextVisibleGoalIds.splice(fromVisibleIndex, 1);
+      nextVisibleGoalIds.splice(nextVisibleIndex, 0, movedGoalId);
+      dragVisibleGoalIdsRef.current = nextVisibleGoalIds;
+
+      const current = goalsRef.current;
+      const currentGoalsById = new Map(current.map((goal) => [goal.id, goal]));
+      const nextVisibleGoalIdSet = new Set(nextVisibleGoalIds);
+      let visibleIndex = 0;
+
+      const next = current.map((goal) => {
+        if (!nextVisibleGoalIdSet.has(goal.id)) return goal;
+        const visibleGoalId = nextVisibleGoalIds[visibleIndex++];
+        return currentGoalsById.get(visibleGoalId) ?? goal;
+      });
+      goalsRef.current = next;
+      setGoals(next);
+      playReorderHaptic();
+    },
+    [playReorderHaptic],
+  );
+
+  const beginGoalDrag = useCallback((goalId: string) => {
+    dragStartGoalIdsRef.current = goalsRef.current.map((goal) => goal.id);
+    dragVisibleGoalIdsRef.current = visibleGoalIdsRef.current;
+    dragSlotLayoutsRef.current = visibleGoalIdsRef.current
+      .map((id) => {
+        const layout = goalLayoutsRef.current[id];
+        return layout ? { id, ...layout } : null;
+      })
+      .filter((slot): slot is GoalDragSlot => Boolean(slot))
+      .sort((a, b) => a.y - b.y);
+    draggingGoalIdRef.current = goalId;
+    setDraggingGoalId(goalId);
+  }, []);
+
+  const handleGoalDragMove = useCallback(
+    (event: GestureResponderEvent) => {
+      const dragGoalId = draggingGoalIdRef.current;
+      if (!dragGoalId) return;
+
+      const y = event.nativeEvent.pageY;
+      const slotLayouts = dragSlotLayoutsRef.current;
+      if (slotLayouts.length === 0) return;
+
+      let destinationIndex = slotLayouts.length - 1;
+      for (let index = 0; index < slotLayouts.length; index += 1) {
+        const slot = slotLayouts[index];
+        if (y < slot.y + slot.height / 2) {
+          destinationIndex = index;
+          break;
+        }
+      }
+
+      moveGoalToVisibleIndex(dragGoalId, destinationIndex);
+    },
+    [moveGoalToVisibleIndex],
+  );
+
+  const endGoalDrag = useCallback(() => {
+    const dragGoalId = draggingGoalIdRef.current;
+    draggingGoalIdRef.current = null;
+    setDraggingGoalId(null);
+
+    if (!dragGoalId) return;
+
+    const nextGoalIds = goalsRef.current.map((goal) => goal.id);
+    if (nextGoalIds.join("|") === dragStartGoalIdsRef.current.join("|")) {
+      return;
+    }
+
+    reorderPlanGoals(nextGoalIds).catch((reorderError) => {
+      setError(
+        reorderError instanceof Error
+          ? reorderError.message
+          : "Could not reorder goals.",
+      );
+      void load();
+    });
+  }, [load]);
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -433,6 +601,7 @@ export function GoalsScreen() {
               onRefresh={() => void load(true)}
             />
           }
+          scrollEnabled={!draggingGoalId}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>
@@ -521,26 +690,63 @@ export function GoalsScreen() {
               <FloatingLogoLoader />
             </View>
           ) : visibleGoals.length ? (
-            <View style={styles.goalList}>
-              {visibleGoals.map((goal) => (
-                <GoalCard
-                  key={goal.id}
-                  goal={goal}
-                  plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-                  onDelete={() => confirmDelete(goal)}
-                  onEdit={() => openEdit(goal)}
-                  onPressCheckpoint={(checkpoint) =>
-                    setActiveCheckpoint({ goal, checkpoint })
-                  }
+            <>
+              <View style={styles.goalList}>
+                {visibleGoals.map((goal) => (
+                  <GoalCard
+                    key={goal.id}
+                    goal={goal}
+                    isDragging={draggingGoalId === goal.id}
+                    plannedEventsByCheckpointId={plannedEventsByCheckpointId}
+                    onDelete={() => confirmDelete(goal)}
+                    onDragEnd={endGoalDrag}
+                    onDragMove={handleGoalDragMove}
+                    onDragStart={beginGoalDrag}
+                    onEdit={() => openEdit(goal)}
+                    onMeasure={measureGoalCard}
+                    onPressCheckpoint={(checkpoint) =>
+                      setActiveCheckpoint({ goal, checkpoint })
+                    }
+                  />
+                ))}
+              </View>
+              {!queryIsActive && laterGoals.length > 0 ? (
+                <LaterGoalsToggle
+                  count={laterGoals.length}
+                  expanded={showLaterGoals}
+                  onPress={() => setShowLaterGoals((current) => !current)}
                 />
-              ))}
-            </View>
+              ) : null}
+            </>
+          ) : onlyLaterGoalsHidden ? (
+            <>
+              <View style={styles.centerState}>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                  No current goals
+                </Text>
+                <Text
+                  style={[
+                    styles.emptyDescription,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Later goals are hidden.
+                </Text>
+              </View>
+              <LaterGoalsToggle
+                count={laterGoals.length}
+                expanded={showLaterGoals}
+                onPress={() => setShowLaterGoals((current) => !current)}
+              />
+            </>
           ) : (
-            <EmptyState
-              hasGoals={goals.length > 0}
-              onAdd={openCreate}
-              query={query}
-            />
+            <>
+              <EmptyState
+                hasGoals={goals.length > 0}
+                onAdd={openCreate}
+                query={query}
+              />
+            </>
           )}
         </ScrollView>
       </SafeAreaView>
@@ -594,18 +800,29 @@ export function GoalsScreen() {
 
 function GoalCard({
   goal,
+  isDragging,
   plannedEventsByCheckpointId,
   onDelete,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
   onEdit,
+  onMeasure,
   onPressCheckpoint,
 }: {
   goal: Goal;
+  isDragging: boolean;
   plannedEventsByCheckpointId: Map<string, PlannedEvent>;
   onDelete: () => void;
+  onDragEnd: () => void;
+  onDragMove: (event: GestureResponderEvent) => void;
+  onDragStart: (goalId: string) => void;
   onEdit: () => void;
+  onMeasure: (goalId: string, y: number, height: number) => void;
   onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
 }) {
   const theme = useTheme();
+  const cardRef = useRef<View>(null);
   const completedCount = goal.checkpoints.filter(
     (checkpoint) => checkpoint.completed,
   ).length;
@@ -624,23 +841,39 @@ function GoalCard({
 
   return (
     <View
+      ref={cardRef}
+      onLayout={() => {
+        cardRef.current?.measureInWindow((_x, y, _width, height) => {
+          onMeasure(goal.id, y, height);
+        });
+      }}
       style={[
         styles.goalCard,
         { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        isDragging && styles.goalCardDragging,
       ]}
     >
       <View style={styles.goalCardTop}>
         <View
-          style={[
-            styles.goalIcon,
-            { backgroundColor: theme.backgroundElement },
-          ]}
+          accessible
+          accessibilityHint="Hold and drag to reorder this goal."
+          accessibilityLabel={`Reorder ${goal.title}`}
+          accessibilityRole="button"
+          hitSlop={8}
+          onMoveShouldSetResponder={() => true}
+          onResponderGrant={() => onDragStart(goal.id)}
+          onResponderMove={onDragMove}
+          onResponderRelease={onDragEnd}
+          onResponderTerminate={onDragEnd}
+          onResponderTerminationRequest={() => false}
+          onStartShouldSetResponder={() => true}
+          style={styles.dragHandle}
         >
           <SymbolView
-            name={symbol("target", "target")}
+            name={symbol("line.3.horizontal", "drag_handle")}
             size={22}
             weight="semibold"
-            tintColor={theme.primary}
+            tintColor={isDragging ? theme.primary : theme.textSecondary}
           />
         </View>
         <View style={styles.goalBody}>
@@ -919,6 +1152,7 @@ function CheckpointActionsModal({
       setNote(next.notes ?? "");
       onSaved(updatedGoal);
       if (!completed && next.completed) {
+        playSuccessHaptic();
         onCompleted();
       }
     } catch (err) {
@@ -1507,7 +1741,10 @@ function CheckpointPlanTimeField({
               accessibilityRole="button"
               accessibilityState={{ selected }}
               key={option}
-              onPress={() => onChangePeriod(option)}
+              onPress={() => {
+                playSelectionHaptic();
+                onChangePeriod(option);
+              }}
               style={({ pressed }) => [
                 styles.planPeriodChip,
                 {
@@ -1536,6 +1773,46 @@ function CheckpointPlanTimeField({
         })}
       </View>
     </View>
+  );
+}
+
+function LaterGoalsToggle({
+  count,
+  expanded,
+  onPress,
+}: {
+  count: number;
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.laterGoalsToggle,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.laterGoalsToggleText, { color: theme.text }]}>
+        {expanded ? "Hide later goals" : `Show later goals (${count})`}
+      </Text>
+      <SymbolView
+        name={symbol(
+          expanded ? "chevron.up" : "chevron.down",
+          expanded ? "keyboard_arrow_up" : "keyboard_arrow_down",
+        )}
+        size={18}
+        weight="semibold"
+        tintColor={theme.textSecondary}
+      />
+    </Pressable>
   );
 }
 
@@ -1620,6 +1897,7 @@ export function GoalFormModal({
 }) {
   const theme = useTheme();
   const [title, setTitle] = useState("");
+  const [timing, setTiming] = useState<GoalTiming>("current");
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1627,6 +1905,7 @@ export function GoalFormModal({
   useEffect(() => {
     if (!isOpen) return;
     setTitle(goal?.title ?? initialValues?.title ?? "");
+    setTiming(goal?.timing ?? initialValues?.timing ?? "current");
     setCheckpoints(
       goal?.checkpoints.length
         ? goal.checkpoints.map((checkpoint) => ({
@@ -1694,6 +1973,7 @@ export function GoalFormModal({
     try {
       await onSave({
         title: trimmedTitle,
+        timing,
         checkpoints: checkpointInput.map((checkpoint) => ({
           title: checkpoint.title,
           targetDate: checkpoint.targetDate || null,
@@ -1819,6 +2099,52 @@ export function GoalFormModal({
                     value={title}
                   />
                 </View>
+                <View style={styles.inputField}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Timing
+                  </Text>
+                  <View style={styles.goalTimingRow}>
+                    {(["current", "later"] as GoalTiming[]).map((option) => {
+                      const selected = timing === option;
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          key={option}
+                          onPress={() => {
+                            playSelectionHaptic();
+                            setTiming(option);
+                          }}
+                          style={({ pressed }) => [
+                            styles.goalTimingChip,
+                            {
+                              backgroundColor: selected
+                                ? theme.primary
+                                : theme.backgroundElement,
+                              borderColor: selected
+                                ? theme.primary
+                                : theme.tabBorder,
+                            },
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.goalTimingChipText,
+                              {
+                                color: selected
+                                  ? theme.primaryForeground
+                                  : theme.textSecondary,
+                              },
+                            ]}
+                          >
+                            {option === "current" ? "Current" : "Later"}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               </View>
             </View>
 
@@ -1851,11 +2177,12 @@ export function GoalFormModal({
                       <Pressable
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: checkpoint.completed }}
-                        onPress={() =>
+                        onPress={() => {
+                          playSelectionHaptic();
                           updateCheckpoint(checkpoint.localId, {
                             completed: !checkpoint.completed,
-                          })
-                        }
+                          });
+                        }}
                         style={({ pressed }) => [
                           styles.checkpointToggle,
                           {
@@ -2165,21 +2492,25 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 12,
   },
+  goalCardDragging: {
+    opacity: 0.82,
+    transform: [{ scale: 0.99 }],
+  },
   goalCardTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-  },
-  goalIcon: {
-    width: 46,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 15,
+    gap: 8,
   },
   goalBody: { flex: 1, minWidth: 0, gap: 4 },
   goalTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
   goalMeta: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  dragHandle: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+  },
   iconButton: {
     width: 38,
     height: 38,
@@ -2251,6 +2582,21 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   completedTimelineTitle: { textDecorationLine: "line-through", opacity: 0.7 },
+  laterGoalsToggle: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 14,
+  },
+  laterGoalsToggleText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
   sheetOverlay: {
     flex: 1,
     justifyContent: "flex-end",
@@ -2440,6 +2786,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     fontWeight: "500",
+  },
+  goalTimingRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  goalTimingChip: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+  },
+  goalTimingChipText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   checkpointGoalLabel: {
     fontSize: 13,

@@ -18,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DatePartPicker } from "@/components/date-part-picker";
 import { useTheme } from "@/hooks/use-theme";
+import { playSelectionHaptic } from "@/lib/haptics";
 import type { Project } from "@/lib/projects-client";
 import {
   TASK_IMPORTANCES,
@@ -563,7 +564,10 @@ function Choice({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      onPress={onPress}
+      onPress={() => {
+        playSelectionHaptic();
+        onPress();
+      }}
       style={({ pressed }) => [
         styles.choice,
         {

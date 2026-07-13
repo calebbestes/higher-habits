@@ -28,7 +28,12 @@ import {
 import { DatePartPicker } from "@/components/date-part-picker";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { useTheme } from "@/hooks/use-theme";
-import { type FriendRow, fetchFriends } from "@/lib/friends-client";
+import {
+  type FriendGroupRow,
+  type FriendRow,
+  fetchFriendGroups,
+  fetchFriends,
+} from "@/lib/friends-client";
 import {
   type GoalLogStatus,
   type GoalLogsSnapshot,
@@ -42,6 +47,11 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import { type Goal, type GoalVisibility, fetchGoals } from "@/lib/goals-client";
+import {
+  playSelectionHaptic,
+  playSuccessHaptic,
+  playWarningHaptic,
+} from "@/lib/haptics";
 import {
   type CreateSharedGoalInput,
   type SharedGoalParticipantSnapshot,
@@ -1336,11 +1346,13 @@ type CreateState = {
 function CreateGoalModal({
   personalGoals,
   friends,
+  friendGroups,
   onClose,
   onCreate,
 }: {
   personalGoals: Goal[];
   friends: FriendRow[];
+  friendGroups: FriendGroupRow[];
   onClose: () => void;
   onCreate: (input: CreateSharedGoalInput) => Promise<void>;
 }) {
@@ -1364,6 +1376,15 @@ function CreateGoalModal({
   });
 
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
+  const acceptedFriendIds = new Set(acceptedFriends.map((f) => f.friendId));
+  const selectableGroups = friendGroups
+    .map((group) => ({
+      ...group,
+      memberIds: group.members
+        .map((member) => member.id)
+        .filter((id) => acceptedFriendIds.has(id)),
+    }))
+    .filter((group) => group.memberIds.length > 0);
   const scoringOptions =
     form.mode === "collaborative" ? COLLAB_SCORING : COMP_SCORING;
   const needsTarget = form.scoringType
@@ -1419,12 +1440,27 @@ function CreateGoalModal({
   }
 
   function toggleFriend(friendId: string) {
+    playSelectionHaptic();
     setForm((f) => ({
       ...f,
       invitedUserIds: f.invitedUserIds.includes(friendId)
         ? f.invitedUserIds.filter((id) => id !== friendId)
         : [...f.invitedUserIds, friendId],
     }));
+  }
+
+  function toggleGroup(memberIds: string[]) {
+    playSelectionHaptic();
+    setForm((f) => {
+      const allSelected = memberIds.every((id) =>
+        f.invitedUserIds.includes(id),
+      );
+      const selectedIds = allSelected
+        ? f.invitedUserIds.filter((id) => !memberIds.includes(id))
+        : [...new Set([...f.invitedUserIds, ...memberIds])];
+
+      return { ...f, invitedUserIds: selectedIds };
+    });
   }
 
   return (
@@ -1516,14 +1552,15 @@ function CreateGoalModal({
                 ]}
               >
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
+                    playSelectionHaptic();
                     setForm((f) => ({
                       ...f,
                       mode: "collaborative",
                       scoringType:
                         f.mode === "competitive" ? null : f.scoringType,
-                    }))
-                  }
+                    }));
+                  }}
                   style={[
                     styles.modeCard,
                     {
@@ -1580,14 +1617,15 @@ function CreateGoalModal({
                   />
                 </Pressable>
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
+                    playSelectionHaptic();
                     setForm((f) => ({
                       ...f,
                       mode: "competitive",
                       scoringType:
                         f.mode === "collaborative" ? null : f.scoringType,
-                    }))
-                  }
+                    }));
+                  }}
                   style={[
                     styles.modeCard,
                     styles.modeCardLast,
@@ -1700,9 +1738,10 @@ function CreateGoalModal({
                 {scoringOptions.map((type) => (
                   <Pressable
                     key={type}
-                    onPress={() =>
-                      setForm((f) => ({ ...f, scoringType: type }))
-                    }
+                    onPress={() => {
+                      playSelectionHaptic();
+                      setForm((f) => ({ ...f, scoringType: type }));
+                    }}
                     style={[
                       styles.scoringChip,
                       {
@@ -1863,7 +1902,10 @@ function CreateGoalModal({
                 Select which of your goals to track for this shared goal:
               </Text>
               <Pressable
-                onPress={() => setForm((f) => ({ ...f, personalGoalId: null }))}
+                onPress={() => {
+                  playSelectionHaptic();
+                  setForm((f) => ({ ...f, personalGoalId: null }));
+                }}
                 style={[
                   styles.goalOption,
                   {
@@ -1890,9 +1932,10 @@ function CreateGoalModal({
               {personalGoals.map((g) => (
                 <Pressable
                   key={g.id}
-                  onPress={() =>
-                    setForm((f) => ({ ...f, personalGoalId: g.id }))
-                  }
+                  onPress={() => {
+                    playSelectionHaptic();
+                    setForm((f) => ({ ...f, personalGoalId: g.id }));
+                  }}
                   style={[
                     styles.goalOption,
                     {
@@ -1937,62 +1980,134 @@ function CreateGoalModal({
                   Collab tab — or create this goal now and invite people later.
                 </Text>
               ) : (
-                acceptedFriends.map((f) => {
-                  const selected = form.invitedUserIds.includes(f.friendId);
-                  return (
-                    <Pressable
-                      key={f.friendId}
-                      onPress={() => toggleFriend(f.friendId)}
-                      style={[
-                        styles.friendRow,
-                        { borderBottomColor: theme.tabBorder },
-                      ]}
-                    >
-                      <Avatar
-                        image={f.friendImage}
-                        name={f.friendName}
-                        size={36}
-                      />
-                      <View style={styles.friendInfo}>
-                        <Text
-                          style={[styles.friendName, { color: theme.text }]}
-                        >
-                          {f.friendName}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.friendEmail,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          {f.friendEmail}
-                        </Text>
-                      </View>
-                      <View
+                <>
+                  {selectableGroups.length > 0 ? (
+                    <View style={styles.groupInviteSection}>
+                      <Text
                         style={[
-                          styles.checkbox,
-                          {
-                            backgroundColor: selected
-                              ? theme.primary
-                              : "transparent",
-                            borderColor: selected
-                              ? theme.primary
-                              : theme.textSecondary,
-                          },
+                          styles.groupInviteLabel,
+                          { color: theme.textSecondary },
                         ]}
                       >
-                        {selected && (
-                          <SymbolView
-                            name={sym("checkmark", "check")}
-                            size={11}
-                            weight="semibold"
-                            tintColor={theme.primaryForeground}
-                          />
-                        )}
-                      </View>
-                    </Pressable>
-                  );
-                })
+                        Add a group
+                      </Text>
+                      <ScrollView
+                        horizontal
+                        contentContainerStyle={styles.groupInviteList}
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        {selectableGroups.map((group) => {
+                          const selectedCount = group.memberIds.filter((id) =>
+                            form.invitedUserIds.includes(id),
+                          ).length;
+                          const selected =
+                            selectedCount === group.memberIds.length;
+                          return (
+                            <Pressable
+                              key={group.id}
+                              onPress={() => toggleGroup(group.memberIds)}
+                              style={({ pressed }) => [
+                                styles.groupInviteChip,
+                                {
+                                  backgroundColor: selected
+                                    ? theme.primary
+                                    : theme.backgroundElement,
+                                  borderColor: selected
+                                    ? theme.primary
+                                    : theme.tabBorder,
+                                },
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.groupInviteName,
+                                  {
+                                    color: selected
+                                      ? theme.primaryForeground
+                                      : theme.text,
+                                  },
+                                ]}
+                              >
+                                {group.name}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.groupInviteMeta,
+                                  {
+                                    color: selected
+                                      ? theme.primaryForeground
+                                      : theme.textSecondary,
+                                  },
+                                ]}
+                              >
+                                {selectedCount}/{group.memberIds.length}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  {acceptedFriends.map((f) => {
+                    const selected = form.invitedUserIds.includes(f.friendId);
+                    return (
+                      <Pressable
+                        key={f.friendId}
+                        onPress={() => toggleFriend(f.friendId)}
+                        style={[
+                          styles.friendRow,
+                          { borderBottomColor: theme.tabBorder },
+                        ]}
+                      >
+                        <Avatar
+                          image={f.friendImage}
+                          name={f.friendName}
+                          size={36}
+                        />
+                        <View style={styles.friendInfo}>
+                          <Text
+                            style={[styles.friendName, { color: theme.text }]}
+                          >
+                            {f.friendName}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.friendEmail,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {f.friendEmail}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.checkbox,
+                            {
+                              backgroundColor: selected
+                                ? theme.primary
+                                : "transparent",
+                              borderColor: selected
+                                ? theme.primary
+                                : theme.textSecondary,
+                            },
+                          ]}
+                        >
+                          {selected && (
+                            <SymbolView
+                              name={sym("checkmark", "check")}
+                              size={11}
+                              weight="semibold"
+                              tintColor={theme.primaryForeground}
+                            />
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </>
               )}
             </View>
           )}
@@ -2162,6 +2277,7 @@ export function SharedGoalsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
   const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<SharedGoalSnapshot | null>(
     null,
   );
@@ -2215,10 +2331,15 @@ export function SharedGoalsScreen() {
   }, []);
 
   const loadAuxiliary = useCallback(async () => {
-    const [g, f] = await Promise.allSettled([fetchGoals(), fetchFriends()]);
+    const [g, f, groups] = await Promise.allSettled([
+      fetchGoals(),
+      fetchFriends(),
+      fetchFriendGroups(),
+    ]);
     if (!isMountedRef.current) return;
     if (g.status === "fulfilled") setPersonalGoals(g.value);
     if (f.status === "fulfilled") setFriends(f.value);
+    if (groups.status === "fulfilled") setFriendGroups(groups.value);
   }, []);
 
   useEffect(() => {
@@ -2337,6 +2458,11 @@ export function SharedGoalsScreen() {
     setIsUpdatingStatus(true);
     try {
       await setGoalLog(actionPersonalGoalId, todayKey(), status);
+      if (status === "complete") {
+        playSuccessHaptic();
+      } else {
+        playSelectionHaptic();
+      }
       if (!isMountedRef.current) return;
       await Promise.all([load(), refreshLogsSnapshot()]);
     } catch (e) {
@@ -2394,6 +2520,7 @@ export function SharedGoalsScreen() {
         action: "accept",
         personalGoalId: null,
       });
+      playSuccessHaptic();
       if (!isMountedRef.current) return;
       await load();
     } catch (e) {
@@ -2403,6 +2530,7 @@ export function SharedGoalsScreen() {
   }
 
   async function handleDecline(goal: SharedGoalSnapshot) {
+    playWarningHaptic();
     Alert.alert("Decline invitation", `Decline "${goal.name}"?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -2485,6 +2613,7 @@ export function SharedGoalsScreen() {
         personalGoalId: goalId,
         deletePreviousAutoCreated: deleteAuto,
       });
+      playSuccessHaptic();
       if (!isMountedRef.current) return;
       await load();
     } catch (e) {
@@ -2495,6 +2624,7 @@ export function SharedGoalsScreen() {
 
   async function handleCreate(input: CreateSharedGoalInput) {
     await createSharedGoal(input);
+    playSuccessHaptic();
     if (!isMountedRef.current) return;
     setShowCreate(false);
     await load();
@@ -2739,6 +2869,7 @@ export function SharedGoalsScreen() {
         <CreateGoalModal
           personalGoals={personalGoals}
           friends={friends}
+          friendGroups={friendGroups}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
         />
@@ -3577,6 +3708,37 @@ const styles = StyleSheet.create({
   },
   dateRow: {
     flexDirection: "row",
+  },
+  groupInviteSection: {
+    marginBottom: 8,
+    gap: 8,
+  },
+  groupInviteLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  groupInviteList: {
+    gap: 8,
+    paddingRight: 20,
+  },
+  groupInviteChip: {
+    minWidth: 112,
+    maxWidth: 180,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  groupInviteName: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  groupInviteMeta: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
   },
   friendRow: {
     flexDirection: "row",
