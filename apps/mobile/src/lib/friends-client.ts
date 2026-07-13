@@ -45,6 +45,21 @@ export type FriendRow = {
   incentives: FriendIncentiveRow[];
 };
 
+export type FriendGroupMember = {
+  id: string;
+  name: string;
+  image: string | null;
+  phoneNumber: string | null;
+};
+
+export type FriendGroupRow = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  members: FriendGroupMember[];
+};
+
 export type FriendProfileHabit = {
   id: string;
   name: string;
@@ -143,6 +158,43 @@ function normalizeFriends(value: unknown): FriendRow[] {
   return Array.isArray(value)
     ? value.flatMap((row) => {
         const normalized = normalizeFriend(row);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+}
+
+function normalizeFriendGroupMember(value: unknown): FriendGroupMember | null {
+  if (!isRecord(value) || typeof value.id !== "string") return null;
+
+  return {
+    id: value.id,
+    name: stringOrFallback(value.name, "Friend"),
+    image: nullableString(value.image),
+    phoneNumber: nullableString(value.phoneNumber),
+  };
+}
+
+function normalizeFriendGroup(value: unknown): FriendGroupRow | null {
+  if (!isRecord(value) || typeof value.id !== "string") return null;
+
+  return {
+    id: value.id,
+    name: stringOrFallback(value.name, "Group"),
+    createdAt: stringOrFallback(value.createdAt),
+    updatedAt: stringOrFallback(value.updatedAt),
+    members: Array.isArray(value.members)
+      ? value.members.flatMap((member) => {
+          const normalized = normalizeFriendGroupMember(member);
+          return normalized ? [normalized] : [];
+        })
+      : [],
+  };
+}
+
+function normalizeFriendGroups(value: unknown): FriendGroupRow[] {
+  return Array.isArray(value)
+    ? value.flatMap((row) => {
+        const normalized = normalizeFriendGroup(row);
         return normalized ? [normalized] : [];
       })
     : [];
@@ -266,6 +318,13 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
           icon: stringOrFallback(value.goal.icon, "mdi:target"),
         }
       : { id: "", name: "Habit", icon: "mdi:target" },
+    category: isRecord(value.category)
+      ? {
+          id: stringOrFallback(value.category.id),
+          name: stringOrFallback(value.category.name, "Habits"),
+          icon: stringOrFallback(value.category.icon, "target"),
+        }
+      : null,
     dateKey: stringOrFallback(value.dateKey),
     notes: stringOrFallback(value.notes),
     updatedAt: stringOrFallback(value.updatedAt),
@@ -356,6 +415,11 @@ export type FriendFeedEntry = {
     name: string;
     icon: string;
   };
+  category: {
+    id: string;
+    name: string;
+    icon: string;
+  } | null;
   dateKey: string;
   notes: string;
   updatedAt: string;
@@ -385,6 +449,26 @@ export const fetchFriends = (): Promise<FriendRow[]> =>
   mobileApiFetch("/api/friends")
     .then((r) => parseResponse<unknown>(r))
     .then(normalizeFriends);
+
+export const fetchFriendGroups = (): Promise<FriendGroupRow[]> =>
+  mobileApiFetch("/api/friend-groups")
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeFriendGroups);
+
+export const createFriendGroup = (payload: {
+  name: string;
+  memberIds: string[];
+}): Promise<FriendGroupRow> =>
+  mobileApiFetch("/api/friend-groups", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+    .then((r) => parseResponse<unknown>(r))
+    .then((value) => {
+      const normalized = normalizeFriendGroup(value);
+      if (!normalized) throw new Error("Could not create group.");
+      return normalized;
+    });
 
 export const fetchFriendProfile = (
   friendshipId: string,

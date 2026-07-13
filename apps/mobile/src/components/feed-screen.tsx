@@ -32,9 +32,11 @@ import {
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
+  type FriendGroupRow,
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
+  fetchFriendGroups,
   fetchFriends,
   fetchFriendsFeed,
   reportContent,
@@ -50,6 +52,12 @@ type ActiveFeedPhoto = {
 };
 
 const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
+const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
+
+type FeedFilters = {
+  groupId: string | null;
+  categoryId: string | null;
+};
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -152,11 +160,51 @@ async function setStoredHiddenFeedGoals(keys: Set<string>) {
   await SecureStore.setItemAsync(HIDDEN_FEED_GOALS_KEY, value);
 }
 
+async function getStoredFeedFilters(): Promise<FeedFilters> {
+  const stored =
+    Platform.OS === "web"
+      ? globalThis.localStorage?.getItem(FEED_FILTER_PREFERENCES_KEY)
+      : await SecureStore.getItemAsync(FEED_FILTER_PREFERENCES_KEY);
+
+  if (!stored) return { groupId: null, categoryId: null };
+
+  try {
+    const parsed = JSON.parse(stored);
+    return {
+      groupId:
+        typeof parsed?.groupId === "string" && parsed.groupId
+          ? parsed.groupId
+          : null,
+      categoryId:
+        typeof parsed?.categoryId === "string" && parsed.categoryId
+          ? parsed.categoryId
+          : null,
+    };
+  } catch {
+    return { groupId: null, categoryId: null };
+  }
+}
+
+async function setStoredFeedFilters(filters: FeedFilters) {
+  const value = JSON.stringify(filters);
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(FEED_FILTER_PREFERENCES_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(FEED_FILTER_PREFERENCES_KEY, value);
+}
+
 export function FeedScreen() {
   const theme = useTheme();
   const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
+  const [feedFilters, setFeedFilters] = useState<FeedFilters>({
+    groupId: null,
+    categoryId: null,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,11 +234,15 @@ export function FeedScreen() {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
     try {
-      const data = await fetchFriendsFeed();
+      const [data, groups] = await Promise.all([
+        fetchFriendsFeed(),
+        fetchFriendGroups().catch(() => []),
+      ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
       setEntries(data);
+      setFriendGroups(groups);
     } catch (err) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
@@ -211,6 +263,12 @@ export function FeedScreen() {
   useEffect(() => {
     void getStoredHiddenFeedGoals().then((keys) => {
       if (isMountedRef.current) setHiddenFeedGoalKeys(keys);
+    });
+  }, []);
+
+  useEffect(() => {
+    void getStoredFeedFilters().then((filters) => {
+      if (isMountedRef.current) setFeedFilters(filters);
     });
   }, []);
 
@@ -575,11 +633,62 @@ export function FeedScreen() {
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
     : null;
+  const categoryOptions = useMemo(() => {
+    const categoriesById = new Map<
+      string,
+      NonNullable<FriendFeedEntry["category"]>
+    >();
+
+    for (const entry of entries) {
+      if (entry.category) {
+        categoriesById.set(entry.category.id, entry.category);
+      }
+    }
+
+    return [...categoriesById.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }, [entries]);
+  const activeGroupId = friendGroups.some(
+    (group) => group.id === feedFilters.groupId,
+  )
+    ? feedFilters.groupId
+    : null;
+  const activeCategoryId = categoryOptions.some(
+    (category) => category.id === feedFilters.categoryId,
+  )
+    ? feedFilters.categoryId
+    : null;
+  const activeGroupMemberIds = useMemo(() => {
+    const group = activeGroupId
+      ? friendGroups.find((item) => item.id === activeGroupId)
+      : null;
+    return new Set(group?.members.map((member) => member.id) ?? []);
+  }, [activeGroupId, friendGroups]);
   const visibleEntries = useMemo(
     () =>
-      entries.filter((entry) => !hiddenFeedGoalKeys.has(feedGoalKey(entry))),
-    [entries, hiddenFeedGoalKeys],
+      entries.filter((entry) => {
+        if (hiddenFeedGoalKeys.has(feedGoalKey(entry))) return false;
+        if (activeGroupId && !activeGroupMemberIds.has(entry.friend.id)) {
+          return false;
+        }
+        if (activeCategoryId && entry.category?.id !== activeCategoryId) {
+          return false;
+        }
+        return true;
+      }),
+    [
+      activeCategoryId,
+      activeGroupId,
+      activeGroupMemberIds,
+      entries,
+      hiddenFeedGoalKeys,
+    ],
   );
+  const saveFeedFilters = useCallback((filters: FeedFilters) => {
+    setFeedFilters(filters);
+    void setStoredFeedFilters(filters).catch(() => undefined);
+  }, []);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -623,6 +732,22 @@ export function FeedScreen() {
                 </Pressable>
               </View>
             ) : null}
+
+            <FeedFilterBar
+              activeCategoryId={activeCategoryId}
+              activeGroupId={activeGroupId}
+              categories={categoryOptions}
+              groups={friendGroups}
+              onCategoryChange={(categoryId) =>
+                saveFeedFilters({ ...feedFilters, categoryId })
+              }
+              onClear={() =>
+                saveFeedFilters({ groupId: null, categoryId: null })
+              }
+              onGroupChange={(groupId) =>
+                saveFeedFilters({ ...feedFilters, groupId })
+              }
+            />
 
             {isLoading ? (
               <View style={styles.centerState}>
@@ -785,6 +910,136 @@ export function FeedScreen() {
         }}
       />
     </View>
+  );
+}
+
+function FeedFilterBar({
+  activeCategoryId,
+  activeGroupId,
+  categories,
+  groups,
+  onCategoryChange,
+  onClear,
+  onGroupChange,
+}: {
+  activeCategoryId: string | null;
+  activeGroupId: string | null;
+  categories: NonNullable<FriendFeedEntry["category"]>[];
+  groups: FriendGroupRow[];
+  onCategoryChange: (categoryId: string | null) => void;
+  onClear: () => void;
+  onGroupChange: (groupId: string | null) => void;
+}) {
+  const theme = useTheme();
+
+  if (groups.length === 0 && categories.length === 0) return null;
+
+  return (
+    <View style={styles.filterWrap}>
+      {groups.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          <FilterChip
+            active={activeGroupId === null}
+            label="All groups"
+            onPress={() => onGroupChange(null)}
+          />
+          {groups.map((group) => (
+            <FilterChip
+              key={group.id}
+              active={activeGroupId === group.id}
+              label={group.name}
+              onPress={() => onGroupChange(group.id)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
+      {categories.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          <FilterChip
+            active={activeCategoryId === null}
+            label="All habits"
+            onPress={() => onCategoryChange(null)}
+          />
+          {categories.map((category) => (
+            <FilterChip
+              key={category.id}
+              active={activeCategoryId === category.id}
+              label={category.name}
+              onPress={() => onCategoryChange(category.id)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
+      {(activeGroupId || activeCategoryId) && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onClear}
+          style={({ pressed }) => [
+            styles.clearFiltersButton,
+            { borderColor: theme.tabBorder },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("xmark.circle.fill", "cancel")}
+            size={14}
+            tintColor={theme.textSecondary}
+          />
+          <Text
+            style={[styles.clearFiltersText, { color: theme.textSecondary }]}
+          >
+            Clear filters
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.filterChip,
+        {
+          backgroundColor: active ? theme.primary : theme.backgroundElement,
+          borderColor: active ? theme.primary : theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.filterChipText,
+          { color: active ? theme.primaryForeground : theme.textSecondary },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -1563,6 +1818,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     fontWeight: "500",
+  },
+  filterWrap: { gap: 8 },
+  filterRow: {
+    gap: 8,
+    paddingRight: 18,
+  },
+  filterChip: {
+    maxWidth: 180,
+    minHeight: 34,
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+  },
+  filterChipText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  clearFiltersButton: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+  },
+  clearFiltersText: {
+    fontSize: 12,
+    fontWeight: "800",
   },
   feedList: { gap: 14 },
   card: {
