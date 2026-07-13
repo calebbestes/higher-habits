@@ -1642,6 +1642,8 @@ function PostActionsSheet({
 }
 
 const JOURNAL_COLLAPSE_HEIGHT = 130;
+const HTML_IGNORED_TAGS = ["script", "style", "iframe", "img", "video"];
+const HTML_DEFAULT_TEXT_PROPS = { selectable: true };
 
 function RichJournalNote({ html }: { html: string }) {
   const theme = useTheme();
@@ -1649,6 +1651,16 @@ function RichJournalNote({ html }: { html: string }) {
   const contentWidth = Math.max(0, Math.min(width, MaxContentWidth) - 66);
   const [expanded, setExpanded] = useState(false);
   const isLong = html.replace(/<[^>]*>/g, "").trim().length > 300;
+  const source = useMemo(() => ({ html }), [html]);
+  const baseStyle = useMemo(
+    () => ({
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: "500" as const,
+      lineHeight: 21,
+    }),
+    [theme.text],
+  );
   const tagsStyles = useMemo<MixedStyleRecord>(
     () => ({
       p: {
@@ -1737,17 +1749,12 @@ function RichJournalNote({ html }: { html: string }) {
         }
       >
         <RenderHTML
-          baseStyle={{
-            color: theme.text,
-            fontSize: 14,
-            fontWeight: "500",
-            lineHeight: 21,
-          }}
+          baseStyle={baseStyle}
           contentWidth={contentWidth}
-          defaultTextProps={{ selectable: true }}
+          defaultTextProps={HTML_DEFAULT_TEXT_PROPS}
           enableCSSInlineProcessing={false}
-          ignoredDomTags={["script", "style", "iframe", "img", "video"]}
-          source={{ html }}
+          ignoredDomTags={HTML_IGNORED_TAGS}
+          source={source}
           tagsStyles={tagsStyles}
         />
       </View>

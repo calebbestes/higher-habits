@@ -205,6 +205,7 @@ export function FeedScreen() {
     groupId: null,
     categoryId: null,
   });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -641,7 +642,10 @@ export function FeedScreen() {
 
     for (const entry of entries) {
       if (entry.category) {
-        categoriesById.set(entry.category.id, entry.category);
+        const nameKey = entry.category.name.trim().toLowerCase();
+        if (nameKey && !categoriesById.has(nameKey)) {
+          categoriesById.set(nameKey, entry.category);
+        }
       }
     }
 
@@ -659,6 +663,10 @@ export function FeedScreen() {
   )
     ? feedFilters.categoryId
     : null;
+  const activeCategoryName = activeCategoryId
+    ? (categoryOptions.find((category) => category.id === activeCategoryId)
+        ?.name ?? null)
+    : null;
   const activeGroupMemberIds = useMemo(() => {
     const group = activeGroupId
       ? friendGroups.find((item) => item.id === activeGroupId)
@@ -672,13 +680,17 @@ export function FeedScreen() {
         if (activeGroupId && !activeGroupMemberIds.has(entry.friend.id)) {
           return false;
         }
-        if (activeCategoryId && entry.category?.id !== activeCategoryId) {
+        if (
+          activeCategoryName &&
+          entry.category?.name.trim().toLowerCase() !==
+            activeCategoryName.trim().toLowerCase()
+        ) {
           return false;
         }
         return true;
       }),
     [
-      activeCategoryId,
+      activeCategoryName,
       activeGroupId,
       activeGroupMemberIds,
       entries,
@@ -689,6 +701,8 @@ export function FeedScreen() {
     setFeedFilters(filters);
     void setStoredFeedFilters(filters).catch(() => undefined);
   }, []);
+  const activeFilterCount =
+    (activeGroupId ? 1 : 0) + (activeCategoryId ? 1 : 0);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -717,6 +731,40 @@ export function FeedScreen() {
               <View style={styles.pageHeaderText}>
                 <CollabHeaderMenu currentSection="feed" />
               </View>
+              <Pressable
+                accessibilityLabel="Filter feed"
+                accessibilityRole="button"
+                onPress={() => setIsFilterOpen(true)}
+                style={({ pressed }) => [
+                  styles.filterButton,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("line.3.horizontal.decrease.circle", "tune")}
+                  size={22}
+                  weight="semibold"
+                  tintColor={theme.primary}
+                />
+                {activeFilterCount > 0 ? (
+                  <View
+                    style={[
+                      styles.filterBadge,
+                      { backgroundColor: theme.primary },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterBadgeText,
+                        { color: theme.primaryForeground },
+                      ]}
+                    >
+                      {activeFilterCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </Pressable>
             </View>
 
             {error ? (
@@ -732,22 +780,6 @@ export function FeedScreen() {
                 </Pressable>
               </View>
             ) : null}
-
-            <FeedFilterBar
-              activeCategoryId={activeCategoryId}
-              activeGroupId={activeGroupId}
-              categories={categoryOptions}
-              groups={friendGroups}
-              onCategoryChange={(categoryId) =>
-                saveFeedFilters({ ...feedFilters, categoryId })
-              }
-              onClear={() =>
-                saveFeedFilters({ groupId: null, categoryId: null })
-              }
-              onGroupChange={(groupId) =>
-                saveFeedFilters({ ...feedFilters, groupId })
-              }
-            />
 
             {isLoading ? (
               <View style={styles.centerState}>
@@ -909,18 +941,35 @@ export function FeedScreen() {
           }));
         }}
       />
+      <FeedFilterModal
+        activeCategoryId={activeCategoryId}
+        activeGroupId={activeGroupId}
+        categories={categoryOptions}
+        groups={friendGroups}
+        visible={isFilterOpen}
+        onCategoryChange={(categoryId) =>
+          saveFeedFilters({ ...feedFilters, categoryId })
+        }
+        onClear={() => saveFeedFilters({ groupId: null, categoryId: null })}
+        onClose={() => setIsFilterOpen(false)}
+        onGroupChange={(groupId) =>
+          saveFeedFilters({ ...feedFilters, groupId })
+        }
+      />
     </View>
   );
 }
 
-function FeedFilterBar({
+function FeedFilterModal({
   activeCategoryId,
   activeGroupId,
   categories,
   groups,
   onCategoryChange,
   onClear,
+  onClose,
   onGroupChange,
+  visible,
 }: {
   activeCategoryId: string | null;
   activeGroupId: string | null;
@@ -928,81 +977,131 @@ function FeedFilterBar({
   groups: FriendGroupRow[];
   onCategoryChange: (categoryId: string | null) => void;
   onClear: () => void;
+  onClose: () => void;
   onGroupChange: (groupId: string | null) => void;
+  visible: boolean;
 }) {
   const theme = useTheme();
 
-  if (groups.length === 0 && categories.length === 0) return null;
-
   return (
-    <View style={styles.filterWrap}>
-      {groups.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          <FilterChip
-            active={activeGroupId === null}
-            label="All groups"
-            onPress={() => onGroupChange(null)}
-          />
-          {groups.map((group) => (
-            <FilterChip
-              key={group.id}
-              active={activeGroupId === group.id}
-              label={group.name}
-              onPress={() => onGroupChange(group.id)}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
-
-      {categories.length > 0 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          <FilterChip
-            active={activeCategoryId === null}
-            label="All habits"
-            onPress={() => onCategoryChange(null)}
-          />
-          {categories.map((category) => (
-            <FilterChip
-              key={category.id}
-              active={activeCategoryId === category.id}
-              label={category.name}
-              onPress={() => onCategoryChange(category.id)}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
-
-      {(activeGroupId || activeCategoryId) && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onClear}
-          style={({ pressed }) => [
-            styles.clearFiltersButton,
-            { borderColor: theme.tabBorder },
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("xmark.circle.fill", "cancel")}
-            size={14}
-            tintColor={theme.textSecondary}
-          />
-          <Text
-            style={[styles.clearFiltersText, { color: theme.textSecondary }]}
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={visible}
+    >
+      <View
+        style={[
+          styles.filterModalScreen,
+          { backgroundColor: theme.background },
+        ]}
+      >
+        <SafeAreaView style={styles.filterModalSafeArea}>
+          <View
+            style={[
+              styles.filterModalHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
           >
-            Clear filters
-          </Text>
-        </Pressable>
-      )}
-    </View>
+            <Pressable
+              accessibilityLabel="Close filters"
+              hitSlop={12}
+              onPress={onClose}
+            >
+              <Text
+                style={[styles.filterModalAction, { color: theme.primary }]}
+              >
+                Done
+              </Text>
+            </Pressable>
+            <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+              Filters
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={12}
+              onPress={onClear}
+            >
+              <Text
+                style={[
+                  styles.filterModalAction,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Clear
+              </Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.filterModalContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.text }]}>
+                Groups
+              </Text>
+              <View style={styles.filterChipGrid}>
+                <FilterChip
+                  active={activeGroupId === null}
+                  label="All groups"
+                  onPress={() => onGroupChange(null)}
+                />
+                {groups.map((group) => (
+                  <FilterChip
+                    key={group.id}
+                    active={activeGroupId === group.id}
+                    label={group.name}
+                    onPress={() => onGroupChange(group.id)}
+                  />
+                ))}
+              </View>
+              {groups.length === 0 ? (
+                <Text
+                  style={[
+                    styles.filterEmptyText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  No groups yet.
+                </Text>
+              ) : null}
+            </View>
+
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.text }]}>
+                Habit categories
+              </Text>
+              <View style={styles.filterChipGrid}>
+                <FilterChip
+                  active={activeCategoryId === null}
+                  label="All habits"
+                  onPress={() => onCategoryChange(null)}
+                />
+                {categories.map((category) => (
+                  <FilterChip
+                    key={category.id}
+                    active={activeCategoryId === category.id}
+                    label={category.name}
+                    onPress={() => onCategoryChange(category.id)}
+                  />
+                ))}
+              </View>
+              {categories.length === 0 ? (
+                <Text
+                  style={[
+                    styles.filterEmptyText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  No habit categories yet.
+                </Text>
+              ) : null}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1267,6 +1366,8 @@ function FeedCard({
 }
 
 const FEED_NOTE_COLLAPSE_HEIGHT = 112;
+const HTML_IGNORED_TAGS = ["script", "style", "iframe", "img", "video"];
+const HTML_DEFAULT_TEXT_PROPS = { selectable: true };
 
 function RichFeedNote({
   expanded,
@@ -1282,6 +1383,16 @@ function RichFeedNote({
   const contentWidth = Math.max(0, Math.min(width - 36, MaxContentWidth) - 28);
   const plainText = richTextToPlainText(html);
   const isLong = plainText.length > 320 || plainText.split("\n").length > 5;
+  const source = useMemo(() => ({ html }), [html]);
+  const baseStyle = useMemo(
+    () => ({
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: "500" as const,
+      lineHeight: 21,
+    }),
+    [theme.text],
+  );
   const tagsStyles = useMemo<MixedStyleRecord>(
     () => ({
       p: { marginTop: 0, marginBottom: 6 },
@@ -1360,17 +1471,12 @@ function RichFeedNote({
         }
       >
         <RenderHTML
-          baseStyle={{
-            color: theme.text,
-            fontSize: 14,
-            fontWeight: "500",
-            lineHeight: 21,
-          }}
+          baseStyle={baseStyle}
           contentWidth={contentWidth}
-          defaultTextProps={{ selectable: true }}
+          defaultTextProps={HTML_DEFAULT_TEXT_PROPS}
           enableCSSInlineProcessing={false}
-          ignoredDomTags={["script", "style", "iframe", "img", "video"]}
-          source={{ html }}
+          ignoredDomTags={HTML_IGNORED_TAGS}
+          source={source}
           tagsStyles={tagsStyles}
         />
       </View>
@@ -1773,6 +1879,30 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   pageHeaderText: { flex: 1, gap: 1 },
+  filterButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    position: "relative",
+  },
+  filterBadge: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    minWidth: 17,
+    height: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "900",
+  },
   pageTitle: {
     fontSize: 25,
     lineHeight: 29,
@@ -1819,10 +1949,39 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "500",
   },
-  filterWrap: { gap: 8 },
-  filterRow: {
+  filterModalScreen: { flex: 1 },
+  filterModalSafeArea: { flex: 1 },
+  filterModalHeader: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+  },
+  filterModalAction: { fontSize: 16, fontWeight: "800" },
+  filterModalTitle: { fontSize: 17, fontWeight: "900" },
+  filterModalContent: {
+    gap: 22,
+    paddingHorizontal: 18,
+    paddingTop: 22,
+    paddingBottom: 40,
+  },
+  filterSection: { gap: 10 },
+  filterSectionTitle: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  filterChipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
-    paddingRight: 18,
+  },
+  filterEmptyText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   filterChip: {
     maxWidth: 180,
@@ -1835,20 +1994,6 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontSize: 13,
     lineHeight: 16,
-    fontWeight: "800",
-  },
-  clearFiltersButton: {
-    alignSelf: "flex-start",
-    minHeight: 30,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: 11,
-  },
-  clearFiltersText: {
-    fontSize: 12,
     fontWeight: "800",
   },
   feedList: { gap: 14 },
