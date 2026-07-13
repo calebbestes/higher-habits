@@ -16,13 +16,13 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
 import { sendPushToUser } from "@/lib/push";
 
-const createFriendSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .email()
-    .transform((value) => value.toLowerCase()),
-});
+const createFriendSchema = z
+  .object({
+    email: z.string().trim().optional(),
+    identifier: z.string().trim().optional(),
+  })
+  .transform((value) => value.identifier || value.email || "")
+  .pipe(z.string().trim().min(1, "Email or phone number is required."));
 
 const respondToFriendSchema = z.object({
   friendshipId: z.string().uuid(),
@@ -31,6 +31,11 @@ const respondToFriendSchema = z.object({
 
 const getDatabase = () => getDb() ?? null;
 type FriendsDb = NonNullable<ReturnType<typeof getDatabase>>;
+
+function normalizePhone(value: string): string | null {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
 
 type MessageHistoryRow = {
   id: string;
@@ -643,20 +648,36 @@ export async function POST(request: Request) {
       );
     }
 
+    const identifier = parsed.data;
+    const email = identifier.includes("@") ? identifier.toLowerCase() : null;
+    const phone = email ? null : normalizePhone(identifier);
+
+    if (!email && !phone) {
+      return NextResponse.json(
+        { error: "Enter a valid email or phone number." },
+        { status: 400 },
+      );
+    }
+
     const [friendUser] = await db
       .select({
         id: users.id,
         name: users.name,
         email: users.email,
         image: users.image,
+        phoneNumber: users.phoneNumber,
       })
       .from(users)
-      .where(sql`lower(${users.email}) = ${parsed.data.email}`)
+      .where(
+        email
+          ? sql`lower(${users.email}) = ${email}`
+          : sql`right(regexp_replace(coalesce(${users.phoneNumber}, ''), '[^0-9]', '', 'g'), 10) = ${phone}`,
+      )
       .limit(1);
 
     if (!friendUser) {
       return NextResponse.json(
-        { error: "No user found with that email." },
+        { error: "No float account found for that email or phone number." },
         { status: 404 },
       );
     }
@@ -707,7 +728,7 @@ export async function POST(request: Request) {
       friendName: friendUser.name,
       friendEmail: friendUser.email,
       friendImage: friendUser.image,
-      friendPhoneNumber: null,
+      friendPhoneNumber: friendUser.phoneNumber,
       isIncomingRequest: false,
       lastOpenedAt: null,
       performance7Day: null,

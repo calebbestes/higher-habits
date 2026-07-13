@@ -1021,6 +1021,7 @@ function AddFriendModal({
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
   const [invite, setInvite] = useState("");
+  const [isSendingRequest, setIsSendingRequest] = useState(false);
 
   useEffect(
     () => () => {
@@ -1102,7 +1103,12 @@ function AddFriendModal({
 
   const inviteBy = (channel: "email" | "sms") => {
     const value = invite.trim();
-    const body = `Hey! I'm using an app called float to build my habits. You should make a goal with me!`;
+    if (!value) {
+      Alert.alert("Add a contact", "Enter an email or phone number first.");
+      return;
+    }
+
+    const body = `Join me on float so we can build habits together: ${INVITE_LINK}\n\nThe app is in TestFlight right now, so that link has the next step.`;
     let url: string;
     if (channel === "email") {
       const query = `subject=${encodeURIComponent(
@@ -1116,6 +1122,56 @@ function AddFriendModal({
     Linking.openURL(url).catch(() => {
       Alert.alert("Could not open", "No app available to send the invite.");
     });
+  };
+
+  const sendFriendRequest = async () => {
+    const value = invite.trim();
+    if (!value || isSendingRequest) {
+      if (!value) {
+        Alert.alert("Add a contact", "Enter an email or phone number first.");
+      }
+      return;
+    }
+
+    setIsSendingRequest(true);
+    try {
+      await addFriend(value);
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Request sent",
+        "They will see your friend request in float.",
+      );
+      await onAdded();
+    } catch (requestError) {
+      if (!isMountedRef.current) return;
+      const message =
+        requestError instanceof Error ? requestError.message : "Try again.";
+      const lowerMessage = message.toLowerCase();
+      if (
+        lowerMessage.includes("no float account") ||
+        (!value.includes("@") &&
+          lowerMessage.includes("valid email or phone number"))
+      ) {
+        const inviteChannel = value.includes("@") ? "email" : "sms";
+        Alert.alert(
+          lowerMessage.includes("no float account")
+            ? "No account found"
+            : "Phone lookup needs the latest server",
+          "Send an invite link so they have a clear next step.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: inviteChannel === "email" ? "Email invite" : "Text invite",
+              onPress: () => inviteBy(inviteChannel),
+            },
+          ],
+        );
+        return;
+      }
+      Alert.alert("Could not add friend", message);
+    } finally {
+      if (isMountedRef.current) setIsSendingRequest(false);
+    }
   };
 
   return (
@@ -1157,12 +1213,116 @@ function AddFriendModal({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Section 1: contacts already on the app */}
+              {/* Section 1: direct friend request or invite */}
               <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                Add by email or phone
+              </Text>
+              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
+                If they already have an account, float sends a friend request.
+                If not, send them an invite link.
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                onChangeText={setInvite}
+                placeholder="Email or phone number"
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.emailInput,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    color: theme.text,
+                  },
+                ]}
+                value={invite}
+              />
+              <Pressable
+                disabled={isSendingRequest}
+                onPress={() => void sendFriendRequest()}
+                style={({ pressed }) => [
+                  styles.contactsButton,
+                  { backgroundColor: theme.primary },
+                  (pressed || isSendingRequest) && styles.pressed,
+                ]}
+              >
+                {isSendingRequest ? (
+                  <ActivityIndicator
+                    color={theme.primaryForeground}
+                    size="small"
+                  />
+                ) : (
+                  <SymbolView
+                    name={sym("person.badge.plus", "person-add")}
+                    size={18}
+                    weight="semibold"
+                    tintColor={theme.primaryForeground}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.contactsButtonText,
+                    { color: theme.primaryForeground },
+                  ]}
+                >
+                  Send friend request
+                </Text>
+              </Pressable>
+              <View style={styles.inviteButtonRow}>
+                <Pressable
+                  onPress={() => inviteBy("email")}
+                  style={({ pressed }) => [
+                    styles.inviteButton,
+                    { borderColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("envelope.fill", "mail")}
+                    size={17}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inviteButtonText, { color: theme.primary }]}
+                  >
+                    Email invite
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => inviteBy("sms")}
+                  style={({ pressed }) => [
+                    styles.inviteButton,
+                    { borderColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("message.fill", "sms")}
+                    size={17}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inviteButtonText, { color: theme.primary }]}
+                  >
+                    Text invite
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Section 2: contacts already on the app */}
+              <Text
+                style={[
+                  styles.addSectionTitle,
+                  { color: theme.text, marginTop: 24 },
+                ]}
+              >
                 On float
               </Text>
               <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-                Friends from your contacts who already use the app.
+                Find friends from your contacts who already use the app.
               </Text>
 
               {contactState === "idle" ? (
@@ -1213,7 +1373,8 @@ function AddFriendModal({
                 <Text
                   style={[styles.modalHint, { color: theme.textSecondary }]}
                 >
-                  None of your contacts are on float yet — invite them below.
+                  None of your contacts are on float yet. Add someone above or
+                  send an invite.
                 </Text>
               ) : null}
 
@@ -1300,78 +1461,6 @@ function AddFriendModal({
                   </View>
                 );
               })}
-
-              {/* Section 2: invite by email or phone */}
-              <Text
-                style={[
-                  styles.addSectionTitle,
-                  { color: theme.text, marginTop: 28 },
-                ]}
-              >
-                Invite to float
-              </Text>
-              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-                Send a friend an email or text with a link to join.
-              </Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                onChangeText={setInvite}
-                placeholder="Email or phone number"
-                placeholderTextColor={theme.textSecondary}
-                style={[
-                  styles.emailInput,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                    color: theme.text,
-                  },
-                ]}
-                value={invite}
-              />
-              <View style={styles.inviteButtonRow}>
-                <Pressable
-                  onPress={() => inviteBy("email")}
-                  style={({ pressed }) => [
-                    styles.inviteButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("envelope.fill", "mail")}
-                    size={17}
-                    weight="semibold"
-                    tintColor={theme.primary}
-                  />
-                  <Text
-                    style={[styles.inviteButtonText, { color: theme.primary }]}
-                  >
-                    Email
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => inviteBy("sms")}
-                  style={({ pressed }) => [
-                    styles.inviteButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("message.fill", "sms")}
-                    size={17}
-                    weight="semibold"
-                    tintColor={theme.primary}
-                  />
-                  <Text
-                    style={[styles.inviteButtonText, { color: theme.primary }]}
-                  >
-                    Message
-                  </Text>
-                </Pressable>
-              </View>
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>

@@ -438,11 +438,39 @@ async function parseResponse<T>(response: Response): Promise<T> {
       error?: string;
       message?: string;
     } | null;
-    throw new Error(
-      body?.error ?? body?.message ?? `Request failed (${response.status}).`,
-    );
+    const rawMessage = body?.error ?? body?.message;
+    if (rawMessage) {
+      const parsedMessage = parseApiErrorMessage(rawMessage);
+      throw new Error(parsedMessage);
+    }
+    throw new Error(`Request failed (${response.status}).`);
   }
   return response.json() as Promise<T>;
+}
+
+function parseApiErrorMessage(message: string): string {
+  try {
+    const issues = JSON.parse(message) as unknown;
+    if (Array.isArray(issues)) {
+      const firstIssue = issues[0] as
+        | { message?: unknown; path?: unknown }
+        | undefined;
+      const issueMessage =
+        typeof firstIssue?.message === "string" ? firstIssue.message : "";
+      const path = Array.isArray(firstIssue?.path)
+        ? firstIssue.path.join(".")
+        : "";
+      if (path === "email") {
+        return issueMessage === "Required"
+          ? "Email or phone number is required."
+          : "Enter a valid email or phone number.";
+      }
+      if (issueMessage) return issueMessage;
+    }
+  } catch {
+    // Fall through to the original server message.
+  }
+  return message;
 }
 
 export const fetchFriends = (): Promise<FriendRow[]> =>
@@ -599,10 +627,13 @@ async function fetchFriendProfileFromExistingData(
   };
 }
 
-export const addFriend = (email: string): Promise<FriendRow> =>
+export const addFriend = (identifier: string): Promise<FriendRow> =>
   mobileApiFetch("/api/friends", {
     method: "POST",
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({
+      identifier,
+      ...(identifier.includes("@") ? { email: identifier } : {}),
+    }),
   }).then((r) => parseResponse<FriendRow>(r));
 
 export type ContactMatch = {
