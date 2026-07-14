@@ -43,7 +43,6 @@ import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
-  createGoogleCalendarEvent,
   fetchGoogleCalendarEvents,
   getLocalTimeZone,
   updateGoogleCalendarEvent,
@@ -106,7 +105,7 @@ type DayPlanEntry = {
   endMinutes: number;
   habitId?: string;
   id: string;
-  kind: "goal" | "google" | "habit" | "task";
+  kind: "goal" | "google" | "habit" | "other" | "task";
   laneCount: number;
   laneIndex: number;
   laneSpan: number;
@@ -1486,6 +1485,7 @@ export function DayPlanScreen({
   const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
     const startTime = formatPlanApiTime(range.startMinutes);
     const endTime = formatPlanApiTime(range.endMinutes);
+    let notificationEntry = entry;
     setUpdatingKey(entry.id);
 
     try {
@@ -1502,23 +1502,60 @@ export function DayPlanScreen({
             title: entry.title,
           });
           patchPlannedEvent(response.event);
+          notificationEntry = {
+            ...entry,
+            sourceId: response.event.sourceId,
+          };
         } else {
-          await setHabitLog(entry.habitId, dateKey, "planned", {
-            endTime,
-            startTime,
-            timeZone,
-          });
-          patchHabitPlanTime(entry.habitId, startTime, endTime);
+          const habit = habitById.get(entry.habitId);
+          const instanceTarget =
+            habit?.period === "daily"
+              ? Math.max(habit.frequencyGoal ?? 1, 1)
+              : 1;
+
+          if (instanceTarget > 1) {
+            const response = await upsertPlannedEvent({
+              dateKey,
+              endTime,
+              sourceParentId: entry.habitId,
+              sourceType: "habit_instance",
+              startTime,
+              timeZone,
+              title: entry.title,
+            });
+            patchPlannedEvent(response.event);
+            notificationEntry = {
+              ...entry,
+              id: `planned-${response.event.id}`,
+              sourceId: response.event.sourceId,
+            };
+          } else {
+            await setHabitLog(entry.habitId, dateKey, "planned", {
+              endTime,
+              startTime,
+              timeZone,
+            });
+            patchHabitPlanTime(entry.habitId, startTime, endTime);
+          }
         }
-        scheduleEntryNotification(entry, startTime);
-      } else if (entry.kind === "task" || entry.kind === "goal") {
+        scheduleEntryNotification(notificationEntry, startTime);
+      } else if (
+        entry.kind === "task" ||
+        entry.kind === "goal" ||
+        entry.kind === "other"
+      ) {
         if (!entry.sourceId) throw new Error("Could not find that event.");
 
         const response = await upsertPlannedEvent({
           dateKey,
           endTime,
           sourceId: entry.sourceId,
-          sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
+          sourceType:
+            entry.kind === "task"
+              ? "task"
+              : entry.kind === "other"
+                ? "other_event"
+                : "goal_checkpoint",
           startTime,
           timeZone,
           title: entry.title,
@@ -1815,11 +1852,20 @@ export function DayPlanScreen({
     if (Date.now() < suppressEntryPressUntilRef.current) return;
 
     if (entry.kind === "habit" && entry.habitId) {
+      if (entry.sourceId) {
+        setActiveEntry(entry);
+        return;
+      }
+
       setActiveHabit(habitById.get(entry.habitId) ?? null);
       return;
     }
 
-    if (entry.kind === "task" || entry.kind === "goal") {
+    if (
+      entry.kind === "task" ||
+      entry.kind === "goal" ||
+      entry.kind === "other"
+    ) {
       setActiveEntry(entry);
     }
   };
@@ -2070,7 +2116,9 @@ export function DayPlanScreen({
                     ? "task"
                     : entry.kind === "habit"
                       ? "habit_instance"
-                      : "goal_checkpoint",
+                      : entry.kind === "other"
+                        ? "other_event"
+                        : "goal_checkpoint",
               });
               cancelEntryNotification(entry);
               invalidateCurrentCaches({ google: true, planned: true });
@@ -2264,39 +2312,34 @@ export function DayPlanScreen({
 
     setIsCreatingOtherEvent(true);
     try {
-      const response = await createGoogleCalendarEvent({
+      const response = await upsertPlannedEvent({
         dateKey,
         endTime: formatPlanApiTime(otherEventRange.endMinutes),
+        sourceType: "other_event",
         startTime: formatPlanApiTime(otherEventRange.startMinutes),
         timeZone,
         title,
       });
 
-      if (response.status !== "synced") {
-        throw new Error(getGoogleCalendarStatusMessage(response.status));
-      }
-
       if (!isMountedRef.current) return;
-      if (response.event) {
-        scheduleEntryNotification(
-          {
-            allDay: false,
-            description: response.event.description,
-            endMinutes: otherEventRange.endMinutes,
-            id: `google-${response.event.id}`,
-            kind: "google",
-            laneCount: 1,
-            laneIndex: 0,
-            laneSpan: 1,
-            sourceId: response.event.id,
-            startMinutes: otherEventRange.startMinutes,
-            title,
-          },
-          formatPlanApiTime(otherEventRange.startMinutes),
-        );
-      }
+      patchPlannedEvent(response.event);
+      scheduleEntryNotification(
+        {
+          allDay: false,
+          endMinutes: otherEventRange.endMinutes,
+          id: `planned-${response.event.id}`,
+          kind: "other",
+          laneCount: 1,
+          laneIndex: 0,
+          laneSpan: 1,
+          sourceId: response.event.sourceId,
+          startMinutes: otherEventRange.startMinutes,
+          title,
+        },
+        formatPlanApiTime(otherEventRange.startMinutes),
+      );
       setOtherEventRange(null);
-      invalidateCurrentCaches({ google: true });
+      invalidateCurrentCaches({ google: true, planned: true });
       await load();
     } catch (eventError) {
       if (!isMountedRef.current) return;
@@ -2304,7 +2347,7 @@ export function DayPlanScreen({
         "Could not add event",
         eventError instanceof Error
           ? eventError.message
-          : "The Google Calendar event could not be created.",
+          : "The event could not be created.",
       );
     } finally {
       if (isMountedRef.current) setIsCreatingOtherEvent(false);
@@ -3372,6 +3415,9 @@ function InternalEventActionsModal({
 }) {
   const theme = useTheme();
   if (!entry) return null;
+  const isOtherEvent = entry.kind === "other";
+  const isHabitEvent = entry.kind === "habit";
+  const isSimpleScheduledEvent = isOtherEvent || isHabitEvent;
 
   return (
     <Modal animationType="slide" transparent visible onRequestClose={onClose}>
@@ -3409,7 +3455,13 @@ function InternalEventActionsModal({
                   { color: theme.textSecondary },
                 ]}
               >
-                {entry.kind === "task" ? "Task" : "Goal checkpoint"}
+                {entry.kind === "task"
+                  ? "Task"
+                  : entry.kind === "goal"
+                    ? "Goal checkpoint"
+                    : isHabitEvent
+                      ? "Daily habit"
+                      : "Other event"}
               </Text>
             </View>
             <Pressable
@@ -3447,97 +3499,111 @@ function InternalEventActionsModal({
                 title="Finish the goal"
               />
             ) : null}
-            <Pressable
-              disabled={isUpdating}
-              onPress={onToggleComplete}
-              style={({ pressed }) => [
-                styles.eventActionRow,
-                { backgroundColor: theme.backgroundElement },
-                onboardingStep === "mark-complete" && styles.onboardingGlow,
-                pressed && styles.pressed,
-              ]}
-            >
-              {isUpdating ? (
-                <ActivityIndicator color={theme.primary} size="small" />
-              ) : (
-                <SymbolView
-                  name={sym(
-                    statusLabel === "Reopen"
-                      ? "arrow.uturn.backward.circle.fill"
-                      : "checkmark.circle.fill",
-                    statusLabel === "Reopen" ? "undo" : "check_circle",
+            {!isSimpleScheduledEvent ? (
+              <>
+                <Pressable
+                  disabled={isUpdating}
+                  onPress={onToggleComplete}
+                  style={({ pressed }) => [
+                    styles.eventActionRow,
+                    { backgroundColor: theme.backgroundElement },
+                    onboardingStep === "mark-complete" && styles.onboardingGlow,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : (
+                    <SymbolView
+                      name={sym(
+                        statusLabel === "Reopen"
+                          ? "arrow.uturn.backward.circle.fill"
+                          : "checkmark.circle.fill",
+                        statusLabel === "Reopen" ? "undo" : "check_circle",
+                      )}
+                      size={26}
+                      tintColor={
+                        statusLabel === "Reopen"
+                          ? theme.textSecondary
+                          : theme.primary
+                      }
+                    />
                   )}
-                  size={26}
-                  tintColor={
-                    statusLabel === "Reopen"
-                      ? theme.textSecondary
-                      : theme.primary
-                  }
-                />
-              )}
-              <Text style={[styles.eventActionLabel, { color: theme.text }]}>
-                {statusLabel}
-              </Text>
-            </Pressable>
+                  <Text
+                    style={[styles.eventActionLabel, { color: theme.text }]}
+                  >
+                    {statusLabel}
+                  </Text>
+                </Pressable>
 
-            <View style={styles.eventActionGrid}>
-              <Pressable
-                onPress={onTakePhoto}
-                style={({ pressed }) => [
-                  styles.eventActionTile,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("camera.fill", "photo_camera")}
-                  size={28}
-                  tintColor={theme.primary}
-                />
-                <Text
-                  style={[styles.eventActionTileLabel, { color: theme.text }]}
-                >
-                  Take photo
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={onAddPhoto}
-                style={({ pressed }) => [
-                  styles.eventActionTile,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("photo.fill", "image")}
-                  size={28}
-                  tintColor={theme.primary}
-                />
-                <Text
-                  style={[styles.eventActionTileLabel, { color: theme.text }]}
-                >
-                  Add photo
-                </Text>
-              </Pressable>
-            </View>
+                <View style={styles.eventActionGrid}>
+                  <Pressable
+                    onPress={onTakePhoto}
+                    style={({ pressed }) => [
+                      styles.eventActionTile,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("camera.fill", "photo_camera")}
+                      size={28}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.eventActionTileLabel,
+                        { color: theme.text },
+                      ]}
+                    >
+                      Take photo
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={onAddPhoto}
+                    style={({ pressed }) => [
+                      styles.eventActionTile,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("photo.fill", "image")}
+                      size={28}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.eventActionTileLabel,
+                        { color: theme.text },
+                      ]}
+                    >
+                      Add photo
+                    </Text>
+                  </Pressable>
+                </View>
 
-            <Pressable
-              onPress={onOpenNote}
-              style={({ pressed }) => [
-                styles.eventActionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("note.text", "notes")}
-                size={26}
-                tintColor={theme.primary}
-              />
-              <Text style={[styles.eventActionLabel, { color: theme.text }]}>
-                Add note
-              </Text>
-            </Pressable>
+                <Pressable
+                  onPress={onOpenNote}
+                  style={({ pressed }) => [
+                    styles.eventActionRow,
+                    { backgroundColor: theme.backgroundElement },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("note.text", "notes")}
+                    size={26}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.eventActionLabel, { color: theme.text }]}
+                  >
+                    Add note
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
 
             {entry.kind === "goal" ? (
               <GoalLogVisibilityControl
@@ -4524,7 +4590,7 @@ function getEntryColors(
   entry: DayPlanEntry,
   theme: ReturnType<typeof useTheme>,
 ) {
-  if (entry.kind === "google") {
+  if (entry.kind === "google" || entry.kind === "other") {
     return {
       backgroundColor: theme.backgroundSelected,
       color: theme.text,
@@ -4690,9 +4756,11 @@ function plannedEventToEntry(
     kind:
       event.sourceType === "task"
         ? "task"
-        : event.sourceType === "habit_instance"
-          ? "habit"
-          : "goal",
+        : event.sourceType === "other_event"
+          ? "other"
+          : event.sourceType === "habit_instance"
+            ? "habit"
+            : "goal",
     laneCount: 1,
     laneIndex: 0,
     laneSpan: 1,
@@ -5037,11 +5105,20 @@ function isSuggestedTask(task: Task, dateKey: string) {
 }
 
 function getScheduleNotificationEventId(entry: DayPlanEntry, dateKey: string) {
+  if (entry.kind === "habit" && entry.sourceId) {
+    return `habit-instance:${entry.sourceId}:${dateKey}`;
+  }
+
   if (entry.kind === "habit" && entry.habitId) {
     return `habit:${entry.habitId}:${dateKey}`;
   }
 
-  if ((entry.kind === "task" || entry.kind === "goal") && entry.sourceId) {
+  if (
+    (entry.kind === "task" ||
+      entry.kind === "goal" ||
+      entry.kind === "other") &&
+    entry.sourceId
+  ) {
     return `${entry.kind}:${entry.sourceId}:${dateKey}`;
   }
 

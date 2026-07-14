@@ -75,6 +75,7 @@ type HigherHabitsPlannedEventSource =
   | "goal_checkpoint"
   | "habit"
   | "habit_instance"
+  | "other_event"
   | "task";
 
 export function isGoogleAuthConfigured() {

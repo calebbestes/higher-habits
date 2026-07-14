@@ -3,6 +3,7 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type PlannedEventSourceType =
   | "goal_checkpoint"
   | "habit_instance"
+  | "other_event"
   | "task";
 
 export type PlannedEvent = {

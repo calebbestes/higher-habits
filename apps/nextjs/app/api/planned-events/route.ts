@@ -127,20 +127,31 @@ export async function POST(request: Request) {
 
     const sourceId =
       data.sourceId ??
-      (data.sourceType === "habit_instance" ? randomUUID() : null);
+      (data.sourceType === "habit_instance" || data.sourceType === "other_event"
+        ? randomUUID()
+        : null);
     if (!sourceId) {
       return NextResponse.json({ error: "Missing source id" }, { status: 400 });
     }
     if (data.sourceType === "habit_instance" && !data.sourceParentId) {
       return NextResponse.json({ error: "Missing habit id" }, { status: 400 });
     }
+    if (data.sourceType === "other_event" && !data.title?.trim()) {
+      return NextResponse.json(
+        { error: "Missing event title" },
+        { status: 400 },
+      );
+    }
 
-    const sourceTitle = await resolvePlannedEventSourceTitle(db, {
-      sourceId,
-      sourceParentId: data.sourceParentId ?? null,
-      sourceType: data.sourceType as PlannedEventSourceType,
-      userId: user.id,
-    });
+    const sourceTitle =
+      data.sourceType === "other_event"
+        ? data.title?.trim()
+        : await resolvePlannedEventSourceTitle(db, {
+            sourceId,
+            sourceParentId: data.sourceParentId ?? null,
+            sourceType: data.sourceType as PlannedEventSourceType,
+            userId: user.id,
+          });
 
     if (!sourceTitle) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
