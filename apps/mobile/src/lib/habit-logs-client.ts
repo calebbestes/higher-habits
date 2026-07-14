@@ -95,6 +95,7 @@ export type HabitLogsSnapshot = {
   periodicHabits: PeriodicHabitInfo[];
   acceptedHabitIncentives?: AcceptedHabitIncentive[];
   logsByHabitDate: Record<string, "complete" | "incomplete" | "planned">;
+  completedCountsByHabitDate: Record<string, number>;
   notesByHabitDate: Record<string, string>;
   photoCountsByHabitDate: Record<string, number>;
   visibilityByHabitDate: Record<string, HabitVisibility>;
@@ -234,6 +235,11 @@ function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
         ? status
         : null,
     ),
+    completedCountsByHabitDate: mapValues(
+      payload.completedCountsByHabitDate,
+      (count) =>
+        typeof count === "number" && Number.isFinite(count) ? count : null,
+    ),
     notesByHabitDate: mapValues(payload.notesByHabitDate, (note) =>
       typeof note === "string" ? note : null,
     ),
@@ -294,6 +300,7 @@ export const setHabitLog = (
   dateKey: string,
   status: HabitLogStatus,
   options?: {
+    completedCount?: number;
     endTime?: string | null;
     repeatPlan?: boolean;
     startTime?: string | null;
@@ -311,6 +318,7 @@ export const setHabitLog = (
         ? {
             plannedStartTime: options.startTime ?? null,
             plannedEndTime: options.endTime ?? null,
+            completedCount: options.completedCount,
             plannedTimeZone: options.timeZone ?? null,
             repeatPlan: options.repeatPlan ?? false,
           }

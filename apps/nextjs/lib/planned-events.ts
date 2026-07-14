@@ -2,6 +2,7 @@ import {
   type PlannedEventSourceType,
   type getDb,
   goalCheckpoints,
+  habits,
   plannedEvents,
   tasks,
 } from "@habit/db";
@@ -17,6 +18,7 @@ type Database = NonNullable<ReturnType<typeof getDb>>;
 export const PLANNED_EVENT_SOURCE_TYPES = [
   "task",
   "goal_checkpoint",
+  "habit_instance",
 ] as const satisfies readonly PlannedEventSourceType[];
 
 export type PlannedEventRow = typeof plannedEvents.$inferSelect;
@@ -26,6 +28,7 @@ export function serializePlannedEvent(row: PlannedEventRow) {
     id: row.id,
     sourceType: row.sourceType as PlannedEventSourceType,
     sourceId: row.sourceId,
+    sourceParentId: row.sourceParentId ?? null,
     title: row.title,
     date: row.date,
     startTime: row.plannedStartTime ?? null,
@@ -125,10 +128,12 @@ export async function resolvePlannedEventSourceTitle(
   db: Database,
   {
     sourceId,
+    sourceParentId,
     sourceType,
     userId,
   }: {
     sourceId: string;
+    sourceParentId?: string | null;
     sourceType: PlannedEventSourceType;
     userId: string;
   },
@@ -141,6 +146,17 @@ export async function resolvePlannedEventSourceTitle(
       .limit(1)) as Array<{ title: string }>;
 
     return task?.title ?? null;
+  }
+
+  if (sourceType === "habit_instance") {
+    const habitId = sourceParentId ?? sourceId;
+    const [habit] = (await db
+      .select({ title: habits.name })
+      .from(habits)
+      .where(and(eq(habits.id, habitId), eq(habits.userId, userId)))
+      .limit(1)) as Array<{ title: string }>;
+
+    return habit?.title ?? null;
   }
 
   const [checkpoint] = (await db
@@ -161,6 +177,7 @@ export async function upsertPlannedEvent(
     plannedEndTime,
     plannedStartTime,
     sourceId,
+    sourceParentId,
     sourceType,
     timeZone,
     title,
@@ -170,6 +187,7 @@ export async function upsertPlannedEvent(
     plannedEndTime?: string | null;
     plannedStartTime?: string | null;
     sourceId: string;
+    sourceParentId?: string | null;
     sourceType: PlannedEventSourceType;
     timeZone?: string | null;
     title: string;
@@ -206,6 +224,7 @@ export async function upsertPlannedEvent(
       userId,
       sourceType,
       sourceId,
+      sourceParentId: sourceParentId ?? null,
       title,
       date: dateKey,
       plannedStartTime,
@@ -225,6 +244,7 @@ export async function upsertPlannedEvent(
       set: {
         title,
         date: dateKey,
+        sourceParentId: sourceParentId ?? null,
         plannedStartTime,
         plannedEndTime,
         googleCalendarEventId:

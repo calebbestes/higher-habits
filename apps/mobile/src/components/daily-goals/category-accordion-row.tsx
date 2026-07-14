@@ -14,6 +14,7 @@ function CategoryAccordionRowImpl({
   goals,
   dateKey,
   logsByGoalDate,
+  completedCountsByGoalDate,
   plannedTimesByGoalDate,
   updatingKeys,
   isExpanded,
@@ -25,6 +26,7 @@ function CategoryAccordionRowImpl({
   goals: GoalInCategory[];
   dateKey: string;
   logsByGoalDate: Record<string, "complete" | "incomplete" | "planned">;
+  completedCountsByGoalDate?: Record<string, number>;
   plannedTimesByGoalDate?: Record<
     string,
     { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
@@ -91,6 +93,9 @@ function CategoryAccordionRowImpl({
               <GoalRow
                 goal={goal}
                 status={getGoalDateStatus(goal, dateKey, logsByGoalDate)}
+                completedCount={
+                  completedCountsByGoalDate?.[`${goal.id}_${dateKey}`] ?? 0
+                }
                 plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}

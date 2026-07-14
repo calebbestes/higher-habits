@@ -100,6 +100,9 @@ export function DailyGoalsScreen({
   const [logsByHabitDate, setLogsByGoalDate] = useState<
     HabitLogsSnapshot["logsByHabitDate"]
   >({});
+  const [completedCountsByHabitDate, setCompletedCountsByHabitDate] = useState<
+    HabitLogsSnapshot["completedCountsByHabitDate"]
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +257,7 @@ export function DailyGoalsScreen({
         }
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
+        setCompletedCountsByHabitDate(snap.completedCountsByHabitDate);
         setCategories(cats);
       } catch (err) {
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
@@ -333,6 +337,7 @@ export function DailyGoalsScreen({
         repeatPlan?: boolean;
         startTime?: string | null;
         timeZone?: string | null;
+        completedCount?: number;
       },
     ) => {
       const key = `${goalId}_${dateKey}`;
@@ -343,6 +348,7 @@ export function DailyGoalsScreen({
       });
       if (updatingKeysRef.current.has(key)) return;
       const current = logsByHabitDate[key];
+      const currentCount = completedCountsByHabitDate[key] ?? 0;
 
       // Completing the last remaining high-priority habit triggers the fire
       // celebration instead, so suppress confetti for that final completion.
@@ -366,6 +372,14 @@ export function DailyGoalsScreen({
         else delete updated[key];
         return updated;
       });
+      setCompletedCountsByHabitDate((prev) => {
+        const updated = { ...prev };
+        const nextCount =
+          options?.completedCount ?? (status === "complete" ? 1 : 0);
+        if (nextCount > 0) updated[key] = nextCount;
+        else delete updated[key];
+        return updated;
+      });
 
       try {
         await setHabitLog(goalId, dateKey, status, options);
@@ -386,7 +400,19 @@ export function DailyGoalsScreen({
             delete plannedTimesByHabitDate[key];
           }
 
-          return { ...currentSnapshot, plannedTimesByHabitDate };
+          const completedCountsByHabitDate = {
+            ...(currentSnapshot.completedCountsByHabitDate ?? {}),
+          };
+          const nextCount =
+            options?.completedCount ?? (status === "complete" ? 1 : 0);
+          if (nextCount > 0) completedCountsByHabitDate[key] = nextCount;
+          else delete completedCountsByHabitDate[key];
+
+          return {
+            ...currentSnapshot,
+            completedCountsByHabitDate,
+            plannedTimesByHabitDate,
+          };
         });
       } catch (err) {
         captureHandledError(err, {
@@ -400,6 +426,12 @@ export function DailyGoalsScreen({
           else delete reverted[key];
           return reverted;
         });
+        setCompletedCountsByHabitDate((prev) => {
+          const reverted = { ...prev };
+          if (currentCount > 0) reverted[key] = currentCount;
+          else delete reverted[key];
+          return reverted;
+        });
         setError(err instanceof Error ? err.message : "Could not save.");
       } finally {
         setUpdatingKeys((prev) => {
@@ -409,7 +441,7 @@ export function DailyGoalsScreen({
         });
       }
     },
-    [dateKey, logsByHabitDate],
+    [completedCountsByHabitDate, dateKey, logsByHabitDate],
   );
 
   const handleSaveNote = useCallback(
@@ -420,6 +452,7 @@ export function DailyGoalsScreen({
         const snap = await fetchHabitLogsSnapshot(monthKey);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
+        setCompletedCountsByHabitDate(snap.completedCountsByHabitDate);
       } catch (err) {
         captureHandledError(err, {
           dateKey,
@@ -446,6 +479,7 @@ export function DailyGoalsScreen({
         const snap = await fetchHabitLogsSnapshot(monthKey);
         setSnapshot(snap);
         setLogsByGoalDate(snap.logsByHabitDate);
+        setCompletedCountsByHabitDate(snap.completedCountsByHabitDate);
       } catch (photoError) {
         captureHandledError(photoError, {
           dateKey,
@@ -723,6 +757,7 @@ export function DailyGoalsScreen({
     plannedTime: { startTime: string | null; endTime: string | null } | null;
     visibility: HabitVisibility;
     status: Exclude<HabitLogStatus, null> | undefined;
+    completedCount: number;
     isUpdating: boolean;
   } = {
     hasNote: false,
@@ -731,6 +766,7 @@ export function DailyGoalsScreen({
     plannedTime: null,
     visibility: "only_me",
     status: undefined,
+    completedCount: 0,
     isUpdating: false,
   };
   if (activeGoal) {
@@ -746,6 +782,7 @@ export function DailyGoalsScreen({
           activeGoal.visibility ??
           "only_me",
         status: getGoalDateStatus(activeGoal, dateKey, logsByHabitDate),
+        completedCount: completedCountsByHabitDate[key] ?? 0,
         isUpdating: updatingKeys.has(key),
       };
     } catch (modalError) {
@@ -946,6 +983,9 @@ export function DailyGoalsScreen({
                             goals={goals}
                             dateKey={dateKey}
                             logsByGoalDate={logsByHabitDate}
+                            completedCountsByGoalDate={
+                              completedCountsByHabitDate
+                            }
                             plannedTimesByGoalDate={
                               snapshot?.plannedTimesByHabitDate
                             }
@@ -991,6 +1031,11 @@ export function DailyGoalsScreen({
                           <GoalRow
                             goal={goal}
                             status={logsByHabitDate[`${goal.id}_${dateKey}`]}
+                            completedCount={
+                              completedCountsByHabitDate[
+                                `${goal.id}_${dateKey}`
+                              ] ?? 0
+                            }
                             plannedTime={
                               snapshot?.plannedTimesByHabitDate?.[
                                 `${goal.id}_${dateKey}`
@@ -1031,6 +1076,9 @@ export function DailyGoalsScreen({
                             goals={goals}
                             dateKey={dateKey}
                             logsByGoalDate={logsByHabitDate}
+                            completedCountsByGoalDate={
+                              completedCountsByHabitDate
+                            }
                             plannedTimesByGoalDate={
                               snapshot?.plannedTimesByHabitDate
                             }
@@ -1082,6 +1130,7 @@ export function DailyGoalsScreen({
         canPlan={dateKey >= todayKey}
         isFutureDate={isFutureDate}
         plannedTime={modalProps.plannedTime ?? undefined}
+        completedCount={modalProps.completedCount}
         isUpdatingVisibility={isUpdatingVisibility}
         status={modalProps.status}
         isUpdating={modalProps.isUpdating}
@@ -1142,7 +1191,9 @@ export function DailyGoalsScreen({
             status: newStatus,
           });
           void handleSetStatus(activeGoal.id, newStatus, planOptions);
-          handleGoalActionsDismiss(activeGoal, "set-status");
+          if (planOptions?.completedCount === undefined) {
+            handleGoalActionsDismiss(activeGoal, "set-status");
+          }
         }}
         onDismiss={() => {
           if (activeGoal) {

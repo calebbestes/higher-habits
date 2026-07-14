@@ -66,6 +66,7 @@ const bodySchema = z.discriminatedUnion("type", [
     goalId: z.string().uuid(),
     dateKey: z.string().regex(DATE_KEY_REGEX),
     status: z.enum(["complete", "incomplete", "planned"]).nullable(),
+    completedCount: z.number().int().min(0).max(99).optional(),
     plannedStartTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedEndTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedTimeZone: z.string().min(1).max(100).nullable().optional(),
@@ -273,6 +274,7 @@ export async function GET(request: Request) {
           goalId: goalLogs.goalId,
           date: goalLogs.date,
           status: goalLogs.status,
+          completedCount: goalLogs.completedCount,
           notes: goalLogs.notes,
           plannedStartTime: goalLogs.plannedStartTime,
           plannedEndTime: goalLogs.plannedEndTime,
@@ -495,6 +497,11 @@ export async function GET(request: Request) {
         .filter((log) => log.notes?.trim())
         .map((log) => [`${log.goalId}_${log.date}`, log.notes]),
     );
+    const completedCountsByHabitDate = Object.fromEntries(
+      logs
+        .filter((log) => log.completedCount > 0)
+        .map((log) => [`${log.goalId}_${log.date}`, log.completedCount]),
+    );
     const visibilityByHabitDate = Object.fromEntries(
       logs.map((log) => [`${log.goalId}_${log.date}`, log.visibility]),
     );
@@ -647,6 +654,8 @@ export async function GET(request: Request) {
       acceptedHabitIncentives: acceptedHabitIncentiveRows,
       logsByGoalDate: logsByHabitDate,
       logsByHabitDate,
+      completedCountsByGoalDate: completedCountsByHabitDate,
+      completedCountsByHabitDate,
       notesByGoalDate: notesByHabitDate,
       notesByHabitDate,
       visibilityByGoalDate: visibilityByHabitDate,
@@ -699,6 +708,7 @@ export async function POST(request: Request) {
         id: habits.id,
         name: habits.name,
         period: habits.period,
+        frequencyGoal: habits.frequencyGoal,
         visibility: habits.visibility,
       })
       .from(habits)
@@ -734,6 +744,7 @@ export async function POST(request: Request) {
           plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
           plannedStartTime: goalLogs.plannedStartTime,
           status: goalLogs.status,
+          completedCount: goalLogs.completedCount,
         })
         .from(goalLogs)
         .where(
@@ -754,6 +765,7 @@ export async function POST(request: Request) {
             })
           : { status: "skipped" as const };
         const updateValues: {
+          completedCount: 0;
           googleCalendarEventId?: null;
           plannedEndTime: null;
           plannedRepeatsDaily: false;
@@ -762,6 +774,7 @@ export async function POST(request: Request) {
           updatedAt: Date;
         } = {
           status: "incomplete",
+          completedCount: 0,
           plannedStartTime: null,
           plannedEndTime: null,
           plannedRepeatsDaily: false,
@@ -782,6 +795,7 @@ export async function POST(request: Request) {
             goalId: data.goalId,
             date: data.dateKey,
             status: "incomplete",
+            completedCount: 0,
             plannedStartTime: null,
             plannedEndTime: null,
             plannedRepeatsDaily: false,
@@ -809,6 +823,20 @@ export async function POST(request: Request) {
         data.status === "complete" && data.repeatPlan === false
           ? (existingLog?.plannedRepeatsDaily ?? false)
           : plannedRepeatsDaily;
+      const targetCount = Math.max(goal.frequencyGoal ?? 1, 1);
+      const completedCount =
+        data.completedCount ??
+        (data.status === "complete"
+          ? targetCount
+          : data.status === "incomplete"
+            ? 0
+            : (existingLog?.completedCount ?? 0));
+      const nextStatus =
+        data.status === "complete" || completedCount > 0
+          ? completedCount >= targetCount
+            ? "complete"
+            : "incomplete"
+          : data.status;
 
       const [savedLog] = await db
         .insert(goalLogs)
@@ -816,7 +844,8 @@ export async function POST(request: Request) {
           userId: user.id,
           goalId: data.goalId,
           date: data.dateKey,
-          status: data.status,
+          status: nextStatus,
+          completedCount,
           plannedStartTime: nextPlannedStartTime,
           plannedEndTime: nextPlannedEndTime,
           plannedRepeatsDaily: nextPlannedRepeatsDaily,
@@ -826,7 +855,8 @@ export async function POST(request: Request) {
         .onConflictDoUpdate({
           target: [goalLogs.goalId, goalLogs.date],
           set: {
-            status: data.status,
+            status: nextStatus,
+            completedCount,
             plannedStartTime: nextPlannedStartTime,
             plannedEndTime: nextPlannedEndTime,
             plannedRepeatsDaily: nextPlannedRepeatsDaily,

@@ -436,9 +436,27 @@ export const modalStyles = StyleSheet.create({
     minHeight: 64,
   },
   actionText: {
+    flex: 1,
     fontSize: 16,
     lineHeight: 20,
     fontWeight: "600",
+  },
+  countStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  countButton: {
+    width: 42,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countButtonText: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: "800",
   },
   noteRowContent: {
     flex: 1,

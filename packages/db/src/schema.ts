@@ -22,7 +22,11 @@ export const GOAL_VISIBILITIES = [
   "all_friends",
 ] as const;
 export const LOG_STATUSES = ["complete", "incomplete", "planned"] as const;
-export const PLANNED_EVENT_SOURCE_TYPES = ["task", "goal_checkpoint"] as const;
+export const PLANNED_EVENT_SOURCE_TYPES = [
+  "task",
+  "goal_checkpoint",
+  "habit_instance",
+] as const;
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
 export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
@@ -428,6 +432,7 @@ export const plannedEvents = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     sourceType: text("source_type").notNull(),
     sourceId: uuid("source_id").notNull(),
+    sourceParentId: uuid("source_parent_id"),
     title: text("title").notNull(),
     date: date("date", { mode: "string" }).notNull(),
     plannedStartTime: text("planned_start_time"),
@@ -449,6 +454,10 @@ export const plannedEvents = pgTable(
     index("planned_events_user_id_idx").on(table.userId),
     index("planned_events_date_idx").on(table.date),
     index("planned_events_source_idx").on(table.sourceType, table.sourceId),
+    index("planned_events_source_parent_idx").on(
+      table.sourceType,
+      table.sourceParentId,
+    ),
   ],
 );
 
@@ -511,6 +520,7 @@ export const goalLogs = pgTable(
       .references(() => habits.id, { onDelete: "cascade" }),
     date: date("date", { mode: "string" }).notNull(),
     status: logStatusEnum("status").notNull(),
+    completedCount: integer("completed_count").default(0).notNull(),
     notes: text("notes").default("").notNull(),
     plannedStartTime: text("planned_start_time"),
     plannedEndTime: text("planned_end_time"),

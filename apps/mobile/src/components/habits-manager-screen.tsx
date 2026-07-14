@@ -143,6 +143,9 @@ function frequencyLabel(habit: Habit) {
         : "month";
   const base =
     interval === 1 ? capitalize(habit.period) : `Every ${interval} ${unit}s`;
+  if (habit.period === "daily" && (habit.frequencyGoal ?? 1) > 1) {
+    return `${base} · ${habit.frequencyGoal}/day`;
+  }
   if (habit.period === "weekly" && habit.repeatDays?.length) {
     return `${base} · ${habit.repeatDays.map((d) => DAY_LETTERS[d]).join("")}`;
   }
@@ -1019,6 +1022,12 @@ export function HabitFormModal({
       await onSave({
         ...form,
         name: form.name.trim(),
+        frequencyGoal:
+          form.period === "daily"
+            ? (form.frequencyGoal ?? 1) > 1
+              ? form.frequencyGoal
+              : null
+            : form.frequencyGoal,
         repeatDays:
           form.period === "weekly"
             ? weeklyRepeatDays.length
@@ -1806,6 +1815,45 @@ export function HabitFormModal({
                   ))}
                 </View>
 
+                {form.period === "daily" ? (
+                  <View
+                    style={[
+                      styles.switchRow,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.switchCopy}>
+                      <Text style={[styles.switchTitle, { color: theme.text }]}>
+                        # of instances per day
+                      </Text>
+                      <Text
+                        style={[
+                          styles.switchDescription,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Use for habits where more than one completion counts
+                        toward the day.
+                      </Text>
+                    </View>
+                    <View style={styles.instanceStepperWrap}>
+                      <VerticalNumberStepper
+                        accessibilityLabel="Instances per day"
+                        value={form.frequencyGoal ?? 1}
+                        onChange={(frequencyGoal) =>
+                          setForm((current) => ({
+                            ...current,
+                            frequencyGoal,
+                          }))
+                        }
+                      />
+                    </View>
+                  </View>
+                ) : null}
+
                 <View
                   style={[
                     styles.switchRow,
@@ -2016,9 +2064,11 @@ function Choice({
 }
 
 function VerticalNumberStepper({
+  accessibilityLabel = "Repeat interval",
   value,
   onChange,
 }: {
+  accessibilityLabel?: string;
   value: number;
   onChange: (value: number) => void;
 }) {
@@ -2039,7 +2089,7 @@ function VerticalNumberStepper({
         { name: "increment", label: "Increase repeat interval" },
         { name: "decrement", label: "Decrease repeat interval" },
       ]}
-      accessibilityLabel="Repeat interval"
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="adjustable"
       accessibilityValue={{ min: 1, max: 99, now: value }}
       onAccessibilityAction={({ nativeEvent }) => {
@@ -2685,6 +2735,10 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   switchCopy: { flex: 1, gap: 2 },
+  instanceStepperWrap: {
+    width: 72,
+    alignItems: "center",
+  },
   switchTitle: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
   switchDescription: { fontSize: 11, lineHeight: 16, fontWeight: "500" },
   formError: {

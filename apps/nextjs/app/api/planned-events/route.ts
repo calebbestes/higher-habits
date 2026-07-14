@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type PlannedEventSourceType, getDb } from "@habit/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -28,7 +29,8 @@ const querySchema = z.object({
 const upsertSchema = z.object({
   type: z.literal("upsert"),
   sourceType: sourceTypeSchema,
-  sourceId: z.string().uuid(),
+  sourceId: z.string().uuid().optional(),
+  sourceParentId: z.string().uuid().nullable().optional(),
   title: z.string().trim().min(1).max(200).optional(),
   dateKey: dateKeySchema,
   plannedStartTime: timeSchema,
@@ -100,11 +102,15 @@ export async function POST(request: Request) {
     const data = bodySchema.parse(await request.json());
 
     if (data.type === "delete") {
-      const title = await resolvePlannedEventSourceTitle(db, {
-        sourceId: data.sourceId,
-        sourceType: data.sourceType as PlannedEventSourceType,
-        userId: user.id,
-      });
+      const title =
+        data.sourceType === "habit_instance"
+          ? "Habit block"
+          : await resolvePlannedEventSourceTitle(db, {
+              sourceId: data.sourceId,
+              sourceParentId: null,
+              sourceType: data.sourceType as PlannedEventSourceType,
+              userId: user.id,
+            });
 
       if (!title) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -119,8 +125,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, calendarSync: result.calendarSync });
     }
 
+    const sourceId =
+      data.sourceId ??
+      (data.sourceType === "habit_instance" ? randomUUID() : null);
+    if (!sourceId) {
+      return NextResponse.json({ error: "Missing source id" }, { status: 400 });
+    }
+    if (data.sourceType === "habit_instance" && !data.sourceParentId) {
+      return NextResponse.json({ error: "Missing habit id" }, { status: 400 });
+    }
+
     const sourceTitle = await resolvePlannedEventSourceTitle(db, {
-      sourceId: data.sourceId,
+      sourceId,
+      sourceParentId: data.sourceParentId ?? null,
       sourceType: data.sourceType as PlannedEventSourceType,
       userId: user.id,
     });
@@ -133,7 +150,8 @@ export async function POST(request: Request) {
       dateKey: data.dateKey,
       plannedEndTime: data.plannedEndTime,
       plannedStartTime: data.plannedStartTime,
-      sourceId: data.sourceId,
+      sourceId,
+      sourceParentId: data.sourceParentId ?? null,
       sourceType: data.sourceType as PlannedEventSourceType,
       timeZone: data.plannedTimeZone ?? null,
       title: data.title?.trim() || sourceTitle,

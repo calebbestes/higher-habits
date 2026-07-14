@@ -60,6 +60,7 @@ function GoalActionsModalImpl({
   isFutureDate = false,
   canPlan = isFutureDate,
   plannedTime,
+  completedCount,
   uploadingPhotoSource,
   onAddPhoto,
   onOpenNote,
@@ -84,6 +85,7 @@ function GoalActionsModalImpl({
     endTime: string | null;
     repeatsDaily?: boolean;
   };
+  completedCount?: number;
   uploadingPhotoSource: GoalPhotoSource | null;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onOpenNote: () => void;
@@ -95,6 +97,7 @@ function GoalActionsModalImpl({
       repeatPlan?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
+      completedCount?: number;
     },
   ) => void;
   onDismiss: () => void;
@@ -105,6 +108,13 @@ function GoalActionsModalImpl({
   const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
   const isDefaultComplete = Boolean(goal?.defaultComplete);
+  const instanceTarget = Math.max(goal?.frequencyGoal ?? 1, 1);
+  const supportsPartialCredit =
+    !isDefaultComplete && goal?.period === "daily" && instanceTarget > 1;
+  const currentCompletedCount =
+    status === "complete"
+      ? Math.max(completedCount ?? 0, instanceTarget)
+      : (completedCount ?? 0);
   const showCompleteAction = !isFutureDate || isComplete;
   const showPlanAction = canPlan && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
@@ -264,60 +274,153 @@ function GoalActionsModalImpl({
                 showsVerticalScrollIndicator={false}
               >
                 {showCompleteAction ? (
-                  <Pressable
-                    onPress={() =>
-                      onSetStatus(
-                        isDefaultComplete
-                          ? hasSlip
-                            ? null
-                            : "incomplete"
-                          : isComplete
-                            ? null
-                            : "complete",
-                      )
-                    }
-                    style={({ pressed }) => [
-                      modalStyles.actionRow,
-                      { backgroundColor: theme.backgroundElement },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    {isUpdating ? (
-                      <ActivityIndicator size="small" color={theme.primary} />
-                    ) : (
-                      <SymbolView
-                        name={
-                          hasSlip
-                            ? sym("arrow.uturn.backward.circle.fill", "undo")
-                            : isDefaultComplete
-                              ? sym("exclamationmark.circle.fill", "error")
-                              : isComplete
-                                ? sym(
-                                    "arrow.uturn.backward.circle.fill",
-                                    "undo",
-                                  )
-                                : sym("checkmark.circle.fill", "check_circle")
-                        }
-                        size={26}
-                        tintColor={
-                          isComplete || hasSlip
-                            ? theme.textSecondary
-                            : theme.primary
-                        }
-                      />
-                    )}
-                    <Text
-                      style={[modalStyles.actionText, { color: theme.text }]}
+                  supportsPartialCredit ? (
+                    <View
+                      style={[
+                        modalStyles.actionRow,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
                     >
-                      {isDefaultComplete
-                        ? hasSlip
-                          ? "Clear slip"
-                          : "Record slip"
-                        : isComplete
-                          ? "Reopen"
-                          : "Mark complete"}
-                    </Text>
-                  </Pressable>
+                      {isUpdating ? (
+                        <ActivityIndicator size="small" color={theme.primary} />
+                      ) : (
+                        <SymbolView
+                          name={sym("checkmark.circle.fill", "check_circle")}
+                          size={26}
+                          tintColor={
+                            currentCompletedCount >= instanceTarget
+                              ? theme.primary
+                              : theme.textSecondary
+                          }
+                        />
+                      )}
+                      <Text
+                        style={[modalStyles.actionText, { color: theme.text }]}
+                      >
+                        {currentCompletedCount}/{instanceTarget} complete
+                      </Text>
+                      <View style={modalStyles.countStepper}>
+                        <Pressable
+                          disabled={isUpdating || currentCompletedCount <= 0}
+                          onPress={() => {
+                            const nextCount = Math.max(
+                              currentCompletedCount - 1,
+                              0,
+                            );
+                            onSetStatus(nextCount > 0 ? "incomplete" : null, {
+                              completedCount: nextCount,
+                            });
+                          }}
+                          style={({ pressed }) => [
+                            modalStyles.countButton,
+                            { backgroundColor: theme.backgroundSelected },
+                            (isUpdating || currentCompletedCount <= 0) &&
+                              modalStyles.disabled,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              modalStyles.countButtonText,
+                              { color: theme.text },
+                            ]}
+                          >
+                            -
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={
+                            isUpdating ||
+                            currentCompletedCount >= instanceTarget
+                          }
+                          onPress={() => {
+                            const nextCount = Math.min(
+                              currentCompletedCount + 1,
+                              instanceTarget,
+                            );
+                            onSetStatus(
+                              nextCount >= instanceTarget
+                                ? "complete"
+                                : "incomplete",
+                              { completedCount: nextCount },
+                            );
+                          }}
+                          style={({ pressed }) => [
+                            modalStyles.countButton,
+                            { backgroundColor: theme.primary },
+                            (isUpdating ||
+                              currentCompletedCount >= instanceTarget) &&
+                              modalStyles.disabled,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              modalStyles.countButtonText,
+                              { color: theme.primaryForeground },
+                            ]}
+                          >
+                            +
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() =>
+                        onSetStatus(
+                          isDefaultComplete
+                            ? hasSlip
+                              ? null
+                              : "incomplete"
+                            : isComplete
+                              ? null
+                              : "complete",
+                        )
+                      }
+                      style={({ pressed }) => [
+                        modalStyles.actionRow,
+                        { backgroundColor: theme.backgroundElement },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      {isUpdating ? (
+                        <ActivityIndicator size="small" color={theme.primary} />
+                      ) : (
+                        <SymbolView
+                          name={
+                            hasSlip
+                              ? sym("arrow.uturn.backward.circle.fill", "undo")
+                              : isDefaultComplete
+                                ? sym("exclamationmark.circle.fill", "error")
+                                : isComplete
+                                  ? sym(
+                                      "arrow.uturn.backward.circle.fill",
+                                      "undo",
+                                    )
+                                  : sym("checkmark.circle.fill", "check_circle")
+                          }
+                          size={26}
+                          tintColor={
+                            isComplete || hasSlip
+                              ? theme.textSecondary
+                              : theme.primary
+                          }
+                        />
+                      )}
+                      <Text
+                        style={[modalStyles.actionText, { color: theme.text }]}
+                      >
+                        {isDefaultComplete
+                          ? hasSlip
+                            ? "Clear slip"
+                            : "Record slip"
+                          : isComplete
+                            ? "Reopen"
+                            : "Mark complete"}
+                      </Text>
+                    </Pressable>
+                  )
                 ) : null}
 
                 {showPlanAction ? (
