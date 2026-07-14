@@ -26,6 +26,7 @@ export const PLANNED_EVENT_SOURCE_TYPES = [
   "task",
   "goal_checkpoint",
   "habit_instance",
+  "other_event",
 ] as const;
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;

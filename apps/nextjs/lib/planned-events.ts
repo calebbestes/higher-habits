@@ -19,6 +19,7 @@ export const PLANNED_EVENT_SOURCE_TYPES = [
   "task",
   "goal_checkpoint",
   "habit_instance",
+  "other_event",
 ] as const satisfies readonly PlannedEventSourceType[];
 
 export type PlannedEventRow = typeof plannedEvents.$inferSelect;
@@ -157,6 +158,10 @@ export async function resolvePlannedEventSourceTitle(
       .limit(1)) as Array<{ title: string }>;
 
     return habit?.title ?? null;
+  }
+
+  if (sourceType === "other_event") {
+    return "Other event";
   }
 
   const [checkpoint] = (await db
