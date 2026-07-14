@@ -796,7 +796,7 @@ function menuSelectedState(selected: boolean): MenuAction["state"] {
   return selected ? "on" : undefined;
 }
 
-function PlanTimeSelect({
+export function PlanTimeSelect({
   fallbackHour,
   value,
   onChange,

@@ -26,7 +26,11 @@ import {
   confettiSource,
 } from "@/components/celebration-overlay";
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
-import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import {
+  GoalActionsModal,
+  PlanTimeSelect,
+} from "@/components/daily-goals/goal-actions-modal";
+import { modalStyles } from "@/components/daily-goals/shared";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
@@ -68,7 +72,15 @@ import {
   fetchCategories,
 } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
-import { formatPlanMinutesDisplay } from "@/lib/plan-time";
+import {
+  DEFAULT_PLAN_PERIOD,
+  DEFAULT_PLAN_START_TIME,
+  PLAN_PERIODS,
+  type PlanPeriod,
+  formatPlanMinutesDisplay,
+  getPlanTimeInput,
+  normalizePlanTimeInput,
+} from "@/lib/plan-time";
 import {
   type PlannedEvent,
   deletePlannedEvent,
@@ -1864,6 +1876,7 @@ export function DayPlanScreen({
     if (
       entry.kind === "task" ||
       entry.kind === "goal" ||
+      entry.kind === "google" ||
       entry.kind === "other"
     ) {
       setActiveEntry(entry);
@@ -2111,14 +2124,7 @@ export function DayPlanScreen({
             try {
               await deletePlannedEvent({
                 sourceId,
-                sourceType:
-                  entry.kind === "task"
-                    ? "task"
-                    : entry.kind === "habit"
-                      ? "habit_instance"
-                      : entry.kind === "other"
-                        ? "other_event"
-                        : "goal_checkpoint",
+                sourceType: getPlannedEventSourceTypeForEntry(entry),
               });
               cancelEntryNotification(entry);
               invalidateCurrentCaches({ google: true, planned: true });
@@ -2140,6 +2146,47 @@ export function DayPlanScreen({
         },
       ],
     );
+  };
+
+  const clearActiveEntryPlan = async () => {
+    if (!activeEntry?.sourceId) return;
+
+    const entry = activeEntry;
+    const sourceId = activeEntry.sourceId;
+    setUpdatingKey(entry.id);
+    try {
+      await deletePlannedEvent({
+        sourceId,
+        sourceType: getPlannedEventSourceTypeForEntry(entry),
+      });
+      cancelEntryNotification(entry);
+      invalidateCurrentCaches({ google: true, planned: true });
+      if (!isMountedRef.current) return;
+      setActiveEntry(null);
+      await load();
+    } catch (deleteError) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not clear plan",
+        deleteError instanceof Error
+          ? deleteError.message
+          : "The plan could not be cleared.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingKey(null);
+    }
+  };
+
+  const saveActiveEntryTimeRange = async (range: PlanRange) => {
+    if (!activeEntry) return;
+    const entry = activeEntry;
+    await saveMovedEntry(entry, range);
+    if (!isMountedRef.current) return;
+    setActiveEntry({
+      ...entry,
+      endMinutes: range.endMinutes,
+      startMinutes: range.startMinutes,
+    });
   };
 
   const openAttachmentForActiveEntry = () => {
@@ -2804,11 +2851,7 @@ export function DayPlanScreen({
                                 onBeginMove={(touch) =>
                                   beginMoveEntry(entry, touch)
                                 }
-                                onPress={
-                                  entry.kind !== "google"
-                                    ? () => openInternalEntry(entry)
-                                    : undefined
-                                }
+                                onPress={() => openInternalEntry(entry)}
                                 onMove={handleTimelinePressMove}
                                 onRelease={finishTimelineGesture}
                                 hourHeight={timelineHourHeight}
@@ -2904,7 +2947,8 @@ export function DayPlanScreen({
           entry={activeEntry}
           isUpdating={Boolean(
             activeEntry?.sourceId &&
-              updatingKey === `${activeEntry.kind}-${activeEntry.sourceId}`,
+              (updatingKey === activeEntry.id ||
+                updatingKey === `${activeEntry.kind}-${activeEntry.sourceId}`),
           )}
           onboardingStep={
             activeEntry?.kind === "goal" &&
@@ -2919,9 +2963,11 @@ export function DayPlanScreen({
           )}
           visibility={activeCheckpoint?.checkpoint.visibility ?? "only_me"}
           onAddPhoto={() => void addCheckpointPhotoForActiveEntry("library")}
+          onClearPlan={() => void clearActiveEntryPlan()}
           onClose={() => setActiveEntry(null)}
           onDelete={() => void deleteActiveEntry()}
           onOpenNote={openAttachmentForActiveEntry}
+          onSaveTimeRange={(range) => void saveActiveEntryTimeRange(range)}
           onSetVisibility={(visibility) =>
             void setActiveCheckpointVisibility(visibility)
           }
@@ -3391,9 +3437,11 @@ function InternalEventActionsModal({
   isUpdating,
   onboardingStep,
   onAddPhoto,
+  onClearPlan,
   onClose,
   onDelete,
   onOpenNote,
+  onSaveTimeRange,
   onSetVisibility,
   onTakePhoto,
   onToggleComplete,
@@ -3404,9 +3452,11 @@ function InternalEventActionsModal({
   isUpdating: boolean;
   onboardingStep: DayPlanOnboardingStep | null;
   onAddPhoto: () => void;
+  onClearPlan: () => void;
   onClose: () => void;
   onDelete: () => void;
   onOpenNote: () => void;
+  onSaveTimeRange: (range: PlanRange) => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
   onToggleComplete: () => void;
@@ -3414,10 +3464,42 @@ function InternalEventActionsModal({
   visibility: HabitVisibility;
 }) {
   const theme = useTheme();
+  const [planStartTime, setPlanStartTime] = useState("");
+  const [planEndTime, setPlanEndTime] = useState("");
+  const [planStartPeriod, setPlanStartPeriod] =
+    useState<PlanPeriod>(DEFAULT_PLAN_PERIOD);
+  const [planEndPeriod, setPlanEndPeriod] =
+    useState<PlanPeriod>(DEFAULT_PLAN_PERIOD);
+  const isOtherEvent = entry?.kind === "other";
+  const isHabitEvent = entry?.kind === "habit";
+  const isGoogleEvent = entry?.kind === "google";
+  const isEditablePlannedBlock =
+    Boolean(entry?.sourceId) && (isOtherEvent || isHabitEvent || isGoogleEvent);
+  const currentStartTime = formatPlanApiTime(entry?.startMinutes ?? 9 * 60);
+  const currentEndTime = formatPlanApiTime(entry?.endMinutes ?? 10 * 60);
+  const nextStartTime = normalizePlanTimeInput(planStartTime, planStartPeriod);
+  const nextEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
+  const nextStartMinutes = timeToMinutes(nextStartTime);
+  const nextEndMinutes = timeToMinutes(nextEndTime);
+  const hasTimeRangeChanges =
+    nextStartTime !== currentStartTime || nextEndTime !== currentEndTime;
+  const canSaveTimeRange =
+    nextStartMinutes !== null &&
+    nextEndMinutes !== null &&
+    normalizeEndMinutes(nextStartMinutes, nextEndMinutes) > nextStartMinutes;
+
+  useEffect(() => {
+    if (!entry || !isEditablePlannedBlock) return;
+
+    const start = getPlanTimeInput(currentStartTime);
+    const end = getPlanTimeInput(currentEndTime);
+    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
+    setPlanStartPeriod(start.period);
+    setPlanEndTime(end.time || DEFAULT_PLAN_START_TIME);
+    setPlanEndPeriod(end.period);
+  }, [currentEndTime, currentStartTime, entry, isEditablePlannedBlock]);
+
   if (!entry) return null;
-  const isOtherEvent = entry.kind === "other";
-  const isHabitEvent = entry.kind === "habit";
-  const isSimpleScheduledEvent = isOtherEvent || isHabitEvent;
 
   return (
     <Modal animationType="slide" transparent visible onRequestClose={onClose}>
@@ -3461,7 +3543,9 @@ function InternalEventActionsModal({
                     ? "Goal checkpoint"
                     : isHabitEvent
                       ? "Daily habit"
-                      : "Other event"}
+                      : isGoogleEvent
+                        ? "Calendar event"
+                        : "Other event"}
               </Text>
             </View>
             <Pressable
@@ -3499,7 +3583,186 @@ function InternalEventActionsModal({
                 title="Finish the goal"
               />
             ) : null}
-            {!isSimpleScheduledEvent ? (
+            {isEditablePlannedBlock ? (
+              <>
+                <Pressable
+                  disabled={
+                    isUpdating ||
+                    (hasTimeRangeChanges && !canSaveTimeRange) ||
+                    (!hasTimeRangeChanges && isGoogleEvent)
+                  }
+                  onPress={() => {
+                    if (
+                      hasTimeRangeChanges &&
+                      nextStartMinutes !== null &&
+                      nextEndMinutes !== null
+                    ) {
+                      onSaveTimeRange({
+                        endMinutes: normalizeEndMinutes(
+                          nextStartMinutes,
+                          nextEndMinutes,
+                        ),
+                        startMinutes: nextStartMinutes,
+                      });
+                      return;
+                    }
+
+                    if (isGoogleEvent) return;
+                    onClearPlan();
+                  }}
+                  style={({ pressed }) => [
+                    styles.eventActionRow,
+                    { backgroundColor: theme.backgroundElement },
+                    hasTimeRangeChanges &&
+                      !canSaveTimeRange &&
+                      modalStyles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {isUpdating ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : (
+                    <SymbolView
+                      name={
+                        hasTimeRangeChanges
+                          ? sym("calendar.badge.plus", "event_available")
+                          : sym("calendar.badge.minus", "event_busy")
+                      }
+                      size={26}
+                      tintColor={
+                        hasTimeRangeChanges
+                          ? theme.primary
+                          : theme.textSecondary
+                      }
+                    />
+                  )}
+                  <Text
+                    style={[styles.eventActionLabel, { color: theme.text }]}
+                  >
+                    {hasTimeRangeChanges || isGoogleEvent
+                      ? "Save plan"
+                      : "Clear plan"}
+                  </Text>
+                </Pressable>
+
+                <View
+                  style={[
+                    modalStyles.planTimeSection,
+                    { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      modalStyles.planTimeSectionTitle,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Time range
+                  </Text>
+                  <View style={modalStyles.planTimeFields}>
+                    <View style={modalStyles.planTimeField}>
+                      <Text
+                        style={[
+                          modalStyles.planTimeLabel,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Start
+                      </Text>
+                      <PlanTimeSelect
+                        fallbackHour={9}
+                        onChange={setPlanStartTime}
+                        value={planStartTime}
+                      />
+                      <View style={modalStyles.planPeriodToggle}>
+                        {PLAN_PERIODS.map((period) => {
+                          const isSelected = planStartPeriod === period;
+
+                          return (
+                            <Pressable
+                              key={period}
+                              onPress={() => setPlanStartPeriod(period)}
+                              style={[
+                                modalStyles.planPeriodOption,
+                                {
+                                  backgroundColor: isSelected
+                                    ? theme.primary
+                                    : "transparent",
+                                  borderColor: theme.tabBorder,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  modalStyles.planPeriodText,
+                                  {
+                                    color: isSelected
+                                      ? theme.primaryForeground
+                                      : theme.textSecondary,
+                                  },
+                                ]}
+                              >
+                                {period}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                    <View style={modalStyles.planTimeField}>
+                      <Text
+                        style={[
+                          modalStyles.planTimeLabel,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        End
+                      </Text>
+                      <PlanTimeSelect
+                        fallbackHour={10}
+                        onChange={setPlanEndTime}
+                        value={planEndTime}
+                      />
+                      <View style={modalStyles.planPeriodToggle}>
+                        {PLAN_PERIODS.map((period) => {
+                          const isSelected = planEndPeriod === period;
+
+                          return (
+                            <Pressable
+                              key={period}
+                              onPress={() => setPlanEndPeriod(period)}
+                              style={[
+                                modalStyles.planPeriodOption,
+                                {
+                                  backgroundColor: isSelected
+                                    ? theme.primary
+                                    : "transparent",
+                                  borderColor: theme.tabBorder,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  modalStyles.planPeriodText,
+                                  {
+                                    color: isSelected
+                                      ? theme.primaryForeground
+                                      : theme.textSecondary,
+                                  },
+                                ]}
+                              >
+                                {period}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              </>
+            ) : null}
+            {!isEditablePlannedBlock ? (
               <>
                 <Pressable
                   disabled={isUpdating}
@@ -3615,24 +3878,26 @@ function InternalEventActionsModal({
               />
             ) : null}
 
-            <Pressable
-              disabled={isUpdating}
-              onPress={onDelete}
-              style={({ pressed }) => [
-                styles.eventActionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("trash.fill", "delete")}
-                size={26}
-                tintColor="#B84D54"
-              />
-              <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
-                Delete event
-              </Text>
-            </Pressable>
+            {!isGoogleEvent ? (
+              <Pressable
+                disabled={isUpdating}
+                onPress={onDelete}
+                style={({ pressed }) => [
+                  styles.eventActionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("trash.fill", "delete")}
+                  size={26}
+                  tintColor="#B84D54"
+                />
+                <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
+                  Delete event
+                </Text>
+              </Pressable>
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </View>
@@ -5128,6 +5393,13 @@ function getScheduleNotificationEventId(entry: DayPlanEntry, dateKey: string) {
   }
 
   return null;
+}
+
+function getPlannedEventSourceTypeForEntry(entry: DayPlanEntry) {
+  if (entry.kind === "task") return "task";
+  if (entry.kind === "habit") return "habit_instance";
+  if (entry.kind === "other") return "other_event";
+  return "goal_checkpoint";
 }
 
 function getLastPlannedDurationMinutes(
