@@ -2421,6 +2421,7 @@ export function SharedGoalsScreen() {
           period: actionPersonalGoal?.period ?? "daily",
           frequencyGoal: actionPersonalGoal?.frequencyGoal ?? null,
           defaultComplete: actionPersonalGoal?.defaultComplete ?? false,
+          planOnCalendar: actionPersonalGoal?.planOnCalendar ?? true,
           reminderEnabled: actionPersonalGoal?.reminderEnabled ?? false,
           reminderTime: actionPersonalGoal?.reminderTime ?? null,
         }

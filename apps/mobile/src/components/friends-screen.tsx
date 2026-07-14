@@ -483,12 +483,20 @@ function FriendCard({
         <FriendAvatar friend={friend} size={48} />
       </Pressable>
       <View style={styles.friendIdentity}>
-        <Text
-          numberOfLines={1}
-          style={[styles.friendName, { color: theme.text }]}
+        <Pressable
+          accessibilityLabel={`Open ${friend.friendName}'s profile`}
+          accessibilityRole="button"
+          hitSlop={6}
+          onPress={onOpenProfile}
+          style={({ pressed }) => pressed && styles.pressed}
         >
-          {friend.friendName}
-        </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.friendName, { color: theme.text }]}
+          >
+            {friend.friendName}
+          </Text>
+        </Pressable>
         <Text
           numberOfLines={1}
           style={[styles.friendActive, { color: theme.textSecondary }]}

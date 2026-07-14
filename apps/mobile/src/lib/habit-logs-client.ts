@@ -25,6 +25,7 @@ export type HabitInCategory = {
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   defaultComplete: boolean;
+  planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
@@ -82,6 +83,7 @@ export type PeriodicHabitInfo = {
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
   defaultComplete: boolean;
+  planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   createdAt: string;
@@ -154,6 +156,10 @@ function normalizeDefaultComplete(value: unknown) {
   return value === true;
 }
 
+function normalizePlanOnCalendar(value: unknown) {
+  return value !== false;
+}
+
 function mapValues<T>(
   value: unknown,
   normalizeValue: (value: unknown) => T | null,
@@ -172,6 +178,7 @@ function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
   return {
     ...habit,
     defaultComplete: normalizeDefaultComplete(habit.defaultComplete),
+    planOnCalendar: normalizePlanOnCalendar(habit.planOnCalendar),
     priority: normalizePriority(habit.priority),
   };
 }

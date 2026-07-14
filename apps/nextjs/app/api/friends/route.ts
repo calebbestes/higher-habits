@@ -292,8 +292,23 @@ async function getFriendActivitySummary(
 async function getFriendProfile(
   db: FriendsDb,
   viewerId: string,
-  friendshipId: string,
+  lookup: { friendshipId?: string; friendId?: string },
 ) {
+  const friendshipFilter = lookup.friendshipId
+    ? eq(friends.id, lookup.friendshipId)
+    : lookup.friendId
+      ? or(
+          and(
+            eq(friends.userId1, viewerId),
+            eq(friends.userId2, lookup.friendId),
+          ),
+          and(
+            eq(friends.userId1, lookup.friendId),
+            eq(friends.userId2, viewerId),
+          ),
+        )
+      : undefined;
+
   const [friendship] = await db
     .select({
       userId1: friends.userId1,
@@ -302,7 +317,7 @@ async function getFriendProfile(
     .from(friends)
     .where(
       and(
-        eq(friends.id, friendshipId),
+        friendshipFilter,
         eq(friends.status, "accepted"),
         or(eq(friends.userId1, viewerId), eq(friends.userId2, viewerId)),
       ),
@@ -379,19 +394,10 @@ async function getFriendProfile(
         or(eq(friends.userId1, friendId), eq(friends.userId2, friendId)),
       ),
     );
-  const completedHabitRows =
-    visibleHabitIdList.length > 0
-      ? await db
-          .select({ id: goalLogs.id })
-          .from(goalLogs)
-          .where(
-            and(
-              eq(goalLogs.userId, friendId),
-              eq(goalLogs.status, "complete"),
-              inArray(goalLogs.goalId, visibleHabitIdList),
-            ),
-          )
-      : [];
+  const completedHabitRows = await db
+    .select({ id: goalLogs.id })
+    .from(goalLogs)
+    .where(and(eq(goalLogs.userId, friendId), eq(goalLogs.status, "complete")));
   const logRows =
     visibleHabitIdList.length > 0
       ? await db
@@ -486,9 +492,18 @@ export async function GET(request: Request) {
     const profileFriendshipId = new URL(request.url).searchParams.get(
       "profileFriendshipId",
     );
+    const profileFriendId = new URL(request.url).searchParams.get(
+      "profileFriendId",
+    );
 
     if (profileFriendshipId) {
-      return getFriendProfile(db, user.id, profileFriendshipId);
+      return getFriendProfile(db, user.id, {
+        friendshipId: profileFriendshipId,
+      });
+    }
+
+    if (profileFriendId) {
+      return getFriendProfile(db, user.id, { friendId: profileFriendId });
     }
 
     const rows = await db

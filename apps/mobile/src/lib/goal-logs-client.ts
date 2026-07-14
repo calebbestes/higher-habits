@@ -25,6 +25,7 @@ export type GoalInCategory = {
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   defaultComplete: boolean;
+  planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   sharedGoals?: LinkedSharedGoal[];
@@ -83,6 +84,7 @@ export type PeriodicGoalInfo = {
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
   defaultComplete: boolean;
+  planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
   createdAt: string;
@@ -138,6 +140,10 @@ function normalizeDefaultComplete(value: unknown) {
   return value === true;
 }
 
+function normalizePlanOnCalendar(value: unknown) {
+  return value !== false;
+}
+
 function mapValues<T>(
   value: unknown,
   normalizeValue: (value: unknown) => T | null,
@@ -156,6 +162,7 @@ function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
   return {
     ...goal,
     defaultComplete: normalizeDefaultComplete(goal.defaultComplete),
+    planOnCalendar: normalizePlanOnCalendar(goal.planOnCalendar),
     priority: normalizePriority(goal.priority),
   };
 }

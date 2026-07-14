@@ -239,6 +239,24 @@ export function FeedScreen() {
   >(null);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
+  const lightboxPagerRef = useRef<ScrollView>(null);
+  const lightboxPhotos = activePhoto?.entry.photos ?? [];
+  const lightboxPhotoIndex = activePhoto
+    ? Math.max(
+        0,
+        lightboxPhotos.findIndex((photo) => photo.id === activePhoto.photo.id),
+      )
+    : 0;
+
+  useEffect(() => {
+    if (!activePhoto || viewportWidth <= 0) return;
+    requestAnimationFrame(() => {
+      lightboxPagerRef.current?.scrollTo({
+        x: lightboxPhotoIndex * viewportWidth,
+        animated: false,
+      });
+    });
+  }, [activePhoto, lightboxPhotoIndex, viewportWidth]);
 
   const load = useCallback(async (refresh = false) => {
     const requestId = loadRequestIdRef.current + 1;
@@ -626,30 +644,14 @@ export function FeedScreen() {
   );
 
   const openFriendProfile = useCallback(
-    async (entry: FriendFeedEntry) => {
-      try {
-        const friends = await fetchFriends();
-        const friendship = friends.find(
-          (friend) =>
-            friend.friendId === entry.friend.id && friend.status === "accepted",
-        );
-
-        if (!friendship) {
-          throw new Error("Friendship not found.");
-        }
-
-        if (!isMountedRef.current) return;
-        router.push({
-          pathname: "/friend-profile",
-          params: { friendshipId: friendship.id },
-        });
-      } catch (err) {
-        if (!isMountedRef.current) return;
-        Alert.alert(
-          "Could not open profile",
-          err instanceof Error ? err.message : undefined,
-        );
-      }
+    (entry: FriendFeedEntry) => {
+      router.push({
+        pathname: "/friend-profile",
+        params: {
+          friendId: entry.friend.id,
+          initialName: entry.friend.name,
+        },
+      });
     },
     [router],
   );
@@ -856,29 +858,64 @@ export function FeedScreen() {
           {activePhoto ? (
             <>
               <ScrollView
-                key={activePhoto.photo.id}
+                key={activePhoto.entry.id}
+                ref={lightboxPagerRef}
                 bounces={false}
-                bouncesZoom
-                centerContent
-                contentContainerStyle={[
-                  styles.lightboxZoomContent,
-                  lightboxViewportStyle,
-                ]}
-                maximumZoomScale={4}
-                minimumZoomScale={1}
-                pinchGestureEnabled
+                horizontal
+                pagingEnabled
+                onMomentumScrollEnd={(event) => {
+                  const nextIndex = Math.round(
+                    event.nativeEvent.contentOffset.x /
+                      Math.max(1, viewportWidth),
+                  );
+                  const nextPhoto = lightboxPhotos[nextIndex];
+                  if (nextPhoto && nextPhoto.id !== activePhoto.photo.id) {
+                    playSelectionHaptic();
+                    setActivePhoto({
+                      entry: activePhoto.entry,
+                      photo: nextPhoto,
+                    });
+                  }
+                }}
                 showsHorizontalScrollIndicator={false}
                 showsVerticalScrollIndicator={false}
-                style={styles.lightboxZoomFrame}
+                style={styles.lightboxPager}
               >
-                <View style={lightboxViewportStyle}>
-                  <Image
-                    source={{ uri: activePhoto.photo.url }}
-                    style={styles.lightboxImage}
-                    contentFit="contain"
-                  />
-                </View>
+                {lightboxPhotos.map((photo) => (
+                  <View key={photo.id} style={lightboxViewportStyle}>
+                    <ScrollView
+                      bounces={false}
+                      bouncesZoom
+                      centerContent
+                      contentContainerStyle={[
+                        styles.lightboxZoomContent,
+                        lightboxViewportStyle,
+                      ]}
+                      maximumZoomScale={4}
+                      minimumZoomScale={1}
+                      pinchGestureEnabled
+                      showsHorizontalScrollIndicator={false}
+                      showsVerticalScrollIndicator={false}
+                      style={styles.lightboxZoomFrame}
+                    >
+                      <View style={lightboxViewportStyle}>
+                        <Image
+                          source={{ uri: photo.url }}
+                          style={styles.lightboxImage}
+                          contentFit="contain"
+                        />
+                      </View>
+                    </ScrollView>
+                  </View>
+                ))}
               </ScrollView>
+              {lightboxPhotos.length > 1 ? (
+                <View style={styles.lightboxCounter}>
+                  <Text style={styles.lightboxCounterText}>
+                    {lightboxPhotoIndex + 1}/{lightboxPhotos.length}
+                  </Text>
+                </View>
+              ) : null}
               <Pressable
                 accessibilityLabel="Close photo"
                 hitSlop={10}
@@ -1176,7 +1213,7 @@ function FilterChip({
   );
 }
 
-function FeedCard({
+export function FeedCard({
   entry,
   onToggleProp,
   onPhotoPress,
@@ -1218,12 +1255,23 @@ function FeedCard({
         </Pressable>
         <View style={styles.headerMeta}>
           <View style={styles.headerNameRow}>
-            <Text
-              numberOfLines={1}
-              style={[styles.friendName, { color: theme.text }]}
+            <Pressable
+              accessibilityLabel={`Open ${entry.friend.name}'s profile`}
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={onOpenProfile}
+              style={({ pressed }) => [
+                styles.friendNamePressable,
+                pressed && styles.pressed,
+              ]}
             >
-              {entry.friend.name}
-            </Text>
+              <Text
+                numberOfLines={1}
+                style={[styles.friendName, { color: theme.text }]}
+              >
+                {entry.friend.name}
+              </Text>
+            </Pressable>
             <Text
               numberOfLines={1}
               style={[styles.dateText, { color: theme.textSecondary }]}
@@ -2063,6 +2111,10 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
     gap: 8,
   },
+  friendNamePressable: {
+    flex: 1,
+    minWidth: 0,
+  },
   friendName: {
     flex: 1,
     minWidth: 0,
@@ -2366,13 +2418,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  lightboxZoomFrame: {
+  lightboxPager: {
     position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
     zIndex: 1,
+  },
+  lightboxZoomFrame: {
+    flex: 1,
   },
   lightboxZoomContent: {
     alignItems: "center",
@@ -2396,6 +2451,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 21,
     backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  lightboxCounter: {
+    position: "absolute",
+    top: 62,
+    alignSelf: "center",
+    zIndex: 2,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  lightboxCounterText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
   },
   lightboxDeleteButton: {
     position: "absolute",

@@ -91,19 +91,12 @@ export async function GET(request: Request) {
     const startDateKey = dateKeys[0] ?? mountainDateKey();
     const visibleHabitIdList = visibleHabits.map((habit) => habit.id);
 
-    const completedHabitRows =
-      visibleHabitIdList.length > 0
-        ? await db
-            .select({ id: goalLogs.id })
-            .from(goalLogs)
-            .where(
-              and(
-                eq(goalLogs.userId, user.id),
-                eq(goalLogs.status, "complete"),
-                inArray(goalLogs.goalId, visibleHabitIdList),
-              ),
-            )
-        : [];
+    const completedHabitRows = await db
+      .select({ id: goalLogs.id })
+      .from(goalLogs)
+      .where(
+        and(eq(goalLogs.userId, user.id), eq(goalLogs.status, "complete")),
+      );
 
     const logRows =
       visibleHabitIdList.length > 0

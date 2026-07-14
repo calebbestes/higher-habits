@@ -334,11 +334,17 @@ export const styles = StyleSheet.create({
     borderRadius: 11,
   },
   goalName: {
-    flex: 1,
-    minWidth: 0,
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "600",
+  },
+  goalTextStack: { flex: 1, minWidth: 0, gap: 1 },
+  goalVisibilityText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontStyle: "italic",
+    fontWeight: "500",
+    opacity: 0.68,
   },
   sharedFriendBadgeStack: {
     flexDirection: "row",
