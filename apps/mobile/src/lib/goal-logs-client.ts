@@ -96,6 +96,7 @@ export type GoalLogsSnapshot = {
   periodicGoals: PeriodicGoalInfo[];
   acceptedGoalIncentives?: AcceptedGoalIncentive[];
   logsByGoalDate: Record<string, "complete" | "incomplete" | "planned">;
+  completedCountsByGoalDate: Record<string, number>;
   notesByGoalDate: Record<string, string>;
   photoCountsByGoalDate: Record<string, number>;
   visibilityByGoalDate: Record<string, GoalVisibility>;
@@ -254,6 +255,11 @@ function normalizeSnapshot(value: unknown): GoalLogsSnapshot {
         ? status
         : null,
     ),
+    completedCountsByGoalDate: mapValues(
+      payload.completedCountsByGoalDate,
+      (count) =>
+        typeof count === "number" && Number.isFinite(count) ? count : null,
+    ),
     notesByGoalDate: mapValues(payload.notesByGoalDate, (note) =>
       typeof note === "string" ? note : null,
     ),
@@ -317,6 +323,7 @@ export const setGoalLog = (
   dateKey: string,
   status: GoalLogStatus,
   options?: {
+    completedCount?: number;
     endTime?: string | null;
     repeatPlan?: boolean;
     startTime?: string | null;
@@ -330,6 +337,7 @@ export const setGoalLog = (
       goalId,
       dateKey,
       status,
+      completedCount: options?.completedCount,
       plannedStartTime: options?.startTime ?? null,
       plannedEndTime: options?.endTime ?? null,
       plannedTimeZone: options?.timeZone ?? null,

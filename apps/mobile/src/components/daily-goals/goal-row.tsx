@@ -12,12 +12,14 @@ import { type ActionGoal, type GoalDateStatus, styles, sym } from "./shared";
 function GoalRowImpl({
   goal,
   status,
+  completedCount = 0,
   plannedTime,
   onEdit,
   onPress,
 }: {
   goal: ActionGoal;
   status: GoalDateStatus;
+  completedCount?: number;
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
@@ -34,6 +36,12 @@ function GoalRowImpl({
   const plannedTimeDisplay = isPlanned
     ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
     : null;
+  const instanceTarget =
+    goal.period === "daily" ? Math.max(goal.frequencyGoal ?? 1, 1) : 1;
+  const progressLabel =
+    instanceTarget > 1
+      ? `${Math.min(completedCount, instanceTarget)}/${instanceTarget}`
+      : null;
   const hasPlannedTime = Boolean(plannedTimeDisplay);
 
   const sharedFriends = getSharedFriends(goal).slice(0, 3);
@@ -71,7 +79,9 @@ function GoalRowImpl({
           numberOfLines={1}
           style={[styles.goalVisibilityText, { color: theme.textSecondary }]}
         >
-          {getDefaultVisibilityLabel(goal.visibility)}
+          {[getDefaultVisibilityLabel(goal.visibility), progressLabel]
+            .filter(Boolean)
+            .join(" · ")}
         </Text>
       </View>
 

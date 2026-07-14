@@ -875,9 +875,9 @@ export function DayPlanScreen({
     }
     return map;
   }, [planGoals]);
-  const scheduledHabitIds = useMemo(
-    () => getScheduledHabitIds(snapshot, dateKey),
-    [dateKey, snapshot],
+  const scheduledHabitCounts = useMemo(
+    () => getScheduledHabitCounts(snapshot, dateKey, plannedEvents),
+    [dateKey, plannedEvents, snapshot],
   );
   const scheduledTaskIds = useMemo(
     () =>
@@ -907,7 +907,8 @@ export function DayPlanScreen({
                 habit.period === "daily" &&
                 !habit.hidden &&
                 habit.planOnCalendar &&
-                !scheduledHabitIds.has(habit.id),
+                (scheduledHabitCounts.get(habit.id) ?? 0) <
+                  Math.max(habit.frequencyGoal ?? 1, 1),
             )
             .map((habit) => ({
               completions: countHabitCompletions(
@@ -922,7 +923,7 @@ export function DayPlanScreen({
             })),
         ) ?? [],
       ),
-    [scheduledHabitIds, snapshot],
+    [scheduledHabitCounts, snapshot],
   );
   const monthlyHabitOptions = useMemo<PlanTargetOption[]>(
     () =>
@@ -930,7 +931,8 @@ export function DayPlanScreen({
         snapshot?.periodicHabits
           .filter(
             (habit) =>
-              habit.period === "monthly" && !scheduledHabitIds.has(habit.id),
+              habit.period === "monthly" &&
+              (scheduledHabitCounts.get(habit.id) ?? 0) < 1,
           )
           .map((habit) => ({
             completions: countHabitCompletions(
@@ -944,7 +946,7 @@ export function DayPlanScreen({
             },
           })) ?? [],
       ),
-    [scheduledHabitIds, snapshot],
+    [scheduledHabitCounts, snapshot],
   );
   const taskOptions = useMemo<PlanTargetOption[]>(
     () =>
@@ -1025,7 +1027,7 @@ export function DayPlanScreen({
         dateKey,
         planGoals,
         scheduledCheckpointIds,
-        scheduledHabitIds,
+        scheduledHabitCounts,
         scheduledTaskIds,
         snapshot,
         tasks,
@@ -1035,7 +1037,7 @@ export function DayPlanScreen({
       dateKey,
       planGoals,
       scheduledCheckpointIds,
-      scheduledHabitIds,
+      scheduledHabitCounts,
       scheduledTaskIds,
       snapshot,
       tasks,
@@ -1488,12 +1490,26 @@ export function DayPlanScreen({
 
     try {
       if (entry.kind === "habit" && entry.habitId) {
-        await setHabitLog(entry.habitId, dateKey, "planned", {
-          endTime,
-          startTime,
-          timeZone,
-        });
-        patchHabitPlanTime(entry.habitId, startTime, endTime);
+        if (entry.sourceId) {
+          const response = await upsertPlannedEvent({
+            dateKey,
+            endTime,
+            sourceId: entry.sourceId,
+            sourceParentId: entry.habitId,
+            sourceType: "habit_instance",
+            startTime,
+            timeZone,
+            title: entry.title,
+          });
+          patchPlannedEvent(response.event);
+        } else {
+          await setHabitLog(entry.habitId, dateKey, "planned", {
+            endTime,
+            startTime,
+            timeZone,
+          });
+          patchHabitPlanTime(entry.habitId, startTime, endTime);
+        }
         scheduleEntryNotification(entry, startTime);
       } else if (entry.kind === "task" || entry.kind === "goal") {
         if (!entry.sourceId) throw new Error("Could not find that event.");
@@ -2049,7 +2065,12 @@ export function DayPlanScreen({
             try {
               await deletePlannedEvent({
                 sourceId,
-                sourceType: entry.kind === "task" ? "task" : "goal_checkpoint",
+                sourceType:
+                  entry.kind === "task"
+                    ? "task"
+                    : entry.kind === "habit"
+                      ? "habit_instance"
+                      : "goal_checkpoint",
               });
               cancelEntryNotification(entry);
               invalidateCurrentCaches({ google: true, planned: true });
@@ -2364,27 +2385,52 @@ export function DayPlanScreen({
         const habit = habitById.get(targetId);
         if (!habit) throw new Error("Could not find that habit.");
 
-        await setHabitLog(habit.id, dateKey, "planned", {
-          endTime,
-          startTime,
-          timeZone,
-        });
+        const instanceTarget =
+          habit.period === "daily" ? Math.max(habit.frequencyGoal ?? 1, 1) : 1;
+        let scheduledSourceId: string | undefined;
+        if (instanceTarget > 1) {
+          const response = await upsertPlannedEvent({
+            dateKey,
+            endTime,
+            sourceParentId: habit.id,
+            sourceType: "habit_instance",
+            startTime,
+            timeZone,
+            title: habit.name,
+          });
+          scheduledSourceId = response.event.sourceId;
+          patchPlannedEvent(response.event);
+        } else {
+          await setHabitLog(habit.id, dateKey, "planned", {
+            endTime,
+            startTime,
+            timeZone,
+          });
+        }
         scheduleEntryNotification(
           {
             allDay: false,
             endMinutes: draftPlanRange.endMinutes,
             habitId: habit.id,
-            id: `habit-${habit.id}`,
+            id:
+              instanceTarget > 1
+                ? `planned-habit-instance-${scheduledSourceId ?? habit.id}`
+                : `habit-${habit.id}`,
             kind: "habit",
             laneCount: 1,
             laneIndex: 0,
             laneSpan: 1,
+            sourceId: scheduledSourceId,
             startMinutes: draftPlanRange.startMinutes,
             title: habit.name,
           },
           startTime,
         );
-        invalidateCurrentCaches({ google: true, snapshot: true });
+        invalidateCurrentCaches({
+          google: true,
+          planned: instanceTarget > 1,
+          snapshot: instanceTarget <= 1,
+        });
       }
 
       if (!isMountedRef.current) return;
@@ -4527,7 +4573,11 @@ function buildDayPlanEntries({
   }
 
   for (const event of plannedEvents) {
-    const entry = plannedEventToEntry(event, { checkpointById, taskById });
+    const entry = plannedEventToEntry(event, {
+      checkpointById,
+      habitById,
+      taskById,
+    });
     if (entry) entries.push(entry);
   }
 
@@ -4604,34 +4654,51 @@ function plannedEventToEntry(
   event: PlannedEvent,
   {
     checkpointById,
+    habitById,
     taskById,
   }: {
     checkpointById: Map<string, CheckpointRef>;
+    habitById: Map<string, ActionHabit>;
     taskById: Map<string, Task>;
   },
 ): DayPlanEntry | null {
   const startMinutes = timeToMinutes(event.startTime);
   const endMinutes = timeToMinutes(event.endTime);
   const hasTimeRange = startMinutes !== null && endMinutes !== null;
+  const habitId =
+    event.sourceType === "habit_instance"
+      ? (event.sourceParentId ?? event.sourceId)
+      : null;
   const completed =
     event.sourceType === "task"
       ? Boolean(taskById.get(event.sourceId)?.completedAt)
-      : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
+      : event.sourceType === "habit_instance"
+        ? false
+        : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
+  const habit = habitId ? habitById.get(habitId) : null;
 
   return {
     allDay: !hasTimeRange,
     completed,
+    description:
+      event.sourceType === "habit_instance" ? "Daily habit" : undefined,
     endMinutes: hasTimeRange
       ? normalizeEndMinutes(startMinutes, endMinutes)
       : MINUTES_IN_DAY,
     id: `planned-${event.id}`,
-    kind: event.sourceType === "task" ? "task" : "goal",
+    habitId: habitId ?? undefined,
+    kind:
+      event.sourceType === "task"
+        ? "task"
+        : event.sourceType === "habit_instance"
+          ? "habit"
+          : "goal",
     laneCount: 1,
     laneIndex: 0,
     laneSpan: 1,
     sourceId: event.sourceId,
     startMinutes: hasTimeRange ? startMinutes : 0,
-    title: event.title,
+    title: habit?.name ?? event.title,
   };
 }
 
@@ -4711,18 +4778,36 @@ function buildHabitMap(snapshot: HabitLogsSnapshot | null) {
   return habitById;
 }
 
-function getScheduledHabitIds(
+function getScheduledHabitCounts(
   snapshot: HabitLogsSnapshot | null,
   dateKey: string,
+  plannedEvents: PlannedEvent[],
 ) {
-  const ids = new Set<string>();
-  if (!snapshot) return ids;
+  const counts = new Map<string, number>();
+
+  const addCount = (habitId: string, amount = 1) => {
+    counts.set(habitId, (counts.get(habitId) ?? 0) + amount);
+  };
+
+  for (const event of plannedEvents) {
+    if (event.sourceType !== "habit_instance") continue;
+    const habitId = event.sourceParentId ?? event.sourceId;
+    addCount(habitId);
+  }
+
+  if (!snapshot) return counts;
 
   for (const key of Object.keys(snapshot.logsByHabitDate)) {
     if (!key.endsWith(`_${dateKey}`)) continue;
     const status = snapshot.logsByHabitDate[key];
-    if (status === "planned" || status === "complete") {
-      ids.add(key.slice(0, -dateKey.length - 1));
+    if (status === "planned") {
+      addCount(key.slice(0, -dateKey.length - 1));
+    } else if (status === "complete") {
+      const habitId = key.slice(0, -dateKey.length - 1);
+      addCount(
+        habitId,
+        Math.max(snapshot.completedCountsByHabitDate[key] ?? 1, 1),
+      );
     }
   }
 
@@ -4736,10 +4821,10 @@ function getScheduledHabitIds(
     if (snapshot.logsByHabitDate[`${habitId}_${dateKey}`] === "complete") {
       continue;
     }
-    ids.add(habitId);
+    addCount(habitId);
   }
 
-  return ids;
+  return counts;
 }
 
 function countHabitCompletions(
@@ -4773,7 +4858,7 @@ function buildSuggestedPlanEntries({
   dateKey,
   planGoals,
   scheduledCheckpointIds,
-  scheduledHabitIds,
+  scheduledHabitCounts,
   scheduledTaskIds,
   snapshot,
   tasks,
@@ -4782,7 +4867,7 @@ function buildSuggestedPlanEntries({
   dateKey: string;
   planGoals: Goal[];
   scheduledCheckpointIds: Set<string>;
-  scheduledHabitIds: Set<string>;
+  scheduledHabitCounts: Map<string, number>;
   scheduledTaskIds: Set<string>;
   snapshot: HabitLogsSnapshot | null;
   tasks: Task[];
@@ -4831,7 +4916,8 @@ function buildSuggestedPlanEntries({
               habit.priority === "high" &&
               !habit.hidden &&
               habit.planOnCalendar &&
-              !scheduledHabitIds.has(habit.id),
+              (scheduledHabitCounts.get(habit.id) ?? 0) <
+                Math.max(habit.frequencyGoal ?? 1, 1),
           )
           .map((habit) => ({
             completions: countHabitCompletionsInLastDays(

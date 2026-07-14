@@ -71,7 +71,11 @@ type GoogleCalendarDirectEventBody = {
   end: { date: string } | { dateTime: string; timeZone: string };
 };
 
-type HigherHabitsPlannedEventSource = "goal_checkpoint" | "habit" | "task";
+type HigherHabitsPlannedEventSource =
+  | "goal_checkpoint"
+  | "habit"
+  | "habit_instance"
+  | "task";
 
 export function isGoogleAuthConfigured() {
   return Boolean(

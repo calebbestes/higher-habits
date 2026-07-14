@@ -1,11 +1,15 @@
 import { mobileApiFetch } from "@/lib/mobile-api";
 
-export type PlannedEventSourceType = "goal_checkpoint" | "task";
+export type PlannedEventSourceType =
+  | "goal_checkpoint"
+  | "habit_instance"
+  | "task";
 
 export type PlannedEvent = {
   id: string;
   sourceType: PlannedEventSourceType;
   sourceId: string;
+  sourceParentId: string | null;
   title: string;
   date: string;
   startTime: string | null;
@@ -17,7 +21,8 @@ export type PlannedEvent = {
 
 export type PlannedEventInput = {
   sourceType: PlannedEventSourceType;
-  sourceId: string;
+  sourceId?: string;
+  sourceParentId?: string | null;
   title?: string;
   dateKey: string;
   startTime?: string | null;
@@ -58,6 +63,7 @@ export const upsertPlannedEvent = ({
   dateKey,
   endTime,
   sourceId,
+  sourceParentId,
   sourceType,
   startTime,
   timeZone,
@@ -69,6 +75,7 @@ export const upsertPlannedEvent = ({
       type: "upsert",
       sourceType,
       sourceId,
+      sourceParentId: sourceParentId ?? null,
       title,
       dateKey,
       plannedStartTime: startTime ?? null,
