@@ -196,6 +196,7 @@ function AuthNavigator() {
       <Stack.Protected guard={Boolean(session)}>
         <Stack.Screen name="(app)" />
         <Stack.Screen name="friend-profile" />
+        <Stack.Screen name="post" />
         <Stack.Screen name="profile" />
       </Stack.Protected>
     </Stack>

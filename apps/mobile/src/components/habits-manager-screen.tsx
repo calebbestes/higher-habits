@@ -123,6 +123,7 @@ const EMPTY_HABIT: HabitInput = {
   visibility: "only_me",
   iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
   defaultComplete: false,
+  planOnCalendar: true,
   reminderEnabled: false,
   reminderTime: null,
   hidden: false,
@@ -184,6 +185,7 @@ function toInput(habit: Habit): HabitInput {
     visibility: habit.visibility,
     iconKey: habit.iconKey,
     defaultComplete: habit.defaultComplete,
+    planOnCalendar: habit.planOnCalendar !== false,
     reminderEnabled: habit.reminderEnabled ?? false,
     reminderTime: habit.reminderTime ?? null,
     hidden: habit.hidden,
@@ -1837,6 +1839,41 @@ export function HabitFormModal({
                       true: theme.primary,
                     }}
                     value={form.defaultComplete}
+                  />
+                </View>
+
+                <View
+                  style={[
+                    styles.switchRow,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.switchCopy}>
+                    <Text style={[styles.switchTitle, { color: theme.text }]}>
+                      Plan on calendar
+                    </Text>
+                    <Text
+                      style={[
+                        styles.switchDescription,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Show this as an unscheduled block in Day Plan.
+                    </Text>
+                  </View>
+                  <Switch
+                    onValueChange={(planOnCalendar) => {
+                      playSelectionHaptic();
+                      setForm((current) => ({ ...current, planOnCalendar }));
+                    }}
+                    trackColor={{
+                      false: theme.backgroundSelected,
+                      true: theme.primary,
+                    }}
+                    value={form.planOnCalendar}
                   />
                 </View>
 

@@ -56,16 +56,24 @@ function GoalRowImpl({
       </View>
 
       {/* Goal name */}
-      <Text
-        numberOfLines={2}
-        style={[
-          styles.goalName,
-          { color: isComplete ? theme.textSecondary : theme.text },
-          isComplete && styles.completedText,
-        ]}
-      >
-        {goal.name}
-      </Text>
+      <View style={styles.goalTextStack}>
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.goalName,
+            { color: isComplete ? theme.textSecondary : theme.text },
+            isComplete && styles.completedText,
+          ]}
+        >
+          {goal.name}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.goalVisibilityText, { color: theme.textSecondary }]}
+        >
+          {getDefaultVisibilityLabel(goal.visibility)}
+        </Text>
+      </View>
 
       {sharedFriends.length ? (
         <View style={styles.sharedFriendBadgeStack}>
@@ -149,6 +157,12 @@ function getSharedFriends(goal: ActionGoal) {
   }
 
   return [...friendsById.values()];
+}
+
+function getDefaultVisibilityLabel(visibility: ActionGoal["visibility"]) {
+  if (visibility === "all_friends") return "Public";
+  if (visibility === "goal_friends") return "Goal friends";
+  return "Private";
 }
 
 function getInitials(name: string) {

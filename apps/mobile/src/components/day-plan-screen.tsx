@@ -110,6 +110,7 @@ type DayPlanEntry = {
   laneCount: number;
   laneIndex: number;
   laneSpan: number;
+  nestedInEvent?: boolean;
   sourceId?: string;
   startMinutes: number;
   title: string;
@@ -200,10 +201,11 @@ const PLAN_SNAP_MINUTES = 15;
 const MIN_PLAN_DURATION_MINUTES = 15;
 const DEFAULT_UNSCHEDULED_DROP_MINUTES = 30;
 const LONG_PRESS_DELAY_MS = 500;
-const EVENT_DRAG_DELAY_MS = 120;
-const EVENT_DRAG_MOVE_THRESHOLD = 2;
+const EVENT_DRAG_DELAY_MS = 140;
+const EVENT_SCROLL_CANCEL_DISTANCE = 24;
 const DAY_SWIPE_MIN_DISTANCE = 70;
 const DAY_CHANGE_ANIMATION_DISTANCE = 28;
+const UNSCHEDULED_TAP_MOVE_THRESHOLD = 10;
 const TIMELINE_AUTO_SCROLL_EDGE = 54;
 const TIMELINE_AUTO_SCROLL_INTERVAL_MS = 50;
 const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
@@ -213,6 +215,8 @@ const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
 const TIMELINE_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
 const TIMELINE_MIN_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 16;
 const TIMELINE_MAX_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 5;
+const NESTED_EVENT_LEFT_PERCENT = 10;
+const NESTED_EVENT_WIDTH_PERCENT = 90;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_NAMES = [
   "January",
@@ -242,6 +246,7 @@ export function DayPlanScreen({
   const theme = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const tabBarHeight = useTabBarHeight();
+  const bottomScrollPadding = Math.max(58, tabBarHeight - 28);
   const { projects, reloadProjects, createProject } = useTaskProjects();
   const timelineScrollRef = useRef<ScrollView>(null);
   const timelineViewportRef = useRef<View>(null);
@@ -290,6 +295,8 @@ export function DayPlanScreen({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dismissedSuggestionIdsByDate, setDismissedSuggestionIdsByDate] =
+    useState<Record<string, string[]>>({});
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const [activeHabit, setActiveHabit] = useState<ActionHabit | null>(null);
   const [activeEntry, setActiveEntry] = useState<DayPlanEntry | null>(null);
@@ -899,6 +906,7 @@ export function DayPlanScreen({
               (habit) =>
                 habit.period === "daily" &&
                 !habit.hidden &&
+                habit.planOnCalendar &&
                 !scheduledHabitIds.has(habit.id),
             )
             .map((habit) => ({
@@ -1010,7 +1018,7 @@ export function DayPlanScreen({
     () => allDayEntries.filter((entry) => entry.kind === "google"),
     [allDayEntries],
   );
-  const suggestedPlanEntries = useMemo(
+  const rawSuggestedPlanEntries = useMemo(
     () =>
       buildSuggestedPlanEntries({
         allDayEntries,
@@ -1032,6 +1040,23 @@ export function DayPlanScreen({
       snapshot,
       tasks,
     ],
+  );
+  const suggestedPlanEntries = useMemo(() => {
+    const dismissedIds = new Set(dismissedSuggestionIdsByDate[dateKey] ?? []);
+    return rawSuggestedPlanEntries.filter(
+      (entry) => !dismissedIds.has(entry.id),
+    );
+  }, [dateKey, dismissedSuggestionIdsByDate, rawSuggestedPlanEntries]);
+  const dismissSuggestedEntry = useCallback(
+    (entryId: string) => {
+      playSelectionHaptic();
+      setDismissedSuggestionIdsByDate((current) => {
+        const currentIds = current[dateKey] ?? [];
+        if (currentIds.includes(entryId)) return current;
+        return { ...current, [dateKey]: [...currentIds, entryId] };
+      });
+    },
+    [dateKey],
   );
   const activeKey = activeHabit ? `${activeHabit.id}_${dateKey}` : null;
   const activeCheckpoint =
@@ -1119,6 +1144,9 @@ export function DayPlanScreen({
   const handleTimelineTouchEnd = (event: GestureResponderEvent) => {
     if (event.nativeEvent.touches.length < 2) {
       timelinePinchRef.current = null;
+    }
+    if (event.nativeEvent.touches.length === 0 && timelineGestureRef.current) {
+      finishTimelineGesture();
     }
   };
   const getTimelineViewportY = (pageY: number) =>
@@ -2382,7 +2410,7 @@ export function DayPlanScreen({
           <ScrollView
             contentContainerStyle={[
               styles.content,
-              { paddingBottom: tabBarHeight + 24 },
+              { paddingBottom: bottomScrollPadding },
             ]}
             onTouchCancel={cancelDaySwipe}
             onTouchEnd={handleDaySwipeEnd}
@@ -2528,6 +2556,7 @@ export function DayPlanScreen({
                     <View
                       style={[
                         styles.allDaySection,
+                        styles.unscheduledSection,
                         {
                           backgroundColor: theme.tabBar,
                           borderColor: theme.tabBorder,
@@ -2554,20 +2583,13 @@ export function DayPlanScreen({
                     <View
                       style={[
                         styles.allDaySection,
+                        styles.unscheduledSection,
                         {
                           backgroundColor: theme.tabBar,
                           borderColor: theme.tabBorder,
                         },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.allDayLabel,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        Unscheduled
-                      </Text>
                       <ScrollView
                         horizontal
                         keyboardShouldPersistTaps="handled"
@@ -2595,6 +2617,7 @@ export function DayPlanScreen({
                               onMove={handleTimelinePressMove}
                               onPress={() => openInternalEntry(entry)}
                               onRelease={finishTimelineGesture}
+                              onDismiss={() => dismissSuggestedEntry(entry.id)}
                             />
                           ))}
                         </View>
@@ -2606,6 +2629,7 @@ export function DayPlanScreen({
                     ref={timelineViewportRef}
                     style={[
                       styles.timelineCard,
+                      styles.timelineCardWide,
                       {
                         backgroundColor: theme.tabBar,
                         borderColor: theme.tabBorder,
@@ -2712,7 +2736,7 @@ export function DayPlanScreen({
                               variant={
                                 timelineGestureRef.current?.type === "schedule"
                                   ? "unscheduled"
-                                  : undefined
+                                  : "dragging"
                               }
                             />
                           ) : dragPlanRange ? (
@@ -4043,12 +4067,14 @@ function FloatingScheduleChip({
 function EntryChip({
   entry,
   onBeginSchedule,
+  onDismiss,
   onMove,
   onPress,
   onRelease,
 }: {
   entry: DayPlanEntry;
   onBeginSchedule?: (event: GestureResponderEvent) => void;
+  onDismiss?: () => void;
   onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
   onRelease?: () => void;
@@ -4068,6 +4094,7 @@ function EntryChip({
     <View
       style={[
         styles.allDayChip,
+        isUnscheduledChip && styles.allDayChipCompact,
         isUnscheduledChip
           ? [
               styles.unscheduledHabitChip,
@@ -4084,6 +4111,7 @@ function EntryChip({
           numberOfLines={1}
           style={[
             styles.allDayChipMeta,
+            isUnscheduledChip && styles.allDayChipMetaCompact,
             { color: isUnscheduledChip ? theme.primary : color },
           ]}
         >
@@ -4092,10 +4120,37 @@ function EntryChip({
       ) : null}
       <Text
         numberOfLines={1}
-        style={[styles.allDayChipText, { color: chipColor }]}
+        style={[
+          styles.allDayChipText,
+          isUnscheduledChip && styles.allDayChipTextCompact,
+          onDismiss && styles.dismissibleChipText,
+          { color: chipColor },
+        ]}
       >
         {entry.title}
       </Text>
+      {onDismiss ? (
+        <Pressable
+          accessibilityLabel={`Hide ${entry.title} for this day`}
+          hitSlop={6}
+          onPress={(event) => {
+            event.stopPropagation();
+            onDismiss();
+          }}
+          style={({ pressed }) => [
+            styles.unscheduledDismissButton,
+            { backgroundColor: theme.backgroundElement },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("xmark", "close")}
+            size={9}
+            weight="bold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      ) : null}
     </View>
   );
 
@@ -4129,7 +4184,9 @@ function EntryChip({
 
         const dx = event.nativeEvent.pageX - dragStart.pageX;
         const dy = event.nativeEvent.pageY - dragStart.pageY;
-        dragStart.didMove = Math.abs(dx) > 4 || Math.abs(dy) > 4;
+        dragStart.didMove =
+          Math.abs(dx) > UNSCHEDULED_TAP_MOVE_THRESHOLD ||
+          Math.abs(dy) > UNSCHEDULED_TAP_MOVE_THRESHOLD;
 
         return Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 1.1;
       }}
@@ -4143,8 +4200,10 @@ function EntryChip({
         }
 
         dragStart.didMove =
-          Math.abs(event.nativeEvent.pageX - dragStart.pageX) > 4 ||
-          Math.abs(event.nativeEvent.pageY - dragStart.pageY) > 4;
+          Math.abs(event.nativeEvent.pageX - dragStart.pageX) >
+            UNSCHEDULED_TAP_MOVE_THRESHOLD ||
+          Math.abs(event.nativeEvent.pageY - dragStart.pageY) >
+            UNSCHEDULED_TAP_MOVE_THRESHOLD;
       }}
       onResponderRelease={() => {
         const dragStart = dragStartRef.current;
@@ -4172,6 +4231,20 @@ function EntryChip({
           pageX: event.nativeEvent.pageX,
           pageY: event.nativeEvent.pageY,
         };
+      }}
+      onTouchMove={(event) => {
+        if (!onBeginSchedule) return;
+        const dragStart = dragStartRef.current;
+        if (!dragStart || dragStart.didStartDrag) return;
+
+        const touch = event.nativeEvent.touches[0];
+        if (!touch) return;
+
+        const dx = touch.pageX - dragStart.pageX;
+        const dy = touch.pageY - dragStart.pageY;
+        dragStart.didMove =
+          Math.abs(dx) > UNSCHEDULED_TAP_MOVE_THRESHOLD ||
+          Math.abs(dy) > UNSCHEDULED_TAP_MOVE_THRESHOLD;
       }}
       onTouchEnd={() => {
         if (!onBeginSchedule) return;
@@ -4204,20 +4277,24 @@ function TimedEntryBlock({
   onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
   onRelease?: () => void;
-  variant?: "unscheduled";
+  variant?: "dragging" | "unscheduled";
 }) {
   const theme = useTheme();
   const dragStartRef = useRef<{
+    didMove: boolean;
     didStartDrag: boolean;
     locationY: number;
+    pageX: number;
     pageY: number;
   } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledPreview = variant === "unscheduled";
+  const isDraggingPreview = variant === "dragging";
   const previewColor = isUnscheduledPreview ? theme.text : color;
   const eventBlockStyle = [
     styles.eventBlock,
+    isDraggingPreview && styles.eventBlockDragging,
     isUnscheduledPreview
       ? [
           styles.unscheduledHabitChip,
@@ -4232,9 +4309,7 @@ function TimedEntryBlock({
   const naturalHeight =
     ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
   const height = Math.max(naturalHeight, MIN_EVENT_HEIGHT);
-  const laneWidth = 100 / Math.max(entry.laneCount, 1);
-  const left = laneWidth * entry.laneIndex;
-  const width = laneWidth * Math.max(entry.laneSpan, 1);
+  const { left, width } = getEntryLayoutPercent(entry);
   const isTiny = naturalHeight < 24;
   const isCompact = height <= 38;
   const timeLabel = isCompact
@@ -4262,26 +4337,41 @@ function TimedEntryBlock({
       pageY: dragStart.pageY,
     });
   };
-  const handleResponderGrant = (event: GestureResponderEvent) => {
-    const { locationY, pageY } = event.nativeEvent;
-    dragStartRef.current = { didStartDrag: false, locationY, pageY };
+  const handleTouchStart = (event: GestureResponderEvent) => {
+    const { locationY, pageX, pageY } = event.nativeEvent;
+    dragStartRef.current = {
+      didMove: false,
+      didStartDrag: false,
+      locationY,
+      pageX,
+      pageY,
+    };
     clearLongPressTimer();
     longPressTimerRef.current = setTimeout(startMove, EVENT_DRAG_DELAY_MS);
   };
-  const handleResponderMove = (event: GestureResponderEvent) => {
+  const handleTouchMove = (event: GestureResponderEvent) => {
     const dragStart = dragStartRef.current;
     if (!dragStart) return;
 
     if (!dragStart.didStartDrag) {
-      const distance = Math.abs(event.nativeEvent.pageY - dragStart.pageY);
-      if (distance < EVENT_DRAG_MOVE_THRESHOLD) return;
-      startMove();
+      const touch = event.nativeEvent.touches[0];
+      const pageX = touch?.pageX ?? event.nativeEvent.pageX;
+      const pageY = touch?.pageY ?? event.nativeEvent.pageY;
+      const dx = pageX - dragStart.pageX;
+      const dy = pageY - dragStart.pageY;
+
+      if (Math.hypot(dx, dy) > EVENT_SCROLL_CANCEL_DISTANCE) {
+        dragStart.didMove = true;
+        clearLongPressTimer();
+      }
+      return;
     }
 
     onMove?.(event);
   };
-  const handleResponderRelease = () => {
+  const handleTouchEnd = () => {
     const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    const didMove = dragStartRef.current?.didMove ?? false;
     clearLongPressTimer();
     dragStartRef.current = null;
 
@@ -4290,9 +4380,9 @@ function TimedEntryBlock({
       return;
     }
 
-    onPress?.();
+    if (!didMove) onPress?.();
   };
-  const handleResponderTerminate = () => {
+  const handleTouchCancel = () => {
     const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
     clearLongPressTimer();
     dragStartRef.current = null;
@@ -4300,7 +4390,18 @@ function TimedEntryBlock({
   };
 
   const content = isTiny ? (
-    <View style={eventBlockStyle} />
+    <View style={[eventBlockStyle, styles.eventBlockTiny]}>
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.eventTitle,
+          styles.eventTitleTiny,
+          { color: previewColor },
+        ]}
+      >
+        {entry.title}
+      </Text>
+    </View>
   ) : isCompact ? (
     <View style={[eventBlockStyle, styles.eventBlockCompact]}>
       <Text
@@ -4358,12 +4459,10 @@ function TimedEntryBlock({
         <View
           accessibilityLabel={`Open ${entry.title}`}
           accessibilityRole="button"
-          onResponderGrant={handleResponderGrant}
-          onResponderMove={handleResponderMove}
-          onResponderRelease={handleResponderRelease}
-          onResponderTerminate={handleResponderTerminate}
-          onResponderTerminationRequest={() => false}
-          onStartShouldSetResponder={() => true}
+          onTouchCancel={handleTouchCancel}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={handleTouchMove}
+          onTouchStart={handleTouchStart}
           style={styles.eventPressable}
         >
           {content}
@@ -4731,6 +4830,7 @@ function buildSuggestedPlanEntries({
               habit.period === "daily" &&
               habit.priority === "high" &&
               !habit.hidden &&
+              habit.planOnCalendar &&
               !scheduledHabitIds.has(habit.id),
           )
           .map((habit) => ({
@@ -4930,6 +5030,10 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
         ...entry,
         laneCount,
         laneSpan: getLaneSpan(entry, entriesByLane),
+        nestedInEvent: clusterEntries.some(
+          (container) =>
+            container.id !== entry.id && isStrictlyInside(entry, container),
+        ),
       })),
     );
     cluster = [];
@@ -4979,6 +5083,21 @@ function entriesOverlap(left: DayPlanEntry, right: DayPlanEntry) {
   return (
     left.startMinutes < right.endMinutes && right.startMinutes < left.endMinutes
   );
+}
+
+function getEntryLayoutPercent(entry: DayPlanEntry) {
+  if (entry.nestedInEvent) {
+    return {
+      left: NESTED_EVENT_LEFT_PERCENT,
+      width: NESTED_EVENT_WIDTH_PERCENT,
+    };
+  }
+
+  const laneWidth = 100 / Math.max(entry.laneCount, 1);
+  return {
+    left: laneWidth * entry.laneIndex,
+    width: laneWidth * Math.max(entry.laneSpan, 1),
+  };
 }
 
 function isStrictlyInside(candidate: DayPlanEntry, container: DayPlanEntry) {
@@ -5091,10 +5210,9 @@ function isTimelinePointOnEntry({
     if (y < top || y > top + height) return false;
     if (timelineWidth <= 0) return true;
 
-    const laneWidth = 100 / Math.max(entry.laneCount, 1);
-    const left = (laneWidth * entry.laneIndex * timelineWidth) / 100;
-    const width =
-      (laneWidth * Math.max(entry.laneSpan, 1) * timelineWidth) / 100;
+    const layout = getEntryLayoutPercent(entry);
+    const left = (layout.left * timelineWidth) / 100;
+    const width = (layout.width * timelineWidth) / 100;
 
     return x >= left && x <= left + width;
   });
@@ -5265,7 +5383,7 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   dateMotion: {
-    gap: 14,
+    gap: 10,
   },
   header: {
     flexDirection: "row",
@@ -5443,6 +5561,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
   },
+  unscheduledSection: {
+    gap: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   allDayLabel: {
     fontSize: 12,
     lineHeight: 15,
@@ -5475,10 +5598,15 @@ const styles = StyleSheet.create({
   },
   allDayChip: {
     maxWidth: "100%",
+    position: "relative",
     borderRadius: 9,
     paddingHorizontal: 10,
     paddingVertical: 7,
     gap: 1,
+  },
+  allDayChipCompact: {
+    paddingHorizontal: 9,
+    paddingVertical: 6,
   },
   unscheduledHabitChip: {
     borderWidth: 1.5,
@@ -5491,16 +5619,40 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
+  allDayChipMetaCompact: {
+    fontSize: 8,
+    lineHeight: 10,
+  },
   allDayChipText: {
     fontSize: 13,
     lineHeight: 16,
     fontWeight: "800",
+  },
+  allDayChipTextCompact: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
+  dismissibleChipText: {
+    paddingRight: 8,
+  },
+  unscheduledDismissButton: {
+    position: "absolute",
+    top: -7,
+    right: -7,
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
   },
   timelineCard: {
     height: TIMELINE_VIEWPORT_HEIGHT,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 16,
+  },
+  timelineCardWide: {
+    marginHorizontal: -10,
   },
   timelineScroller: { flex: 1 },
   timeline: {
@@ -5571,11 +5723,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
+  eventBlockDragging: {
+    transform: [{ scale: 1.015 }],
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 8,
+  },
   eventBlockCompact: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     paddingVertical: 3,
+  },
+  eventBlockTiny: {
+    justifyContent: "center",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
   },
   eventTitle: {
     fontSize: 12,
@@ -5585,6 +5750,12 @@ const styles = StyleSheet.create({
   eventTitleCompact: {
     flex: 1,
     minWidth: 0,
+    fontSize: 11,
+    lineHeight: 13,
+  },
+  eventTitleTiny: {
+    fontSize: 10,
+    lineHeight: 12,
   },
   eventTime: {
     marginTop: 1,
@@ -5594,8 +5765,11 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   eventTimeCompact: {
-    flexShrink: 0,
+    flexShrink: 1,
+    maxWidth: "42%",
     marginTop: 0,
+    fontSize: 9,
+    lineHeight: 11,
   },
   draftPlanBlock: {
     position: "absolute",

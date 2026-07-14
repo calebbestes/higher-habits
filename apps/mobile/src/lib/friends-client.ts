@@ -500,7 +500,11 @@ export const createFriendGroup = (payload: {
 
 export const fetchFriendProfile = (
   friendshipId: string,
-): Promise<FriendProfile> => fetchFriendProfileWithFallback(friendshipId);
+): Promise<FriendProfile> => fetchFriendProfileWithFallback({ friendshipId });
+
+export const fetchFriendProfileByFriendId = (
+  friendId: string,
+): Promise<FriendProfile> => fetchFriendProfileWithFallback({ friendId });
 
 export async function fetchMyProfile(): Promise<FriendProfile> {
   const profile = await mobileApiFetch("/api/users/profile").then((r) =>
@@ -513,14 +517,23 @@ export async function fetchMyProfile(): Promise<FriendProfile> {
   return normalized;
 }
 
-async function fetchFriendProfileWithFallback(
-  friendshipId: string,
-): Promise<FriendProfile> {
-  const encodedFriendshipId = encodeURIComponent(friendshipId);
+async function fetchFriendProfileWithFallback(lookup: {
+  friendshipId?: string;
+  friendId?: string;
+}): Promise<FriendProfile> {
+  const encodedFriendshipId = lookup.friendshipId
+    ? encodeURIComponent(lookup.friendshipId)
+    : null;
+  const encodedFriendId = lookup.friendId
+    ? encodeURIComponent(lookup.friendId)
+    : null;
   const paths = [
-    `/api/friends?profileFriendshipId=${encodedFriendshipId}`,
-    `/api/friends/${encodedFriendshipId}/profile`,
-  ];
+    encodedFriendshipId
+      ? `/api/friends?profileFriendshipId=${encodedFriendshipId}`
+      : null,
+    encodedFriendId ? `/api/friends?profileFriendId=${encodedFriendId}` : null,
+    encodedFriendshipId ? `/api/friends/${encodedFriendshipId}/profile` : null,
+  ].filter((path): path is string => Boolean(path));
   let lastError: Error | null = null;
 
   for (const path of paths) {
@@ -539,7 +552,7 @@ async function fetchFriendProfileWithFallback(
   }
 
   try {
-    return await fetchFriendProfileFromExistingData(friendshipId);
+    return await fetchFriendProfileFromExistingData(lookup);
   } catch (fallbackError) {
     throw (
       lastError ??
@@ -550,15 +563,20 @@ async function fetchFriendProfileWithFallback(
   }
 }
 
-async function fetchFriendProfileFromExistingData(
-  friendshipId: string,
-): Promise<FriendProfile> {
+async function fetchFriendProfileFromExistingData(lookup: {
+  friendshipId?: string;
+  friendId?: string;
+}): Promise<FriendProfile> {
   const [friends, feed] = await Promise.all([
     fetchFriends(),
     fetchFriendsFeed(),
   ]);
   const friend = friends.find(
-    (row) => row.id === friendshipId && row.status === "accepted",
+    (row) =>
+      row.status === "accepted" &&
+      (lookup.friendshipId
+        ? row.id === lookup.friendshipId
+        : row.friendId === lookup.friendId),
   );
 
   if (!friend) {

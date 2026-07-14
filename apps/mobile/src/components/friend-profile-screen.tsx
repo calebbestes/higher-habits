@@ -1,5 +1,6 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { Image } from "expo-image";
+import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,6 +24,7 @@ import {
   type FriendProfile,
   type FriendProfileHabit,
   fetchFriendProfile,
+  fetchFriendProfileByFriendId,
   fetchFriendsFeed,
   fetchMyPosts,
   fetchMyProfile,
@@ -36,15 +38,20 @@ function sym(ios: string, android: string): SymbolName {
 }
 
 export function FriendProfileScreen({
+  friendId,
   friendshipId,
+  initialName,
   self = false,
   onBack,
 }: {
+  friendId?: string;
   friendshipId?: string;
+  initialName?: string;
   self?: boolean;
   onBack: () => void;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const { width } = useWindowDimensions();
   const isMountedRef = useRef(true);
@@ -63,7 +70,7 @@ export function FriendProfileScreen({
 
   const load = useCallback(
     async (refresh = false) => {
-      if (!self && !friendshipId) {
+      if (!self && !friendshipId && !friendId) {
         setError("Profile data is unavailable.");
         setIsLoading(false);
         return;
@@ -74,32 +81,44 @@ export function FriendProfileScreen({
       setError(null);
       try {
         if (self) {
-          const [nextProfile, myPosts] = await Promise.all([
-            fetchMyProfile(),
-            fetchMyPosts().catch(() => []),
-          ]);
+          const nextProfile = await fetchMyProfile();
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
 
           setProfile(nextProfile);
+          setIsLoading(false);
+
+          const myPosts = await fetchMyPosts().catch(() => []);
+
+          if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+            return;
+          }
+
           setPosts(
             myPosts.sort((left, right) =>
               right.dateKey.localeCompare(left.dateKey),
             ),
           );
         } else {
-          const [nextProfile, feed] = await Promise.all([
-            fetchFriendProfile(friendshipId as string),
-            fetchFriendsFeed(),
-          ]);
+          const nextProfile = friendId
+            ? await fetchFriendProfileByFriendId(friendId)
+            : await fetchFriendProfile(friendshipId as string);
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
 
           setProfile(nextProfile);
+          setIsLoading(false);
+
+          const feed = await fetchFriendsFeed().catch(() => []);
+
+          if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+            return;
+          }
+
           setPosts(
             feed
               .filter((entry) => entry.friend.id === nextProfile.friend.id)
@@ -123,7 +142,7 @@ export function FriendProfileScreen({
         }
       }
     },
-    [friendshipId, self],
+    [friendId, friendshipId, self],
   );
 
   useEffect(
@@ -162,7 +181,7 @@ export function FriendProfileScreen({
             numberOfLines={1}
             style={[styles.headerTitle, { color: theme.text }]}
           >
-            {profile?.friend.name ?? (self ? "You" : "Profile")}
+            {profile?.friend.name ?? initialName ?? (self ? "You" : "Profile")}
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -244,7 +263,20 @@ export function FriendProfileScreen({
               {posts.length > 0 ? (
                 <View style={styles.postGrid}>
                   {posts.map((post) => (
-                    <PostTile key={post.id} post={post} size={tileSize} />
+                    <PostTile
+                      key={post.id}
+                      post={post}
+                      size={tileSize}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/post",
+                          params: {
+                            postId: post.id,
+                            source: self ? "self" : "feed",
+                          },
+                        })
+                      }
+                    />
                   ))}
                 </View>
               ) : (
@@ -393,20 +425,32 @@ function CompactHabitRow({
   );
 }
 
-function PostTile({ post, size }: { post: FriendFeedEntry; size: number }) {
+function PostTile({
+  onPress,
+  post,
+  size,
+}: {
+  onPress: () => void;
+  post: FriendFeedEntry;
+  size: number;
+}) {
   const theme = useTheme();
   const photo = post.photos[0];
   const text = richTextToPlainText(post.notes);
 
   return (
-    <View
-      style={[
+    <Pressable
+      accessibilityLabel={`Open post for ${post.goal.name}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
         styles.postTile,
         {
           width: size,
           height: size,
           backgroundColor: theme.backgroundElement,
         },
+        pressed && styles.pressed,
       ]}
     >
       {photo ? (
@@ -443,7 +487,7 @@ function PostTile({ post, size }: { post: FriendFeedEntry; size: number }) {
           </Text>
         </View>
       )}
-    </View>
+    </Pressable>
   );
 }
 
