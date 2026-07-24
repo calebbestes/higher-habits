@@ -190,7 +190,9 @@ export function SettingsScreen() {
       }
 
       await authClient.signOut().catch(() => undefined);
-      router.replace("/login");
+      Alert.alert("Account deleted", "Your account has been deleted.", [
+        { text: "OK", onPress: () => router.replace("/login") },
+      ]);
     } catch (deleteError) {
       Alert.alert(
         "Delete account",

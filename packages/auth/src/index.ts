@@ -1,7 +1,6 @@
 import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 
 import {
@@ -117,32 +116,6 @@ export function createAuth() {
               typeof user.phoneNumber === "string"
                 ? user.phoneNumber.trim()
                 : "";
-            const phoneDigits = phoneNumber.replace(/\D/g, "");
-
-            const image =
-              typeof user.image === "string" ? user.image.trim() : "";
-            const hasProfilePicture =
-              image.startsWith("data:image/") ||
-              image.startsWith("https://") ||
-              image.startsWith("http://");
-            const isVerifiedOAuthProfile = user.emailVerified === true;
-
-            if (
-              !isVerifiedOAuthProfile &&
-              (phoneDigits.length < 10 || phoneDigits.length > 15)
-            ) {
-              throw APIError.from("BAD_REQUEST", {
-                code: "INVALID_PHONE_NUMBER",
-                message: "Enter a valid phone number.",
-              });
-            }
-
-            if (!hasProfilePicture) {
-              throw APIError.from("BAD_REQUEST", {
-                code: "PROFILE_PICTURE_REQUIRED",
-                message: "Choose a profile picture.",
-              });
-            }
 
             return {
               data: {

@@ -166,7 +166,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
             password,
             image: profilePhotoDataUrl ?? undefined,
           } as Parameters<typeof authClient.signUp.email>[0] & {
-            phoneNumber: string;
+            phoneNumber?: string;
           })
         : await authClient.signIn.email({
             email: email.trim(),
@@ -196,10 +196,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const canSubmitEmail =
     email.trim().length > 0 &&
     password.length > 0 &&
-    (!isSignUp ||
-      (name.trim().length > 0 &&
-        phoneNumber.replace(/\D/g, "").length >= 10 &&
-        Boolean(profilePhotoDataUrl)));
+    (!isSignUp || name.trim().length > 0);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -342,7 +339,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                         >
                           {profilePhotoUri
                             ? "Choose a different photo"
-                            : "Required"}
+                            : "Optional"}
                         </Text>
                       </View>
                     </Pressable>
@@ -359,7 +356,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                       autoComplete="tel"
                       editable={!isSubmitting}
                       keyboardType="phone-pad"
-                      label="Phone number"
+                      label="Phone number (optional)"
                       onChangeText={setPhoneNumber}
                       theme={theme}
                       value={phoneNumber}

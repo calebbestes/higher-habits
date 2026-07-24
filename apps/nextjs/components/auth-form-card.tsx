@@ -86,7 +86,7 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
           password,
           image: profilePicture ?? undefined,
         } as Parameters<typeof authClient.signUp.email>[0] & {
-          phoneNumber: string;
+          phoneNumber?: string;
         })
       : await authClient.signIn.email({
           email: email.trim(),
@@ -131,7 +131,6 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
                   className="sr-only"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  required
                   onChange={async (event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;
@@ -163,7 +162,7 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
                     Profile picture
                   </span>
                   <span className="block text-xs text-foreground-500">
-                    {profilePicture ? "Choose a different photo" : "Required"}
+                    {profilePicture ? "Choose a different photo" : "Optional"}
                   </span>
                 </span>
               </label>
@@ -175,11 +174,10 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
                 autoComplete="name"
               />
               <Input
-                label="Phone number"
+                label="Phone number (optional)"
                 type="tel"
                 value={phoneNumber}
                 onValueChange={setPhoneNumber}
-                isRequired
                 autoComplete="tel"
               />
             </>
@@ -207,12 +205,7 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
             className="w-full"
             isLoading={isSubmitting}
             isDisabled={
-              !email.trim() ||
-              !password ||
-              (isSignUp &&
-                (!name.trim() ||
-                  phoneNumber.replace(/\D/g, "").length < 10 ||
-                  !profilePicture))
+              !email.trim() || !password || (isSignUp && !name.trim())
             }
           >
             {isSignUp ? "Create account" : "Sign in"}

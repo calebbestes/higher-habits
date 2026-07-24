@@ -212,8 +212,8 @@ const PLAN_SNAP_MINUTES = 15;
 const MIN_PLAN_DURATION_MINUTES = 15;
 const DEFAULT_UNSCHEDULED_DROP_MINUTES = 30;
 const LONG_PRESS_DELAY_MS = 500;
-const EVENT_DRAG_DELAY_MS = 140;
-const EVENT_SCROLL_CANCEL_DISTANCE = 24;
+const EVENT_DRAG_DELAY_MS = 350;
+const EVENT_SCROLL_CANCEL_DISTANCE = 8;
 const DAY_SWIPE_MIN_DISTANCE = 70;
 const DAY_CHANGE_ANIMATION_DISTANCE = 28;
 const UNSCHEDULED_TAP_MOVE_THRESHOLD = 10;
@@ -942,7 +942,9 @@ export function DayPlanScreen({
         snapshot?.periodicHabits
           .filter(
             (habit) =>
-              habit.period === "monthly" &&
+              habit.period !== "daily" &&
+              habit.planOnCalendar &&
+              isPeriodicHabitScheduledForDate(habit, selectedDate) &&
               (scheduledHabitCounts.get(habit.id) ?? 0) < 1,
           )
           .map((habit) => ({
@@ -957,7 +959,7 @@ export function DayPlanScreen({
             },
           })) ?? [],
       ),
-    [scheduledHabitCounts, snapshot],
+    [scheduledHabitCounts, selectedDate, snapshot],
   );
   const taskOptions = useMemo<PlanTargetOption[]>(
     () =>
@@ -1362,7 +1364,7 @@ export function DayPlanScreen({
     }
 
     const startMinutes = minutesFromTimelineY(
-      press.locationY,
+      timelineScrollYRef.current + press.locationY,
       timelineHourHeight,
       "floor",
     );
@@ -1738,7 +1740,6 @@ export function DayPlanScreen({
     pageX: number,
     pageY: number,
   ) => {
-    measureTimelineViewport();
     const isOverTimeline = isPageYOverTimeline(pageY);
     const durationMinutes =
       entry.defaultDurationMinutes ??
@@ -2548,6 +2549,8 @@ export function DayPlanScreen({
               styles.content,
               { paddingBottom: bottomScrollPadding },
             ]}
+            onMomentumScrollEnd={measureTimelineViewport}
+            onScrollEndDrag={measureTimelineViewport}
             onTouchCancel={cancelDaySwipe}
             onTouchEnd={handleDaySwipeEnd}
             onTouchStart={handleDaySwipeStart}
@@ -2653,41 +2656,11 @@ export function DayPlanScreen({
                   </Text>
                 </View>
               </View>
-            </View>
 
-            <Animated.View style={[styles.dateMotion, dateMotionStyle]}>
-              {googleStatus !== "synced" ? (
-                <View
-                  style={[
-                    styles.notice,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.noticeText, { color: theme.text }]}>
-                    Google Calendar is not connected. Planned habits will still
-                    show here.
-                  </Text>
-                </View>
-              ) : null}
-
-              {error ? (
-                <View style={styles.errorBanner}>
-                  <Text style={styles.errorText}>{error}</Text>
-                  <Pressable onPress={() => void load({ force: true })}>
-                    <Text style={styles.retryText}>Retry</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {isLoading ? (
-                <View style={styles.centerState}>
-                  <FloatingLogoLoader />
-                </View>
-              ) : (
-                <>
+              {!isLoading &&
+              (calendarAllDayEntries.length > 0 ||
+                suggestedPlanEntries.length > 0) ? (
+                <View style={styles.stickyScheduleSections}>
                   {calendarAllDayEntries.length > 0 ? (
                     <View
                       style={[
@@ -2743,12 +2716,8 @@ export function DayPlanScreen({
                             <EntryChip
                               entry={entry}
                               key={entry.id}
-                              onBeginSchedule={(event) =>
-                                beginScheduleEntry(
-                                  entry,
-                                  event.nativeEvent.pageX,
-                                  event.nativeEvent.pageY,
-                                )
+                              onBeginSchedule={(pageX, pageY) =>
+                                beginScheduleEntry(entry, pageX, pageY)
                               }
                               onMove={handleTimelinePressMove}
                               onPress={() => openInternalEntry(entry)}
@@ -2760,7 +2729,43 @@ export function DayPlanScreen({
                       </ScrollView>
                     </View>
                   ) : null}
+                </View>
+              ) : null}
+            </View>
 
+            <Animated.View style={[styles.dateMotion, dateMotionStyle]}>
+              {googleStatus !== "synced" ? (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.noticeText, { color: theme.text }]}>
+                    Google Calendar is not connected. Planned habits will still
+                    show here.
+                  </Text>
+                </View>
+              ) : null}
+
+              {error ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorText}>{error}</Text>
+                  <Pressable onPress={() => void load({ force: true })}>
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {isLoading ? (
+                <View style={styles.centerState}>
+                  <FloatingLogoLoader />
+                </View>
+              ) : (
+                <>
                   <View
                     ref={timelineViewportRef}
                     style={[
@@ -3211,9 +3216,19 @@ function DayPlanDatePicker({
   visible: boolean;
 }) {
   const theme = useTheme();
+  const pressLocksRef = useRef<Set<string>>(new Set());
   const todayKey = toDateKey(new Date());
   const selectedKey = toDateKey(selectedDate);
   const days = useMemo(() => getCalendarMonthDays(month), [month]);
+  const runPressAction = (key: string, action: () => void) => {
+    if (pressLocksRef.current.has(key)) return;
+
+    pressLocksRef.current.add(key);
+    action();
+    setTimeout(() => {
+      pressLocksRef.current.delete(key);
+    }, 500);
+  };
 
   if (!visible) return null;
 
@@ -3231,10 +3246,18 @@ function DayPlanDatePicker({
             <Pressable
               accessibilityLabel="Previous month"
               hitSlop={8}
-              onPress={() => {
-                playSelectionHaptic();
-                onChangeMonth(addMonths(month, -1));
-              }}
+              onPress={() =>
+                runPressAction("previous-month", () => {
+                  playSelectionHaptic();
+                  onChangeMonth(addMonths(month, -1));
+                })
+              }
+              onPressIn={() =>
+                runPressAction("previous-month", () => {
+                  playSelectionHaptic();
+                  onChangeMonth(addMonths(month, -1));
+                })
+              }
               style={({ pressed }) => [
                 styles.datePickerNavButton,
                 { backgroundColor: theme.backgroundElement },
@@ -3254,10 +3277,18 @@ function DayPlanDatePicker({
             <Pressable
               accessibilityLabel="Next month"
               hitSlop={8}
-              onPress={() => {
-                playSelectionHaptic();
-                onChangeMonth(addMonths(month, 1));
-              }}
+              onPress={() =>
+                runPressAction("next-month", () => {
+                  playSelectionHaptic();
+                  onChangeMonth(addMonths(month, 1));
+                })
+              }
+              onPressIn={() =>
+                runPressAction("next-month", () => {
+                  playSelectionHaptic();
+                  onChangeMonth(addMonths(month, 1));
+                })
+              }
               style={({ pressed }) => [
                 styles.datePickerNavButton,
                 { backgroundColor: theme.backgroundElement },
@@ -3299,7 +3330,12 @@ function DayPlanDatePicker({
                   accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
                   accessibilityRole="button"
                   key={dayKey}
-                  onPress={() => onSelectDate(day)}
+                  onPress={() =>
+                    runPressAction(`date-${dayKey}`, () => onSelectDate(day))
+                  }
+                  onPressIn={() =>
+                    runPressAction(`date-${dayKey}`, () => onSelectDate(day))
+                  }
                   style={({ pressed }) => [
                     styles.datePickerDay,
                     {
@@ -3464,6 +3500,7 @@ function InternalEventActionsModal({
   visibility: HabitVisibility;
 }) {
   const theme = useTheme();
+  const pressLocksRef = useRef<Set<string>>(new Set());
   const [planStartTime, setPlanStartTime] = useState("");
   const [planEndTime, setPlanEndTime] = useState("");
   const [planStartPeriod, setPlanStartPeriod] =
@@ -3487,6 +3524,15 @@ function InternalEventActionsModal({
     nextStartMinutes !== null &&
     nextEndMinutes !== null &&
     normalizeEndMinutes(nextStartMinutes, nextEndMinutes) > nextStartMinutes;
+  const runPressAction = (key: string, action: () => void) => {
+    if (pressLocksRef.current.has(key)) return;
+
+    pressLocksRef.current.add(key);
+    action();
+    setTimeout(() => {
+      pressLocksRef.current.delete(key);
+    }, 500);
+  };
 
   useEffect(() => {
     if (!entry || !isEditablePlannedBlock) return;
@@ -3551,7 +3597,8 @@ function InternalEventActionsModal({
             <Pressable
               accessibilityLabel="Close"
               hitSlop={8}
-              onPress={onClose}
+              onPress={() => runPressAction("close", onClose)}
+              onPressIn={() => runPressAction("close", onClose)}
               style={({ pressed }) => [
                 styles.eventActionCloseButton,
                 { backgroundColor: theme.backgroundElement },
@@ -3569,6 +3616,7 @@ function InternalEventActionsModal({
 
           <ScrollView
             contentContainerStyle={styles.eventActionContent}
+            keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
             {onboardingStep === "proof" ? (
@@ -3591,25 +3639,48 @@ function InternalEventActionsModal({
                     (hasTimeRangeChanges && !canSaveTimeRange) ||
                     (!hasTimeRangeChanges && isGoogleEvent)
                   }
-                  onPress={() => {
-                    if (
-                      hasTimeRangeChanges &&
-                      nextStartMinutes !== null &&
-                      nextEndMinutes !== null
-                    ) {
-                      onSaveTimeRange({
-                        endMinutes: normalizeEndMinutes(
-                          nextStartMinutes,
-                          nextEndMinutes,
-                        ),
-                        startMinutes: nextStartMinutes,
-                      });
-                      return;
-                    }
+                  onPress={() =>
+                    runPressAction("save-or-clear", () => {
+                      if (
+                        hasTimeRangeChanges &&
+                        nextStartMinutes !== null &&
+                        nextEndMinutes !== null
+                      ) {
+                        onSaveTimeRange({
+                          endMinutes: normalizeEndMinutes(
+                            nextStartMinutes,
+                            nextEndMinutes,
+                          ),
+                          startMinutes: nextStartMinutes,
+                        });
+                        return;
+                      }
 
-                    if (isGoogleEvent) return;
-                    onClearPlan();
-                  }}
+                      if (isGoogleEvent) return;
+                      onClearPlan();
+                    })
+                  }
+                  onPressIn={() =>
+                    runPressAction("save-or-clear", () => {
+                      if (
+                        hasTimeRangeChanges &&
+                        nextStartMinutes !== null &&
+                        nextEndMinutes !== null
+                      ) {
+                        onSaveTimeRange({
+                          endMinutes: normalizeEndMinutes(
+                            nextStartMinutes,
+                            nextEndMinutes,
+                          ),
+                          startMinutes: nextStartMinutes,
+                        });
+                        return;
+                      }
+
+                      if (isGoogleEvent) return;
+                      onClearPlan();
+                    })
+                  }
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
@@ -3681,7 +3752,16 @@ function InternalEventActionsModal({
                           return (
                             <Pressable
                               key={period}
-                              onPress={() => setPlanStartPeriod(period)}
+                              onPress={() =>
+                                runPressAction(`start-period-${period}`, () =>
+                                  setPlanStartPeriod(period),
+                                )
+                              }
+                              onPressIn={() =>
+                                runPressAction(`start-period-${period}`, () =>
+                                  setPlanStartPeriod(period),
+                                )
+                              }
                               style={[
                                 modalStyles.planPeriodOption,
                                 {
@@ -3730,7 +3810,16 @@ function InternalEventActionsModal({
                           return (
                             <Pressable
                               key={period}
-                              onPress={() => setPlanEndPeriod(period)}
+                              onPress={() =>
+                                runPressAction(`end-period-${period}`, () =>
+                                  setPlanEndPeriod(period),
+                                )
+                              }
+                              onPressIn={() =>
+                                runPressAction(`end-period-${period}`, () =>
+                                  setPlanEndPeriod(period),
+                                )
+                              }
                               style={[
                                 modalStyles.planPeriodOption,
                                 {
@@ -3766,7 +3855,12 @@ function InternalEventActionsModal({
               <>
                 <Pressable
                   disabled={isUpdating}
-                  onPress={onToggleComplete}
+                  onPress={() =>
+                    runPressAction("toggle-complete", onToggleComplete)
+                  }
+                  onPressIn={() =>
+                    runPressAction("toggle-complete", onToggleComplete)
+                  }
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
@@ -3801,7 +3895,8 @@ function InternalEventActionsModal({
 
                 <View style={styles.eventActionGrid}>
                   <Pressable
-                    onPress={onTakePhoto}
+                    onPress={() => runPressAction("take-photo", onTakePhoto)}
+                    onPressIn={() => runPressAction("take-photo", onTakePhoto)}
                     style={({ pressed }) => [
                       styles.eventActionTile,
                       { backgroundColor: theme.backgroundElement },
@@ -3823,7 +3918,8 @@ function InternalEventActionsModal({
                     </Text>
                   </Pressable>
                   <Pressable
-                    onPress={onAddPhoto}
+                    onPress={() => runPressAction("add-photo", onAddPhoto)}
+                    onPressIn={() => runPressAction("add-photo", onAddPhoto)}
                     style={({ pressed }) => [
                       styles.eventActionTile,
                       { backgroundColor: theme.backgroundElement },
@@ -3847,7 +3943,8 @@ function InternalEventActionsModal({
                 </View>
 
                 <Pressable
-                  onPress={onOpenNote}
+                  onPress={() => runPressAction("open-note", onOpenNote)}
+                  onPressIn={() => runPressAction("open-note", onOpenNote)}
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
@@ -3881,7 +3978,8 @@ function InternalEventActionsModal({
             {!isGoogleEvent ? (
               <Pressable
                 disabled={isUpdating}
-                onPress={onDelete}
+                onPress={() => runPressAction("delete", onDelete)}
+                onPressIn={() => runPressAction("delete", onDelete)}
                 style={({ pressed }) => [
                   styles.eventActionRow,
                   { backgroundColor: theme.backgroundElement },
@@ -3939,6 +4037,7 @@ function PlanSelectionModal({
   taskOptions: PlanTargetOption[];
 }) {
   const theme = useTheme();
+  const pressLocksRef = useRef<Set<string>>(new Set());
   if (!range) return null;
 
   const optionsByType: Record<PlanTargetType, PlanTargetOption[]> = {
@@ -3958,6 +4057,15 @@ function PlanSelectionModal({
     onboardingStep === "goal-info" ||
     onboardingStep === "habit-info";
   const allowClose = !onboardingStep;
+  const runPressAction = (key: string, action: () => void) => {
+    if (pressLocksRef.current.has(key)) return;
+
+    pressLocksRef.current.add(key);
+    action();
+    setTimeout(() => {
+      pressLocksRef.current.delete(key);
+    }, 500);
+  };
 
   return (
     <Modal
@@ -3982,7 +4090,10 @@ function PlanSelectionModal({
                 accessibilityLabel="Back to plan types"
                 disabled={!allowClose}
                 hitSlop={8}
-                onPress={() => onSelectType(null)}
+                onPress={() => runPressAction("back", () => onSelectType(null))}
+                onPressIn={() =>
+                  runPressAction("back", () => onSelectType(null))
+                }
                 style={({ pressed }) => [
                   styles.planPickerBackButton,
                   { backgroundColor: theme.backgroundElement },
@@ -4014,7 +4125,16 @@ function PlanSelectionModal({
               <Pressable
                 accessibilityLabel={`Create ${selectedMeta?.label.toLowerCase()}`}
                 disabled={restrictToGoal && selectedType !== "goal"}
-                onPress={() => onCreate(selectedType)}
+                onPress={() =>
+                  runPressAction(`create-${selectedType}`, () =>
+                    onCreate(selectedType),
+                  )
+                }
+                onPressIn={() =>
+                  runPressAction(`create-${selectedType}`, () =>
+                    onCreate(selectedType),
+                  )
+                }
                 style={({ pressed }) => [
                   styles.planPickerCreateButton,
                   { backgroundColor: theme.primary },
@@ -4062,7 +4182,18 @@ function PlanSelectionModal({
                   <Pressable
                     disabled={isSaving || Boolean(onboardingStep)}
                     key={option.id}
-                    onPress={() => onSelectOption(selectedType, option.id)}
+                    onPress={() =>
+                      runPressAction(
+                        `option-${selectedType}-${option.id}`,
+                        () => onSelectOption(selectedType, option.id),
+                      )
+                    }
+                    onPressIn={() =>
+                      runPressAction(
+                        `option-${selectedType}-${option.id}`,
+                        () => onSelectOption(selectedType, option.id),
+                      )
+                    }
                     style={({ pressed }) => [
                       styles.planPickerOptionRow,
                       { backgroundColor: theme.backgroundElement },
@@ -4143,9 +4274,18 @@ function PlanSelectionModal({
                     disabled={disabled}
                     key={targetType}
                     onPress={() =>
-                      isOtherEvent
-                        ? onCreateOtherEvent()
-                        : onSelectType(targetType)
+                      runPressAction(`type-${targetType}`, () =>
+                        isOtherEvent
+                          ? onCreateOtherEvent()
+                          : onSelectType(targetType),
+                      )
+                    }
+                    onPressIn={() =>
+                      runPressAction(`type-${targetType}`, () =>
+                        isOtherEvent
+                          ? onCreateOtherEvent()
+                          : onSelectType(targetType),
+                      )
                     }
                     style={({ pressed }) => [
                       styles.planPickerTypeRow,
@@ -4219,15 +4359,26 @@ function OtherEventFormModal({
   range: PlanRange | null;
 }) {
   const theme = useTheme();
+  const submitLockRef = useRef(false);
   const [title, setTitle] = useState("");
 
   useEffect(() => {
     if (range) setTitle("");
   }, [range]);
 
+  useEffect(() => {
+    if (!isSaving) submitLockRef.current = false;
+  }, [isSaving]);
+
   if (!range) return null;
 
   const trimmedTitle = title.trim();
+  const submit = () => {
+    if (!trimmedTitle || isSaving || submitLockRef.current) return;
+
+    submitLockRef.current = true;
+    onSave(trimmedTitle);
+  };
 
   return (
     <Modal animationType="fade" transparent visible onRequestClose={onClose}>
@@ -4273,7 +4424,11 @@ function OtherEventFormModal({
             </Pressable>
           </View>
 
-          <View style={styles.otherEventForm}>
+          <ScrollView
+            contentContainerStyle={styles.otherEventForm}
+            keyboardShouldPersistTaps="always"
+            scrollEnabled={false}
+          >
             <TextInput
               autoFocus
               editable={!isSaving}
@@ -4291,13 +4446,12 @@ function OtherEventFormModal({
                 },
               ]}
               value={title}
-              onSubmitEditing={() => {
-                if (trimmedTitle && !isSaving) onSave(trimmedTitle);
-              }}
+              onSubmitEditing={submit}
             />
             <Pressable
               disabled={!trimmedTitle || isSaving}
-              onPress={() => onSave(trimmedTitle)}
+              onPress={submit}
+              onPressIn={submit}
               style={({ pressed }) => [
                 styles.otherEventSaveButton,
                 {
@@ -4329,7 +4483,7 @@ function OtherEventFormModal({
                 </Text>
               )}
             </Pressable>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
@@ -4450,7 +4604,7 @@ function EntryChip({
   onRelease,
 }: {
   entry: DayPlanEntry;
-  onBeginSchedule?: (event: GestureResponderEvent) => void;
+  onBeginSchedule?: (pageX: number, pageY: number) => void;
   onDismiss?: () => void;
   onMove?: (event: GestureResponderEvent) => void;
   onPress?: () => void;
@@ -4463,9 +4617,27 @@ function EntryChip({
     pageX: number;
     pageY: number;
   } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledChip = Boolean(onBeginSchedule);
   const chipColor = isUnscheduledChip ? theme.text : color;
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+  const startScheduleDrag = (pageX: number, pageY: number) => {
+    if (!onBeginSchedule) return;
+
+    const dragStart = dragStartRef.current;
+    if (!dragStart || dragStart.didStartDrag) return;
+
+    clearLongPressTimer();
+    dragStart.didStartDrag = true;
+    dragStart.didMove = true;
+    onBeginSchedule(pageX, pageY);
+  };
 
   const chip = (
     <View
@@ -4548,11 +4720,7 @@ function EntryChip({
           return;
         }
 
-        const dragStart = dragStartRef.current;
-        if (dragStart && !dragStart.didStartDrag) {
-          dragStart.didStartDrag = true;
-          onBeginSchedule(event);
-        }
+        startScheduleDrag(event.nativeEvent.pageX, event.nativeEvent.pageY);
       }}
       onMoveShouldSetResponder={(event) => {
         if (!onBeginSchedule) return false;
@@ -4576,13 +4744,18 @@ function EntryChip({
           return;
         }
 
+        const dx = event.nativeEvent.pageX - dragStart.pageX;
+        const dy = event.nativeEvent.pageY - dragStart.pageY;
         dragStart.didMove =
-          Math.abs(event.nativeEvent.pageX - dragStart.pageX) >
-            UNSCHEDULED_TAP_MOVE_THRESHOLD ||
-          Math.abs(event.nativeEvent.pageY - dragStart.pageY) >
-            UNSCHEDULED_TAP_MOVE_THRESHOLD;
+          Math.abs(dx) > UNSCHEDULED_TAP_MOVE_THRESHOLD ||
+          Math.abs(dy) > UNSCHEDULED_TAP_MOVE_THRESHOLD;
+        if (dragStart.didMove) clearLongPressTimer();
+        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 1.1) {
+          startScheduleDrag(event.nativeEvent.pageX, event.nativeEvent.pageY);
+        }
       }}
       onResponderRelease={() => {
+        clearLongPressTimer();
         const dragStart = dragStartRef.current;
         dragStartRef.current = null;
 
@@ -4594,6 +4767,7 @@ function EntryChip({
         if (!dragStart?.didMove) onPress?.();
       }}
       onResponderTerminate={() => {
+        clearLongPressTimer();
         const didStartDrag = dragStartRef.current?.didStartDrag;
         dragStartRef.current = null;
         if (didStartDrag) onRelease?.();
@@ -4602,17 +4776,28 @@ function EntryChip({
       onStartShouldSetResponder={() => !onBeginSchedule}
       onTouchStart={(event) => {
         if (!onBeginSchedule) return;
+        const { pageX, pageY } = event.nativeEvent;
         dragStartRef.current = {
           didMove: false,
           didStartDrag: false,
-          pageX: event.nativeEvent.pageX,
-          pageY: event.nativeEvent.pageY,
+          pageX,
+          pageY,
         };
+        clearLongPressTimer();
+        longPressTimerRef.current = setTimeout(() => {
+          longPressTimerRef.current = null;
+          startScheduleDrag(pageX, pageY);
+        }, LONG_PRESS_DELAY_MS);
       }}
       onTouchMove={(event) => {
         if (!onBeginSchedule) return;
         const dragStart = dragStartRef.current;
-        if (!dragStart || dragStart.didStartDrag) return;
+        if (!dragStart) return;
+
+        if (dragStart.didStartDrag) {
+          onMove?.(event);
+          return;
+        }
 
         const touch = event.nativeEvent.touches[0];
         if (!touch) return;
@@ -4622,16 +4807,32 @@ function EntryChip({
         dragStart.didMove =
           Math.abs(dx) > UNSCHEDULED_TAP_MOVE_THRESHOLD ||
           Math.abs(dy) > UNSCHEDULED_TAP_MOVE_THRESHOLD;
+        if (dragStart.didMove) clearLongPressTimer();
+        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx) * 1.1) {
+          startScheduleDrag(touch.pageX, touch.pageY);
+        }
       }}
       onTouchEnd={() => {
         if (!onBeginSchedule) return;
+        clearLongPressTimer();
         const dragStart = dragStartRef.current;
-        if (dragStart?.didStartDrag) return;
+        if (dragStart?.didStartDrag) {
+          dragStartRef.current = null;
+          onRelease?.();
+          return;
+        }
 
         dragStartRef.current = null;
         if (dragStart && !dragStart.didMove && !dragStart.didStartDrag) {
           onPress?.();
         }
+      }}
+      onTouchCancel={() => {
+        if (!onBeginSchedule) return;
+        clearLongPressTimer();
+        const didStartDrag = dragStartRef.current?.didStartDrag;
+        dragStartRef.current = null;
+        if (didStartDrag) onRelease?.();
       }}
     >
       {chip}
@@ -4943,6 +5144,36 @@ function buildDayPlanEntries({
       });
     }
 
+    for (const habit of snapshot.periodicHabits) {
+      const key = `${habit.id}_${dateKey}`;
+      const status = snapshot.logsByHabitDate[key];
+      if (
+        !habit.planOnCalendar ||
+        !isPeriodicHabitScheduledForDate(habit, selectedDate)
+      ) {
+        continue;
+      }
+      if (status === "planned") continue;
+      if (status === "complete" && snapshot.plannedTimesByHabitDate[key]) {
+        continue;
+      }
+
+      entries.push({
+        allDay: true,
+        completed: status === "complete",
+        description: "Periodic habit",
+        endMinutes: MINUTES_IN_DAY,
+        habitId: habit.id,
+        id: `periodic-${habit.id}`,
+        kind: "habit",
+        laneCount: 1,
+        laneIndex: 0,
+        laneSpan: 1,
+        startMinutes: 0,
+        title: habit.name,
+      });
+    }
+
     // Project "repeat daily" plans onto every day from their origin forward,
     // unless the day already has its own log (which is handled above / wins).
     for (const habit of habitById.values()) {
@@ -5229,7 +5460,9 @@ function buildSuggestedPlanEntries({
       (entry) =>
         entry.kind === "habit" &&
         entry.habitId &&
-        entry.description === "Periodic habit",
+        entry.description === "Periodic habit" &&
+        !entry.completed &&
+        (scheduledHabitCounts.get(entry.habitId) ?? 0) < 1,
     )
     .map((entry) => ({
       ...entry,
@@ -5690,6 +5923,88 @@ function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function startOfWeekDate(date: Date) {
+  const next = startOfDay(date);
+  next.setDate(next.getDate() - next.getDay());
+  return next;
+}
+
+function weeksBetween(referenceDate: Date, date: Date) {
+  return Math.round(
+    (startOfWeekDate(date).getTime() -
+      startOfWeekDate(referenceDate).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+function weekOfMonth(date: Date) {
+  const daysInMonth = new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0,
+  ).getDate();
+  if (date.getDate() + 7 > daysInMonth) return 4;
+  return Math.ceil(date.getDate() / 7) - 1;
+}
+
+function monthlyWeekdayCell(date: Date) {
+  return weekOfMonth(date) * 7 + date.getDay();
+}
+
+function isPeriodicHabitScheduledForDate(
+  habit: Pick<
+    PeriodicHabitInfo,
+    | "createdAt"
+    | "period"
+    | "repeatDays"
+    | "repeatInterval"
+    | "repeatMonthlyType"
+  >,
+  date: Date,
+) {
+  if (habit.period === "daily") return true;
+
+  const interval = habit.repeatInterval ?? 1;
+  const dayOfWeek = date.getDay();
+
+  if (habit.period === "weekly") {
+    const days = habit.repeatDays;
+    if (days?.length && !days.includes(dayOfWeek)) return false;
+    if (interval === 1) return true;
+    return weeksBetween(new Date(habit.createdAt), date) % interval === 0;
+  }
+
+  if (habit.period === "monthly") {
+    const referenceDate = new Date(habit.createdAt);
+    const monthDiff =
+      (date.getFullYear() - referenceDate.getFullYear()) * 12 +
+      (date.getMonth() - referenceDate.getMonth());
+    if (monthDiff % interval !== 0) return false;
+
+    const type = habit.repeatMonthlyType ?? "day_of_month";
+    if (type === "day_of_month") {
+      const days = habit.repeatDays?.filter((day) => day >= 1 && day <= 31);
+      return days?.length
+        ? days.includes(date.getDate())
+        : date.getDate() === referenceDate.getDate();
+    }
+
+    const cells = habit.repeatDays?.filter((day) => day >= 0 && day <= 34);
+    if (!cells?.length) {
+      return monthlyWeekdayCell(date) === monthlyWeekdayCell(referenceDate);
+    }
+    if (cells.every((day) => day <= 6)) {
+      return (
+        cells.includes(dayOfWeek) &&
+        weekOfMonth(date) === weekOfMonth(referenceDate)
+      );
+    }
+    return cells.includes(monthlyWeekdayCell(date));
+  }
+
+  return false;
+}
+
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
@@ -5989,6 +6304,10 @@ const styles = StyleSheet.create({
     minHeight: 260,
     alignItems: "center",
     justifyContent: "center",
+  },
+  stickyScheduleSections: {
+    gap: 8,
+    paddingTop: 10,
   },
   allDaySection: {
     gap: 9,

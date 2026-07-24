@@ -167,6 +167,8 @@ export async function GET(request: Request) {
       return authErrorResponse;
     }
 
+    console.error("Habit list failed", error);
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
@@ -302,6 +304,8 @@ export async function POST(request: Request) {
     if (authErrorResponse) {
       return authErrorResponse;
     }
+
+    console.error("Habit mutation failed", error);
 
     return NextResponse.json(
       { error: "Internal server error" },
