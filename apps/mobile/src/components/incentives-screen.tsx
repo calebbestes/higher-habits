@@ -1,7 +1,13 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useState } from "react";
+import {
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -87,6 +93,20 @@ function getGoalLabel(friend: FriendRow, incentive: FriendIncentiveRow) {
     incentive.goalName ??
     friend.goalOptions.find((g) => g.id === incentive.goalId)?.name;
   return name ?? SCOPE_LABELS.single;
+}
+
+function runLockedPress(
+  locks: MutableRefObject<Set<string>>,
+  key: string,
+  action: () => void,
+) {
+  if (locks.current.has(key)) return;
+
+  locks.current.add(key);
+  action();
+  setTimeout(() => {
+    locks.current.delete(key);
+  }, 500);
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
@@ -370,6 +390,7 @@ function CreateIncentiveModal({
   const accent = theme.primary;
   const accentForeground = theme.primaryForeground;
   const insets = useSafeAreaInsets();
+  const pressLocksRef = useRef(new Set<string>());
 
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedFriend, setSelectedFriend] = useState<FriendRow | null>(null);
@@ -413,6 +434,10 @@ function CreateIncentiveModal({
     if (nextScope === "single" && !goalId && selectedFriend?.goalOptions[0]) {
       setGoalId(selectedFriend.goalOptions[0].id);
     }
+  };
+
+  const runPressAction = (key: string, action: () => void) => {
+    runLockedPress(pressLocksRef, key, action);
   };
 
   async function handleSend() {
@@ -462,7 +487,11 @@ function CreateIncentiveModal({
         >
           <View style={{ width: 60 }}>
             {step === 2 && (
-              <Pressable onPress={() => setStep(1)} hitSlop={12}>
+              <Pressable
+                onPress={() => runPressAction("back", () => setStep(1))}
+                onPressIn={() => runPressAction("back", () => setStep(1))}
+                hitSlop={12}
+              >
                 <View style={styles.headerTextButton}>
                   <SymbolView
                     name={sym("chevron.left", "chevron_left")}
@@ -479,7 +508,11 @@ function CreateIncentiveModal({
             New Incentive
           </Text>
           <View style={{ width: 60, alignItems: "flex-end" }}>
-            <Pressable onPress={onClose} hitSlop={12}>
+            <Pressable
+              onPress={() => runPressAction("close", onClose)}
+              onPressIn={() => runPressAction("close", onClose)}
+              hitSlop={12}
+            >
               <SymbolView
                 name={sym("xmark", "close")}
                 size={16}
@@ -522,11 +555,20 @@ function CreateIncentiveModal({
                   return (
                     <Pressable
                       key={f.id}
-                      onPress={() => {
-                        setSelectedFriend(f);
-                        setGoalId(f.goalOptions[0]?.id ?? "");
-                        setStep(2);
-                      }}
+                      onPress={() =>
+                        runPressAction(`friend-${f.id}`, () => {
+                          setSelectedFriend(f);
+                          setGoalId(f.goalOptions[0]?.id ?? "");
+                          setStep(2);
+                        })
+                      }
+                      onPressIn={() =>
+                        runPressAction(`friend-${f.id}`, () => {
+                          setSelectedFriend(f);
+                          setGoalId(f.goalOptions[0]?.id ?? "");
+                          setStep(2);
+                        })
+                      }
                       style={[
                         styles.friendOption,
                         { borderBottomColor: theme.tabBorder },
@@ -609,7 +651,16 @@ function CreateIncentiveModal({
                   {SCOPE_OPTIONS.map((opt) => (
                     <Pressable
                       key={opt.value}
-                      onPress={() => selectScope(opt.value)}
+                      onPress={() =>
+                        runPressAction(`scope-${opt.value}`, () =>
+                          selectScope(opt.value),
+                        )
+                      }
+                      onPressIn={() =>
+                        runPressAction(`scope-${opt.value}`, () =>
+                          selectScope(opt.value),
+                        )
+                      }
                       style={[
                         styles.scopeChip,
                         {
@@ -737,7 +788,8 @@ function CreateIncentiveModal({
             style={[styles.sheetFooter, { borderTopColor: theme.tabBorder }]}
           >
             <Pressable
-              onPress={handleSend}
+              onPress={() => runPressAction("send", handleSend)}
+              onPressIn={() => runPressAction("send", handleSend)}
               disabled={!canSend || sending}
               style={[
                 styles.sendBtn,
@@ -804,6 +856,7 @@ export function IncentivesScreen({
   const accent = theme.primary;
   const accentForeground = theme.primaryForeground;
   const insets = useSafeAreaInsets();
+  const pressLocksRef = useRef(new Set<string>());
 
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -867,6 +920,9 @@ export function IncentivesScreen({
   const visibleItems = tab === "received" ? receivedItems : sentItems;
 
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
+  const runPressAction = (key: string, action: () => void) => {
+    runLockedPress(pressLocksRef, key, action);
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
@@ -885,7 +941,12 @@ export function IncentivesScreen({
         <View style={styles.headerActions}>
           <Pressable
             accessibilityLabel="New incentive"
-            onPress={() => setShowCreate(true)}
+            onPress={() =>
+              runPressAction("new-incentive", () => setShowCreate(true))
+            }
+            onPressIn={() =>
+              runPressAction("new-incentive", () => setShowCreate(true))
+            }
             hitSlop={8}
             style={({ pressed }) => [
               styles.addButton,
@@ -923,7 +984,8 @@ export function IncentivesScreen({
             return (
               <Pressable
                 key={t}
-                onPress={() => setTab(t)}
+                onPress={() => runPressAction(`tab-${t}`, () => setTab(t))}
+                onPressIn={() => runPressAction(`tab-${t}`, () => setTab(t))}
                 style={[
                   styles.tabSwitcherBtn,
                   tab === t && {
@@ -970,7 +1032,8 @@ export function IncentivesScreen({
             {error}
           </Text>
           <Pressable
-            onPress={load}
+            onPress={() => runPressAction("retry", load)}
+            onPressIn={() => runPressAction("retry", load)}
             style={[styles.retryBtn, { borderColor: accent }]}
           >
             <Text style={[styles.retryText, { color: accent }]}>Retry</Text>
@@ -990,7 +1053,12 @@ export function IncentivesScreen({
           </Text>
           {tab === "sent" && (
             <Pressable
-              onPress={() => setShowCreate(true)}
+              onPress={() =>
+                runPressAction("empty-create", () => setShowCreate(true))
+              }
+              onPressIn={() =>
+                runPressAction("empty-create", () => setShowCreate(true))
+              }
               style={[styles.emptyCreateBtn, { backgroundColor: accent }]}
             >
               <Text
@@ -1037,7 +1105,12 @@ export function IncentivesScreen({
         <View style={[StyleSheet.absoluteFill, styles.modalOverlay]}>
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={() => setShowCreate(false)}
+            onPress={() =>
+              runPressAction("dismiss-create", () => setShowCreate(false))
+            }
+            onPressIn={() =>
+              runPressAction("dismiss-create", () => setShowCreate(false))
+            }
           />
           <View style={styles.modalSheet}>
             <CreateIncentiveModal

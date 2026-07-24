@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -26,6 +26,20 @@ type OnboardingPhase =
   | "shared-goals"
   | "dashboard"
   | "welcome";
+
+function useReliablePress(action: () => void, disabled = false) {
+  const lockRef = useRef(false);
+
+  return useCallback(() => {
+    if (disabled || lockRef.current) return;
+
+    lockRef.current = true;
+    action();
+    setTimeout(() => {
+      lockRef.current = false;
+    }, 500);
+  }, [action, disabled]);
+}
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const theme = useTheme();
@@ -135,6 +149,7 @@ function OnboardingCard({
   title: string;
 }) {
   const theme = useTheme();
+  const press = useReliablePress(onPress);
 
   return (
     <View pointerEvents="box-none" style={styles.overlay}>
@@ -150,7 +165,8 @@ function OnboardingCard({
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={onPress}
+          onPressIn={press}
+          onPress={press}
           style={({ pressed }) => [
             styles.button,
             { backgroundColor: theme.primary },
@@ -174,6 +190,7 @@ function WelcomeCard({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const press = useReliablePress(onPress, isCompleting);
 
   return (
     <View style={styles.welcomeOverlay}>
@@ -197,7 +214,8 @@ function WelcomeCard({
         <Pressable
           accessibilityRole="button"
           disabled={isCompleting}
-          onPress={onPress}
+          onPressIn={press}
+          onPress={press}
           style={({ pressed }) => [
             styles.button,
             { backgroundColor: theme.primary },

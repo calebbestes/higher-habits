@@ -12,7 +12,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import { OnboardingScreen } from "@/components/onboarding-screen";
+// import { OnboardingScreen } from "@/components/onboarding-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import {
@@ -41,6 +41,9 @@ type NavigationDefaults = {
   defaultCollabSection: CollabSection;
   defaultPlanReportView: PlanReportView;
 };
+
+// Temporarily disabled while the onboarding tutorial touch flow is being rebuilt.
+const ONBOARDING_TUTORIAL_ENABLED = false;
 
 function RootLayout() {
   const colorScheme = useColorScheme();
@@ -103,7 +106,9 @@ function AuthNavigator() {
           };
           applyNavigationDefaults(nextNavigationDefaults);
           setNavigationDefaults(nextNavigationDefaults);
-          setOnboardingCompleted(settings.onboardingCompleted);
+          setOnboardingCompleted(
+            ONBOARDING_TUTORIAL_ENABLED ? settings.onboardingCompleted : true,
+          );
         }
       })
       .catch(() => {
@@ -176,16 +181,20 @@ function AuthNavigator() {
     );
   }
 
-  if (session && onboardingCompleted === false) {
-    return (
-      <OnboardingScreen
-        onComplete={() => {
-          setPostOnboardingRoute("/dashboard");
-          setOnboardingCompleted(true);
-        }}
-      />
-    );
-  }
+  // if (
+  //   ONBOARDING_TUTORIAL_ENABLED &&
+  //   session &&
+  //   onboardingCompleted === false
+  // ) {
+  //   return (
+  //     <OnboardingScreen
+  //       onComplete={() => {
+  //         setPostOnboardingRoute("/dashboard");
+  //         setOnboardingCompleted(true);
+  //       }}
+  //     />
+  //   );
+  // }
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
