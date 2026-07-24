@@ -115,6 +115,20 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function useReliablePress(action: () => void) {
+  const lockedRef = useRef(false);
+
+  return useCallback(() => {
+    if (lockedRef.current) return;
+
+    lockedRef.current = true;
+    action();
+    setTimeout(() => {
+      lockedRef.current = false;
+    }, 500);
+  }, [action]);
+}
+
 function dateKey(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
@@ -929,10 +943,13 @@ function PickerButton({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const press = useReliablePress(onPress);
+
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={onPress}
+      onPress={press}
+      onPressIn={press}
       style={({ pressed }) => [
         styles.pickerButton,
         {
@@ -974,13 +991,16 @@ function MonthButton({
 }) {
   const theme = useTheme();
   const hasDateFilter = month !== null && year !== null;
+  const press = useReliablePress(onPress);
+
   return (
     <Pressable
       accessibilityLabel={`Select month and year. Currently ${
         hasDateFilter ? `${MONTHS[month]} ${year}` : "all dates"
       }`}
       accessibilityRole="button"
-      onPress={onPress}
+      onPress={press}
+      onPressIn={press}
       style={({ pressed }) => [
         styles.monthButton,
         {
@@ -2037,12 +2057,15 @@ function PickerRow({
   onPress: () => void;
 }) {
   const theme = useTheme();
+  const press = useReliablePress(onPress);
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
-      onPress={onPress}
+      onPress={press}
+      onPressIn={press}
       style={({ pressed }) => [
         styles.sheetRow,
         selected && { backgroundColor: `${theme.primary}12` },

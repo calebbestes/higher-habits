@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -1599,6 +1600,25 @@ function CommentsModal({
   replyTarget: FriendFeedComment | null;
 }) {
   const theme = useTheme();
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () =>
+      setIsKeyboardVisible(true),
+    );
+    const hideSubscription = Keyboard.addListener(hideEvent, () =>
+      setIsKeyboardVisible(false),
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   return (
     <Modal
@@ -1617,6 +1637,7 @@ function CommentsModal({
           edges={["bottom"]}
           style={[
             styles.commentsSheet,
+            isKeyboardVisible && styles.commentsSheetKeyboardOpen,
             {
               backgroundColor: theme.background,
               borderColor: theme.tabBorder,
@@ -1668,7 +1689,10 @@ function CommentsModal({
             contentContainerStyle={styles.modalCommentsContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            style={styles.modalCommentsScroll}
+            style={[
+              styles.modalCommentsScroll,
+              isKeyboardVisible && styles.modalCommentsScrollKeyboardOpen,
+            ]}
           >
             {entry && entry.comments.length > 0 ? (
               entry.comments.map((comment) => (
@@ -2357,6 +2381,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     overflow: "hidden",
   },
+  commentsSheetKeyboardOpen: {
+    minHeight: 0,
+    maxHeight: "58%",
+  },
   commentsModalHeader: {
     minHeight: 70,
     flexDirection: "row",
@@ -2390,6 +2418,11 @@ const styles = StyleSheet.create({
   },
   modalCommentsScroll: {
     flex: 1,
+  },
+  modalCommentsScrollKeyboardOpen: {
+    flexGrow: 0,
+    flexShrink: 1,
+    maxHeight: 220,
   },
   modalCommentsContent: {
     gap: 8,

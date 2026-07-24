@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import Animated, { Easing, Keyframe } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
@@ -9,6 +9,11 @@ const DURATION = 600;
 
 export function AnimatedSplashOverlay() {
   const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const fallback = setTimeout(() => setVisible(false), DURATION + 300);
+    return () => clearTimeout(fallback);
+  }, []);
 
   if (!visible) return null;
 
@@ -33,6 +38,7 @@ export function AnimatedSplashOverlay() {
 
   return (
     <Animated.View
+      pointerEvents="none"
       entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
         "worklet";
         if (finished) {

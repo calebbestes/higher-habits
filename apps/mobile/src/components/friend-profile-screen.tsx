@@ -59,6 +59,7 @@ export function FriendProfileScreen({
   const [profile, setProfile] = useState<FriendProfile | null>(null);
   const [posts, setPosts] = useState<FriendFeedEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [arePostsLoading, setArePostsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,11 +74,13 @@ export function FriendProfileScreen({
       if (!self && !friendshipId && !friendId) {
         setError("Profile data is unavailable.");
         setIsLoading(false);
+        setArePostsLoading(false);
         return;
       }
 
       const requestId = ++loadRequestIdRef.current;
       refresh ? setIsRefreshing(true) : setIsLoading(true);
+      setArePostsLoading(true);
       setError(null);
       try {
         if (self) {
@@ -101,6 +104,7 @@ export function FriendProfileScreen({
               right.dateKey.localeCompare(left.dateKey),
             ),
           );
+          setArePostsLoading(false);
         } else {
           const nextProfile = friendId
             ? await fetchFriendProfileByFriendId(friendId)
@@ -124,6 +128,7 @@ export function FriendProfileScreen({
               .filter((entry) => entry.friend.id === nextProfile.friend.id)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
+          setArePostsLoading(false);
         }
       } catch (loadError) {
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
@@ -134,10 +139,12 @@ export function FriendProfileScreen({
           );
           setProfile(null);
           setPosts([]);
+          setArePostsLoading(false);
         }
       } finally {
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
           setIsLoading(false);
+          setArePostsLoading(false);
           setIsRefreshing(false);
         }
       }
@@ -278,6 +285,17 @@ export function FriendProfileScreen({
                       }
                     />
                   ))}
+                </View>
+              ) : arePostsLoading ? (
+                <View style={styles.emptyPosts}>
+                  <Text
+                    style={[
+                      styles.loadingPostsText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Loading posts...
+                  </Text>
                 </View>
               ) : (
                 <View style={styles.emptyPosts}>
@@ -641,5 +659,10 @@ const styles = StyleSheet.create({
   tileGoal: { fontSize: 12, fontWeight: "900" },
   tileNote: { fontSize: 11, lineHeight: 14, fontWeight: "600" },
   emptyPosts: { paddingHorizontal: 20, paddingTop: 8 },
+  loadingPostsText: {
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   pressed: { opacity: 0.72 },
 });
