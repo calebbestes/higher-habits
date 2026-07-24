@@ -194,6 +194,7 @@ export function FriendProfileScreen({
         </View>
 
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 18 },
@@ -238,6 +239,14 @@ export function FriendProfileScreen({
                   <ProfileStat
                     label="habits done"
                     value={profile.stats.habitCompletions}
+                  />
+                  <ProfileStat
+                    label="goals done"
+                    value={profile.stats.goalCompletions}
+                  />
+                  <ProfileStat
+                    label="tasks done"
+                    value={profile.stats.taskCompletions}
                   />
                 </View>
               </View>
@@ -582,17 +591,17 @@ const styles = StyleSheet.create({
   statsRow: {
     flex: 1,
     flexDirection: "row",
-    justifyContent: "space-around",
-    gap: 14,
+    flexWrap: "wrap",
+    rowGap: 10,
   },
-  stat: { alignItems: "center", minWidth: 86 },
+  stat: { width: "50%", alignItems: "center" },
   statValue: {
     fontFamily: Fonts.rounded,
-    fontSize: 22,
-    lineHeight: 25,
+    fontSize: 21,
+    lineHeight: 24,
     fontWeight: "900",
   },
-  statLabel: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+  statLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" },
   profileName: {
     paddingHorizontal: 22,
     paddingTop: 12,

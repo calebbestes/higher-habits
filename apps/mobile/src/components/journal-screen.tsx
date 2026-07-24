@@ -1,12 +1,14 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { GoalIcon } from "@/components/goal-icon";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
-import { Image } from "expo-image";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
+import { Image, type ImageLoadEventData } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  type GestureResponderEvent,
   Modal,
   Pressable,
   RefreshControl,
@@ -22,6 +24,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import {
+  type ImageNaturalSize,
+  PhotoBackdropHitTargets,
+  getContainedImageFrame,
+} from "@/components/photo-backdrop-hit-targets";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -60,6 +67,7 @@ import { type Goal, fetchPlanGoals } from "@/lib/planning-goals-client";
 import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
 type SymbolName = SymbolViewProps["name"];
+type ViewerPhotoSize = ImageNaturalSize & { photoId: string };
 
 type GoalOption = {
   id: string;
@@ -127,6 +135,67 @@ function useReliablePress(action: () => void) {
       lockedRef.current = false;
     }, 500);
   }, [action]);
+}
+
+function usePressWithTouchEndFallback(action: () => void) {
+  const lockedRef = useRef(false);
+
+  return useCallback(() => {
+    if (lockedRef.current) return;
+
+    lockedRef.current = true;
+    setTimeout(action, 0);
+    setTimeout(() => {
+      lockedRef.current = false;
+    }, 350);
+  }, [action]);
+}
+
+function useReliableTapResponder(action: () => void) {
+  const press = usePressWithTouchEndFallback(action);
+  const [pressed, setPressed] = useState(false);
+  const startRef = useRef<{
+    didMove: boolean;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+
+  const cancel = useCallback(() => {
+    startRef.current = null;
+    setPressed(false);
+  }, []);
+
+  return {
+    pressed,
+    responderProps: {
+      onResponderGrant: (event: GestureResponderEvent) => {
+        startRef.current = {
+          didMove: false,
+          pageX: event.nativeEvent.pageX,
+          pageY: event.nativeEvent.pageY,
+        };
+        setPressed(true);
+      },
+      onResponderMove: (event: GestureResponderEvent) => {
+        const start = startRef.current;
+        if (!start) return;
+
+        const dx = event.nativeEvent.pageX - start.pageX;
+        const dy = event.nativeEvent.pageY - start.pageY;
+        start.didMove = Math.abs(dx) > 10 || Math.abs(dy) > 10;
+        if (start.didMove) setPressed(false);
+      },
+      onResponderRelease: () => {
+        const start = startRef.current;
+        startRef.current = null;
+        setPressed(false);
+        if (start && !start.didMove) press();
+      },
+      onResponderTerminate: cancel,
+      onResponderTerminationRequest: () => Boolean(startRef.current?.didMove),
+      onStartShouldSetResponder: () => true,
+    },
+  };
 }
 
 function dateKey(year: number, month: number, day: number): string {
@@ -202,7 +271,7 @@ export function JournalScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"goal" | "monthYear" | null>(null);
+  const [picker, setPicker] = useState<"monthYear" | null>(null);
   const [activePhoto, setActivePhoto] = useState<GoalPhoto | null>(null);
   const [isEditingPhoto, setIsEditingPhoto] = useState(false);
   const [checkpointGoals, setCheckpointGoals] = useState<Goal[]>([]);
@@ -351,6 +420,30 @@ export function JournalScreen() {
   const selectedGoal = selectedGoalId
     ? (goalById.get(selectedGoalId) ?? null)
     : null;
+  const goalFilterActions = useMemo<MenuAction[]>(() => {
+    const actions: MenuAction[] = [
+      {
+        id: "all",
+        image: "book",
+        state: selectedGoalId === null ? "on" : undefined,
+        title: "All goals",
+      },
+    ];
+
+    for (const section of sections) {
+      actions.push({
+        displayInline: true,
+        subactions: section.goals.map((goal) => ({
+          id: `goal:${goal.id}`,
+          state: selectedGoalId === goal.id ? "on" : undefined,
+          title: goal.name,
+        })),
+        title: section.categoryName,
+      });
+    }
+
+    return actions;
+  }, [sections, selectedGoalId]);
 
   useEffect(() => {
     if (selectedGoalId && snapshot && !journalGoalIds.has(selectedGoalId)) {
@@ -716,6 +809,7 @@ export function JournalScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
@@ -737,13 +831,14 @@ export function JournalScreen() {
           </View>
 
           <View style={styles.filters}>
-            <PickerButton
+            <GoalFilterButton
+              actions={goalFilterActions}
               icon={sym("book", "menu_book")}
               label="Goal"
               value={selectedGoal?.name ?? "All goals"}
-              onPress={() => {
+              onSelect={(event) => {
                 playSelectionHaptic();
-                setPicker("goal");
+                setSelectedGoalId(event === "all" ? null : event.slice(5));
               }}
             />
             <MonthButton
@@ -863,17 +958,6 @@ export function JournalScreen() {
         </ScrollView>
       </SafeAreaView>
 
-      <GoalPickerModal
-        isOpen={picker === "goal"}
-        sections={sections}
-        selectedGoalId={selectedGoalId}
-        onClose={() => setPicker(null)}
-        onSelect={(goalId) => {
-          playSelectionHaptic();
-          setSelectedGoalId(goalId);
-          setPicker(null);
-        }}
-      />
       <MonthYearPickerModal
         isOpen={picker === "monthYear"}
         selectedMonth={selectedMonth}
@@ -931,52 +1015,66 @@ export function JournalScreen() {
   );
 }
 
-function PickerButton({
+function GoalFilterButton({
+  actions,
   icon,
   label,
+  onSelect,
   value,
-  onPress,
 }: {
+  actions: MenuAction[];
   icon: SymbolName;
   label: string;
+  onSelect: (event: string) => void;
   value: string;
-  onPress: () => void;
 }) {
   const theme = useTheme();
-  const press = useReliablePress(onPress);
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={press}
-      onPressIn={press}
-      style={({ pressed }) => [
-        styles.pickerButton,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.tabBorder,
-        },
-        pressed && styles.pressed,
-      ]}
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => {
+        if (
+          nativeEvent.event === "all" ||
+          nativeEvent.event.startsWith("goal:")
+        ) {
+          onSelect(nativeEvent.event);
+        }
+      }}
+      style={styles.pickerMenu}
+      title="Filter goals"
     >
-      <SymbolView name={icon} size={17} tintColor={theme.primary} />
-      <View style={styles.pickerText}>
-        <Text style={[styles.pickerLabel, { color: theme.textSecondary }]}>
-          {label}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.pickerValue, { color: theme.text }]}
-        >
-          {value}
-        </Text>
+      <View
+        accessible
+        accessibilityLabel={`Filter by goal. Currently ${value}`}
+        accessibilityRole="button"
+        style={[
+          styles.pickerButton,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <SymbolView name={icon} size={17} tintColor={theme.primary} />
+        <View style={styles.pickerText}>
+          <Text style={[styles.pickerLabel, { color: theme.textSecondary }]}>
+            {label}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.pickerValue, { color: theme.text }]}
+          >
+            {value}
+          </Text>
+        </View>
+        <SymbolView
+          name={sym("chevron.down", "expand_more")}
+          size={14}
+          tintColor={theme.textSecondary}
+        />
       </View>
-      <SymbolView
-        name={sym("chevron.down", "expand_more")}
-        size={14}
-        tintColor={theme.textSecondary}
-      />
-    </Pressable>
+    </MenuView>
   );
 }
 
@@ -991,17 +1089,17 @@ function MonthButton({
 }) {
   const theme = useTheme();
   const hasDateFilter = month !== null && year !== null;
-  const press = useReliablePress(onPress);
+  const { pressed, responderProps } = useReliableTapResponder(onPress);
 
   return (
-    <Pressable
+    <View
+      accessible
       accessibilityLabel={`Select month and year. Currently ${
         hasDateFilter ? `${MONTHS[month]} ${year}` : "all dates"
       }`}
       accessibilityRole="button"
-      onPress={press}
-      onPressIn={press}
-      style={({ pressed }) => [
+      {...responderProps}
+      style={[
         styles.monthButton,
         {
           backgroundColor: theme.backgroundElement,
@@ -1016,7 +1114,7 @@ function MonthButton({
       <Text style={[styles.monthButtonYear, { color: theme.text }]}>
         {hasDateFilter ? year : "DATES"}
       </Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -1835,48 +1933,6 @@ function EmptyState({
   );
 }
 
-function GoalPickerModal({
-  isOpen,
-  sections,
-  selectedGoalId,
-  onClose,
-  onSelect,
-}: {
-  isOpen: boolean;
-  sections: GoalSection[];
-  selectedGoalId: string | null;
-  onClose: () => void;
-  onSelect: (goalId: string | null) => void;
-}) {
-  const theme = useTheme();
-  return (
-    <PickerSheet isOpen={isOpen} title="Select goal" onClose={onClose}>
-      <PickerRow
-        icon={sym("book", "menu_book")}
-        label="All goals"
-        selected={selectedGoalId === null}
-        onPress={() => onSelect(null)}
-      />
-      {sections.map((section) => (
-        <View key={section.categoryId}>
-          <Text style={[styles.sheetSection, { color: theme.textSecondary }]}>
-            {section.categoryName}
-          </Text>
-          {section.goals.map((goal) => (
-            <PickerRow
-              key={goal.id}
-              iconKey={goal.iconKey}
-              label={goal.name}
-              selected={selectedGoalId === goal.id}
-              onPress={() => onSelect(goal.id)}
-            />
-          ))}
-        </View>
-      ))}
-    </PickerSheet>
-  );
-}
-
 function MonthYearPickerModal({
   isOpen,
   selectedMonth,
@@ -2030,7 +2086,10 @@ function PickerSheet({
               />
             </Pressable>
           </View>
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView
+            canCancelContentTouches={false}
+            showsVerticalScrollIndicator={false}
+          >
             {children}
           </ScrollView>
         </View>
@@ -2065,7 +2124,6 @@ function PickerRow({
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={press}
-      onPressIn={press}
       style={({ pressed }) => [
         styles.sheetRow,
         selected && { backgroundColor: `${theme.primary}12` },
@@ -2127,9 +2185,28 @@ function PhotoViewer({
 }) {
   const { width: viewportWidth, height: viewportHeight } =
     useWindowDimensions();
+  const [photoSize, setPhotoSize] = useState<ViewerPhotoSize | null>(null);
+  const activePhotoId = photo?.id ?? null;
+  const activePhotoSize =
+    photoSize?.photoId === activePhotoId ? photoSize : null;
   const viewerViewportStyle = useMemo(
     () => ({ width: viewportWidth, height: viewportHeight }),
     [viewportHeight, viewportWidth],
+  );
+  const photoFrame = useMemo(
+    () =>
+      getContainedImageFrame(activePhotoSize, viewportWidth, viewportHeight),
+    [activePhotoSize, viewportHeight, viewportWidth],
+  );
+
+  const handlePhotoLoad = useCallback(
+    (photoId: string, event: ImageLoadEventData) => {
+      const { height, width } = event.source;
+      if (width > 0 && height > 0) {
+        setPhotoSize({ photoId, width, height });
+      }
+    },
+    [],
   );
 
   return (
@@ -2164,10 +2241,17 @@ function PhotoViewer({
                 contentFit="contain"
                 source={{ uri: photo.url }}
                 style={styles.fullPhoto}
+                onLoad={(event) => handlePhotoLoad(photo.id, event)}
               />
             </View>
           </ScrollView>
         ) : null}
+        <PhotoBackdropHitTargets
+          frame={photoFrame}
+          viewportWidth={viewportWidth}
+          viewportHeight={viewportHeight}
+          onPress={onClose}
+        />
         <Pressable
           accessibilityLabel="Close photo"
           disabled={isBusy}
@@ -2275,6 +2359,7 @@ const styles = StyleSheet.create({
   },
   subtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   filters: { flexDirection: "row", alignItems: "stretch", gap: 9 },
+  pickerMenu: { flex: 1 },
   pickerButton: {
     flex: 1,
     minHeight: 60,

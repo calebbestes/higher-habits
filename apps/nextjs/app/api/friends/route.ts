@@ -4,11 +4,13 @@ import {
   friendMessages,
   friends,
   getDb,
+  goalCheckpoints,
   goalLogs,
   habits,
+  tasks,
   users,
 } from "@habit/db";
-import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -398,6 +400,20 @@ async function getFriendProfile(
     .select({ id: goalLogs.id })
     .from(goalLogs)
     .where(and(eq(goalLogs.userId, friendId), eq(goalLogs.status, "complete")));
+  const completedCheckpointRows = await db
+    .select({ id: goalCheckpoints.id })
+    .from(goalCheckpoints)
+    .where(
+      and(
+        eq(goalCheckpoints.userId, friendId),
+        isNotNull(goalCheckpoints.completedAt),
+        eq(goalCheckpoints.visibility, "all_friends"),
+      ),
+    );
+  const completedTaskRows = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
   const logRows =
     visibleHabitIdList.length > 0
       ? await db
@@ -469,7 +485,9 @@ async function getFriendProfile(
     },
     stats: {
       friendCount: friendRows.length,
+      goalCompletions: completedCheckpointRows.length,
       habitCompletions: completedHabitRows.length,
+      taskCompletions: completedTaskRows.length,
     },
     dateKeys,
     categories: [...categoriesById.values()],

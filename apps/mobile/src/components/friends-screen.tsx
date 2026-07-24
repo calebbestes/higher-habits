@@ -177,6 +177,7 @@ export function FriendsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
@@ -911,6 +912,7 @@ function CreateGroupModal({
             </View>
 
             <ScrollView
+              canCancelContentTouches={false}
               contentContainerStyle={styles.addFriendContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
@@ -1221,6 +1223,7 @@ function AddFriendModal({
             </View>
 
             <ScrollView
+              canCancelContentTouches={false}
               contentContainerStyle={styles.addFriendContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}

@@ -803,6 +803,7 @@ function GoalDetailsSheet({
       </View>
 
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.sheetScroll}
         contentContainerStyle={styles.sheetContent}
         showsVerticalScrollIndicator={false}
@@ -1225,6 +1226,7 @@ function RelinkModal({
         </Pressable>
       </View>
       <ScrollView
+        canCancelContentTouches={false}
         style={styles.sheetScroll}
         contentContainerStyle={styles.sheetContent}
       >
@@ -1532,6 +1534,7 @@ function CreateGoalModal({
         </View>
 
         <ScrollView
+          canCancelContentTouches={false}
           style={styles.sheetScroll}
           contentContainerStyle={styles.sheetContent}
           keyboardShouldPersistTaps="handled"
@@ -2722,6 +2725,7 @@ export function SharedGoalsScreen() {
         </View>
       ) : (
         <ScrollView
+          canCancelContentTouches={false}
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,

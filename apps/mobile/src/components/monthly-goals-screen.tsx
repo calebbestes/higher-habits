@@ -818,6 +818,7 @@ export function MonthlyGoalsScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
@@ -1133,6 +1134,7 @@ function SortFilterModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             style={styles.filterOptionsScroll}
             showsVerticalScrollIndicator={false}
           >
@@ -2097,6 +2099,7 @@ function GoalActionsModal({
               </View>
 
               <ScrollView
+                canCancelContentTouches={false}
                 contentContainerStyle={modalStyles.actions}
                 showsVerticalScrollIndicator={false}
               >
