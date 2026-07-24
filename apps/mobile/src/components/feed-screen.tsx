@@ -61,8 +61,8 @@ const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
 const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
 
 type FeedFilters = {
-  groupId: string | null;
-  categoryId: string | null;
+  groupIds: string[];
+  categoryIds: string[];
 };
 
 function sym(ios: string, android: string): SymbolName {
@@ -166,28 +166,32 @@ async function setStoredHiddenFeedGoals(keys: Set<string>) {
   await SecureStore.setItemAsync(HIDDEN_FEED_GOALS_KEY, value);
 }
 
+function normalizeFilterIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  return typeof value === "string" && value ? [value] : [];
+}
+
 async function getStoredFeedFilters(): Promise<FeedFilters> {
   const stored =
     Platform.OS === "web"
       ? globalThis.localStorage?.getItem(FEED_FILTER_PREFERENCES_KEY)
       : await SecureStore.getItemAsync(FEED_FILTER_PREFERENCES_KEY);
 
-  if (!stored) return { groupId: null, categoryId: null };
+  if (!stored) return { groupIds: [], categoryIds: [] };
 
   try {
     const parsed = JSON.parse(stored);
     return {
-      groupId:
-        typeof parsed?.groupId === "string" && parsed.groupId
-          ? parsed.groupId
-          : null,
-      categoryId:
-        typeof parsed?.categoryId === "string" && parsed.categoryId
-          ? parsed.categoryId
-          : null,
+      groupIds: normalizeFilterIds(parsed?.groupIds ?? parsed?.groupId),
+      categoryIds: normalizeFilterIds(
+        parsed?.categoryIds ?? parsed?.categoryId,
+      ),
     };
   } catch {
-    return { groupId: null, categoryId: null };
+    return { groupIds: [], categoryIds: [] };
   }
 }
 
@@ -214,8 +218,8 @@ export function FeedScreen() {
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
-    groupId: null,
-    categoryId: null,
+    groupIds: [],
+    categoryIds: [],
   });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -679,45 +683,69 @@ export function FeedScreen() {
       left.name.localeCompare(right.name),
     );
   }, [entries]);
-  const activeGroupId = friendGroups.some(
-    (group) => group.id === feedFilters.groupId,
-  )
-    ? feedFilters.groupId
-    : null;
-  const activeCategoryId = categoryOptions.some(
-    (category) => category.id === feedFilters.categoryId,
-  )
-    ? feedFilters.categoryId
-    : null;
-  const activeCategoryName = activeCategoryId
-    ? (categoryOptions.find((category) => category.id === activeCategoryId)
-        ?.name ?? null)
-    : null;
+  const activeGroupIds = useMemo(
+    () =>
+      feedFilters.groupIds.filter((groupId) =>
+        friendGroups.some((group) => group.id === groupId),
+      ),
+    [feedFilters.groupIds, friendGroups],
+  );
+  const activeGroupIdSet = useMemo(
+    () => new Set(activeGroupIds),
+    [activeGroupIds],
+  );
+  const activeCategoryIds = useMemo(
+    () =>
+      feedFilters.categoryIds.filter((categoryId) =>
+        categoryOptions.some((category) => category.id === categoryId),
+      ),
+    [categoryOptions, feedFilters.categoryIds],
+  );
+  const activeCategoryIdSet = useMemo(
+    () => new Set(activeCategoryIds),
+    [activeCategoryIds],
+  );
+  const activeCategoryNameSet = useMemo(() => {
+    const names = new Set<string>();
+    for (const category of categoryOptions) {
+      if (activeCategoryIdSet.has(category.id)) {
+        names.add(category.name.trim().toLowerCase());
+      }
+    }
+    return names;
+  }, [activeCategoryIdSet, categoryOptions]);
   const activeGroupMemberIds = useMemo(() => {
-    const group = activeGroupId
-      ? friendGroups.find((item) => item.id === activeGroupId)
-      : null;
-    return new Set(group?.members.map((member) => member.id) ?? []);
-  }, [activeGroupId, friendGroups]);
+    const memberIds = new Set<string>();
+    for (const group of friendGroups) {
+      if (activeGroupIdSet.has(group.id)) {
+        for (const member of group.members) memberIds.add(member.id);
+      }
+    }
+    return memberIds;
+  }, [activeGroupIdSet, friendGroups]);
   const visibleEntries = useMemo(
     () =>
       entries.filter((entry) => {
         if (hiddenFeedGoalKeys.has(feedGoalKey(entry))) return false;
-        if (activeGroupId && !activeGroupMemberIds.has(entry.friend.id)) {
+        if (
+          activeGroupIds.length &&
+          !activeGroupMemberIds.has(entry.friend.id)
+        ) {
           return false;
         }
         if (
-          activeCategoryName &&
-          entry.category?.name.trim().toLowerCase() !==
-            activeCategoryName.trim().toLowerCase()
+          activeCategoryNameSet.size &&
+          !activeCategoryNameSet.has(
+            entry.category?.name.trim().toLowerCase() ?? "",
+          )
         ) {
           return false;
         }
         return true;
       }),
     [
-      activeCategoryName,
-      activeGroupId,
+      activeCategoryNameSet,
+      activeGroupIds.length,
       activeGroupMemberIds,
       entries,
       hiddenFeedGoalKeys,
@@ -727,8 +755,7 @@ export function FeedScreen() {
     setFeedFilters(filters);
     void setStoredFeedFilters(filters).catch(() => undefined);
   }, []);
-  const activeFilterCount =
-    (activeGroupId ? 1 : 0) + (activeCategoryId ? 1 : 0);
+  const activeFilterCount = activeGroupIds.length + activeCategoryIds.length;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -1014,18 +1041,18 @@ export function FeedScreen() {
         }}
       />
       <FeedFilterModal
-        activeCategoryId={activeCategoryId}
-        activeGroupId={activeGroupId}
+        activeCategoryIds={activeCategoryIds}
+        activeGroupIds={activeGroupIds}
         categories={categoryOptions}
         groups={friendGroups}
         visible={isFilterOpen}
-        onCategoryChange={(categoryId) =>
-          saveFeedFilters({ ...feedFilters, categoryId })
+        onCategoryChange={(categoryIds) =>
+          saveFeedFilters({ ...feedFilters, categoryIds })
         }
-        onClear={() => saveFeedFilters({ groupId: null, categoryId: null })}
+        onClear={() => saveFeedFilters({ groupIds: [], categoryIds: [] })}
         onClose={() => setIsFilterOpen(false)}
-        onGroupChange={(groupId) =>
-          saveFeedFilters({ ...feedFilters, groupId })
+        onGroupChange={(groupIds) =>
+          saveFeedFilters({ ...feedFilters, groupIds })
         }
       />
     </View>
@@ -1033,8 +1060,8 @@ export function FeedScreen() {
 }
 
 function FeedFilterModal({
-  activeCategoryId,
-  activeGroupId,
+  activeCategoryIds,
+  activeGroupIds,
   categories,
   groups,
   onCategoryChange,
@@ -1043,17 +1070,45 @@ function FeedFilterModal({
   onGroupChange,
   visible,
 }: {
-  activeCategoryId: string | null;
-  activeGroupId: string | null;
+  activeCategoryIds: string[];
+  activeGroupIds: string[];
   categories: NonNullable<FriendFeedEntry["category"]>[];
   groups: FriendGroupRow[];
-  onCategoryChange: (categoryId: string | null) => void;
+  onCategoryChange: (categoryIds: string[]) => void;
   onClear: () => void;
   onClose: () => void;
-  onGroupChange: (groupId: string | null) => void;
+  onGroupChange: (groupIds: string[]) => void;
   visible: boolean;
 }) {
   const theme = useTheme();
+  const activeGroupIdSet = useMemo(
+    () => new Set(activeGroupIds),
+    [activeGroupIds],
+  );
+  const activeCategoryIdSet = useMemo(
+    () => new Set(activeCategoryIds),
+    [activeCategoryIds],
+  );
+
+  const toggleGroup = (groupId: string) => {
+    const next = new Set(activeGroupIds);
+    if (next.has(groupId)) {
+      next.delete(groupId);
+    } else {
+      next.add(groupId);
+    }
+    onGroupChange([...next]);
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    const next = new Set(activeCategoryIds);
+    if (next.has(categoryId)) {
+      next.delete(categoryId);
+    } else {
+      next.add(categoryId);
+    }
+    onCategoryChange([...next]);
+  };
 
   return (
     <Modal
@@ -1115,16 +1170,16 @@ function FeedFilterModal({
               </Text>
               <View style={styles.filterChipGrid}>
                 <FilterChip
-                  active={activeGroupId === null}
+                  active={activeGroupIds.length === 0}
                   label="All groups"
-                  onPress={() => onGroupChange(null)}
+                  onPress={() => onGroupChange([])}
                 />
                 {groups.map((group) => (
                   <FilterChip
                     key={group.id}
-                    active={activeGroupId === group.id}
+                    active={activeGroupIdSet.has(group.id)}
                     label={group.name}
-                    onPress={() => onGroupChange(group.id)}
+                    onPress={() => toggleGroup(group.id)}
                   />
                 ))}
               </View>
@@ -1146,16 +1201,16 @@ function FeedFilterModal({
               </Text>
               <View style={styles.filterChipGrid}>
                 <FilterChip
-                  active={activeCategoryId === null}
+                  active={activeCategoryIds.length === 0}
                   label="All habits"
-                  onPress={() => onCategoryChange(null)}
+                  onPress={() => onCategoryChange([])}
                 />
                 {categories.map((category) => (
                   <FilterChip
                     key={category.id}
-                    active={activeCategoryId === category.id}
+                    active={activeCategoryIdSet.has(category.id)}
                     label={category.name}
-                    onPress={() => onCategoryChange(category.id)}
+                    onPress={() => toggleCategory(category.id)}
                   />
                 ))}
               </View>

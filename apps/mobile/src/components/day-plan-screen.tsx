@@ -3384,6 +3384,17 @@ function OnboardingTooltipCard({
   title: string;
 }) {
   const theme = useTheme();
+  const pressLockRef = useRef(false);
+  const runPress = () => {
+    if (!onPress || pressLockRef.current) return;
+
+    pressLockRef.current = true;
+    onPress();
+    setTimeout(() => {
+      pressLockRef.current = false;
+    }, 500);
+  };
+
   return (
     <View
       style={[
@@ -3402,7 +3413,8 @@ function OnboardingTooltipCard({
       {buttonLabel && onPress ? (
         <Pressable
           accessibilityRole="button"
-          onPress={onPress}
+          onPress={runPress}
+          onPressIn={runPress}
           style={({ pressed }) => [
             styles.onboardingTooltipButton,
             { backgroundColor: theme.primary },
