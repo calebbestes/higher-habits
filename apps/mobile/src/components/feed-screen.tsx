@@ -1,5 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import { Image } from "expo-image";
+import { Image, type ImageLoadEventData } from "expo-image";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -25,6 +25,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import {
+  type ImageNaturalSize,
+  PhotoBackdropHitTargets,
+  getContainedImageFrame,
+} from "@/components/photo-backdrop-hit-targets";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -235,6 +240,9 @@ export function FeedScreen() {
     null,
   );
   const [activePhoto, setActivePhoto] = useState<ActiveFeedPhoto | null>(null);
+  const [lightboxPhotoSizes, setLightboxPhotoSizes] = useState<
+    Record<string, ImageNaturalSize>
+  >({});
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [hiddenFeedGoalKeys, setHiddenFeedGoalKeys] = useState<Set<string>>(
     new Set(),
@@ -262,6 +270,25 @@ export function FeedScreen() {
       });
     });
   }, [activePhoto, lightboxPhotoIndex, viewportWidth]);
+
+  const closeActivePhoto = useCallback(() => setActivePhoto(null), []);
+
+  const handleLightboxPhotoLoad = useCallback(
+    (photoId: string, event: ImageLoadEventData) => {
+      const { height, width } = event.source;
+      if (width <= 0 || height <= 0) return;
+
+      setLightboxPhotoSizes((prev) => {
+        const existing = prev[photoId];
+        if (existing?.width === width && existing.height === height) {
+          return prev;
+        }
+
+        return { ...prev, [photoId]: { width, height } };
+      });
+    },
+    [],
+  );
 
   const load = useCallback(async (refresh = false) => {
     const requestId = loadRequestIdRef.current + 1;
@@ -765,6 +792,7 @@ export function FeedScreen() {
           style={styles.keyboardView}
         >
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={[
               styles.content,
               { paddingBottom: tabBarHeight + 16 },
@@ -875,13 +903,13 @@ export function FeedScreen() {
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={() => setActivePhoto(null)}
+        onRequestClose={closeActivePhoto}
       >
         <View style={styles.lightboxOverlay}>
           <Pressable
             accessibilityLabel="Close photo"
             style={StyleSheet.absoluteFill}
-            onPress={() => setActivePhoto(null)}
+            onPress={closeActivePhoto}
           />
           {activePhoto ? (
             <>
@@ -909,33 +937,50 @@ export function FeedScreen() {
                 showsVerticalScrollIndicator={false}
                 style={styles.lightboxPager}
               >
-                {lightboxPhotos.map((photo) => (
-                  <View key={photo.id} style={lightboxViewportStyle}>
-                    <ScrollView
-                      bounces={false}
-                      bouncesZoom
-                      centerContent
-                      contentContainerStyle={[
-                        styles.lightboxZoomContent,
-                        lightboxViewportStyle,
-                      ]}
-                      maximumZoomScale={4}
-                      minimumZoomScale={1}
-                      pinchGestureEnabled
-                      showsHorizontalScrollIndicator={false}
-                      showsVerticalScrollIndicator={false}
-                      style={styles.lightboxZoomFrame}
-                    >
-                      <View style={lightboxViewportStyle}>
-                        <Image
-                          source={{ uri: photo.url }}
-                          style={styles.lightboxImage}
-                          contentFit="contain"
-                        />
-                      </View>
-                    </ScrollView>
-                  </View>
-                ))}
+                {lightboxPhotos.map((photo) => {
+                  const imageFrame = getContainedImageFrame(
+                    lightboxPhotoSizes[photo.id],
+                    viewportWidth,
+                    viewportHeight,
+                  );
+
+                  return (
+                    <View key={photo.id} style={lightboxViewportStyle}>
+                      <ScrollView
+                        bounces={false}
+                        bouncesZoom
+                        centerContent
+                        contentContainerStyle={[
+                          styles.lightboxZoomContent,
+                          lightboxViewportStyle,
+                        ]}
+                        maximumZoomScale={4}
+                        minimumZoomScale={1}
+                        pinchGestureEnabled
+                        showsHorizontalScrollIndicator={false}
+                        showsVerticalScrollIndicator={false}
+                        style={styles.lightboxZoomFrame}
+                      >
+                        <View style={lightboxViewportStyle}>
+                          <Image
+                            source={{ uri: photo.url }}
+                            style={styles.lightboxImage}
+                            contentFit="contain"
+                            onLoad={(event) =>
+                              handleLightboxPhotoLoad(photo.id, event)
+                            }
+                          />
+                        </View>
+                      </ScrollView>
+                      <PhotoBackdropHitTargets
+                        frame={imageFrame}
+                        viewportWidth={viewportWidth}
+                        viewportHeight={viewportHeight}
+                        onPress={closeActivePhoto}
+                      />
+                    </View>
+                  );
+                })}
               </ScrollView>
               {lightboxPhotos.length > 1 ? (
                 <View style={styles.lightboxCounter}>
@@ -947,7 +992,7 @@ export function FeedScreen() {
               <Pressable
                 accessibilityLabel="Close photo"
                 hitSlop={10}
-                onPress={() => setActivePhoto(null)}
+                onPress={closeActivePhoto}
                 style={({ pressed }) => [
                   styles.lightboxCloseButton,
                   pressed && styles.pressed,
@@ -1161,6 +1206,7 @@ function FeedFilterModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.filterModalContent}
             showsVerticalScrollIndicator={false}
           >
@@ -1741,6 +1787,7 @@ function CommentsModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.modalCommentsContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

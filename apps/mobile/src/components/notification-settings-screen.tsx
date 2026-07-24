@@ -272,6 +272,7 @@ export function NotificationSettingsModal({
             </View>
           ) : (
             <ScrollView
+              canCancelContentTouches={false}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
             >

@@ -1,5 +1,14 @@
-import { categories, friends, getDb, goalLogs, habits, users } from "@habit/db";
-import { and, asc, eq, gte, inArray, or } from "drizzle-orm";
+import {
+  categories,
+  friends,
+  getDb,
+  goalCheckpoints,
+  goalLogs,
+  habits,
+  tasks,
+  users,
+} from "@habit/db";
+import { and, asc, eq, gte, inArray, isNotNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -98,6 +107,21 @@ export async function GET(request: Request) {
         and(eq(goalLogs.userId, user.id), eq(goalLogs.status, "complete")),
       );
 
+    const completedCheckpointRows = await db
+      .select({ id: goalCheckpoints.id })
+      .from(goalCheckpoints)
+      .where(
+        and(
+          eq(goalCheckpoints.userId, user.id),
+          isNotNull(goalCheckpoints.completedAt),
+        ),
+      );
+
+    const completedTaskRows = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.userId, user.id), isNotNull(tasks.completedAt)));
+
     const logRows =
       visibleHabitIdList.length > 0
         ? await db
@@ -171,7 +195,9 @@ export async function GET(request: Request) {
       },
       stats: {
         friendCount: friendRows.length,
+        goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
+        taskCompletions: completedTaskRows.length,
       },
       dateKeys,
       categories: [...categoriesById.values()],

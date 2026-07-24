@@ -260,6 +260,7 @@ export function TaskFormModal({
           ) : null}
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.formContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

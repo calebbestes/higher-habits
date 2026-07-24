@@ -6,8 +6,10 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   type GestureResponderEvent,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -223,9 +225,8 @@ const TIMELINE_AUTO_SCROLL_MAX_STEP = 18;
 const TIMELINE_START_HOUR = 7;
 const TIMELINE_VISIBLE_HOURS = 12;
 const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
-const TIMELINE_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
-const TIMELINE_MIN_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 16;
-const TIMELINE_MAX_HOUR_HEIGHT = TIMELINE_VIEWPORT_HEIGHT / 5;
+const TIMELINE_DEFAULT_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
+const TIMELINE_VIEWPORT_BOTTOM_GAP = 18;
 const NESTED_EVENT_LEFT_PERCENT = 10;
 const NESTED_EVENT_WIDTH_PERCENT = 90;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -255,7 +256,7 @@ export function DayPlanScreen({
   onboardingGuide?: DayPlanOnboardingGuide;
 }) {
   const theme = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const tabBarHeight = useTabBarHeight();
   const bottomScrollPadding = Math.max(58, tabBarHeight - 28);
   const { projects, reloadProjects, createProject } = useTaskProjects();
@@ -265,6 +266,7 @@ export function DayPlanScreen({
   const timelineViewportTopRef = useRef(0);
   const timelineDragLayerWidthRef = useRef(0);
   const timelineGestureRef = useRef<TimelineGesture | null>(null);
+  const cancelTimelineGestureRef = useRef<() => void>(() => undefined);
   const timelineHapticKeyRef = useRef<string | null>(null);
   const timelinePinchRef = useRef<{
     distance: number;
@@ -327,6 +329,7 @@ export function DayPlanScreen({
   );
   const [isTimelineDragging, setIsTimelineDragging] = useState(false);
   const [timelineHourHeight, setTimelineHourHeight] = useState(HOUR_HEIGHT);
+  const [stickyHeaderHeight, setStickyHeaderHeight] = useState(0);
   const [selectedPlanTargetType, setSelectedPlanTargetType] =
     useState<PlanTargetType | null>(null);
   const [creatingTargetType, setCreatingTargetType] =
@@ -348,6 +351,21 @@ export function DayPlanScreen({
   const nowLineTop = useMemo(
     () => ((now.getHours() * 60 + now.getMinutes()) / 60) * timelineHourHeight,
     [now, timelineHourHeight],
+  );
+  const timelineViewportHeight = useMemo(() => {
+    const availableHeight =
+      screenHeight -
+      stickyHeaderHeight -
+      tabBarHeight -
+      TIMELINE_VIEWPORT_BOTTOM_GAP;
+
+    return Math.max(TIMELINE_DEFAULT_VIEWPORT_HEIGHT, availableHeight);
+  }, [screenHeight, stickyHeaderHeight, tabBarHeight]);
+  const timelineMinHourHeight = timelineViewportHeight / 16;
+  const timelineMaxHourHeight = timelineViewportHeight / 5;
+  const timelineScrollMax = Math.max(
+    0,
+    timelineHourHeight * 24 - timelineViewportHeight,
   );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
@@ -847,7 +865,11 @@ export function DayPlanScreen({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset the timeline to 7:00 when changing dates
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
-      const initialOffset = TIMELINE_START_HOUR * timelineHourHeight;
+      const initialOffset = clampNumber(
+        TIMELINE_START_HOUR * timelineHourHeight,
+        0,
+        timelineScrollMax,
+      );
       timelineScrollYRef.current = initialOffset;
       timelineScrollRef.current?.scrollTo({
         animated: false,
@@ -857,6 +879,21 @@ export function DayPlanScreen({
 
     return () => cancelAnimationFrame(frame);
   }, [dateKey]);
+
+  useEffect(() => {
+    const nextScrollY = clampNumber(
+      timelineScrollYRef.current,
+      0,
+      timelineScrollMax,
+    );
+    if (nextScrollY === timelineScrollYRef.current) return;
+
+    timelineScrollYRef.current = nextScrollY;
+    timelineScrollRef.current?.scrollTo({
+      animated: false,
+      y: nextScrollY,
+    });
+  }, [timelineScrollMax]);
 
   useEffect(
     () => () => {
@@ -1111,11 +1148,16 @@ export function DayPlanScreen({
       noteCheckpoint,
   );
   const onboardingStep = onboardingGuide?.step ?? null;
-  const timelineScrollMax = timelineHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT;
   const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
     timelineViewportTopRef.current =
       pageY - timelineY + timelineScrollYRef.current;
   };
+  const handleStickyHeaderLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+    setStickyHeaderHeight((currentHeight) =>
+      Math.abs(currentHeight - nextHeight) > 0.5 ? nextHeight : currentHeight,
+    );
+  }, []);
   const measureTimelineViewport = useCallback(() => {
     timelineViewportRef.current?.measureInWindow((_x, y) => {
       timelineViewportTopRef.current = y;
@@ -1138,18 +1180,18 @@ export function DayPlanScreen({
     if (!pinch || !distance) return;
 
     const centerMinutes =
-      ((timelineScrollYRef.current + TIMELINE_VIEWPORT_HEIGHT / 2) /
+      ((timelineScrollYRef.current + timelineViewportHeight / 2) /
         Math.max(timelineHourHeight, 1)) *
       60;
     const nextHourHeight = clampNumber(
       pinch.hourHeight * (distance / pinch.distance),
-      TIMELINE_MIN_HOUR_HEIGHT,
-      TIMELINE_MAX_HOUR_HEIGHT,
+      timelineMinHourHeight,
+      timelineMaxHourHeight,
     );
     const nextScrollY = clampNumber(
-      (centerMinutes / 60) * nextHourHeight - TIMELINE_VIEWPORT_HEIGHT / 2,
+      (centerMinutes / 60) * nextHourHeight - timelineViewportHeight / 2,
       0,
-      nextHourHeight * 24 - TIMELINE_VIEWPORT_HEIGHT,
+      Math.max(0, nextHourHeight * 24 - timelineViewportHeight),
     );
 
     timelineScrollYRef.current = nextScrollY;
@@ -1168,7 +1210,7 @@ export function DayPlanScreen({
     pageY - timelineViewportTopRef.current;
   const isPageYOverTimeline = (pageY: number) => {
     const viewportY = getTimelineViewportY(pageY);
-    return viewportY >= 0 && viewportY <= TIMELINE_VIEWPORT_HEIGHT;
+    return viewportY >= 0 && viewportY <= timelineViewportHeight;
   };
   const getTimelineMinutesFromPageY = (
     pageY: number,
@@ -1176,7 +1218,7 @@ export function DayPlanScreen({
   ) => {
     const viewportY = getTimelineViewportY(pageY);
     const timelineY = options?.clampToViewport
-      ? clampNumber(viewportY, 0, TIMELINE_VIEWPORT_HEIGHT)
+      ? clampNumber(viewportY, 0, timelineViewportHeight)
       : viewportY;
 
     return minutesFromTimelineY(
@@ -1278,7 +1320,7 @@ export function DayPlanScreen({
     const topDistance = Math.max(0, TIMELINE_AUTO_SCROLL_EDGE - viewportY);
     const bottomDistance = Math.max(
       0,
-      viewportY - (TIMELINE_VIEWPORT_HEIGHT - TIMELINE_AUTO_SCROLL_EDGE),
+      viewportY - (timelineViewportHeight - TIMELINE_AUTO_SCROLL_EDGE),
     );
     const direction = topDistance > 0 ? -1 : bottomDistance > 0 ? 1 : 0;
 
@@ -1308,8 +1350,7 @@ export function DayPlanScreen({
       );
       const activeBottomDistance = Math.max(
         0,
-        activeViewportY -
-          (TIMELINE_VIEWPORT_HEIGHT - TIMELINE_AUTO_SCROLL_EDGE),
+        activeViewportY - (timelineViewportHeight - TIMELINE_AUTO_SCROLL_EDGE),
       );
       const activeDirection =
         activeTopDistance > 0 ? -1 : activeBottomDistance > 0 ? 1 : 0;
@@ -1698,6 +1739,24 @@ export function DayPlanScreen({
     setDragEntry(null);
     setFloatingScheduleDrag(null);
   };
+  cancelTimelineGestureRef.current = cancelTimelineGesture;
+
+  useEffect(() => {
+    if (!isPlanSheetOpen && !datePickerOpen) return;
+    cancelTimelineGestureRef.current();
+  }, [datePickerOpen, isPlanSheetOpen]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") cancelTimelineGestureRef.current();
+    });
+
+    return () => {
+      subscription.remove();
+      cancelTimelineGestureRef.current();
+    };
+  }, []);
+
   const beginMoveEntry = (entry: DayPlanEntry, touch: TimelineTouch) => {
     const { locationY, pageY } = touch;
     const entryTop = (entry.startMinutes / 60) * timelineHourHeight;
@@ -2545,6 +2604,7 @@ export function DayPlanScreen({
       <View style={[styles.screen, { backgroundColor: theme.background }]}>
         <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={[
               styles.content,
               { paddingBottom: bottomScrollPadding },
@@ -2566,6 +2626,7 @@ export function DayPlanScreen({
             stickyHeaderIndices={[0]}
           >
             <View
+              onLayout={handleStickyHeaderLayout}
               style={[
                 styles.stickyHeader,
                 {
@@ -2665,7 +2726,6 @@ export function DayPlanScreen({
                     <View
                       style={[
                         styles.allDaySection,
-                        styles.unscheduledSection,
                         {
                           backgroundColor: theme.tabBar,
                           borderColor: theme.tabBorder,
@@ -2689,16 +2749,7 @@ export function DayPlanScreen({
                   ) : null}
 
                   {suggestedPlanEntries.length > 0 ? (
-                    <View
-                      style={[
-                        styles.allDaySection,
-                        styles.unscheduledSection,
-                        {
-                          backgroundColor: theme.tabBar,
-                          borderColor: theme.tabBorder,
-                        },
-                      ]}
-                    >
+                    <View style={styles.unscheduledSection}>
                       <ScrollView
                         horizontal
                         keyboardShouldPersistTaps="handled"
@@ -2772,6 +2823,7 @@ export function DayPlanScreen({
                       styles.timelineCard,
                       styles.timelineCardWide,
                       {
+                        height: timelineViewportHeight,
                         backgroundColor: theme.tabBar,
                         borderColor: theme.tabBorder,
                       },
@@ -3252,12 +3304,6 @@ function DayPlanDatePicker({
                   onChangeMonth(addMonths(month, -1));
                 })
               }
-              onPressIn={() =>
-                runPressAction("previous-month", () => {
-                  playSelectionHaptic();
-                  onChangeMonth(addMonths(month, -1));
-                })
-              }
               style={({ pressed }) => [
                 styles.datePickerNavButton,
                 { backgroundColor: theme.backgroundElement },
@@ -3278,12 +3324,6 @@ function DayPlanDatePicker({
               accessibilityLabel="Next month"
               hitSlop={8}
               onPress={() =>
-                runPressAction("next-month", () => {
-                  playSelectionHaptic();
-                  onChangeMonth(addMonths(month, 1));
-                })
-              }
-              onPressIn={() =>
                 runPressAction("next-month", () => {
                   playSelectionHaptic();
                   onChangeMonth(addMonths(month, 1));
@@ -3331,9 +3371,6 @@ function DayPlanDatePicker({
                   accessibilityRole="button"
                   key={dayKey}
                   onPress={() =>
-                    runPressAction(`date-${dayKey}`, () => onSelectDate(day))
-                  }
-                  onPressIn={() =>
                     runPressAction(`date-${dayKey}`, () => onSelectDate(day))
                   }
                   style={({ pressed }) => [
@@ -3414,7 +3451,6 @@ function OnboardingTooltipCard({
         <Pressable
           accessibilityRole="button"
           onPress={runPress}
-          onPressIn={runPress}
           style={({ pressed }) => [
             styles.onboardingTooltipButton,
             { backgroundColor: theme.primary },
@@ -3610,7 +3646,6 @@ function InternalEventActionsModal({
               accessibilityLabel="Close"
               hitSlop={8}
               onPress={() => runPressAction("close", onClose)}
-              onPressIn={() => runPressAction("close", onClose)}
               style={({ pressed }) => [
                 styles.eventActionCloseButton,
                 { backgroundColor: theme.backgroundElement },
@@ -3627,6 +3662,7 @@ function InternalEventActionsModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.eventActionContent}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
@@ -3652,27 +3688,6 @@ function InternalEventActionsModal({
                     (!hasTimeRangeChanges && isGoogleEvent)
                   }
                   onPress={() =>
-                    runPressAction("save-or-clear", () => {
-                      if (
-                        hasTimeRangeChanges &&
-                        nextStartMinutes !== null &&
-                        nextEndMinutes !== null
-                      ) {
-                        onSaveTimeRange({
-                          endMinutes: normalizeEndMinutes(
-                            nextStartMinutes,
-                            nextEndMinutes,
-                          ),
-                          startMinutes: nextStartMinutes,
-                        });
-                        return;
-                      }
-
-                      if (isGoogleEvent) return;
-                      onClearPlan();
-                    })
-                  }
-                  onPressIn={() =>
                     runPressAction("save-or-clear", () => {
                       if (
                         hasTimeRangeChanges &&
@@ -3769,11 +3784,6 @@ function InternalEventActionsModal({
                                   setPlanStartPeriod(period),
                                 )
                               }
-                              onPressIn={() =>
-                                runPressAction(`start-period-${period}`, () =>
-                                  setPlanStartPeriod(period),
-                                )
-                              }
                               style={[
                                 modalStyles.planPeriodOption,
                                 {
@@ -3827,11 +3837,6 @@ function InternalEventActionsModal({
                                   setPlanEndPeriod(period),
                                 )
                               }
-                              onPressIn={() =>
-                                runPressAction(`end-period-${period}`, () =>
-                                  setPlanEndPeriod(period),
-                                )
-                              }
                               style={[
                                 modalStyles.planPeriodOption,
                                 {
@@ -3870,9 +3875,6 @@ function InternalEventActionsModal({
                   onPress={() =>
                     runPressAction("toggle-complete", onToggleComplete)
                   }
-                  onPressIn={() =>
-                    runPressAction("toggle-complete", onToggleComplete)
-                  }
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
@@ -3908,7 +3910,6 @@ function InternalEventActionsModal({
                 <View style={styles.eventActionGrid}>
                   <Pressable
                     onPress={() => runPressAction("take-photo", onTakePhoto)}
-                    onPressIn={() => runPressAction("take-photo", onTakePhoto)}
                     style={({ pressed }) => [
                       styles.eventActionTile,
                       { backgroundColor: theme.backgroundElement },
@@ -3931,7 +3932,6 @@ function InternalEventActionsModal({
                   </Pressable>
                   <Pressable
                     onPress={() => runPressAction("add-photo", onAddPhoto)}
-                    onPressIn={() => runPressAction("add-photo", onAddPhoto)}
                     style={({ pressed }) => [
                       styles.eventActionTile,
                       { backgroundColor: theme.backgroundElement },
@@ -3956,7 +3956,6 @@ function InternalEventActionsModal({
 
                 <Pressable
                   onPress={() => runPressAction("open-note", onOpenNote)}
-                  onPressIn={() => runPressAction("open-note", onOpenNote)}
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
@@ -3991,7 +3990,6 @@ function InternalEventActionsModal({
               <Pressable
                 disabled={isUpdating}
                 onPress={() => runPressAction("delete", onDelete)}
-                onPressIn={() => runPressAction("delete", onDelete)}
                 style={({ pressed }) => [
                   styles.eventActionRow,
                   { backgroundColor: theme.backgroundElement },
@@ -4103,9 +4101,6 @@ function PlanSelectionModal({
                 disabled={!allowClose}
                 hitSlop={8}
                 onPress={() => runPressAction("back", () => onSelectType(null))}
-                onPressIn={() =>
-                  runPressAction("back", () => onSelectType(null))
-                }
                 style={({ pressed }) => [
                   styles.planPickerBackButton,
                   { backgroundColor: theme.backgroundElement },
@@ -4138,11 +4133,6 @@ function PlanSelectionModal({
                 accessibilityLabel={`Create ${selectedMeta?.label.toLowerCase()}`}
                 disabled={restrictToGoal && selectedType !== "goal"}
                 onPress={() =>
-                  runPressAction(`create-${selectedType}`, () =>
-                    onCreate(selectedType),
-                  )
-                }
-                onPressIn={() =>
                   runPressAction(`create-${selectedType}`, () =>
                     onCreate(selectedType),
                   )
@@ -4185,6 +4175,7 @@ function PlanSelectionModal({
 
           {selectedType ? (
             <ScrollView
+              canCancelContentTouches={false}
               contentContainerStyle={styles.planPickerList}
               showsVerticalScrollIndicator={false}
               style={styles.planPickerScroll}
@@ -4195,12 +4186,6 @@ function PlanSelectionModal({
                     disabled={isSaving || Boolean(onboardingStep)}
                     key={option.id}
                     onPress={() =>
-                      runPressAction(
-                        `option-${selectedType}-${option.id}`,
-                        () => onSelectOption(selectedType, option.id),
-                      )
-                    }
-                    onPressIn={() =>
                       runPressAction(
                         `option-${selectedType}-${option.id}`,
                         () => onSelectOption(selectedType, option.id),
@@ -4286,13 +4271,6 @@ function PlanSelectionModal({
                     disabled={disabled}
                     key={targetType}
                     onPress={() =>
-                      runPressAction(`type-${targetType}`, () =>
-                        isOtherEvent
-                          ? onCreateOtherEvent()
-                          : onSelectType(targetType),
-                      )
-                    }
-                    onPressIn={() =>
                       runPressAction(`type-${targetType}`, () =>
                         isOtherEvent
                           ? onCreateOtherEvent()
@@ -4437,6 +4415,7 @@ function OtherEventFormModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.otherEventForm}
             keyboardShouldPersistTaps="always"
             scrollEnabled={false}
@@ -4463,7 +4442,6 @@ function OtherEventFormModal({
             <Pressable
               disabled={!trimmedTitle || isSaving}
               onPress={submit}
-              onPressIn={submit}
               style={({ pressed }) => [
                 styles.otherEventSaveButton,
                 {
@@ -4629,6 +4607,7 @@ function EntryChip({
     pageX: number;
     pageY: number;
   } | null>(null);
+  const dismissPressRef = useRef(false);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledChip = Boolean(onBeginSchedule);
@@ -4649,6 +4628,15 @@ function EntryChip({
     dragStart.didStartDrag = true;
     dragStart.didMove = true;
     onBeginSchedule(pageX, pageY);
+  };
+  const beginDismissPress = () => {
+    dismissPressRef.current = true;
+    clearLongPressTimer();
+  };
+  const finishDismissPress = () => {
+    setTimeout(() => {
+      dismissPressRef.current = false;
+    }, 0);
   };
 
   const chip = (
@@ -4694,10 +4682,20 @@ function EntryChip({
         <Pressable
           accessibilityLabel={`Hide ${entry.title} for this day`}
           hitSlop={6}
+          onPressIn={beginDismissPress}
           onPress={(event) => {
             event.stopPropagation();
             onDismiss();
+            finishDismissPress();
           }}
+          onPressOut={finishDismissPress}
+          onTouchStart={beginDismissPress}
+          onTouchEnd={finishDismissPress}
+          onTouchCancel={finishDismissPress}
+          onResponderTerminationRequest={() => false}
+          onResponderTerminate={finishDismissPress}
+          onStartShouldSetResponder={() => true}
+          onResponderGrant={beginDismissPress}
           style={({ pressed }) => [
             styles.unscheduledDismissButton,
             { backgroundColor: theme.backgroundElement },
@@ -4768,6 +4766,7 @@ function EntryChip({
       }}
       onResponderRelease={() => {
         clearLongPressTimer();
+        if (dismissPressRef.current) return;
         const dragStart = dragStartRef.current;
         dragStartRef.current = null;
 
@@ -4780,6 +4779,7 @@ function EntryChip({
       }}
       onResponderTerminate={() => {
         clearLongPressTimer();
+        if (dismissPressRef.current) return;
         const didStartDrag = dragStartRef.current?.didStartDrag;
         dragStartRef.current = null;
         if (didStartDrag) onRelease?.();
@@ -4787,6 +4787,7 @@ function EntryChip({
       onResponderTerminationRequest={() => !dragStartRef.current?.didStartDrag}
       onStartShouldSetResponder={() => !onBeginSchedule}
       onTouchStart={(event) => {
+        if (dismissPressRef.current) return;
         if (!onBeginSchedule) return;
         const { pageX, pageY } = event.nativeEvent;
         dragStartRef.current = {
@@ -4802,6 +4803,7 @@ function EntryChip({
         }, LONG_PRESS_DELAY_MS);
       }}
       onTouchMove={(event) => {
+        if (dismissPressRef.current) return;
         if (!onBeginSchedule) return;
         const dragStart = dragStartRef.current;
         if (!dragStart) return;
@@ -4825,6 +4827,11 @@ function EntryChip({
         }
       }}
       onTouchEnd={() => {
+        if (dismissPressRef.current) {
+          clearLongPressTimer();
+          dragStartRef.current = null;
+          return;
+        }
         if (!onBeginSchedule) return;
         clearLongPressTimer();
         const dragStart = dragStartRef.current;
@@ -4840,6 +4847,11 @@ function EntryChip({
         }
       }}
       onTouchCancel={() => {
+        if (dismissPressRef.current) {
+          clearLongPressTimer();
+          dragStartRef.current = null;
+          return;
+        }
         if (!onBeginSchedule) return;
         clearLongPressTimer();
         const didStartDrag = dragStartRef.current?.didStartDrag;
@@ -6328,9 +6340,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   unscheduledSection: {
-    gap: 0,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 2,
   },
   allDayLabel: {
     fontSize: 12,
@@ -6412,7 +6422,6 @@ const styles = StyleSheet.create({
     borderRadius: 9,
   },
   timelineCard: {
-    height: TIMELINE_VIEWPORT_HEIGHT,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 16,

@@ -175,6 +175,7 @@ export function PostScreen({
         </View>
 
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={styles.content}
           refreshControl={
             <RefreshControl

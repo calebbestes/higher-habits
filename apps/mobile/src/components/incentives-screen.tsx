@@ -489,7 +489,6 @@ function CreateIncentiveModal({
             {step === 2 && (
               <Pressable
                 onPress={() => runPressAction("back", () => setStep(1))}
-                onPressIn={() => runPressAction("back", () => setStep(1))}
                 hitSlop={12}
               >
                 <View style={styles.headerTextButton}>
@@ -510,7 +509,6 @@ function CreateIncentiveModal({
           <View style={{ width: 60, alignItems: "flex-end" }}>
             <Pressable
               onPress={() => runPressAction("close", onClose)}
-              onPressIn={() => runPressAction("close", onClose)}
               hitSlop={12}
             >
               <SymbolView
@@ -524,6 +522,7 @@ function CreateIncentiveModal({
         </View>
 
         <ScrollView
+          canCancelContentTouches={false}
           style={{ flex: 1 }}
           contentContainerStyle={styles.sheetContent}
           keyboardShouldPersistTaps="handled"
@@ -556,13 +555,6 @@ function CreateIncentiveModal({
                     <Pressable
                       key={f.id}
                       onPress={() =>
-                        runPressAction(`friend-${f.id}`, () => {
-                          setSelectedFriend(f);
-                          setGoalId(f.goalOptions[0]?.id ?? "");
-                          setStep(2);
-                        })
-                      }
-                      onPressIn={() =>
                         runPressAction(`friend-${f.id}`, () => {
                           setSelectedFriend(f);
                           setGoalId(f.goalOptions[0]?.id ?? "");
@@ -652,11 +644,6 @@ function CreateIncentiveModal({
                     <Pressable
                       key={opt.value}
                       onPress={() =>
-                        runPressAction(`scope-${opt.value}`, () =>
-                          selectScope(opt.value),
-                        )
-                      }
-                      onPressIn={() =>
                         runPressAction(`scope-${opt.value}`, () =>
                           selectScope(opt.value),
                         )
@@ -789,7 +776,6 @@ function CreateIncentiveModal({
           >
             <Pressable
               onPress={() => runPressAction("send", handleSend)}
-              onPressIn={() => runPressAction("send", handleSend)}
               disabled={!canSend || sending}
               style={[
                 styles.sendBtn,
@@ -944,9 +930,6 @@ export function IncentivesScreen({
             onPress={() =>
               runPressAction("new-incentive", () => setShowCreate(true))
             }
-            onPressIn={() =>
-              runPressAction("new-incentive", () => setShowCreate(true))
-            }
             hitSlop={8}
             style={({ pressed }) => [
               styles.addButton,
@@ -985,7 +968,6 @@ export function IncentivesScreen({
               <Pressable
                 key={t}
                 onPress={() => runPressAction(`tab-${t}`, () => setTab(t))}
-                onPressIn={() => runPressAction(`tab-${t}`, () => setTab(t))}
                 style={[
                   styles.tabSwitcherBtn,
                   tab === t && {
@@ -1033,7 +1015,6 @@ export function IncentivesScreen({
           </Text>
           <Pressable
             onPress={() => runPressAction("retry", load)}
-            onPressIn={() => runPressAction("retry", load)}
             style={[styles.retryBtn, { borderColor: accent }]}
           >
             <Text style={[styles.retryText, { color: accent }]}>Retry</Text>
@@ -1056,9 +1037,6 @@ export function IncentivesScreen({
               onPress={() =>
                 runPressAction("empty-create", () => setShowCreate(true))
               }
-              onPressIn={() =>
-                runPressAction("empty-create", () => setShowCreate(true))
-              }
               style={[styles.emptyCreateBtn, { backgroundColor: accent }]}
             >
               <Text
@@ -1071,6 +1049,7 @@ export function IncentivesScreen({
         </View>
       ) : (
         <ScrollView
+          canCancelContentTouches={false}
           style={{ flex: 1 }}
           contentContainerStyle={[
             styles.list,
@@ -1106,9 +1085,6 @@ export function IncentivesScreen({
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() =>
-              runPressAction("dismiss-create", () => setShowCreate(false))
-            }
-            onPressIn={() =>
               runPressAction("dismiss-create", () => setShowCreate(false))
             }
           />

@@ -589,6 +589,7 @@ export function GoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
+          canCancelContentTouches={false}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
@@ -1243,6 +1244,7 @@ function CheckpointActionsModal({
           </View>
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={modalStyles.actions}
             showsVerticalScrollIndicator={false}
           >
@@ -2058,6 +2060,7 @@ export function GoalFormModal({
           ) : null}
 
           <ScrollView
+            canCancelContentTouches={false}
             contentContainerStyle={styles.formContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

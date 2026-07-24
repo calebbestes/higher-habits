@@ -165,7 +165,6 @@ function OnboardingCard({
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPressIn={press}
           onPress={press}
           style={({ pressed }) => [
             styles.button,
@@ -214,7 +213,6 @@ function WelcomeCard({
         <Pressable
           accessibilityRole="button"
           disabled={isCompleting}
-          onPressIn={press}
           onPress={press}
           style={({ pressed }) => [
             styles.button,
