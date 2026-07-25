@@ -31,17 +31,6 @@ export const PLANNED_EVENT_SOURCE_TYPES = [
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
 export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
-export const FLOAT_CREDIT_ACTION_TYPES = [
-  "post",
-  "task_complete",
-  "habit_complete",
-  "goal_checkpoint_complete",
-  "comment",
-  "incentive_create",
-  "shared_goal_create",
-  "daily_plan",
-  "monthly_plan",
-] as const;
 export const SHARED_GOAL_MODES = ["collaborative", "competitive"] as const;
 export const SHARED_GOAL_SCORING_TYPES = [
   "everyone_completes",
@@ -654,74 +643,6 @@ export const feedComments = pgTable(
   ],
 );
 
-export const floatCreditTransactions = pgTable(
-  "float_credit_transactions",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    actionType: text("action_type").notNull(),
-    actionDate: date("action_date", { mode: "string" }).notNull(),
-    amount: integer("amount").notNull(),
-    sourceType: text("source_type").notNull(),
-    sourceId: text("source_id").notNull(),
-    dailyAwardKey: text("daily_award_key"),
-    description: text("description").default("").notNull(),
-    metadata: json("metadata").$type<Record<string, unknown>>(),
-    reversesTransactionId: uuid("reverses_transaction_id").references(
-      (): AnyPgColumn => floatCreditTransactions.id,
-      { onDelete: "set null" },
-    ),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    unique("float_credit_transactions_user_award_key_uidx").on(
-      table.userId,
-      table.dailyAwardKey,
-    ),
-    unique("float_credit_transactions_reversal_uidx").on(
-      table.reversesTransactionId,
-    ),
-    index("float_credit_transactions_user_id_idx").on(table.userId),
-    index("float_credit_transactions_action_date_idx").on(table.actionDate),
-    index("float_credit_transactions_action_type_idx").on(table.actionType),
-    index("float_credit_transactions_source_idx").on(
-      table.sourceType,
-      table.sourceId,
-    ),
-  ],
-);
-
-export const floatCreditProgress = pgTable(
-  "float_credit_progress",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    actionType: text("action_type").notNull(),
-    periodKey: text("period_key").notNull(),
-    count: integer("count").default(0).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    unique("float_credit_progress_user_action_period_uidx").on(
-      table.userId,
-      table.actionType,
-      table.periodKey,
-    ),
-    index("float_credit_progress_user_id_idx").on(table.userId),
-  ],
-);
-
 export const sharedGoals = pgTable(
   "shared_goals",
   {
@@ -1008,10 +929,3 @@ export type FriendMessage = typeof friendMessages.$inferSelect;
 export type NewFriendMessage = typeof friendMessages.$inferInsert;
 export type FriendMessageType = (typeof FRIEND_MESSAGE_TYPES)[number];
 export type FriendGoalScope = (typeof FRIEND_GOAL_SCOPES)[number];
-export type FloatCreditActionType = (typeof FLOAT_CREDIT_ACTION_TYPES)[number];
-export type FloatCreditTransaction =
-  typeof floatCreditTransactions.$inferSelect;
-export type NewFloatCreditTransaction =
-  typeof floatCreditTransactions.$inferInsert;
-export type FloatCreditProgress = typeof floatCreditProgress.$inferSelect;
-export type NewFloatCreditProgress = typeof floatCreditProgress.$inferInsert;

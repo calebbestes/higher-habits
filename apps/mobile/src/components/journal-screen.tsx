@@ -2088,7 +2088,7 @@ function PickerSheet({
             </Pressable>
           </View>
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             showsVerticalScrollIndicator={false}
           >
             {children}

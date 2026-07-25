@@ -22,7 +22,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { FloatCreditToast } from "@/components/float-credit-toast";
 import { useTheme } from "@/hooks/use-theme";
 import {
   COLLAB_SECTION_HREFS,
@@ -209,15 +208,6 @@ const TABS: TabItem[] = [
             web: "menu_book",
           },
         },
-        {
-          label: "Credits",
-          href: "/history?section=credits",
-          icon: {
-            ios: "sparkles",
-            android: "auto_awesome",
-            web: "auto_awesome",
-          },
-        },
       ],
     },
   },
@@ -310,7 +300,6 @@ export default function AppTabs() {
           />
         ) : null}
       </Tabs>
-      <FloatCreditToast />
     </>
   );
 }

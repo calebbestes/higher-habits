@@ -5,12 +5,6 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
-  awardCreditAction,
-  getLocalDateKeyFromRequest,
-  jsonWithCreditHeaders,
-  reverseFloatCredits,
-} from "@/lib/float-credits";
-import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
 } from "@/lib/supabase-storage";
@@ -203,17 +197,7 @@ export async function POST(request: Request) {
         createdAt: photo.createdAt.toISOString(),
         checkpointId: photo.checkpointId,
       };
-      const creditEvent = checkpoint.completedAt
-        ? await awardCreditAction(db, {
-            actionDate: getLocalDateKeyFromRequest(request),
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          })
-        : null;
-
-      return jsonWithCreditHeaders(responseBody, [creditEvent]);
+      return NextResponse.json(responseBody);
     } catch (error) {
       await storage.storage.from(GOAL_PHOTOS_BUCKET).remove([storagePath]);
       throw error;
@@ -251,21 +235,6 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Photo not found" }, { status: 404 });
     }
 
-    const [checkpoint] = await db
-      .select({
-        id: goalCheckpoints.id,
-        completedAt: goalCheckpoints.completedAt,
-        notes: goalCheckpoints.notes,
-      })
-      .from(goalCheckpoints)
-      .where(
-        and(
-          eq(goalCheckpoints.id, photo.checkpointId),
-          eq(goalCheckpoints.userId, user.id),
-        ),
-      )
-      .limit(1);
-
     const storage = getSupabaseStorageAdmin();
     const { error: removeError } = await storage.storage
       .from(GOAL_PHOTOS_BUCKET)
@@ -287,29 +256,7 @@ export async function DELETE(request: Request) {
         ),
       );
 
-    const [remainingPhoto] = checkpoint
-      ? await db
-          .select({ id: goalCheckpointPhotos.id })
-          .from(goalCheckpointPhotos)
-          .where(
-            and(
-              eq(goalCheckpointPhotos.checkpointId, checkpoint.id),
-              eq(goalCheckpointPhotos.userId, user.id),
-            ),
-          )
-          .limit(1)
-      : [];
-    const creditEvent =
-      checkpoint?.completedAt && !checkpoint.notes?.trim() && !remainingPhoto
-        ? await reverseFloatCredits(db, {
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          })
-        : null;
-
-    return jsonWithCreditHeaders({ ok: true }, [creditEvent]);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return handleError(error, "Internal server error");
   }

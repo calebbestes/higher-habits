@@ -699,7 +699,7 @@ export const archiveFriend = (friendshipId: string) =>
   }).then((r) => parseResponse<{ id: string; status: "archived" }>(r));
 
 export const reportContent = (payload: {
-  targetType: "feed_post" | "feed_comment" | "user" | "general";
+  targetType: "feed_post" | "feed_comment" | "user" | "ad" | "general";
   targetId?: string;
   reason: string;
   context?: Record<string, unknown>;

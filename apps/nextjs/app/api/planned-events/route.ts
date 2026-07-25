@@ -1,15 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { type PlannedEventSourceType, getDb, plannedEvents } from "@habit/db";
+import { type PlannedEventSourceType, getDb } from "@habit/db";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import {
-  getMonthKeyFromDateKey,
-  jsonWithCreditHeaders,
-  recordPlanCreditProgress,
-} from "@/lib/float-credits";
 import {
   PLANNED_EVENT_SOURCE_TYPES,
   deletePlannedEventForSource,
@@ -108,17 +103,6 @@ export async function POST(request: Request) {
     const data = bodySchema.parse(await request.json());
 
     if (data.type === "delete") {
-      const [existingPlan] = await db
-        .select({ date: plannedEvents.date })
-        .from(plannedEvents)
-        .where(
-          and(
-            eq(plannedEvents.userId, user.id),
-            eq(plannedEvents.sourceType, data.sourceType),
-            eq(plannedEvents.sourceId, data.sourceId),
-          ),
-        )
-        .limit(1);
       const title =
         data.sourceType === "habit_instance"
           ? "Habit block"
@@ -139,31 +123,7 @@ export async function POST(request: Request) {
         userId: user.id,
       });
 
-      const creditEvents = existingPlan
-        ? [
-            await recordPlanCreditProgress(db, {
-              actionDate: existingPlan.date,
-              amount: -1,
-              periodKey: existingPlan.date,
-              threshold: 5,
-              type: "daily_plan",
-              userId: user.id,
-            }),
-            await recordPlanCreditProgress(db, {
-              actionDate: existingPlan.date,
-              amount: -1,
-              periodKey: getMonthKeyFromDateKey(existingPlan.date),
-              threshold: 10,
-              type: "monthly_plan",
-              userId: user.id,
-            }),
-          ]
-        : [];
-
-      return jsonWithCreditHeaders(
-        { ok: true, calendarSync: result.calendarSync },
-        creditEvents,
-      );
+      return NextResponse.json({ ok: true, calendarSync: result.calendarSync });
     }
 
     const sourceId =
@@ -198,18 +158,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const [existingPlan] = await db
-      .select({ date: plannedEvents.date })
-      .from(plannedEvents)
-      .where(
-        and(
-          eq(plannedEvents.userId, user.id),
-          eq(plannedEvents.sourceType, data.sourceType),
-          eq(plannedEvents.sourceId, sourceId),
-        ),
-      )
-      .limit(1);
-
     const result = await upsertPlannedEvent(db, {
       dateKey: data.dateKey,
       plannedEndTime: data.plannedEndTime,
@@ -222,56 +170,10 @@ export async function POST(request: Request) {
       userId: user.id,
     });
 
-    const creditEvents = [];
-    if (!existingPlan || existingPlan.date !== data.dateKey) {
-      if (existingPlan) {
-        creditEvents.push(
-          await recordPlanCreditProgress(db, {
-            actionDate: existingPlan.date,
-            amount: -1,
-            periodKey: existingPlan.date,
-            threshold: 5,
-            type: "daily_plan",
-            userId: user.id,
-          }),
-          await recordPlanCreditProgress(db, {
-            actionDate: existingPlan.date,
-            amount: -1,
-            periodKey: getMonthKeyFromDateKey(existingPlan.date),
-            threshold: 10,
-            type: "monthly_plan",
-            userId: user.id,
-          }),
-        );
-      }
-
-      creditEvents.push(
-        await recordPlanCreditProgress(db, {
-          actionDate: data.dateKey,
-          amount: 1,
-          periodKey: data.dateKey,
-          threshold: 5,
-          type: "daily_plan",
-          userId: user.id,
-        }),
-        await recordPlanCreditProgress(db, {
-          actionDate: data.dateKey,
-          amount: 1,
-          periodKey: getMonthKeyFromDateKey(data.dateKey),
-          threshold: 10,
-          type: "monthly_plan",
-          userId: user.id,
-        }),
-      );
-    }
-
-    return jsonWithCreditHeaders(
-      {
-        event: serializePlannedEvent(result.row),
-        calendarSync: result.calendarSync,
-      },
-      creditEvents,
-    );
+    return NextResponse.json({
+      event: serializePlannedEvent(result.row),
+      calendarSync: result.calendarSync,
+    });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;

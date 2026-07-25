@@ -4,11 +4,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import {
-  awardCreditAction,
-  getLocalDateKeyFromRequest,
-  jsonWithCreditHeaders,
-} from "@/lib/float-credits";
 import { sendPushToUser } from "@/lib/push";
 
 const sendMessageSchema = z.discriminatedUnion("type", [
@@ -109,18 +104,7 @@ export async function POST(
       });
     }
 
-    const creditEvent =
-      parsed.data.type === "incentive"
-        ? await awardCreditAction(db, {
-            actionDate: getLocalDateKeyFromRequest(request),
-            actionType: "incentive_create",
-            sourceId: row.id,
-            sourceType: "friend_message",
-            userId: user.id,
-          })
-        : null;
-
-    return jsonWithCreditHeaders(row, [creditEvent], { status: 201 });
+    return NextResponse.json(row, { status: 201 });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

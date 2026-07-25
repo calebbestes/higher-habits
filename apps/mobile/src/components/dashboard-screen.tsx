@@ -838,7 +838,7 @@ function ShareResultsModal({
             <ActivityIndicator color={theme.primary} />
           ) : friends.length > 0 ? (
             <ScrollView
-              canCancelContentTouches={false}
+              canCancelContentTouches
               contentContainerStyle={styles.shareFriendsList}
               style={styles.shareFriendsScroll}
             >

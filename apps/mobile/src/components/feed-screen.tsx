@@ -12,6 +12,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Image as RNImage,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -54,6 +55,10 @@ import {
   playSuccessHaptic,
   playWarningHaptic,
 } from "@/lib/haptics";
+import {
+  type LoadedNativeFeedAd,
+  loadTestNativeFeedAd,
+} from "@/lib/mobile-ads";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
@@ -63,12 +68,23 @@ type ActiveFeedPhoto = {
 };
 
 const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
+const HIDDEN_FEED_ADS_KEY = "hidden-feed-ads";
 const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
+const FEED_AD_INTERVAL = 3;
 
 type FeedFilters = {
   groupIds: string[];
   categoryIds: string[];
 };
+
+type FeedRenderItem =
+  | { type: "entry"; entry: FriendFeedEntry }
+  | {
+      type: "ad";
+      id: string;
+      slotIndex: number;
+      afterEntryId: string;
+    };
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -171,6 +187,36 @@ async function setStoredHiddenFeedGoals(keys: Set<string>) {
   await SecureStore.setItemAsync(HIDDEN_FEED_GOALS_KEY, value);
 }
 
+async function getStoredHiddenFeedAds(): Promise<Set<string>> {
+  const stored =
+    Platform.OS === "web"
+      ? globalThis.localStorage?.getItem(HIDDEN_FEED_ADS_KEY)
+      : await SecureStore.getItemAsync(HIDDEN_FEED_ADS_KEY);
+
+  if (!stored) return new Set();
+
+  try {
+    const parsed = JSON.parse(stored);
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+async function setStoredHiddenFeedAds(keys: Set<string>) {
+  const value = JSON.stringify([...keys]);
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(HIDDEN_FEED_ADS_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(HIDDEN_FEED_ADS_KEY, value);
+}
+
 function normalizeFilterIds(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string");
@@ -210,6 +256,33 @@ async function setStoredFeedFilters(filters: FeedFilters) {
   await SecureStore.setItemAsync(FEED_FILTER_PREFERENCES_KEY, value);
 }
 
+function buildFeedRenderItems(
+  entries: FriendFeedEntry[],
+  hiddenAdKeys: Set<string>,
+): FeedRenderItem[] {
+  return entries.flatMap((entry, index) => {
+    const items: FeedRenderItem[] = [{ type: "entry", entry }];
+    const postNumber = index + 1;
+    const shouldInsertAd =
+      postNumber % FEED_AD_INTERVAL === 0 && index < entries.length - 1;
+
+    if (shouldInsertAd) {
+      const slotIndex = postNumber / FEED_AD_INTERVAL;
+      const id = `feed-native-test-ad-${slotIndex}-after-${entry.id}`;
+      if (!hiddenAdKeys.has(id)) {
+        items.push({
+          type: "ad",
+          id,
+          slotIndex,
+          afterEntryId: entry.id,
+        });
+      }
+    }
+
+    return items;
+  });
+}
+
 export function FeedScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -246,6 +319,12 @@ export function FeedScreen() {
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [hiddenFeedGoalKeys, setHiddenFeedGoalKeys] = useState<Set<string>>(
     new Set(),
+  );
+  const [hiddenFeedAdKeys, setHiddenFeedAdKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const [reportingFeedAdKey, setReportingFeedAdKey] = useState<string | null>(
+    null,
   );
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
@@ -331,6 +410,12 @@ export function FeedScreen() {
   useEffect(() => {
     void getStoredFeedFilters().then((filters) => {
       if (isMountedRef.current) setFeedFilters(filters);
+    });
+  }, []);
+
+  useEffect(() => {
+    void getStoredHiddenFeedAds().then((keys) => {
+      if (isMountedRef.current) setHiddenFeedAdKeys(keys);
     });
   }, []);
 
@@ -651,6 +736,49 @@ export function FeedScreen() {
     [hiddenFeedGoalKeys],
   );
 
+  const hideFeedAd = useCallback(
+    (item: Extract<FeedRenderItem, { type: "ad" }>) => {
+      playSelectionHaptic();
+      const next = new Set(hiddenFeedAdKeys);
+      next.add(item.id);
+      setHiddenFeedAdKeys(next);
+      void setStoredHiddenFeedAds(next).catch(() => undefined);
+    },
+    [hiddenFeedAdKeys],
+  );
+
+  const reportFeedAd = useCallback(
+    async (item: Extract<FeedRenderItem, { type: "ad" }>) => {
+      if (reportingFeedAdKey) return;
+
+      setReportingFeedAdKey(item.id);
+      try {
+        await reportContent({
+          targetType: "ad",
+          targetId: item.id,
+          reason: "Reported from feed ad card.",
+          context: {
+            adNetwork: "google_mobile_ads",
+            adUnit: "test_native",
+            afterEntryId: item.afterEntryId,
+            slotIndex: item.slotIndex,
+          },
+        });
+        if (!isMountedRef.current) return;
+        Alert.alert("Report sent", "Thanks. We'll review this ad.");
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not send report",
+          err instanceof Error ? err.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setReportingFeedAdKey(null);
+      }
+    },
+    [reportingFeedAdKey],
+  );
+
   const openPostSafetyActions = useCallback(
     (entry: FriendFeedEntry) => {
       const goalLabel = entry.kind === "habit" ? "habit" : "goal";
@@ -783,6 +911,10 @@ export function FeedScreen() {
     void setStoredFeedFilters(filters).catch(() => undefined);
   }, []);
   const activeFilterCount = activeGroupIds.length + activeCategoryIds.length;
+  const feedItems = useMemo(
+    () => buildFeedRenderItems(visibleEntries, hiddenFeedAdKeys),
+    [hiddenFeedAdKeys, visibleEntries],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -876,23 +1008,35 @@ export function FeedScreen() {
               </View>
             ) : (
               <View style={styles.feedList}>
-                {visibleEntries.map((entry) => (
-                  <FeedCard
-                    key={entry.id}
-                    entry={entry}
-                    onToggleProp={() => void handleToggleProp(entry.id)}
-                    onPhotoPress={(photo) => {
-                      playSelectionHaptic();
-                      setActivePhoto({ entry, photo });
-                    }}
-                    onOpenComments={() => {
-                      playSelectionHaptic();
-                      setActiveCommentsEntryId(entry.id);
-                    }}
-                    onOpenProfile={() => void openFriendProfile(entry)}
-                    onOpenSafetyActions={() => openPostSafetyActions(entry)}
-                  />
-                ))}
+                {feedItems.map((item) =>
+                  item.type === "entry" ? (
+                    <FeedCard
+                      key={item.entry.id}
+                      entry={item.entry}
+                      onToggleProp={() => void handleToggleProp(item.entry.id)}
+                      onPhotoPress={(photo) => {
+                        playSelectionHaptic();
+                        setActivePhoto({ entry: item.entry, photo });
+                      }}
+                      onOpenComments={() => {
+                        playSelectionHaptic();
+                        setActiveCommentsEntryId(item.entry.id);
+                      }}
+                      onOpenProfile={() => void openFriendProfile(item.entry)}
+                      onOpenSafetyActions={() =>
+                        openPostSafetyActions(item.entry)
+                      }
+                    />
+                  ) : (
+                    <FeedAdCard
+                      key={item.id}
+                      disabled={reportingFeedAdKey === item.id}
+                      item={item}
+                      onHide={() => hideFeedAd(item)}
+                      onReport={() => void reportFeedAd(item)}
+                    />
+                  ),
+                )}
               </View>
             )}
           </ScrollView>
@@ -1207,7 +1351,7 @@ function FeedFilterModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.filterModalContent}
             showsVerticalScrollIndicator={false}
           >
@@ -1551,6 +1695,235 @@ export function FeedCard({
   );
 }
 
+function FeedAdCard({
+  disabled,
+  item,
+  onHide,
+  onReport,
+}: {
+  disabled: boolean;
+  item: Extract<FeedRenderItem, { type: "ad" }>;
+  onHide: () => void;
+  onReport: () => void;
+}) {
+  const theme = useTheme();
+  const [loadedAd, setLoadedAd] = useState<LoadedNativeFeedAd | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let nativeAdToDestroy: LoadedNativeFeedAd["nativeAd"] | null = null;
+
+    void loadTestNativeFeedAd().then((nextLoadedAd) => {
+      if (!nextLoadedAd) return;
+
+      if (cancelled) {
+        nextLoadedAd.nativeAd.destroy();
+        return;
+      }
+
+      nativeAdToDestroy = nextLoadedAd.nativeAd;
+      setLoadedAd(nextLoadedAd);
+    });
+
+    return () => {
+      cancelled = true;
+      nativeAdToDestroy?.destroy();
+    };
+  }, []);
+
+  const renderLabel = () => (
+    <View style={styles.adLabelRow}>
+      <View
+        style={[
+          styles.adBadge,
+          { backgroundColor: `${theme.primary}22`, borderColor: theme.primary },
+        ]}
+      >
+        <Text style={[styles.adBadgeText, { color: theme.primary }]}>Ad</Text>
+      </View>
+      <Text style={[styles.adSponsoredText, { color: theme.textSecondary }]}>
+        Sponsored
+      </Text>
+    </View>
+  );
+
+  const renderActions = () => (
+    <View style={styles.adActions}>
+      <Pressable
+        accessibilityLabel="Hide ad"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onHide}
+        style={({ pressed }) => [
+          styles.adActionButton,
+          pressed && styles.pressed,
+        ]}
+      >
+        <Text style={[styles.adActionText, { color: theme.textSecondary }]}>
+          Hide ad
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel="Report ad"
+        accessibilityRole="button"
+        disabled={disabled}
+        hitSlop={8}
+        onPress={onReport}
+        style={({ pressed }) => [
+          styles.adActionButton,
+          disabled && styles.disabled,
+          pressed && styles.pressed,
+        ]}
+      >
+        <Text style={[styles.adActionText, { color: theme.textSecondary }]}>
+          Report
+        </Text>
+      </Pressable>
+    </View>
+  );
+
+  const nativeAd = loadedAd?.nativeAd;
+  const adsModule = loadedAd?.adsModule;
+
+  if (nativeAd && adsModule) {
+    return (
+      <adsModule.NativeAdView
+        nativeAd={nativeAd}
+        style={[
+          styles.adCard,
+          styles.nativeAdContent,
+          { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        ]}
+      >
+        <View style={styles.nativeAdHeader}>
+          {renderLabel()}
+          {renderActions()}
+        </View>
+
+        <View style={styles.nativeAdTopRow}>
+          {nativeAd.icon ? (
+            <adsModule.NativeAsset assetType={adsModule.NativeAssetType.ICON}>
+              <RNImage
+                resizeMode="cover"
+                source={{ uri: nativeAd.icon.url }}
+                style={styles.nativeAdIcon}
+              />
+            </adsModule.NativeAsset>
+          ) : null}
+          <View style={styles.nativeAdCopy}>
+            <adsModule.NativeAsset
+              assetType={adsModule.NativeAssetType.HEADLINE}
+            >
+              <Text
+                numberOfLines={2}
+                style={[styles.nativeAdHeadline, { color: theme.text }]}
+              >
+                {nativeAd.headline}
+              </Text>
+            </adsModule.NativeAsset>
+            {nativeAd.advertiser ? (
+              <adsModule.NativeAsset
+                assetType={adsModule.NativeAssetType.ADVERTISER}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.nativeAdAdvertiser,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {nativeAd.advertiser}
+                </Text>
+              </adsModule.NativeAsset>
+            ) : null}
+          </View>
+        </View>
+
+        {nativeAd.body ? (
+          <adsModule.NativeAsset assetType={adsModule.NativeAssetType.BODY}>
+            <Text
+              numberOfLines={3}
+              style={[styles.nativeAdBody, { color: theme.textSecondary }]}
+            >
+              {nativeAd.body}
+            </Text>
+          </adsModule.NativeAsset>
+        ) : null}
+
+        {nativeAd.mediaContent ? (
+          <View
+            style={[
+              styles.nativeAdMediaFrame,
+              { backgroundColor: theme.backgroundElement },
+            ]}
+          >
+            <adsModule.NativeMediaView
+              resizeMode="cover"
+              style={styles.nativeAdMedia}
+            />
+          </View>
+        ) : null}
+
+        {nativeAd.callToAction ? (
+          <adsModule.NativeAsset
+            assetType={adsModule.NativeAssetType.CALL_TO_ACTION}
+          >
+            <Text
+              style={[
+                styles.nativeAdCta,
+                styles.nativeAdCtaText,
+                {
+                  backgroundColor: theme.primary,
+                  color: theme.primaryForeground,
+                },
+              ]}
+            >
+              {nativeAd.callToAction}
+            </Text>
+          </adsModule.NativeAsset>
+        ) : null}
+      </adsModule.NativeAdView>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.adCard,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
+      <View style={styles.adHeader}>
+        {renderLabel()}
+        {renderActions()}
+      </View>
+      <View style={styles.nativeAdPlaceholder}>
+        <View
+          style={[
+            styles.nativeAdPlaceholderIcon,
+            { backgroundColor: `${theme.primary}22` },
+          ]}
+        >
+          <SymbolView
+            name={sym("megaphone.fill", "campaign")}
+            size={22}
+            tintColor={theme.primary}
+            weight="semibold"
+          />
+        </View>
+        <View style={styles.nativeAdCopy}>
+          <Text style={[styles.nativeAdHeadline, { color: theme.text }]}>
+            Test sponsored card
+          </Text>
+          <Text style={[styles.nativeAdBody, { color: theme.textSecondary }]}>
+            Google test ads appear here in a native TestFlight build.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const FEED_NOTE_COLLAPSE_HEIGHT = 112;
 const HTML_IGNORED_TAGS = ["script", "style", "iframe", "img", "video"];
 const HTML_DEFAULT_TEXT_PROPS = { selectable: true };
@@ -1789,7 +2162,7 @@ function CommentsModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.modalCommentsContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -2207,6 +2580,138 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   feedList: { gap: 14 },
+  adCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 22,
+    overflow: "hidden",
+  },
+  adHeader: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  adLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  adBadge: {
+    minWidth: 28,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 7,
+    paddingHorizontal: 7,
+  },
+  adBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+  },
+  adSponsoredText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  adActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  adActionButton: {
+    minHeight: 30,
+    justifyContent: "center",
+    paddingHorizontal: 7,
+  },
+  adActionText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  nativeAdContent: {
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  nativeAdHeader: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  nativeAdTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  nativeAdIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+  },
+  nativeAdPlaceholder: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  nativeAdPlaceholderIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+  },
+  nativeAdCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  nativeAdHeadline: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "900",
+  },
+  nativeAdAdvertiser: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  nativeAdBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  nativeAdMediaFrame: {
+    minHeight: 160,
+    overflow: "hidden",
+    borderRadius: 16,
+  },
+  nativeAdMedia: {
+    aspectRatio: 1.75,
+    width: "100%",
+  },
+  nativeAdCta: {
+    minHeight: 42,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    textAlign: "center",
+  },
+  nativeAdCtaText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "900",
+  },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 22,

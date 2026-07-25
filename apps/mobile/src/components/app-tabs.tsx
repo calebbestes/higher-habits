@@ -1,7 +1,6 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { View } from "react-native";
 
-import { FloatCreditToast } from "@/components/float-credit-toast";
 import { useTheme } from "@/hooks/use-theme";
 
 const TAB_LABEL_STYLE = {
@@ -55,7 +54,6 @@ export default function AppTabs() {
           <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
       </NativeTabs>
-      <FloatCreditToast />
     </View>
   );
 }

@@ -401,7 +401,7 @@ export function HabitsManagerScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
@@ -1211,7 +1211,7 @@ export function HabitFormModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.formContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}

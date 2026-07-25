@@ -208,7 +208,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           bounces={false}
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}

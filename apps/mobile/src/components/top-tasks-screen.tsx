@@ -389,11 +389,12 @@ export function TopTasksScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
           ]}
+          directionalLockEnabled
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

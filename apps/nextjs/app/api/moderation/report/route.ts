@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const reportSchema = z.object({
-  targetType: z.enum(["feed_post", "feed_comment", "user", "general"]),
+  targetType: z.enum(["feed_post", "feed_comment", "user", "ad", "general"]),
   targetId: z.string().trim().min(1).max(200).optional(),
   reason: z.string().trim().min(1).max(1_000),
   context: z.record(z.string(), z.unknown()).optional(),
@@ -13,7 +13,9 @@ const reportSchema = z.object({
 export async function POST(request: Request) {
   try {
     const user = await requireRequestUser(request);
-    const parsed = reportSchema.safeParse(await request.json().catch(() => null));
+    const parsed = reportSchema.safeParse(
+      await request.json().catch(() => null),
+    );
 
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid report." }, { status: 400 });

@@ -155,25 +155,6 @@ type PlanTargetOption = {
   subtitle?: string;
   title: string;
 };
-export type DayPlanOnboardingStep =
-  | "drag"
-  | "task-info"
-  | "goal-info"
-  | "habit-info"
-  | "select-goal"
-  | "goal-create"
-  | "proof"
-  | "mark-complete"
-  | "journal-info"
-  | "friends-info"
-  | "done";
-export type DayPlanOnboardingGuide = {
-  createdGoalCheckpointId: string | null;
-  onComplete: () => void;
-  onGoalCreated: (checkpointId: string) => void;
-  onStepChange: (step: DayPlanOnboardingStep) => void;
-  step: DayPlanOnboardingStep;
-};
 type TimelineGesture =
   | {
       anchorMinutes: number;
@@ -249,11 +230,9 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export function DayPlanScreen({
   initialDateKey,
   onDateChange,
-  onboardingGuide,
 }: {
   initialDateKey?: string;
   onDateChange?: (dateKey: string) => void;
-  onboardingGuide?: DayPlanOnboardingGuide;
 }) {
   const theme = useTheme();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -1147,7 +1126,6 @@ export function DayPlanScreen({
       noteHabit ||
       noteCheckpoint,
   );
-  const onboardingStep = onboardingGuide?.step ?? null;
   const updateTimelineViewportTop = (pageY: number, timelineY: number) => {
     timelineViewportTopRef.current =
       pageY - timelineY + timelineScrollYRef.current;
@@ -1671,9 +1649,6 @@ export function DayPlanScreen({
       setFloatingScheduleDrag(null);
       setDraftPlanRange(gesture.latestRange);
       setSelectedPlanTargetType(null);
-      if (onboardingGuide?.step === "drag") {
-        onboardingGuide.onStepChange("task-info");
-      }
       return;
     }
 
@@ -2136,13 +2111,6 @@ export function DayPlanScreen({
         }
         cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ planGoals: true });
-        if (
-          onboardingGuide?.createdGoalCheckpointId ===
-            checkpoint.checkpoint.id &&
-          onboardingGuide.step === "mark-complete"
-        ) {
-          onboardingGuide.onStepChange("journal-info");
-        }
       }
 
       if (!isMountedRef.current) return;
@@ -2291,12 +2259,6 @@ export function DayPlanScreen({
       invalidateCurrentCaches({ planGoals: true });
       if (!isMountedRef.current) return;
       await load();
-      if (
-        onboardingGuide?.createdGoalCheckpointId === checkpoint.checkpoint.id &&
-        onboardingGuide.step === "proof"
-      ) {
-        onboardingGuide.onStepChange("mark-complete");
-      }
     } catch (photoError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2399,12 +2361,6 @@ export function DayPlanScreen({
       if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
-    }
-    if (checkpoint) {
-      onboardingGuide?.onGoalCreated(checkpoint.id);
-    }
-    if (onboardingGuide?.step === "goal-create") {
-      onboardingGuide.onStepChange("proof");
     }
     await load();
   };
@@ -2599,7 +2555,7 @@ export function DayPlanScreen({
       <View style={[styles.screen, { backgroundColor: theme.background }]}>
         <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={[
               styles.content,
               { paddingBottom: bottomScrollPadding },
@@ -2957,12 +2913,6 @@ export function DayPlanScreen({
               (updatingKey === activeEntry.id ||
                 updatingKey === `${activeEntry.kind}-${activeEntry.sourceId}`),
           )}
-          onboardingStep={
-            activeEntry?.kind === "goal" &&
-            activeEntry.sourceId === onboardingGuide?.createdGoalCheckpointId
-              ? onboardingStep
-              : null
-          }
           statusLabel={getInternalEntryStatusLabel(
             activeEntry,
             taskById,
@@ -2987,33 +2937,18 @@ export function DayPlanScreen({
           hidden={creatingTargetType !== null}
           isSaving={isCreatingPlan}
           monthlyHabitOptions={monthlyHabitOptions}
-          onboardingStep={onboardingStep}
           range={draftPlanRange}
           selectedType={selectedPlanTargetType}
           taskOptions={taskOptions}
           onClose={closeDraftPlan}
           onCreate={(targetType) => {
-            if (onboardingGuide && targetType !== "goal") return;
-            if (onboardingGuide?.step === "goal-create") {
-              onboardingGuide.onStepChange("goal-create");
-            }
             setCreatingTargetType(targetType);
           }}
           onCreateOtherEvent={openOtherEventForm}
-          onOnboardingNext={(step) => onboardingGuide?.onStepChange(step)}
           onSelectOption={(targetType, targetId) =>
             void createPlanFromDrag(targetType, targetId)
           }
-          onSelectType={(targetType) => {
-            if (onboardingGuide && targetType && targetType !== "goal") return;
-            setSelectedPlanTargetType(targetType);
-            if (
-              targetType === "goal" &&
-              onboardingGuide?.step === "select-goal"
-            ) {
-              onboardingGuide.onStepChange("goal-create");
-            }
-          }}
+          onSelectType={setSelectedPlanTargetType}
         />
         <OtherEventFormModal
           isSaving={isCreatingOtherEvent}
@@ -3045,29 +2980,11 @@ export function DayPlanScreen({
         />
         <GoalFormModal
           goal={null}
-          initialValues={
-            onboardingGuide
-              ? {
-                  title: "I joined float",
-                  timing: "current",
-                  checkpoints: [
-                    {
-                      completed: false,
-                      targetDate: dateKey,
-                      title: "Join float",
-                    },
-                  ],
-                }
-              : undefined
-          }
+          initialValues={undefined}
           isOpen={creatingTargetType === "goal"}
           onClose={() => setCreatingTargetType(null)}
           onSave={saveCreatedGoal}
-          saveHint={
-            onboardingGuide
-              ? "The goal is ready. Tap Save to put its first checkpoint on your calendar."
-              : undefined
-          }
+          saveHint={undefined}
         />
         {noteHabit ? (
           <GoalNoteEditorModal
@@ -3094,11 +3011,6 @@ export function DayPlanScreen({
             }}
           />
         ) : null}
-        <DayPlanOnboardingOverlay
-          onComplete={onboardingGuide?.onComplete}
-          onNext={onboardingGuide?.onStepChange}
-          step={onboardingStep}
-        />
         <DayPlanDatePicker
           month={datePickerMonth}
           onChangeMonth={setDatePickerMonth}
@@ -3115,90 +3027,6 @@ export function DayPlanScreen({
         />
       </View>
     </ComponentErrorBoundary>
-  );
-}
-
-function DayPlanOnboardingOverlay({
-  onComplete,
-  onNext,
-  step,
-}: {
-  onComplete?: () => void;
-  onNext?: (step: DayPlanOnboardingStep) => void;
-  step: DayPlanOnboardingStep | null;
-}) {
-  if (
-    !step ||
-    step === "task-info" ||
-    step === "goal-info" ||
-    step === "habit-info" ||
-    step === "select-goal" ||
-    step === "goal-create" ||
-    step === "mark-complete"
-  ) {
-    return null;
-  }
-
-  const content: Record<
-    Exclude<
-      DayPlanOnboardingStep,
-      | "task-info"
-      | "goal-info"
-      | "habit-info"
-      | "select-goal"
-      | "goal-create"
-      | "mark-complete"
-    >,
-    {
-      body: string;
-      buttonLabel?: string;
-      next?: DayPlanOnboardingStep;
-      title: string;
-    }
-  > = {
-    drag: {
-      body: "Click and drag to add to your calendar. This will be in sync with Google Calendar.",
-      title: "Add your first plan",
-    },
-    proof: {
-      body: "Tap the goal checkpoint you just added, then add a selfie with a thumbs up.",
-      title: "Add proof",
-    },
-    "journal-info": {
-      body: "Friends can see your posts if you make the post public.",
-      buttonLabel: "Next",
-      next: "friends-info",
-      title: "Share intentionally",
-    },
-    "friends-info": {
-      body: "This completes your onboarding. Feel free to explore the incentives, shared goals, and dashboard pages next!",
-      buttonLabel: "Finish",
-      next: "done",
-      title: "You are ready",
-    },
-    done: {
-      body: "This completes your onboarding. Feel free to explore the incentives, shared goals, and dashboard pages next!",
-      buttonLabel: "Finish",
-      title: "You are ready",
-    },
-  };
-  const item = content[step];
-
-  return (
-    <View pointerEvents="box-none" style={styles.onboardingOverlay}>
-      <OnboardingTooltipCard
-        body={item.body}
-        buttonLabel={item.buttonLabel}
-        onPress={() => {
-          if (item.next === "done" || step === "done") {
-            onComplete?.();
-            return;
-          }
-          if (item.next) onNext?.(item.next);
-        }}
-        title={item.title}
-      />
-    </View>
   );
 }
 
@@ -3359,117 +3187,9 @@ function DayPlanDatePicker({
   );
 }
 
-function OnboardingTooltipCard({
-  body,
-  buttonLabel,
-  onPress,
-  title,
-}: {
-  body: string;
-  buttonLabel?: string;
-  onPress?: () => void;
-  title: string;
-}) {
-  const theme = useTheme();
-  const pressLockRef = useRef(false);
-  const runPress = () => {
-    if (!onPress || pressLockRef.current) return;
-
-    pressLockRef.current = true;
-    onPress();
-    setTimeout(() => {
-      pressLockRef.current = false;
-    }, 500);
-  };
-
-  return (
-    <View
-      style={[
-        styles.onboardingTooltip,
-        { backgroundColor: theme.background, borderColor: theme.tabBorder },
-      ]}
-    >
-      <Text style={[styles.onboardingTooltipTitle, { color: theme.text }]}>
-        {title}
-      </Text>
-      <Text
-        style={[styles.onboardingTooltipBody, { color: theme.textSecondary }]}
-      >
-        {body}
-      </Text>
-      {buttonLabel && onPress ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={runPress}
-          style={({ pressed }) => [
-            styles.onboardingTooltipButton,
-            { backgroundColor: theme.primary },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text
-            style={[
-              styles.onboardingTooltipButtonText,
-              { color: theme.primaryForeground },
-            ]}
-          >
-            {buttonLabel}
-          </Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function getPlanPickerOnboardingTooltip(step: DayPlanOnboardingStep | null): {
-  body: string;
-  buttonLabel?: string;
-  next?: DayPlanOnboardingStep;
-  title: string;
-} | null {
-  if (step === "task-info") {
-    return {
-      body: "Tasks are important or urgent items on your to-do list.",
-      buttonLabel: "Next",
-      next: "goal-info",
-      title: "Tasks",
-    };
-  }
-  if (step === "goal-info") {
-    return {
-      body: "Goals are definite accomplishments with checkpoints of progression.",
-      buttonLabel: "Next",
-      next: "habit-info",
-      title: "Goals",
-    };
-  }
-  if (step === "habit-info") {
-    return {
-      body: "Daily Habits and Periodic Habits are systems to help you achieve goals. Let's start with a goal.",
-      buttonLabel: "Next",
-      next: "select-goal",
-      title: "Habits",
-    };
-  }
-  if (step === "select-goal") {
-    return {
-      body: "Select Goal to continue.",
-      title: "Start with a goal",
-    };
-  }
-  if (step === "goal-create") {
-    return {
-      body: "Tap the plus button, then tap Save. The goal is already filled in for you.",
-      title: "Create your first goal",
-    };
-  }
-  return null;
-}
-
 function InternalEventActionsModal({
   entry,
   isUpdating,
-  onboardingStep,
   onAddPhoto,
   onClearPlan,
   onClose,
@@ -3484,7 +3204,6 @@ function InternalEventActionsModal({
 }: {
   entry: DayPlanEntry | null;
   isUpdating: boolean;
-  onboardingStep: DayPlanOnboardingStep | null;
   onAddPhoto: () => void;
   onClearPlan: () => void;
   onClose: () => void;
@@ -3612,23 +3331,11 @@ function InternalEventActionsModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.eventActionContent}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
-            {onboardingStep === "proof" ? (
-              <OnboardingTooltipCard
-                body="Take a quick selfie with a thumbs up, or choose one from your library."
-                title="Add proof"
-              />
-            ) : null}
-            {onboardingStep === "mark-complete" ? (
-              <OnboardingTooltipCard
-                body="Mark complete. All events with a note or photo will be added to your journal."
-                title="Finish the goal"
-              />
-            ) : null}
             {isEditablePlannedBlock ? (
               <>
                 <Pressable
@@ -3828,7 +3535,6 @@ function InternalEventActionsModal({
                   style={({ pressed }) => [
                     styles.eventActionRow,
                     { backgroundColor: theme.backgroundElement },
-                    onboardingStep === "mark-complete" && styles.onboardingGlow,
                     pressed && styles.pressed,
                   ]}
                 >
@@ -3972,10 +3678,8 @@ function PlanSelectionModal({
   onClose,
   onCreate,
   onCreateOtherEvent,
-  onOnboardingNext,
   onSelectOption,
   onSelectType,
-  onboardingStep,
   range,
   selectedType,
   taskOptions,
@@ -3988,10 +3692,8 @@ function PlanSelectionModal({
   onClose: () => void;
   onCreate: (targetType: PlanTargetType) => void;
   onCreateOtherEvent: () => void;
-  onOnboardingNext?: (step: DayPlanOnboardingStep) => void;
   onSelectOption: (targetType: PlanTargetType, targetId: string) => void;
   onSelectType: (targetType: PlanTargetType | null) => void;
-  onboardingStep: DayPlanOnboardingStep | null;
   range: PlanRange | null;
   selectedType: PlanTargetType | null;
   taskOptions: PlanTargetOption[];
@@ -4008,15 +3710,6 @@ function PlanSelectionModal({
   };
   const selectedOptions = selectedType ? optionsByType[selectedType] : [];
   const selectedMeta = selectedType ? getPlanTargetMeta(selectedType) : null;
-  const onboardingTooltip = getPlanPickerOnboardingTooltip(onboardingStep);
-  const restrictToGoal = Boolean(onboardingStep);
-  // Keep every option disabled during the intro steps, until the
-  // "Start with a goal" (select-goal) prompt appears.
-  const optionsLocked =
-    onboardingStep === "task-info" ||
-    onboardingStep === "goal-info" ||
-    onboardingStep === "habit-info";
-  const allowClose = !onboardingStep;
   const runPressAction = (key: string, action: () => void) => {
     if (pressLocksRef.current.has(key)) return;
 
@@ -4032,11 +3725,10 @@ function PlanSelectionModal({
       animationType="fade"
       transparent
       visible={!hidden}
-      onRequestClose={allowClose ? onClose : undefined}
+      onRequestClose={onClose}
     >
       <View style={styles.sheetOverlay}>
         <Pressable
-          disabled={!allowClose}
           style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
           onPress={onClose}
         />
@@ -4048,13 +3740,11 @@ function PlanSelectionModal({
             {selectedType ? (
               <Pressable
                 accessibilityLabel="Back to plan types"
-                disabled={!allowClose}
                 hitSlop={8}
                 onPress={() => runPressAction("back", () => onSelectType(null))}
                 style={({ pressed }) => [
                   styles.planPickerBackButton,
                   { backgroundColor: theme.backgroundElement },
-                  !allowClose && styles.disabledButton,
                   pressed && styles.pressed,
                 ]}
               >
@@ -4081,7 +3771,6 @@ function PlanSelectionModal({
             {selectedType ? (
               <Pressable
                 accessibilityLabel={`Create ${selectedMeta?.label.toLowerCase()}`}
-                disabled={restrictToGoal && selectedType !== "goal"}
                 onPress={() =>
                   runPressAction(`create-${selectedType}`, () =>
                     onCreate(selectedType),
@@ -4090,10 +3779,6 @@ function PlanSelectionModal({
                 style={({ pressed }) => [
                   styles.planPickerCreateButton,
                   { backgroundColor: theme.primary },
-                  onboardingStep === "goal-create" && styles.onboardingGlow,
-                  restrictToGoal &&
-                    selectedType !== "goal" &&
-                    styles.disabledButton,
                   pressed && styles.pressed,
                 ]}
               >
@@ -4107,25 +3792,9 @@ function PlanSelectionModal({
             ) : null}
           </View>
 
-          {onboardingTooltip ? (
-            <OnboardingTooltipCard
-              body={onboardingTooltip.body}
-              buttonLabel={onboardingTooltip.buttonLabel}
-              onPress={
-                onboardingTooltip.next
-                  ? () => {
-                      const nextStep = onboardingTooltip.next;
-                      if (nextStep) onOnboardingNext?.(nextStep);
-                    }
-                  : undefined
-              }
-              title={onboardingTooltip.title}
-            />
-          ) : null}
-
           {selectedType ? (
             <ScrollView
-              canCancelContentTouches={false}
+              canCancelContentTouches
               contentContainerStyle={styles.planPickerList}
               showsVerticalScrollIndicator={false}
               style={styles.planPickerScroll}
@@ -4133,7 +3802,7 @@ function PlanSelectionModal({
               {selectedOptions.length > 0 ? (
                 selectedOptions.map((option) => (
                   <Pressable
-                    disabled={isSaving || Boolean(onboardingStep)}
+                    disabled={isSaving}
                     key={option.id}
                     onPress={() =>
                       runPressAction(
@@ -4203,9 +3872,6 @@ function PlanSelectionModal({
                 ] as const
               ).map((targetType) => {
                 const isOtherEvent = targetType === "otherEvent";
-                const disabled =
-                  optionsLocked ||
-                  (restrictToGoal && (isOtherEvent || targetType !== "goal"));
                 const meta = isOtherEvent
                   ? {
                       icon: sym("calendar.badge.plus", "event_available"),
@@ -4218,7 +3884,6 @@ function PlanSelectionModal({
 
                 return (
                   <Pressable
-                    disabled={disabled}
                     key={targetType}
                     onPress={() =>
                       runPressAction(`type-${targetType}`, () =>
@@ -4230,10 +3895,6 @@ function PlanSelectionModal({
                     style={({ pressed }) => [
                       styles.planPickerTypeRow,
                       { backgroundColor: theme.backgroundElement },
-                      targetType === "goal" &&
-                        onboardingStep === "select-goal" &&
-                        styles.onboardingGlow,
-                      disabled && styles.onboardingDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -4365,7 +4026,7 @@ function OtherEventFormModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.otherEventForm}
             keyboardShouldPersistTaps="always"
             scrollEnabled={false}
@@ -6756,59 +6417,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "700",
-  },
-  onboardingOverlay: {
-    position: "absolute",
-    right: 18,
-    bottom: 26,
-    left: 18,
-    zIndex: 20,
-  },
-  onboardingTooltip: {
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 22,
-    elevation: 14,
-  },
-  onboardingTooltipTitle: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
-  },
-  onboardingTooltipBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
-  onboardingTooltipButton: {
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    marginTop: 5,
-    paddingHorizontal: 16,
-  },
-  onboardingTooltipButtonText: {
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: "900",
-  },
-  onboardingGlow: {
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    shadowColor: "#34BEE8",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 12,
-    elevation: 16,
-  },
-  onboardingDisabled: {
-    opacity: 0.28,
   },
   disabledButton: { opacity: 0.55 },
   pressed: { opacity: 0.65 },

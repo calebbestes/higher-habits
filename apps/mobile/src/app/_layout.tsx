@@ -12,17 +12,20 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-// import { OnboardingScreen } from "@/components/onboarding-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import {
   setCrashReportingUser,
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
+import { initializeMobileAds } from "@/lib/mobile-ads";
 import { syncHabitRemindersFromServerAsync } from "@/lib/push-notifications";
 import {
   type AppStartPage,
   type CollabSection,
+  DEFAULT_APP_START_PAGE,
+  DEFAULT_COLLAB_SECTION,
+  DEFAULT_PLAN_REPORT_VIEW,
   type PlanReportView,
   applyNavigationDefaults,
   getAppStartHref,
@@ -42,15 +45,13 @@ type NavigationDefaults = {
   defaultPlanReportView: PlanReportView;
 };
 
-// Temporarily disabled while the onboarding tutorial touch flow is being rebuilt.
-const ONBOARDING_TUTORIAL_ENABLED = false;
-
 function RootLayout() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
     void getThemePreference().then(applyThemePreference);
     void getColorThemePreference().then(applyColorThemePreference);
+    void initializeMobileAds();
   }, []);
 
   return (
@@ -68,12 +69,6 @@ function AuthNavigator() {
   const theme = useTheme();
   const { data: session, isPending } = authClient.useSession();
   const sessionUserId = session?.user.id;
-  const [onboardingCompleted, setOnboardingCompleted] = useState<
-    boolean | null
-  >(null);
-  const [postOnboardingRoute, setPostOnboardingRoute] = useState<
-    "/dashboard" | null
-  >(null);
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
@@ -86,14 +81,11 @@ function AuthNavigator() {
     let cancelled = false;
 
     if (!sessionUserId) {
-      setOnboardingCompleted(null);
       setNavigationDefaults(null);
-      setPostOnboardingRoute(null);
       appliedStartPageUserRef.current = null;
       return;
     }
 
-    setOnboardingCompleted(null);
     setNavigationDefaults(null);
     appliedStartPageUserRef.current = null;
     void fetchUserSettings()
@@ -106,14 +98,17 @@ function AuthNavigator() {
           };
           applyNavigationDefaults(nextNavigationDefaults);
           setNavigationDefaults(nextNavigationDefaults);
-          setOnboardingCompleted(
-            ONBOARDING_TUTORIAL_ENABLED ? settings.onboardingCompleted : true,
-          );
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setOnboardingCompleted(true);
+          const fallbackNavigationDefaults = {
+            defaultAppStartPage: DEFAULT_APP_START_PAGE,
+            defaultCollabSection: DEFAULT_COLLAB_SECTION,
+            defaultPlanReportView: DEFAULT_PLAN_REPORT_VIEW,
+          };
+          applyNavigationDefaults(fallbackNavigationDefaults);
+          setNavigationDefaults(fallbackNavigationDefaults);
         }
       });
 
@@ -123,7 +118,7 @@ function AuthNavigator() {
   }, [sessionUserId]);
 
   useEffect(() => {
-    if (!sessionUserId || onboardingCompleted !== true) return;
+    if (!sessionUserId) return;
 
     const record = () => {
       void recordAppOpened().catch(() => undefined);
@@ -136,27 +131,11 @@ function AuthNavigator() {
     });
 
     return () => subscription.remove();
-  }, [onboardingCompleted, sessionUserId]);
+  }, [sessionUserId]);
 
   useEffect(() => {
     if (
       !sessionUserId ||
-      onboardingCompleted !== true ||
-      !postOnboardingRoute
-    ) {
-      return;
-    }
-
-    appliedStartPageUserRef.current = sessionUserId;
-    router.replace(postOnboardingRoute);
-    setPostOnboardingRoute(null);
-  }, [onboardingCompleted, postOnboardingRoute, router, sessionUserId]);
-
-  useEffect(() => {
-    if (
-      !sessionUserId ||
-      onboardingCompleted !== true ||
-      postOnboardingRoute ||
       !navigationDefaults ||
       appliedStartPageUserRef.current === sessionUserId
     ) {
@@ -165,36 +144,15 @@ function AuthNavigator() {
 
     appliedStartPageUserRef.current = sessionUserId;
     router.replace(getAppStartHref(navigationDefaults) as Href);
-  }, [
-    navigationDefaults,
-    onboardingCompleted,
-    postOnboardingRoute,
-    router,
-    sessionUserId,
-  ]);
+  }, [navigationDefaults, router, sessionUserId]);
 
-  if (isPending || (session && onboardingCompleted === null)) {
+  if (isPending || (session && navigationDefaults === null)) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.background }]}>
         <FloatingLogoLoader />
       </View>
     );
   }
-
-  // if (
-  //   ONBOARDING_TUTORIAL_ENABLED &&
-  //   session &&
-  //   onboardingCompleted === false
-  // ) {
-  //   return (
-  //     <OnboardingScreen
-  //       onComplete={() => {
-  //         setPostOnboardingRoute("/dashboard");
-  //         setOnboardingCompleted(true);
-  //       }}
-  //     />
-  //   );
-  // }
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
