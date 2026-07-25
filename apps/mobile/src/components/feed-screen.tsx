@@ -792,11 +792,12 @@ export function FeedScreen() {
           style={styles.keyboardView}
         >
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={[
               styles.content,
               { paddingBottom: tabBarHeight + 16 },
             ]}
+            directionalLockEnabled
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
@@ -1420,6 +1421,7 @@ export function FeedCard({
           >
             <ScrollView
               horizontal
+              directionalLockEnabled
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               scrollEventThrottle={16}

@@ -5,6 +5,11 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
+  awardCreditAction,
+  jsonWithCreditHeaders,
+  reverseFloatCredits,
+} from "@/lib/float-credits";
+import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
 } from "@/lib/supabase-storage";
@@ -269,7 +274,11 @@ export async function POST(request: Request) {
           updatedAt: new Date(),
         },
       })
-      .returning({ id: goalLogs.id });
+      .returning({
+        id: goalLogs.id,
+        notes: goalLogs.notes,
+        status: goalLogs.status,
+      });
 
     if (!goalLog) {
       return NextResponse.json(
@@ -312,12 +321,24 @@ export async function POST(request: Request) {
         throw new Error("Could not save photo");
       }
 
-      return NextResponse.json({
+      const responseBody = {
         id: photo.id,
         url: signedUrl,
         contentType: photo.contentType,
         createdAt: photo.createdAt.toISOString(),
-      });
+      };
+      const creditEvent =
+        goalLog.status === "complete"
+          ? await awardCreditAction(db, {
+              actionDate: dateKey,
+              actionType: "post",
+              sourceId: goalLog.id,
+              sourceType: "goal_log",
+              userId: user.id,
+            })
+          : null;
+
+      return jsonWithCreditHeaders(responseBody, [creditEvent]);
     } catch (error) {
       await storage.storage.from(GOAL_PHOTOS_BUCKET).remove([storagePath]);
       throw error;
@@ -373,6 +394,19 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Photo not found" }, { status: 404 });
     }
 
+    const [goalLog] = await db
+      .select({
+        id: goalLogs.id,
+        date: goalLogs.date,
+        notes: goalLogs.notes,
+        status: goalLogs.status,
+      })
+      .from(goalLogs)
+      .where(
+        and(eq(goalLogs.id, photo.goalLogId), eq(goalLogs.userId, user.id)),
+      )
+      .limit(1);
+
     const storage = getSupabaseStorageAdmin();
     const { error: removeError } = await storage.storage
       .from(GOAL_PHOTOS_BUCKET)
@@ -389,7 +423,30 @@ export async function DELETE(request: Request) {
       .delete(goalLogPhotos)
       .where(and(eq(goalLogPhotos.id, id), eq(goalLogPhotos.userId, user.id)));
 
-    return NextResponse.json({ ok: true });
+    const [remainingPhoto] = goalLog
+      ? await db
+          .select({ id: goalLogPhotos.id })
+          .from(goalLogPhotos)
+          .where(
+            and(
+              eq(goalLogPhotos.goalLogId, goalLog.id),
+              eq(goalLogPhotos.userId, user.id),
+            ),
+          )
+          .limit(1)
+      : [];
+    const creditEvent =
+      goalLog?.status === "complete" && !goalLog.notes.trim() && !remainingPhoto
+        ? await reverseFloatCredits(db, {
+            actionDate: goalLog.date,
+            actionType: "post",
+            sourceId: goalLog.id,
+            sourceType: "goal_log",
+            userId: user.id,
+          })
+        : null;
+
+    return jsonWithCreditHeaders({ ok: true }, [creditEvent]);
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

@@ -1,9 +1,14 @@
 import { getDb, tasks } from "@habit/db";
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  awardCreditAction,
+  jsonWithCreditHeaders,
+  reverseFloatCredits,
+} from "@/lib/float-credits";
 import { deletePlannedEventsForSources } from "@/lib/planned-events";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -137,10 +142,34 @@ export async function POST(request: Request) {
 
     if (data.type === "create") {
       const [row] = await db.insert(tasks).values(taskValues(data)).returning();
-      return NextResponse.json(row);
+      if (!row) {
+        return NextResponse.json({ error: "Insert failed" }, { status: 500 });
+      }
+
+      const creditEvent = row?.completedAt
+        ? await awardCreditAction(db, {
+            actionDate: row.completedAt,
+            actionType: "task_complete",
+            sourceId: row.id,
+            sourceType: "task",
+            userId: user.id,
+          })
+        : null;
+
+      return jsonWithCreditHeaders(row, [creditEvent]);
     }
 
     if (data.type === "update") {
+      const [existingTask] = await db
+        .select({ completedAt: tasks.completedAt, id: tasks.id })
+        .from(tasks)
+        .where(and(eq(tasks.id, data.id), eq(tasks.userId, user.id)))
+        .limit(1);
+
+      if (!existingTask) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
       const [row] = await db
         .update(tasks)
         .set(taskValues(data))
@@ -151,8 +180,37 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
-      return NextResponse.json(row);
+      const creditEvent =
+        row.completedAt && !existingTask.completedAt
+          ? await awardCreditAction(db, {
+              actionDate: row.completedAt,
+              actionType: "task_complete",
+              sourceId: row.id,
+              sourceType: "task",
+              userId: user.id,
+            })
+          : !row.completedAt && existingTask.completedAt
+            ? await reverseFloatCredits(db, {
+                actionType: "task_complete",
+                sourceId: row.id,
+                sourceType: "task",
+                userId: user.id,
+              })
+            : null;
+
+      return jsonWithCreditHeaders(row, [creditEvent]);
     }
+
+    const deletedCompletedTasks = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.userId, user.id),
+          inArray(tasks.id, data.ids),
+          isNotNull(tasks.completedAt),
+        ),
+      );
 
     await deletePlannedEventsForSources(db, {
       sourceIds: data.ids,
@@ -164,7 +222,18 @@ export async function POST(request: Request) {
       .delete(tasks)
       .where(and(eq(tasks.userId, user.id), inArray(tasks.id, data.ids)));
 
-    return NextResponse.json({ ok: true });
+    const creditEvents = await Promise.all(
+      deletedCompletedTasks.map((task) =>
+        reverseFloatCredits(db, {
+          actionType: "task_complete",
+          sourceId: task.id,
+          sourceType: "task",
+          userId: user.id,
+        }),
+      ),
+    );
+
+    return jsonWithCreditHeaders({ ok: true }, creditEvents);
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

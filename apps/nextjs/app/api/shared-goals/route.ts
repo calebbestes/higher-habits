@@ -11,6 +11,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  awardCreditAction,
+  getLocalDateKeyFromRequest,
+  jsonWithCreditHeaders,
+} from "@/lib/float-credits";
 import { sendPushToUser } from "@/lib/push";
 import { getSharedGoalSnapshots } from "@/lib/shared-goals";
 
@@ -263,7 +268,15 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json(snapshot, { status: 201 });
+    const creditEvent = await awardCreditAction(db, {
+      actionDate: getLocalDateKeyFromRequest(request),
+      actionType: "shared_goal_create",
+      sourceId: sharedGoalId,
+      sourceType: "shared_goal",
+      userId: user.id,
+    });
+
+    return jsonWithCreditHeaders(snapshot, [creditEvent], { status: 201 });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
