@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FloatCreditToast } from "@/components/float-credit-toast";
 import { useTheme } from "@/hooks/use-theme";
 import {
   COLLAB_SECTION_HREFS,
@@ -208,6 +209,15 @@ const TABS: TabItem[] = [
             web: "menu_book",
           },
         },
+        {
+          label: "Credits",
+          href: "/history?section=credits",
+          icon: {
+            ios: "sparkles",
+            android: "auto_awesome",
+            web: "auto_awesome",
+          },
+        },
       ],
     },
   },
@@ -237,66 +247,71 @@ export default function AppTabs() {
   const openMenu = TABS.find((tab) => tab.name === openMenuName)?.menu;
 
   return (
-    <Tabs>
-      <TabSlot style={styles.tabSlot} />
-      <TabList asChild>
-        <TabBarSurface
-          style={StyleSheet.flatten([
-            styles.tabList,
-            usesAppleTabBar && styles.appleTabList,
-            {
-              backgroundColor: usesAppleTabBar ? "transparent" : theme.tabBar,
-              borderTopColor: usesLiquidGlass ? "transparent" : theme.tabBorder,
-              paddingBottom: bottomInset,
-            },
-          ])}
-        >
-          {TABS.map((tab) => {
-            const href = getDefaultTabHref({
-              defaultCollabSection,
-              defaultPlanReportView,
-              tab,
-            });
+    <>
+      <Tabs>
+        <TabSlot style={styles.tabSlot} />
+        <TabList asChild>
+          <TabBarSurface
+            style={StyleSheet.flatten([
+              styles.tabList,
+              usesAppleTabBar && styles.appleTabList,
+              {
+                backgroundColor: usesAppleTabBar ? "transparent" : theme.tabBar,
+                borderTopColor: usesLiquidGlass
+                  ? "transparent"
+                  : theme.tabBorder,
+                paddingBottom: bottomInset,
+              },
+            ])}
+          >
+            {TABS.map((tab) => {
+              const href = getDefaultTabHref({
+                defaultCollabSection,
+                defaultPlanReportView,
+                tab,
+              });
 
-            return (
-              <TabTrigger key={tab.name} name={tab.name} href={href} asChild>
-                <TabButton
-                  item={tab}
-                  isMenuOpen={
-                    !usesNativeAppleMenus && openMenuName === tab.name
-                  }
-                  onDefaultPress={() => {
-                    rememberSubmenuSelection(href);
-                    router.navigate(href);
-                  }}
-                  onOpenMenu={() => {
-                    setOpenMenuName((current) =>
-                      current === tab.name ? null : tab.name,
-                    );
-                  }}
-                  onSelectMenuItem={(href) => {
-                    rememberSubmenuSelection(href);
-                    router.navigate(href);
-                  }}
-                />
-              </TabTrigger>
-            );
-          })}
-        </TabBarSurface>
-      </TabList>
-      {!usesNativeAppleMenus && openMenu ? (
-        <SubmenuPopover
-          menu={openMenu}
-          bottomInset={bottomInset}
-          onClose={() => setOpenMenuName(null)}
-          onSelect={(href) => {
-            setOpenMenuName(null);
-            rememberSubmenuSelection(href);
-            router.navigate(href);
-          }}
-        />
-      ) : null}
-    </Tabs>
+              return (
+                <TabTrigger key={tab.name} name={tab.name} href={href} asChild>
+                  <TabButton
+                    item={tab}
+                    isMenuOpen={
+                      !usesNativeAppleMenus && openMenuName === tab.name
+                    }
+                    onDefaultPress={() => {
+                      rememberSubmenuSelection(href);
+                      router.navigate(href);
+                    }}
+                    onOpenMenu={() => {
+                      setOpenMenuName((current) =>
+                        current === tab.name ? null : tab.name,
+                      );
+                    }}
+                    onSelectMenuItem={(href) => {
+                      rememberSubmenuSelection(href);
+                      router.navigate(href);
+                    }}
+                  />
+                </TabTrigger>
+              );
+            })}
+          </TabBarSurface>
+        </TabList>
+        {!usesNativeAppleMenus && openMenu ? (
+          <SubmenuPopover
+            menu={openMenu}
+            bottomInset={bottomInset}
+            onClose={() => setOpenMenuName(null)}
+            onSelect={(href) => {
+              setOpenMenuName(null);
+              rememberSubmenuSelection(href);
+              router.navigate(href);
+            }}
+          />
+        ) : null}
+      </Tabs>
+      <FloatCreditToast />
+    </>
   );
 }
 

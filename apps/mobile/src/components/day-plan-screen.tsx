@@ -1846,11 +1846,6 @@ export function DayPlanScreen({
     }
   };
 
-  const goToToday = useCallback(() => {
-    const today = startOfDay(new Date());
-    dateMotionDirectionRef.current = today > selectedDate ? 1 : -1;
-    setSelectedDate(today);
-  }, [selectedDate]);
   const moveDate = useCallback((days: number) => {
     dateMotionDirectionRef.current = days > 0 ? 1 : -1;
     setSelectedDate((current) => addDays(current, days));
@@ -2639,83 +2634,38 @@ export function DayPlanScreen({
                 <View style={styles.headerTitle}>
                   <PlanReportHeaderMenu compact currentView="day-plan" />
                 </View>
-                <View style={styles.dateControls}>
-                  <Pressable
-                    accessibilityLabel="Previous day"
-                    hitSlop={8}
-                    onPress={() => moveDate(-1)}
-                    style={({ pressed }) => [
-                      styles.iconButton,
-                      { backgroundColor: theme.backgroundElement },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("chevron.left", "chevron_left")}
-                      size={16}
-                      tintColor={theme.tabIcon}
-                      weight="semibold"
-                    />
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel="Go to today"
-                    onPress={goToToday}
-                    style={({ pressed }) => [
-                      styles.todayButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[styles.todayButtonText, { color: theme.primary }]}
-                    >
-                      Today
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel="Next day"
-                    hitSlop={8}
-                    onPress={() => moveDate(1)}
-                    style={({ pressed }) => [
-                      styles.iconButton,
-                      { backgroundColor: theme.backgroundElement },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("chevron.right", "chevron_right")}
-                      size={16}
-                      tintColor={theme.tabIcon}
-                      weight="semibold"
-                    />
-                  </Pressable>
-                </View>
-              </View>
-
-              <View style={styles.dateHeader}>
                 <Pressable
                   accessibilityLabel="Choose date"
                   accessibilityRole="button"
                   onPress={openDatePicker}
                   style={({ pressed }) => [
-                    styles.dayBadge,
-                    { backgroundColor: theme.backgroundElement },
+                    styles.headerDateButton,
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text style={[styles.weekday, { color: theme.primary }]}>
-                    {WEEKDAY_NAMES[selectedDate.getDay()]}
-                  </Text>
-                  <Text style={[styles.dayNumber, { color: theme.text }]}>
-                    {selectedDate.getDate()}
-                  </Text>
+                  <View
+                    style={[
+                      styles.dayBadge,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                  >
+                    <Text style={[styles.weekday, { color: theme.primary }]}>
+                      {WEEKDAY_NAMES[selectedDate.getDay()]}
+                    </Text>
+                    <Text style={[styles.dayNumber, { color: theme.text }]}>
+                      {selectedDate.getDate()}
+                    </Text>
+                  </View>
+                  <View style={styles.headerDateTextBlock}>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.dateTitle, { color: theme.text }]}
+                    >
+                      {MONTH_NAMES[selectedDate.getMonth()]}{" "}
+                      {selectedDate.getFullYear()}
+                    </Text>
+                  </View>
                 </Pressable>
-                <View style={styles.dateTextBlock}>
-                  <Text style={[styles.dateTitle, { color: theme.text }]}>
-                    {MONTH_NAMES[selectedDate.getMonth()]}{" "}
-                    {selectedDate.getFullYear()}
-                  </Text>
-                </View>
               </View>
 
               {!isLoading &&
@@ -6169,6 +6119,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     zIndex: 1,
+  },
+  headerDateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 10,
+    maxWidth: "58%",
+    zIndex: 10,
+    elevation: 10,
+  },
+  headerDateTextBlock: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   dateControls: {
     flexDirection: "row",
