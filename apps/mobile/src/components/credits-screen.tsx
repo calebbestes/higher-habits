@@ -52,7 +52,7 @@ const FLOAT_CREDIT_REWARDS: FloatCreditReward[] = [
     title: "Monthly Reward Offer",
     description:
       "Redeem credits for eligible monthly app rewards and offers when available.",
-    creditCost: 30,
+    creditCost: 150,
     status: "coming_soon",
   },
   {
@@ -111,11 +111,12 @@ export function CreditsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
           ]}
+          directionalLockEnabled
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}

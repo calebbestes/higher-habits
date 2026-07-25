@@ -37,8 +37,8 @@ type ReverseCreditsInput = {
 const ACTION_AMOUNTS = {
   comment: 1,
   daily_plan: 1,
-  goal_checkpoint_complete: 3,
-  habit_complete: 2,
+  goal_checkpoint_complete: 1,
+  habit_complete: 1,
   incentive_create: 3,
   monthly_plan: 5,
   post: 3,
@@ -71,7 +71,7 @@ export const FLOAT_CREDIT_REWARDS = [
     title: "Monthly Reward Offer",
     description:
       "Redeem credits for eligible monthly app rewards and offers when available.",
-    creditCost: 30,
+    creditCost: 150,
     status: "coming_soon",
   },
   {
