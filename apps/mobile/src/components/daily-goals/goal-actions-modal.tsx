@@ -270,7 +270,7 @@ function GoalActionsModalImpl({
               </View>
 
               <ScrollView
-                canCancelContentTouches={false}
+                canCancelContentTouches
                 contentContainerStyle={modalStyles.actions}
                 showsVerticalScrollIndicator={false}
               >

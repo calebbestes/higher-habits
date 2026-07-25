@@ -12,12 +12,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import {
-  awardCreditAction,
-  getLocalDateKeyFromRequest,
-  jsonWithCreditHeaders,
-  reverseFloatCredits,
-} from "@/lib/float-credits";
 import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
 import { sendPushToUser } from "@/lib/push";
 
@@ -253,18 +247,7 @@ export async function POST(
         });
       }
 
-      const creditEvent =
-        entry.ownerId !== user.id
-          ? await awardCreditAction(db, {
-              actionDate: getLocalDateKeyFromRequest(request),
-              actionType: "comment",
-              sourceId: comment.id,
-              sourceType: "feed_comment",
-              userId: user.id,
-            })
-          : null;
-
-      return jsonWithCreditHeaders(comment, [creditEvent], { status: 201 });
+      return NextResponse.json(comment, { status: 201 });
     }
 
     const [deletedComment] = await db
@@ -285,17 +268,7 @@ export async function POST(
       );
     }
 
-    const creditEvent =
-      entry.ownerId !== user.id
-        ? await reverseFloatCredits(db, {
-            actionType: "comment",
-            sourceId: deletedComment.id,
-            sourceType: "feed_comment",
-            userId: user.id,
-          })
-        : null;
-
-    return jsonWithCreditHeaders({ ok: true }, [creditEvent]);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 

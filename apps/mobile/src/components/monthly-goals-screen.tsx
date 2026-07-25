@@ -818,11 +818,12 @@ export function MonthlyGoalsScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
           ]}
+          directionalLockEnabled
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -1134,7 +1135,8 @@ function SortFilterModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
+            directionalLockEnabled
             style={styles.filterOptionsScroll}
             showsVerticalScrollIndicator={false}
           >
@@ -2099,8 +2101,9 @@ function GoalActionsModal({
               </View>
 
               <ScrollView
-                canCancelContentTouches={false}
+                canCancelContentTouches
                 contentContainerStyle={modalStyles.actions}
+                directionalLockEnabled
                 showsVerticalScrollIndicator={false}
               >
                 {showCompleteAction ? (

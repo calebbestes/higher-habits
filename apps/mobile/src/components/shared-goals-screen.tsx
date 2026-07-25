@@ -803,9 +803,10 @@ function GoalDetailsSheet({
       </View>
 
       <ScrollView
-        canCancelContentTouches={false}
+        canCancelContentTouches
         style={styles.sheetScroll}
         contentContainerStyle={styles.sheetContent}
+        directionalLockEnabled
         showsVerticalScrollIndicator={false}
       >
         {/* Badges */}
@@ -1226,9 +1227,10 @@ function RelinkModal({
         </Pressable>
       </View>
       <ScrollView
-        canCancelContentTouches={false}
+        canCancelContentTouches
         style={styles.sheetScroll}
         contentContainerStyle={styles.sheetContent}
+        directionalLockEnabled
       >
         <Text style={[styles.relinkHint, { color: theme.textSecondary }]}>
           Select a personal goal to track for "{goal.name}":
@@ -1534,9 +1536,10 @@ function CreateGoalModal({
         </View>
 
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           style={styles.sheetScroll}
           contentContainerStyle={styles.sheetContent}
+          directionalLockEnabled
           keyboardShouldPersistTaps="handled"
         >
           {/* Step 1: Mode */}
@@ -2725,12 +2728,13 @@ export function SharedGoalsScreen() {
         </View>
       ) : (
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           style={styles.scroll}
           contentContainerStyle={[
             styles.scrollContent,
             { paddingBottom: insets.bottom + 16 },
           ]}
+          directionalLockEnabled
           showsVerticalScrollIndicator={false}
         >
           {invitations.length > 0 && (

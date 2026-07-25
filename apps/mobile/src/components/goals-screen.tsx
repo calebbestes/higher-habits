@@ -589,11 +589,12 @@ export function GoalsScreen() {
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 16 },
           ]}
+          directionalLockEnabled
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
@@ -1244,8 +1245,9 @@ function CheckpointActionsModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={modalStyles.actions}
+            directionalLockEnabled
             showsVerticalScrollIndicator={false}
           >
             <Text
@@ -2060,8 +2062,9 @@ export function GoalFormModal({
           ) : null}
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.formContent}
+            directionalLockEnabled
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >

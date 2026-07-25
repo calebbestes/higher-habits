@@ -27,13 +27,6 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
-  awardCreditAction,
-  getMonthKeyFromDateKey,
-  jsonWithCreditHeaders,
-  recordPlanCreditProgress,
-  reverseFloatCredits,
-} from "@/lib/float-credits";
-import {
   deleteGoogleCalendarHabitPlan,
   upsertGoogleCalendarHabitPlan,
 } from "@/lib/google-calendar";
@@ -105,30 +98,6 @@ const bodySchema = z.discriminatedUnion("type", [
 
 const getDatabase = () => getDb() ?? null;
 type Database = NonNullable<ReturnType<typeof getDatabase>>;
-
-async function goalLogHasProof(
-  db: Database,
-  {
-    goalLogId,
-    notes,
-    userId,
-  }: { goalLogId: string; notes?: string | null; userId: string },
-) {
-  if (notes?.trim()) return true;
-
-  const [photo] = await db
-    .select({ id: goalLogPhotos.id })
-    .from(goalLogPhotos)
-    .where(
-      and(
-        eq(goalLogPhotos.goalLogId, goalLogId),
-        eq(goalLogPhotos.userId, userId),
-      ),
-    )
-    .limit(1);
-
-  return Boolean(photo);
-}
 
 type GoalLogSocialSummary = {
   goalLogId: string;
@@ -841,50 +810,7 @@ export async function POST(request: Request) {
             set: updateValues,
           });
 
-        const creditEvents = existingLog?.id
-          ? [
-              existingLog.status === "complete"
-                ? await reverseFloatCredits(db, {
-                    actionDate: data.dateKey,
-                    actionType: "habit_complete",
-                    sourceId: existingLog.id,
-                    sourceType: "goal_log",
-                    userId: user.id,
-                  })
-                : null,
-              existingLog.status === "complete"
-                ? await reverseFloatCredits(db, {
-                    actionDate: data.dateKey,
-                    actionType: "post",
-                    sourceId: existingLog.id,
-                    sourceType: "goal_log",
-                    userId: user.id,
-                  })
-                : null,
-              shouldDeletePlanEvent
-                ? await recordPlanCreditProgress(db, {
-                    actionDate: data.dateKey,
-                    amount: -1,
-                    periodKey: data.dateKey,
-                    threshold: 5,
-                    type: "daily_plan",
-                    userId: user.id,
-                  })
-                : null,
-              shouldDeletePlanEvent
-                ? await recordPlanCreditProgress(db, {
-                    actionDate: `${getMonthKeyFromDateKey(data.dateKey)}-01`,
-                    amount: -1,
-                    periodKey: getMonthKeyFromDateKey(data.dateKey),
-                    threshold: 10,
-                    type: "monthly_plan",
-                    userId: user.id,
-                  })
-                : null,
-            ]
-          : [];
-
-        return jsonWithCreditHeaders({ ok: true, calendarSync }, creditEvents);
+        return NextResponse.json({ ok: true, calendarSync });
       }
 
       const nextPlannedStartTime =
@@ -951,102 +877,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Insert failed" }, { status: 500 });
       }
 
-      const creditEvents = [];
-      if (nextStatus === "complete" && existingLog?.status !== "complete") {
-        creditEvents.push(
-          await awardCreditAction(db, {
-            actionDate: data.dateKey,
-            actionType: "habit_complete",
-            sourceId: savedLog.id,
-            sourceType: "goal_log",
-            userId: user.id,
-          }),
-        );
-      }
-
-      if (
-        nextStatus === "complete" &&
-        (await goalLogHasProof(db, {
-          goalLogId: savedLog.id,
-          notes: savedLog.notes,
-          userId: user.id,
-        }))
-      ) {
-        creditEvents.push(
-          await awardCreditAction(db, {
-            actionDate: data.dateKey,
-            actionType: "post",
-            sourceId: savedLog.id,
-            sourceType: "goal_log",
-            userId: user.id,
-          }),
-        );
-      }
-
-      if (existingLog?.status === "complete" && nextStatus !== "complete") {
-        creditEvents.push(
-          await reverseFloatCredits(db, {
-            actionDate: data.dateKey,
-            actionType: "habit_complete",
-            sourceId: existingLog.id,
-            sourceType: "goal_log",
-            userId: user.id,
-          }),
-          await reverseFloatCredits(db, {
-            actionDate: data.dateKey,
-            actionType: "post",
-            sourceId: existingLog.id,
-            sourceType: "goal_log",
-            userId: user.id,
-          }),
-        );
-      }
-
-      if (nextStatus === "planned" && existingLog?.status !== "planned") {
-        creditEvents.push(
-          await recordPlanCreditProgress(db, {
-            actionDate: data.dateKey,
-            amount: 1,
-            periodKey: data.dateKey,
-            threshold: 5,
-            type: "daily_plan",
-            userId: user.id,
-          }),
-          await recordPlanCreditProgress(db, {
-            actionDate: `${getMonthKeyFromDateKey(data.dateKey)}-01`,
-            amount: 1,
-            periodKey: getMonthKeyFromDateKey(data.dateKey),
-            threshold: 10,
-            type: "monthly_plan",
-            userId: user.id,
-          }),
-        );
-      } else if (
-        existingLog?.status === "planned" &&
-        nextStatus !== "planned"
-      ) {
-        creditEvents.push(
-          await recordPlanCreditProgress(db, {
-            actionDate: data.dateKey,
-            amount: -1,
-            periodKey: data.dateKey,
-            threshold: 5,
-            type: "daily_plan",
-            userId: user.id,
-          }),
-          await recordPlanCreditProgress(db, {
-            actionDate: `${getMonthKeyFromDateKey(data.dateKey)}-01`,
-            amount: -1,
-            periodKey: getMonthKeyFromDateKey(data.dateKey),
-            threshold: 10,
-            type: "monthly_plan",
-            userId: user.id,
-          }),
-        );
-      }
-
       if (data.status !== "planned") {
-        return jsonWithCreditHeaders({ ok: true }, creditEvents);
+        return NextResponse.json({ ok: true });
       }
 
       const calendarSync = await upsertGoogleCalendarHabitPlan({
@@ -1081,7 +913,7 @@ export async function POST(request: Request) {
           );
       }
 
-      return jsonWithCreditHeaders({ ok: true, calendarSync }, creditEvents);
+      return NextResponse.json({ ok: true, calendarSync });
     }
 
     if (data.type === "setNote") {
@@ -1167,31 +999,7 @@ export async function POST(request: Request) {
           );
       }
 
-      const creditEvent =
-        syncedLog?.status === "complete" && data.notes.trim()
-          ? await awardCreditAction(db, {
-              actionDate: data.dateKey,
-              actionType: "post",
-              sourceId: syncedLog.id,
-              sourceType: "goal_log",
-              userId: user.id,
-            })
-          : syncedLog?.status === "complete" &&
-              !(await goalLogHasProof(db, {
-                goalLogId: syncedLog.id,
-                notes: syncedLog.notes,
-                userId: user.id,
-              }))
-            ? await reverseFloatCredits(db, {
-                actionDate: data.dateKey,
-                actionType: "post",
-                sourceId: syncedLog.id,
-                sourceType: "goal_log",
-                userId: user.id,
-              })
-            : null;
-
-      return jsonWithCreditHeaders({ ok: true, calendarSync }, [creditEvent]);
+      return NextResponse.json({ ok: true, calendarSync });
     }
 
     if (data.type === "setVisibility") {
@@ -1265,48 +1073,7 @@ export async function POST(request: Request) {
         .delete(goalLogs)
         .where(and(eq(goalLogs.id, ownedLog.id), eq(goalLogs.userId, user.id)));
 
-      const creditEvents = [
-        ownedLog.status === "complete"
-          ? await reverseFloatCredits(db, {
-              actionDate: data.dateKey,
-              actionType: "habit_complete",
-              sourceId: ownedLog.id,
-              sourceType: "goal_log",
-              userId: user.id,
-            })
-          : null,
-        ownedLog.status === "complete"
-          ? await reverseFloatCredits(db, {
-              actionDate: data.dateKey,
-              actionType: "post",
-              sourceId: ownedLog.id,
-              sourceType: "goal_log",
-              userId: user.id,
-            })
-          : null,
-        ownedLog.status === "planned"
-          ? await recordPlanCreditProgress(db, {
-              actionDate: data.dateKey,
-              amount: -1,
-              periodKey: data.dateKey,
-              threshold: 5,
-              type: "daily_plan",
-              userId: user.id,
-            })
-          : null,
-        ownedLog.status === "planned"
-          ? await recordPlanCreditProgress(db, {
-              actionDate: `${getMonthKeyFromDateKey(data.dateKey)}-01`,
-              amount: -1,
-              periodKey: getMonthKeyFromDateKey(data.dateKey),
-              threshold: 10,
-              type: "monthly_plan",
-              userId: user.id,
-            })
-          : null,
-      ];
-
-      return jsonWithCreditHeaders({ ok: true }, creditEvents);
+      return NextResponse.json({ ok: true });
     }
 
     await db

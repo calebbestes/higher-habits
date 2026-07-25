@@ -184,7 +184,7 @@ export function GoalNoteEditorModal({
           </View>
 
           <ScrollView
-            canCancelContentTouches={false}
+            canCancelContentTouches
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
           >

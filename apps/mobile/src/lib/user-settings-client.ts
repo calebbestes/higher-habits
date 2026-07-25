@@ -32,14 +32,12 @@ export type UserSettings = NotificationSettings & {
   defaultAppStartPage: AppStartPage;
   defaultCollabSection: CollabSection;
   defaultPlanReportView: PlanReportView;
-  onboardingCompleted: boolean;
 };
 
 export const USER_SETTING_DEFAULTS: UserSettings = {
   defaultAppStartPage: "collab",
   defaultCollabSection: "shared-goals",
   defaultPlanReportView: "day-plan",
-  onboardingCompleted: true,
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
   notifyTasksDueToday: true,

@@ -2,7 +2,6 @@ import { Platform } from "react-native";
 
 import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
 import { addCrashBreadcrumb } from "@/lib/crash-reporting";
-import { emitFloatCreditsEarned } from "@/lib/float-credit-events";
 
 export async function mobileApiFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -41,15 +40,6 @@ export async function mobileApiFetch(path: string, init?: RequestInit) {
       hasStoredCookie,
       method: init?.method ?? "GET",
       path,
-    });
-  }
-
-  const earnedCredits = Number(response.headers.get("X-Float-Credits-Awarded"));
-  if (Number.isFinite(earnedCredits) && earnedCredits > 0) {
-    emitFloatCreditsEarned({
-      amount: earnedCredits,
-      description:
-        response.headers.get("X-Float-Credits-Description") ?? "Credits earned",
     });
   }
 

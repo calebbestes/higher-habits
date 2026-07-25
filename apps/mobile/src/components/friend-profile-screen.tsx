@@ -194,7 +194,7 @@ export function FriendProfileScreen({
         </View>
 
         <ScrollView
-          canCancelContentTouches={false}
+          canCancelContentTouches
           contentContainerStyle={[
             styles.content,
             { paddingBottom: tabBarHeight + 18 },

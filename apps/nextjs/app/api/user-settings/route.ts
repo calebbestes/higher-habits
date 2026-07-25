@@ -39,7 +39,6 @@ const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
   defaultCollabSection: "shared-goals",
   defaultPlanReportView: "day-plan",
-  onboardingCompleted: true,
 } as const;
 
 const notificationSchemaShape = Object.fromEntries(
@@ -64,7 +63,6 @@ const bodySchema = z
       "friends",
     ]),
     defaultPlanReportView: z.enum(["day-plan", "habits", "goals", "top-tasks"]),
-    onboardingCompleted: z.boolean(),
     ...notificationSchemaShape,
   })
   .partial();
@@ -95,8 +93,6 @@ export async function GET(request: Request) {
       defaultPlanReportView:
         row?.defaultPlanReportView ??
         USER_SETTING_DEFAULTS.defaultPlanReportView,
-      onboardingCompleted:
-        row?.onboardingCompleted ?? USER_SETTING_DEFAULTS.onboardingCompleted,
       ...Object.fromEntries(
         NOTIFICATION_KEYS.map((key) => [key, row?.[key] ?? DEFAULTS[key]]),
       ),

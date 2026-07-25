@@ -1,21 +1,9 @@
-import {
-  GOAL_VISIBILITIES,
-  getDb,
-  goalCheckpointPhotos,
-  goalCheckpoints,
-  goals,
-} from "@habit/db";
+import { GOAL_VISIBILITIES, getDb, goalCheckpoints, goals } from "@habit/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import {
-  awardCreditAction,
-  getLocalDateKeyFromRequest,
-  jsonWithCreditHeaders,
-  reverseFloatCredits,
-} from "@/lib/float-credits";
 import {
   deletePlannedEventsForSources,
   upsertPlannedEvent,
@@ -160,30 +148,6 @@ async function getSerializedGoal(db: Database, userId: string, goalId: string) {
     .orderBy(asc(goalCheckpoints.sortOrder), asc(goalCheckpoints.createdAt));
 
   return serializeGoal(goal, checkpoints);
-}
-
-async function checkpointHasProof(
-  db: Database,
-  {
-    checkpointId,
-    notes,
-    userId,
-  }: { checkpointId: string; notes?: string | null; userId: string },
-) {
-  if (notes?.trim()) return true;
-
-  const [photo] = await db
-    .select({ id: goalCheckpointPhotos.id })
-    .from(goalCheckpointPhotos)
-    .where(
-      and(
-        eq(goalCheckpointPhotos.checkpointId, checkpointId),
-        eq(goalCheckpointPhotos.userId, userId),
-      ),
-    )
-    .limit(1);
-
-  return Boolean(photo);
 }
 
 async function syncGoalCheckpoints(
@@ -379,25 +343,6 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "updateCheckpoint") {
-      const [existingCheckpoint] = await db
-        .select({
-          completedAt: goalCheckpoints.completedAt,
-          id: goalCheckpoints.id,
-          notes: goalCheckpoints.notes,
-        })
-        .from(goalCheckpoints)
-        .where(
-          and(
-            eq(goalCheckpoints.id, data.id),
-            eq(goalCheckpoints.userId, user.id),
-          ),
-        )
-        .limit(1);
-
-      if (!existingCheckpoint) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-
       const [checkpoint] = await db
         .update(goalCheckpoints)
         .set({
@@ -420,68 +365,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
-      const actionDate = getLocalDateKeyFromRequest(request);
-      const creditEvents = [];
-
-      if (checkpoint.completedAt && !existingCheckpoint.completedAt) {
-        creditEvents.push(
-          await awardCreditAction(db, {
-            actionDate,
-            actionType: "goal_checkpoint_complete",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-        );
-      }
-
-      const hasProof = checkpoint.completedAt
-        ? await checkpointHasProof(db, {
-            checkpointId: checkpoint.id,
-            notes: checkpoint.notes,
-            userId: user.id,
-          })
-        : false;
-
-      if (checkpoint.completedAt && hasProof) {
-        creditEvents.push(
-          await awardCreditAction(db, {
-            actionDate,
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-        );
-      } else if (!checkpoint.completedAt && existingCheckpoint.completedAt) {
-        creditEvents.push(
-          await reverseFloatCredits(db, {
-            actionType: "goal_checkpoint_complete",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-          await reverseFloatCredits(db, {
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-        );
-      } else if (checkpoint.completedAt && !hasProof) {
-        creditEvents.push(
-          await reverseFloatCredits(db, {
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-        );
-      }
-
-      return jsonWithCreditHeaders(
+      return NextResponse.json(
         await getSerializedGoal(db, user.id, checkpoint.goalId),
-        creditEvents,
       );
     }
 
@@ -512,9 +397,7 @@ export async function POST(request: Request) {
 
     const checkpointRows = await db
       .select({
-        completedAt: goalCheckpoints.completedAt,
         id: goalCheckpoints.id,
-        notes: goalCheckpoints.notes,
       })
       .from(goalCheckpoints)
       .where(
@@ -523,18 +406,6 @@ export async function POST(request: Request) {
           eq(goalCheckpoints.userId, user.id),
         ),
       );
-    const completedCheckpointProof = await Promise.all(
-      checkpointRows
-        .filter((checkpoint) => checkpoint.completedAt)
-        .map(async (checkpoint) => ({
-          hasProof: await checkpointHasProof(db, {
-            checkpointId: checkpoint.id,
-            notes: checkpoint.notes,
-            userId: user.id,
-          }),
-          id: checkpoint.id,
-        })),
-    );
     await deletePlannedEventsForSources(db, {
       sourceIds: checkpointRows.map((checkpoint) => checkpoint.id),
       sourceType: "goal_checkpoint",
@@ -545,29 +416,7 @@ export async function POST(request: Request) {
       .delete(goals)
       .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)));
 
-    const creditEvents = [];
-    for (const checkpoint of completedCheckpointProof) {
-      creditEvents.push(
-        await reverseFloatCredits(db, {
-          actionType: "goal_checkpoint_complete",
-          sourceId: checkpoint.id,
-          sourceType: "goal_checkpoint",
-          userId: user.id,
-        }),
-      );
-      if (checkpoint.hasProof) {
-        creditEvents.push(
-          await reverseFloatCredits(db, {
-            actionType: "post",
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            userId: user.id,
-          }),
-        );
-      }
-    }
-
-    return jsonWithCreditHeaders({ ok: true }, creditEvents);
+    return NextResponse.json({ ok: true });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 
