@@ -2651,14 +2651,14 @@ export function SharedGoalsScreen() {
   const hasVisibleGoals = invitations.length > 0 || active.length > 0;
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: insets.top + 8,
-            backgroundColor: theme.backgroundElement,
+            backgroundColor: theme.background,
             borderBottomColor: theme.tabBorder,
           },
         ]}

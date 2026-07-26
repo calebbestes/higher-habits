@@ -150,6 +150,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
+    console.error("GET /api/user-settings failed", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
@@ -190,9 +191,25 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+    console.error("POST /api/user-settings failed", error);
+    if (isMissingColumnError(error)) {
+      return NextResponse.json(
+        { error: "Settings update is waiting on the latest server migration." },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
     );
   }
+}
+
+function isMissingColumnError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "42703"
+  );
 }

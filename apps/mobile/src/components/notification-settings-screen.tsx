@@ -229,7 +229,7 @@ const TIME_ITEMS: TimeItem[] = [
     key: "dailyNotificationTime",
     icon: sym("bell.and.waves.left.and.right.fill", "notifications_active"),
     title: "Daily reminders",
-    description: "Daily planning and end-of-day nudges.",
+    description: "Planning and end-of-day nudges.",
   },
   {
     key: "weeklyNotificationTime",
@@ -237,7 +237,7 @@ const TIME_ITEMS: TimeItem[] = [
     dayOptions: WEEKLY_DAY_ACTIONS,
     icon: sym("calendar.badge.clock", "event_available"),
     title: "Weekly recap",
-    description: "When your weekly progress recap appears.",
+    description: "Progress recap.",
   },
   {
     key: "monthlyNotificationTime",
@@ -245,7 +245,7 @@ const TIME_ITEMS: TimeItem[] = [
     dayOptions: MONTHLY_DAY_ACTIONS,
     icon: sym("calendar", "event"),
     title: "Monthly reminders",
-    description: "Monthly and periodic habit reminders.",
+    description: "Monthly and periodic habits.",
   },
 ];
 
@@ -351,38 +351,44 @@ function TimeSettingRow({
           tintColor={theme.primary}
         />
       </View>
-      <View style={styles.rowText}>
-        <Text style={[styles.rowTitle, { color: theme.text }]}>
-          {item.title}
-        </Text>
-        <Text style={[styles.rowDescription, { color: theme.textSecondary }]}>
-          {item.description}
-        </Text>
-      </View>
-      <View style={styles.timeControls}>
-        {dayActions && onDayChange && dayLabel ? (
+      <View style={styles.timeBody}>
+        <View style={styles.timeHeader}>
+          <View style={styles.rowText}>
+            <Text style={[styles.rowTitle, { color: theme.text }]}>
+              {item.title}
+            </Text>
+            <Text
+              style={[styles.rowDescription, { color: theme.textSecondary }]}
+            >
+              {item.description}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.timeControls}>
+          {dayActions && onDayChange && dayLabel ? (
+            <TimeMenu
+              actions={dayActions}
+              label={dayLabel}
+              minWidth={86}
+              onSelect={onDayChange}
+            />
+          ) : null}
           <TimeMenu
-            actions={dayActions}
-            label={dayLabel}
-            minWidth={82}
-            onSelect={onDayChange}
+            actions={hourActions}
+            label={String(time.hour)}
+            onSelect={(actionId) => select("hour", actionId)}
           />
-        ) : null}
-        <TimeMenu
-          actions={hourActions}
-          label={String(time.hour)}
-          onSelect={(actionId) => select("hour", actionId)}
-        />
-        <TimeMenu
-          actions={minuteActions}
-          label={String(time.minute).padStart(2, "0")}
-          onSelect={(actionId) => select("minute", actionId)}
-        />
-        <TimeMenu
-          actions={periodActions}
-          label={time.period}
-          onSelect={(actionId) => select("period", actionId)}
-        />
+          <TimeMenu
+            actions={minuteActions}
+            label={String(time.minute).padStart(2, "0")}
+            onSelect={(actionId) => select("minute", actionId)}
+          />
+          <TimeMenu
+            actions={periodActions}
+            label={time.period}
+            onSelect={(actionId) => select("period", actionId)}
+          />
+        </View>
       </View>
     </View>
   );
@@ -725,19 +731,27 @@ const styles = StyleSheet.create({
   rowDescription: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
   timeRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    minHeight: 76,
+    minHeight: 92,
+  },
+  timeBody: {
+    flex: 1,
+    gap: 10,
+    minWidth: 0,
+  },
+  timeHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   timeControls: {
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 5,
-    maxWidth: 230,
+    justifyContent: "flex-start",
+    gap: 7,
   },
   timeChip: {
     minWidth: 47,

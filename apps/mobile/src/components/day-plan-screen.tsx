@@ -732,7 +732,7 @@ export function DayPlanScreen({
   );
 
   const load = useCallback(
-    async ({ force = false, refreshing = false } = {}) => {
+    async ({ force = false, quiet = false, refreshing = false } = {}) => {
       if (!isMountedRef.current) return;
       const targetDate = selectedDate;
       const targetDateKey = dateKey;
@@ -742,7 +742,7 @@ export function DayPlanScreen({
 
       if (refreshing) {
         setIsRefreshing(true);
-      } else {
+      } else if (!quiet) {
         const cached = force
           ? null
           : readCachedDayPlanData(targetMonthKey, targetDateKey);
@@ -1964,7 +1964,7 @@ export function DayPlanScreen({
       }
       invalidateCurrentCaches({ google: true, snapshot: true });
       if (!isMountedRef.current) return;
-      await load();
+      await load({ quiet: true });
     } catch (updateError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -1987,7 +1987,7 @@ export function DayPlanScreen({
       await setHabitLogVisibility(activeHabit.id, dateKey, visibility);
       invalidateCurrentCaches({ snapshot: true });
       if (!isMountedRef.current) return;
-      await load();
+      await load({ quiet: true });
     } catch (updateError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2005,7 +2005,7 @@ export function DayPlanScreen({
     await setHabitLogNote(habitId, dateKey, notes);
     invalidateCurrentCaches({ snapshot: true });
     if (!isMountedRef.current) return;
-    await load();
+    await load({ quiet: true });
   };
 
   const addPhoto = async (habitId: string, source: GoalPhotoSource) => {
@@ -2019,7 +2019,7 @@ export function DayPlanScreen({
       await uploadGoalPhoto(habitId, dateKey, photo);
       invalidateCurrentCaches({ snapshot: true });
       if (!isMountedRef.current) return;
-      await load();
+      await load({ quiet: true });
     } catch (photoError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2045,7 +2045,7 @@ export function DayPlanScreen({
     invalidateCurrentCaches({ planGoals: true });
     if (!isMountedRef.current) return;
     setActiveEntry(target.entry);
-    await load();
+    await load({ quiet: true });
   };
 
   const setActiveCheckpointVisibility = async (visibility: HabitVisibility) => {
@@ -2060,7 +2060,7 @@ export function DayPlanScreen({
       });
       invalidateCurrentCaches({ planGoals: true });
       if (!isMountedRef.current) return;
-      await load();
+      await load({ quiet: true });
     } catch (updateError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2115,7 +2115,7 @@ export function DayPlanScreen({
 
       if (!isMountedRef.current) return;
       setActiveEntry(null);
-      await load();
+      await load({ quiet: true });
     } catch (completeError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2153,7 +2153,7 @@ export function DayPlanScreen({
               invalidateCurrentCaches({ google: true, planned: true });
               if (!isMountedRef.current) return;
               setActiveEntry(null);
-              await load();
+              await load({ quiet: true });
             } catch (deleteError) {
               if (!isMountedRef.current) return;
               Alert.alert(
@@ -2186,7 +2186,7 @@ export function DayPlanScreen({
       invalidateCurrentCaches({ google: true, planned: true });
       if (!isMountedRef.current) return;
       setActiveEntry(null);
-      await load();
+      await load({ quiet: true });
     } catch (deleteError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2258,7 +2258,7 @@ export function DayPlanScreen({
       await uploadCheckpointPhoto(checkpoint.checkpoint.id, photo);
       invalidateCurrentCaches({ planGoals: true });
       if (!isMountedRef.current) return;
-      await load();
+      await load({ quiet: true });
     } catch (photoError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2317,7 +2317,7 @@ export function DayPlanScreen({
       if (!isMountedRef.current) return;
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
-      await load();
+      await load({ quiet: true });
     }
     void ensureProjects(true);
   };
@@ -2339,7 +2339,7 @@ export function DayPlanScreen({
     snapshotCacheRef.current.clear();
     snapshotInFlightRef.current.clear();
     setCreatingTargetType(null);
-    await load();
+    await load({ quiet: true });
   };
 
   const saveCreatedGoal = async (input: GoalInput) => {
@@ -2362,7 +2362,7 @@ export function DayPlanScreen({
       invalidateCurrentCaches({ google: true, planned: true });
       closeDraftPlan();
     }
-    await load();
+    await load({ quiet: true });
   };
 
   const saveOtherEvent = async (title: string) => {
@@ -2398,7 +2398,7 @@ export function DayPlanScreen({
       );
       setOtherEventRange(null);
       invalidateCurrentCaches({ google: true, planned: true });
-      await load();
+      await load({ quiet: true });
     } catch (eventError) {
       if (!isMountedRef.current) return;
       Alert.alert(
@@ -2536,7 +2536,7 @@ export function DayPlanScreen({
 
       if (!isMountedRef.current) return;
       closeDraftPlan();
-      await load();
+      await load({ quiet: true });
     } catch (planError) {
       if (!isMountedRef.current) return;
       Alert.alert(
