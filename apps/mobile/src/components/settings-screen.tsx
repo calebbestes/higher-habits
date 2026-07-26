@@ -249,6 +249,11 @@ export function SettingsScreen() {
     value: NavigationDefaults[Key],
   ) => {
     const previous = navigationDefaults;
+    if (previous[key] === value) {
+      playSelectionHaptic();
+      return;
+    }
+
     const next = { ...previous, [key]: value };
     setNavigationDefaults(next);
     applyNavigationDefaults(next);
@@ -257,11 +262,16 @@ export function SettingsScreen() {
       .then(() => {
         playSuccessHaptic();
       })
-      .catch(() => {
+      .catch((settingsError: unknown) => {
         playWarningHaptic();
         setNavigationDefaults(previous);
         applyNavigationDefaults(previous);
-        Alert.alert("Settings", "Could not save that default page.");
+        Alert.alert(
+          "Settings",
+          settingsError instanceof Error
+            ? settingsError.message
+            : "Could not save that setting.",
+        );
       });
   };
 

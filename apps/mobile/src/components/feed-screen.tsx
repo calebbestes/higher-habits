@@ -948,9 +948,17 @@ export function FeedScreen() {
               <Pressable
                 accessibilityLabel="Filter feed"
                 accessibilityRole="button"
-                onPress={() => setIsFilterOpen(true)}
+                hitSlop={8}
+                onPress={() => {
+                  playSelectionHaptic();
+                  setIsFilterOpen(true);
+                }}
                 style={({ pressed }) => [
                   styles.filterButton,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
                   pressed && styles.pressed,
                 ]}
               >
@@ -2459,6 +2467,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
+    zIndex: 5,
   },
   pageHeaderIcon: {
     width: 42,
@@ -2469,11 +2478,12 @@ const styles = StyleSheet.create({
   },
   pageHeaderText: { flex: 1, gap: 1 },
   filterButton: {
-    width: 44,
-    height: 44,
+    width: 52,
+    height: 52,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 22,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
     position: "relative",
   },
   filterBadge: {

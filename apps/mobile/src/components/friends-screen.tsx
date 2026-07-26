@@ -1,5 +1,4 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import * as Contacts from "expo-contacts/legacy";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
@@ -27,15 +26,15 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
-  type ContactMatch,
   type FriendGroupRow,
   type FriendRow,
+  type FriendSearchResult,
   acceptFriendRequest,
   addFriend,
   createFriendGroup,
   fetchFriendGroups,
   fetchFriends,
-  matchContacts,
+  searchFriendUsers,
 } from "@/lib/friends-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
@@ -1030,15 +1029,15 @@ function AddFriendModal({
 }) {
   const theme = useTheme();
   const isMountedRef = useRef(true);
-  const [contactState, setContactState] = useState<
-    "idle" | "loading" | "granted" | "denied" | "error"
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<FriendSearchResult[]>([]);
+  const [searchState, setSearchState] = useState<
+    "idle" | "loading" | "ready" | "error"
   >("idle");
-  const [contactError, setContactError] = useState<string | null>(null);
-  const [matches, setMatches] = useState<ContactMatch[]>([]);
-  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
-  const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
   const [invite, setInvite] = useState("");
-  const [isSendingRequest, setIsSendingRequest] = useState(false);
 
   useEffect(
     () => () => {
@@ -1047,64 +1046,63 @@ function AddFriendModal({
     [],
   );
 
-  const confirmFindFromContacts = () => {
-    Alert.alert(
-      "Find friends from contacts?",
-      "float will compare contact emails and phone numbers with existing float accounts. Contact identifiers are used only for this lookup and are not stored.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Continue", onPress: () => void findFromContacts() },
-      ],
-    );
-  };
+  useEffect(() => {
+    if (visible) return;
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchState("idle");
+    setSearchError(null);
+    setRequestedIds(new Set());
+    setRequestingIds(new Set());
+    setInvite("");
+  }, [visible]);
 
-  const findFromContacts = async () => {
-    setContactState("loading");
-    setContactError(null);
-    try {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (!isMountedRef.current) return;
-      if (status !== "granted") {
-        setContactState("denied");
-        return;
-      }
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Emails, Contacts.Fields.PhoneNumbers],
-      });
-      const emails: string[] = [];
-      const phones: string[] = [];
-      for (const contact of data) {
-        for (const entry of contact.emails ?? []) {
-          if (entry.email) emails.push(entry.email);
-        }
-        for (const entry of contact.phoneNumbers ?? []) {
-          if (entry.number) phones.push(entry.number);
-        }
-      }
-      const nextMatches = await matchContacts(emails, phones);
-      if (!isMountedRef.current) return;
-      setMatches(nextMatches);
-      setContactState("granted");
-    } catch (lookupError) {
-      if (isMountedRef.current) {
-        setContactError(
-          lookupError instanceof Error
-            ? lookupError.message
-            : "Could not check your contacts.",
-        );
-        setContactState("error");
-        setMatches([]);
-      }
+  useEffect(() => {
+    if (!visible) return;
+
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearchState("idle");
+      setSearchError(null);
+      return;
     }
-  };
 
-  const addMatch = async (match: ContactMatch) => {
-    if (addingIds.has(match.userId) || addedIds.has(match.userId)) return;
-    setAddingIds((prev) => new Set(prev).add(match.userId));
+    let active = true;
+    setSearchState("loading");
+    setSearchError(null);
+
+    const timeout = setTimeout(() => {
+      searchFriendUsers(query)
+        .then((results) => {
+          if (!active || !isMountedRef.current) return;
+          setSearchResults(results);
+          setSearchState("ready");
+        })
+        .catch((error) => {
+          if (!active || !isMountedRef.current) return;
+          setSearchResults([]);
+          setSearchError(
+            error instanceof Error ? error.message : "Could not search users.",
+          );
+          setSearchState("error");
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [searchQuery, visible]);
+
+  const addSearchResult = async (result: FriendSearchResult) => {
+    if (requestingIds.has(result.id) || requestedIds.has(result.id)) return;
+    setRequestingIds((prev) => new Set(prev).add(result.id));
     try {
-      await addFriend(match.email);
+      await addFriend(result.email);
       if (!isMountedRef.current) return;
-      setAddedIds((prev) => new Set(prev).add(match.userId));
+      playSuccessHaptic();
+      setRequestedIds((prev) => new Set(prev).add(result.id));
       await onAdded();
     } catch (addError) {
       if (isMountedRef.current) {
@@ -1115,9 +1113,9 @@ function AddFriendModal({
       }
     } finally {
       if (isMountedRef.current) {
-        setAddingIds((prev) => {
+        setRequestingIds((prev) => {
           const next = new Set(prev);
-          next.delete(match.userId);
+          next.delete(result.id);
           return next;
         });
       }
@@ -1145,56 +1143,6 @@ function AddFriendModal({
     Linking.openURL(url).catch(() => {
       Alert.alert("Could not open", "No app available to send the invite.");
     });
-  };
-
-  const sendFriendRequest = async () => {
-    const value = invite.trim();
-    if (!value || isSendingRequest) {
-      if (!value) {
-        Alert.alert("Add a contact", "Enter an email or phone number first.");
-      }
-      return;
-    }
-
-    setIsSendingRequest(true);
-    try {
-      await addFriend(value);
-      if (!isMountedRef.current) return;
-      Alert.alert(
-        "Request sent",
-        "They will see your friend request in float.",
-      );
-      await onAdded();
-    } catch (requestError) {
-      if (!isMountedRef.current) return;
-      const message =
-        requestError instanceof Error ? requestError.message : "Try again.";
-      const lowerMessage = message.toLowerCase();
-      if (
-        lowerMessage.includes("no float account") ||
-        (!value.includes("@") &&
-          lowerMessage.includes("valid email or phone number"))
-      ) {
-        const inviteChannel = value.includes("@") ? "email" : "sms";
-        Alert.alert(
-          lowerMessage.includes("no float account")
-            ? "No account found"
-            : "Phone lookup needs the latest server",
-          "Send an invite link so they have a clear next step.",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: inviteChannel === "email" ? "Email invite" : "Text invite",
-              onPress: () => inviteBy(inviteChannel),
-            },
-          ],
-        );
-        return;
-      }
-      Alert.alert("Could not add friend", message);
-    } finally {
-      if (isMountedRef.current) setIsSendingRequest(false);
-    }
   };
 
   return (
@@ -1238,320 +1186,238 @@ function AddFriendModal({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Section 1: direct friend request or invite */}
-              <Text style={[styles.addSectionTitle, { color: theme.text }]}>
-                Add by email or phone
-              </Text>
-              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-                If they already have an account, float sends a friend request.
-                If not, send them an invite link.
-              </Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                onChangeText={setInvite}
-                placeholder="Email or phone number"
-                placeholderTextColor={theme.textSecondary}
-                style={[
-                  styles.emailInput,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
-                    color: theme.text,
-                  },
-                ]}
-                value={invite}
-              />
-              <Pressable
-                disabled={isSendingRequest}
-                onPress={() => void sendFriendRequest()}
-                style={({ pressed }) => [
-                  styles.contactsButton,
-                  { backgroundColor: theme.primary },
-                  (pressed || isSendingRequest) && styles.pressed,
-                ]}
-              >
-                {isSendingRequest ? (
-                  <ActivityIndicator
-                    color={theme.primaryForeground}
-                    size="small"
-                  />
-                ) : (
-                  <SymbolView
-                    name={sym("person.badge.plus", "person-add")}
-                    size={18}
-                    weight="semibold"
-                    tintColor={theme.primaryForeground}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.contactsButtonText,
-                    { color: theme.primaryForeground },
-                  ]}
-                >
-                  Send friend request
+              <View style={styles.addFriendSection}>
+                <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                  Find someone on float
                 </Text>
-              </Pressable>
-              <View style={styles.inviteButtonRow}>
-                <Pressable
-                  onPress={() => inviteBy("email")}
-                  style={({ pressed }) => [
-                    styles.inviteButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
+                <Text
+                  style={[styles.modalHint, { color: theme.textSecondary }]}
+                >
+                  Search by name or email, then send a friend request.
+                </Text>
+                <View
+                  style={[
+                    styles.friendSearchWrap,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
                   ]}
                 >
                   <SymbolView
-                    name={sym("envelope.fill", "mail")}
+                    name={sym("magnifyingglass", "search")}
                     size={17}
                     weight="semibold"
-                    tintColor={theme.primary}
+                    tintColor={theme.textSecondary}
                   />
-                  <Text
-                    style={[styles.inviteButtonText, { color: theme.primary }]}
-                  >
-                    Email invite
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => inviteBy("sms")}
-                  style={({ pressed }) => [
-                    styles.inviteButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym("message.fill", "sms")}
-                    size={17}
-                    weight="semibold"
-                    tintColor={theme.primary}
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    clearButtonMode="while-editing"
+                    onChangeText={setSearchQuery}
+                    placeholder="Search name or email"
+                    placeholderTextColor={theme.textSecondary}
+                    returnKeyType="search"
+                    style={[styles.friendSearchInput, { color: theme.text }]}
+                    value={searchQuery}
                   />
-                  <Text
-                    style={[styles.inviteButtonText, { color: theme.primary }]}
-                  >
-                    Text invite
-                  </Text>
-                </Pressable>
-              </View>
+                  {searchState === "loading" ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : null}
+                </View>
 
-              {/* Section 2: contacts already on the app */}
-              <Text
-                style={[
-                  styles.addSectionTitle,
-                  { color: theme.text, marginTop: 24 },
-                ]}
-              >
-                On float
-              </Text>
-              <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-                Find friends from your contacts who already use the app.
-              </Text>
-
-              {contactState === "idle" ? (
-                <Pressable
-                  onPress={confirmFindFromContacts}
-                  style={({ pressed }) => [
-                    styles.contactsButton,
-                    { backgroundColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={sym(
-                      "person.crop.circle.badge.magnifyingglass",
-                      "contacts",
-                    )}
-                    size={18}
-                    weight="semibold"
-                    tintColor={theme.primaryForeground}
-                  />
+                {searchQuery.trim().length > 0 &&
+                searchQuery.trim().length < 2 ? (
                   <Text
                     style={[
-                      styles.contactsButtonText,
-                      { color: theme.primaryForeground },
+                      styles.inlineHelpText,
+                      { color: theme.textSecondary },
                     ]}
                   >
-                    Find friends from contacts
+                    Type at least 2 characters.
                   </Text>
-                </Pressable>
-              ) : null}
+                ) : null}
 
-              {contactState === "loading" ? (
-                <View style={styles.contactsLoading}>
-                  <ActivityIndicator color={theme.primary} />
-                </View>
-              ) : null}
+                {searchState === "error" ? (
+                  <Text style={[styles.inlineHelpText, { color: "#C75055" }]}>
+                    {searchError ?? "Could not search users."}
+                  </Text>
+                ) : null}
 
-              {contactState === "denied" ? (
-                <View style={styles.contactMessageBlock}>
+                {searchState === "ready" && searchResults.length === 0 ? (
                   <Text
-                    style={[styles.modalHint, { color: theme.textSecondary }]}
-                  >
-                    Contacts access is off. Enable it in Settings to find
-                    friends who are already here.
-                  </Text>
-                  <Pressable
-                    onPress={() => void Linking.openSettings()}
-                    style={({ pressed }) => [
-                      styles.contactsRetryButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
+                    style={[
+                      styles.inlineHelpText,
+                      { color: theme.textSecondary },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.contactsRetryButtonText,
-                        { color: theme.primary },
-                      ]}
-                    >
-                      Open Settings
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {contactState === "granted" && matches.length === 0 ? (
-                <View style={styles.contactMessageBlock}>
-                  <Text
-                    style={[styles.modalHint, { color: theme.textSecondary }]}
-                  >
-                    None of your contacts are on float yet. Add someone above or
-                    send an invite.
+                    No matching float users.
                   </Text>
-                  <Pressable
-                    onPress={() => void findFromContacts()}
-                    style={({ pressed }) => [
-                      styles.contactsRetryButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.contactsRetryButtonText,
-                        { color: theme.primary },
-                      ]}
-                    >
-                      Check again
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
+                ) : null}
 
-              {contactState === "error" ? (
-                <View style={styles.contactMessageBlock}>
-                  <Text
-                    style={[styles.modalHint, { color: theme.textSecondary }]}
-                  >
-                    {contactError ??
-                      "Could not check your contacts. Try again."}
-                  </Text>
-                  <Pressable
-                    onPress={() => void findFromContacts()}
-                    style={({ pressed }) => [
-                      styles.contactsRetryButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.contactsRetryButtonText,
-                        { color: theme.primary },
-                      ]}
-                    >
-                      Try again
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-
-              {matches.map((match) => {
-                const added = addedIds.has(match.userId);
-                const adding = addingIds.has(match.userId);
-                return (
-                  <View key={match.userId} style={styles.matchRow}>
-                    <View
-                      style={[
-                        styles.avatar,
-                        {
-                          width: 40,
-                          height: 40,
-                          borderRadius: 20,
-                          backgroundColor: theme.backgroundSelected,
-                        },
-                      ]}
-                    >
-                      {match.image ? (
-                        <Image
-                          contentFit="cover"
-                          source={{ uri: match.image }}
-                          style={StyleSheet.absoluteFill}
-                        />
-                      ) : (
-                        <Text
-                          style={[styles.avatarText, { color: theme.primary }]}
-                        >
-                          {match.name.slice(0, 1).toUpperCase()}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={styles.matchInfo}>
-                      <Text
-                        numberOfLines={1}
-                        style={[styles.friendName, { color: theme.text }]}
-                      >
-                        {match.name}
-                      </Text>
-                      <Text
-                        numberOfLines={1}
+                {searchResults.map((result) => {
+                  const requested = requestedIds.has(result.id);
+                  const requesting = requestingIds.has(result.id);
+                  return (
+                    <View key={result.id} style={styles.matchRow}>
+                      <View
                         style={[
-                          styles.friendEmail,
-                          { color: theme.textSecondary },
+                          styles.avatar,
+                          {
+                            width: 40,
+                            height: 40,
+                            borderRadius: 20,
+                            backgroundColor: theme.backgroundSelected,
+                          },
                         ]}
                       >
-                        {match.email}
-                      </Text>
-                    </View>
-                    <Pressable
-                      disabled={added || adding}
-                      onPress={() => void addMatch(match)}
-                      style={({ pressed }) => [
-                        styles.matchAddButton,
-                        {
-                          backgroundColor: added
-                            ? theme.backgroundElement
-                            : theme.primary,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      {adding ? (
-                        <ActivityIndicator
-                          color={theme.primaryForeground}
-                          size="small"
-                        />
-                      ) : (
+                        {result.image ? (
+                          <Image
+                            contentFit="cover"
+                            source={{ uri: result.image }}
+                            style={StyleSheet.absoluteFill}
+                          />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.avatarText,
+                              { color: theme.primary },
+                            ]}
+                          >
+                            {result.name.slice(0, 1).toUpperCase()}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.matchInfo}>
                         <Text
+                          numberOfLines={1}
+                          style={[styles.friendName, { color: theme.text }]}
+                        >
+                          {result.name}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
                           style={[
-                            styles.matchAddText,
-                            {
-                              color: added
-                                ? theme.textSecondary
-                                : theme.primaryForeground,
-                            },
+                            styles.friendEmail,
+                            { color: theme.textSecondary },
                           ]}
                         >
-                          {added ? "Requested" : "Add"}
+                          {result.email}
                         </Text>
-                      )}
-                    </Pressable>
-                  </View>
-                );
-              })}
+                      </View>
+                      <Pressable
+                        disabled={requested || requesting}
+                        onPress={() => void addSearchResult(result)}
+                        style={({ pressed }) => [
+                          styles.matchAddButton,
+                          {
+                            backgroundColor: requested
+                              ? theme.backgroundElement
+                              : theme.primary,
+                          },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        {requesting ? (
+                          <ActivityIndicator
+                            color={theme.primaryForeground}
+                            size="small"
+                          />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.matchAddText,
+                              {
+                                color: requested
+                                  ? theme.textSecondary
+                                  : theme.primaryForeground,
+                              },
+                            ]}
+                          >
+                            {requested ? "Requested" : "Add"}
+                          </Text>
+                        )}
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={[styles.addFriendSection, { marginTop: 18 }]}>
+                <Text style={[styles.addSectionTitle, { color: theme.text }]}>
+                  Invite someone
+                </Text>
+                <Text
+                  style={[styles.modalHint, { color: theme.textSecondary }]}
+                >
+                  Send an invite link by email or text.
+                </Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  onChangeText={setInvite}
+                  placeholder="Email or phone number"
+                  placeholderTextColor={theme.textSecondary}
+                  style={[
+                    styles.emailInput,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      color: theme.text,
+                    },
+                  ]}
+                  value={invite}
+                />
+                <View style={styles.inviteButtonRow}>
+                  <Pressable
+                    onPress={() => inviteBy("email")}
+                    style={({ pressed }) => [
+                      styles.inviteButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("envelope.fill", "mail")}
+                      size={17}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.inviteButtonText,
+                        { color: theme.primary },
+                      ]}
+                    >
+                      Email invite
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => inviteBy("sms")}
+                    style={({ pressed }) => [
+                      styles.inviteButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("message.fill", "sms")}
+                      size={17}
+                      weight="semibold"
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.inviteButtonText,
+                        { color: theme.primary },
+                      ]}
+                    >
+                      Text invite
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -1832,35 +1698,34 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: 10,
   },
+  addFriendSection: { gap: 10 },
   addSectionTitle: {
     paddingHorizontal: 4,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: -0.2,
   },
-  contactsButton: {
+  friendSearchWrap: {
+    minHeight: 50,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 48,
-    borderRadius: 14,
-    marginTop: 4,
-  },
-  contactsButtonText: { fontSize: 15, fontWeight: "700" },
-  contactsLoading: { paddingVertical: 20, alignItems: "center" },
-  contactMessageBlock: {
     gap: 10,
-  },
-  contactsRetryButton: {
-    minHeight: 42,
-    alignItems: "center",
-    justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 13,
+    borderRadius: 14,
     paddingHorizontal: 14,
   },
-  contactsRetryButtonText: { fontSize: 14, fontWeight: "800" },
+  friendSearchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  inlineHelpText: {
+    paddingHorizontal: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
   selectionList: { gap: 8, paddingTop: 2 },
   selectionRow: {
     minHeight: 64,

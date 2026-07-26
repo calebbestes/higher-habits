@@ -670,21 +670,39 @@ export const addFriend = (identifier: string): Promise<FriendRow> =>
     }),
   }).then((r) => parseResponse<FriendRow>(r));
 
-export type ContactMatch = {
-  userId: string;
+export type FriendSearchResult = {
+  id: string;
   name: string;
   email: string;
   image: string | null;
 };
 
-export const matchContacts = (
-  emails: string[],
-  phones: string[],
-): Promise<ContactMatch[]> =>
-  mobileApiFetch("/api/friends/match", {
-    method: "POST",
-    body: JSON.stringify({ emails, phones }),
-  }).then((r) => parseResponse<ContactMatch[]>(r));
+function normalizeFriendSearchResult(
+  value: unknown,
+): FriendSearchResult | null {
+  if (!isRecord(value) || typeof value.id !== "string") return null;
+
+  return {
+    id: value.id,
+    name: stringOrFallback(value.name, "float user"),
+    email: stringOrFallback(value.email),
+    image: nullableString(value.image),
+  };
+}
+
+export const searchFriendUsers = (
+  query: string,
+): Promise<FriendSearchResult[]> =>
+  mobileApiFetch(`/api/friends/search?q=${encodeURIComponent(query)}`)
+    .then((r) => parseResponse<unknown>(r))
+    .then((value) =>
+      Array.isArray(value)
+        ? value.flatMap((item) => {
+            const normalized = normalizeFriendSearchResult(item);
+            return normalized ? [normalized] : [];
+          })
+        : [],
+    );
 
 export const acceptFriendRequest = (friendshipId: string) =>
   mobileApiFetch("/api/friends", {
