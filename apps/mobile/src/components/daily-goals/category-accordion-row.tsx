@@ -43,7 +43,7 @@ function CategoryAccordionRowImpl({
     <View
       style={[
         styles.catAccordion,
-        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
       ]}
     >
       <Pressable
@@ -53,12 +53,15 @@ function CategoryAccordionRowImpl({
         style={({ pressed }) => [styles.catRow, pressed && styles.pressed]}
       >
         <View
-          style={[styles.catIconWrap, { backgroundColor: theme.secondary }]}
+          style={[
+            styles.catIconWrap,
+            { backgroundColor: theme.backgroundElement },
+          ]}
         >
           <GoalIcon
             iconKey={category.icon}
-            size={20}
-            color={theme.secondaryForeground}
+            size={18}
+            color={theme.primary}
             filled
           />
         </View>
@@ -82,12 +85,17 @@ function CategoryAccordionRowImpl({
       </Pressable>
 
       {isExpanded ? (
-        <View style={[styles.catGoals, { borderTopColor: theme.tabBorder }]}>
+        <View
+          style={[styles.catGoals, { borderTopColor: `${theme.tabBorder}80` }]}
+        >
           {goals.map((goal, index) => (
             <View key={goal.id}>
               {index > 0 ? (
                 <View
-                  style={[styles.divider, { backgroundColor: theme.tabBorder }]}
+                  style={[
+                    styles.divider,
+                    { backgroundColor: `${theme.tabBorder}70` },
+                  ]}
                 />
               ) : null}
               <GoalRow

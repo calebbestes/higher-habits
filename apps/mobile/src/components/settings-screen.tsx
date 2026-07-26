@@ -49,6 +49,7 @@ import {
   applyNavigationDefaults,
 } from "@/lib/tab-view-store";
 import {
+  DEFAULT_THEME_PREFERENCE,
   type ThemePreference,
   getColorThemePreference,
   getThemePreference,
@@ -110,7 +111,9 @@ export function SettingsScreen() {
     useState(false);
   const [isSendingTestNotification, setIsSendingTestNotification] =
     useState(false);
-  const [appearance, setAppearance] = useState<ThemePreference>("system");
+  const [appearance, setAppearance] = useState<ThemePreference>(
+    DEFAULT_THEME_PREFERENCE,
+  );
   const [colorTheme, setColorTheme] = useState<ColorThemePreference>(
     DefaultColorThemePreference,
   );

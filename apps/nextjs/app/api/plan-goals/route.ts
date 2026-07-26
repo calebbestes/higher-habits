@@ -1,9 +1,16 @@
-import { GOAL_VISIBILITIES, getDb, goalCheckpoints, goals } from "@habit/db";
+import {
+  GOAL_VISIBILITIES,
+  getDb,
+  goalCheckpointPhotos,
+  goalCheckpoints,
+  goals,
+} from "@habit/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { notifyFriendsOfVisibleCheckpointPost } from "@/lib/friend-post-notifications";
 import {
   deletePlannedEventsForSources,
   upsertPlannedEvent,
@@ -343,6 +350,32 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "updateCheckpoint") {
+      const [previousCheckpoint] = await db
+        .select(selectCheckpointShape)
+        .from(goalCheckpoints)
+        .where(
+          and(
+            eq(goalCheckpoints.id, data.id),
+            eq(goalCheckpoints.userId, user.id),
+          ),
+        )
+        .limit(1);
+      const [previousPhoto] = previousCheckpoint
+        ? await db
+            .select({ id: goalCheckpointPhotos.id })
+            .from(goalCheckpointPhotos)
+            .where(
+              and(
+                eq(goalCheckpointPhotos.checkpointId, previousCheckpoint.id),
+                eq(goalCheckpointPhotos.userId, user.id),
+              ),
+            )
+            .limit(1)
+        : [];
+      const wasVisiblePost =
+        Boolean(previousCheckpoint?.completedAt) &&
+        previousCheckpoint.visibility === "all_friends" &&
+        (Boolean(previousCheckpoint.notes?.trim()) || Boolean(previousPhoto));
       const [checkpoint] = await db
         .update(goalCheckpoints)
         .set({
@@ -363,6 +396,14 @@ export async function POST(request: Request) {
 
       if (!checkpoint) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      const isVisiblePost =
+        Boolean(checkpoint.completedAt) &&
+        checkpoint.visibility === "all_friends" &&
+        (Boolean(checkpoint.notes?.trim()) || Boolean(previousPhoto));
+      if (!wasVisiblePost && isVisiblePost) {
+        void notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
       }
 
       return NextResponse.json(

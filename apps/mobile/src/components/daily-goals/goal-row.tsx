@@ -36,6 +36,14 @@ function GoalRowImpl({
   const plannedTimeDisplay = isPlanned
     ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
     : null;
+  const statusIcon = isComplete
+    ? sym("checkmark", "check")
+    : isPlanned
+      ? sym("clock", "schedule")
+      : hasSlip
+        ? sym("xmark", "close")
+        : null;
+  const statusColor = hasSlip ? "#B84D54" : theme.primary;
   const instanceTarget =
     goal.period === "daily" ? Math.max(goal.frequencyGoal ?? 1, 1) : 1;
   const progressLabel =
@@ -53,12 +61,34 @@ function GoalRowImpl({
       onPress={onPress}
       style={({ pressed }) => [styles.goalRow, pressed && styles.pressed]}
     >
+      <View
+        style={[
+          styles.goalStatusControl,
+          {
+            backgroundColor: isComplete ? `${theme.primary}24` : "transparent",
+            borderColor:
+              isComplete || isPlanned || hasSlip
+                ? `${statusColor}AA`
+                : theme.tabBorder,
+          },
+        ]}
+      >
+        {statusIcon ? (
+          <SymbolView
+            name={statusIcon}
+            size={11}
+            weight="bold"
+            tintColor={statusColor}
+          />
+        ) : null}
+      </View>
+
       {/* Goal icon */}
       <View style={styles.goalIcon}>
         <GoalIcon
           filled
           iconKey={goal.iconKey}
-          size={17}
+          size={16}
           color={theme.primary}
         />
       </View>

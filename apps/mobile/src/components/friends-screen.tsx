@@ -1,5 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import * as Contacts from "expo-contacts";
+import * as Contacts from "expo-contacts/legacy";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
@@ -1031,8 +1031,9 @@ function AddFriendModal({
   const theme = useTheme();
   const isMountedRef = useRef(true);
   const [contactState, setContactState] = useState<
-    "idle" | "loading" | "granted" | "denied"
+    "idle" | "loading" | "granted" | "denied" | "error"
   >("idle");
+  const [contactError, setContactError] = useState<string | null>(null);
   const [matches, setMatches] = useState<ContactMatch[]>([]);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set());
@@ -1059,6 +1060,7 @@ function AddFriendModal({
 
   const findFromContacts = async () => {
     setContactState("loading");
+    setContactError(null);
     try {
       const { status } = await Contacts.requestPermissionsAsync();
       if (!isMountedRef.current) return;
@@ -1083,9 +1085,14 @@ function AddFriendModal({
       if (!isMountedRef.current) return;
       setMatches(nextMatches);
       setContactState("granted");
-    } catch {
+    } catch (lookupError) {
       if (isMountedRef.current) {
-        setContactState("granted");
+        setContactError(
+          lookupError instanceof Error
+            ? lookupError.message
+            : "Could not check your contacts.",
+        );
+        setContactState("error");
         setMatches([]);
       }
     }
@@ -1379,21 +1386,87 @@ function AddFriendModal({
               ) : null}
 
               {contactState === "denied" ? (
-                <Text
-                  style={[styles.modalHint, { color: theme.textSecondary }]}
-                >
-                  Contacts access is off. Enable it in Settings to find friends
-                  who are already here.
-                </Text>
+                <View style={styles.contactMessageBlock}>
+                  <Text
+                    style={[styles.modalHint, { color: theme.textSecondary }]}
+                  >
+                    Contacts access is off. Enable it in Settings to find
+                    friends who are already here.
+                  </Text>
+                  <Pressable
+                    onPress={() => void Linking.openSettings()}
+                    style={({ pressed }) => [
+                      styles.contactsRetryButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.contactsRetryButtonText,
+                        { color: theme.primary },
+                      ]}
+                    >
+                      Open Settings
+                    </Text>
+                  </Pressable>
+                </View>
               ) : null}
 
               {contactState === "granted" && matches.length === 0 ? (
-                <Text
-                  style={[styles.modalHint, { color: theme.textSecondary }]}
-                >
-                  None of your contacts are on float yet. Add someone above or
-                  send an invite.
-                </Text>
+                <View style={styles.contactMessageBlock}>
+                  <Text
+                    style={[styles.modalHint, { color: theme.textSecondary }]}
+                  >
+                    None of your contacts are on float yet. Add someone above or
+                    send an invite.
+                  </Text>
+                  <Pressable
+                    onPress={() => void findFromContacts()}
+                    style={({ pressed }) => [
+                      styles.contactsRetryButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.contactsRetryButtonText,
+                        { color: theme.primary },
+                      ]}
+                    >
+                      Check again
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {contactState === "error" ? (
+                <View style={styles.contactMessageBlock}>
+                  <Text
+                    style={[styles.modalHint, { color: theme.textSecondary }]}
+                  >
+                    {contactError ??
+                      "Could not check your contacts. Try again."}
+                  </Text>
+                  <Pressable
+                    onPress={() => void findFromContacts()}
+                    style={({ pressed }) => [
+                      styles.contactsRetryButton,
+                      { borderColor: theme.primary },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.contactsRetryButtonText,
+                        { color: theme.primary },
+                      ]}
+                    >
+                      Try again
+                    </Text>
+                  </Pressable>
+                </View>
               ) : null}
 
               {matches.map((match) => {
@@ -1776,6 +1849,18 @@ const styles = StyleSheet.create({
   },
   contactsButtonText: { fontSize: 15, fontWeight: "700" },
   contactsLoading: { paddingVertical: 20, alignItems: "center" },
+  contactMessageBlock: {
+    gap: 10,
+  },
+  contactsRetryButton: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+  },
+  contactsRetryButtonText: { fontSize: 14, fontWeight: "800" },
   selectionList: { gap: 8, paddingTop: 2 },
   selectionRow: {
     minHeight: 64,

@@ -1383,7 +1383,7 @@ export function DayPlanScreen({
     }
 
     const startMinutes = minutesFromTimelineY(
-      timelineScrollYRef.current + press.locationY,
+      press.locationY,
       timelineHourHeight,
       "floor",
     );
@@ -2730,8 +2730,6 @@ export function DayPlanScreen({
                       styles.timelineCardWide,
                       {
                         height: timelineViewportHeight,
-                        backgroundColor: theme.tabBar,
-                        borderColor: theme.tabBorder,
                       },
                     ]}
                   >
@@ -5785,14 +5783,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
-    gap: 10,
-    maxWidth: "58%",
+    gap: 8,
+    maxWidth: "52%",
     zIndex: 10,
     elevation: 10,
   },
   headerDateTextBlock: {
     flexShrink: 1,
     minWidth: 0,
+    alignItems: "flex-start",
   },
   dateControls: {
     flexDirection: "row",
@@ -5826,28 +5825,28 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   dayBadge: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 13,
   },
   weekday: {
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 9,
+    lineHeight: 11,
     fontWeight: "900",
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
   dayNumber: {
-    fontSize: 22,
-    lineHeight: 25,
+    fontSize: 19,
+    lineHeight: 22,
     fontWeight: "800",
   },
   dateTextBlock: { flex: 1, minWidth: 0 },
   dateTitle: {
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: "800",
   },
   datePickerOverlay: {
@@ -6047,8 +6046,6 @@ const styles = StyleSheet.create({
   },
   timelineCard: {
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
   },
   timelineCardWide: {
     marginHorizontal: -10,

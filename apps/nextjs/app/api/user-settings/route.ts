@@ -17,6 +17,7 @@ const NOTIFICATION_KEYS = [
   "notifyEndOfDayNudge",
   "notifyPostProps",
   "notifyPostComments",
+  "notifyFriendPosts",
   "notifyFriendRequestAccepted",
   "notifyFriendMilestone",
   "notifySharedGoalResponses",
@@ -30,10 +31,31 @@ const NOTIFICATION_KEYS = [
 ] as const;
 
 type NotificationKey = (typeof NOTIFICATION_KEYS)[number];
+const TIME_SETTING_KEYS = [
+  "dailyNotificationTime",
+  "weeklyNotificationTime",
+  "monthlyNotificationTime",
+] as const;
+const DAY_SETTING_KEYS = [
+  "weeklyNotificationDay",
+  "monthlyNotificationDay",
+] as const;
+
+type TimeSettingKey = (typeof TIME_SETTING_KEYS)[number];
+type DaySettingKey = (typeof DAY_SETTING_KEYS)[number];
 
 const DEFAULTS = Object.fromEntries(
   NOTIFICATION_KEYS.map((key) => [key, true]),
 ) as Record<NotificationKey, boolean>;
+const TIME_DEFAULTS = {
+  dailyNotificationTime: "20:30",
+  weeklyNotificationTime: "18:00",
+  monthlyNotificationTime: "09:00",
+} as const satisfies Record<TimeSettingKey, string>;
+const DAY_DEFAULTS = {
+  weeklyNotificationDay: "sunday",
+  monthlyNotificationDay: "first",
+} as const satisfies Record<DaySettingKey, string>;
 
 const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
@@ -44,6 +66,24 @@ const USER_SETTING_DEFAULTS = {
 const notificationSchemaShape = Object.fromEntries(
   NOTIFICATION_KEYS.map((key) => [key, z.boolean()]),
 ) as Record<NotificationKey, z.ZodBoolean>;
+const timeSchemaShape = Object.fromEntries(
+  TIME_SETTING_KEYS.map((key) => [
+    key,
+    z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  ]),
+) as Record<TimeSettingKey, z.ZodString>;
+const daySchemaShape = {
+  weeklyNotificationDay: z.enum([
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ]),
+  monthlyNotificationDay: z.enum(["first", "fifteenth", "last"]),
+} satisfies Record<DaySettingKey, z.ZodTypeAny>;
 
 const bodySchema = z
   .object({
@@ -64,6 +104,8 @@ const bodySchema = z
     ]),
     defaultPlanReportView: z.enum(["day-plan", "habits", "goals", "top-tasks"]),
     ...notificationSchemaShape,
+    ...timeSchemaShape,
+    ...daySchemaShape,
   })
   .partial();
 
@@ -95,6 +137,12 @@ export async function GET(request: Request) {
         USER_SETTING_DEFAULTS.defaultPlanReportView,
       ...Object.fromEntries(
         NOTIFICATION_KEYS.map((key) => [key, row?.[key] ?? DEFAULTS[key]]),
+      ),
+      ...Object.fromEntries(
+        TIME_SETTING_KEYS.map((key) => [key, row?.[key] ?? TIME_DEFAULTS[key]]),
+      ),
+      ...Object.fromEntries(
+        DAY_SETTING_KEYS.map((key) => [key, row?.[key] ?? DAY_DEFAULTS[key]]),
       ),
     };
 

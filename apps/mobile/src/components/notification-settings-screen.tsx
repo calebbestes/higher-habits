@@ -1,4 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
@@ -23,13 +24,23 @@ import {
 } from "@/lib/user-settings-client";
 
 type SymbolName = SymbolViewProps["name"];
+type NotificationToggleKey = {
+  [K in keyof NotificationSettings]: NotificationSettings[K] extends boolean
+    ? K
+    : never;
+}[keyof NotificationSettings];
+type NotificationTimeKey =
+  | "dailyNotificationTime"
+  | "weeklyNotificationTime"
+  | "monthlyNotificationTime";
+type NotificationDayKey = "weeklyNotificationDay" | "monthlyNotificationDay";
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
 type ToggleItem = {
-  key: keyof NotificationSettings;
+  key: NotificationToggleKey;
   icon: SymbolName;
   title: string;
   description: string;
@@ -39,6 +50,31 @@ type ToggleSection = {
   title: string;
   items: ToggleItem[];
 };
+type TimeItem = {
+  dayKey?: NotificationDayKey;
+  dayOptions?: MenuAction[];
+  icon: SymbolName;
+  key: NotificationTimeKey;
+  title: string;
+  description: string;
+};
+
+const HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
+const MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
+const WEEKLY_DAY_ACTIONS: MenuAction[] = [
+  { id: "sunday", title: "Sunday" },
+  { id: "monday", title: "Monday" },
+  { id: "tuesday", title: "Tuesday" },
+  { id: "wednesday", title: "Wednesday" },
+  { id: "thursday", title: "Thursday" },
+  { id: "friday", title: "Friday" },
+  { id: "saturday", title: "Saturday" },
+];
+const MONTHLY_DAY_ACTIONS: MenuAction[] = [
+  { id: "first", title: "1st" },
+  { id: "fifteenth", title: "15th" },
+  { id: "last", title: "Last day" },
+];
 
 const SECTIONS: ToggleSection[] = [
   {
@@ -54,8 +90,7 @@ const SECTIONS: ToggleSection[] = [
         key: "notifyMonthlyGoalToday",
         icon: sym("calendar", "event"),
         title: "Periodic habit today",
-        description:
-          "A 9:00 AM reminder for periodic habits planned for today.",
+        description: "A reminder for periodic habits planned for today.",
       },
       {
         key: "notifyTasksDueToday",
@@ -134,6 +169,12 @@ const SECTIONS: ToggleSection[] = [
         description: "When a friend comments on one of your posts.",
       },
       {
+        key: "notifyFriendPosts",
+        icon: sym("rectangle.stack.badge.person.crop", "dynamic_feed"),
+        title: "Friends post",
+        description: "When a friend shares a visible post.",
+      },
+      {
         key: "notifyFriendMilestone",
         icon: sym("party.popper.fill", "celebration"),
         title: "Friend milestones",
@@ -183,6 +224,208 @@ const SECTIONS: ToggleSection[] = [
     ],
   },
 ];
+const TIME_ITEMS: TimeItem[] = [
+  {
+    key: "dailyNotificationTime",
+    icon: sym("bell.and.waves.left.and.right.fill", "notifications_active"),
+    title: "Daily reminders",
+    description: "Daily planning and end-of-day nudges.",
+  },
+  {
+    key: "weeklyNotificationTime",
+    dayKey: "weeklyNotificationDay",
+    dayOptions: WEEKLY_DAY_ACTIONS,
+    icon: sym("calendar.badge.clock", "event_available"),
+    title: "Weekly recap",
+    description: "When your weekly progress recap appears.",
+  },
+  {
+    key: "monthlyNotificationTime",
+    dayKey: "monthlyNotificationDay",
+    dayOptions: MONTHLY_DAY_ACTIONS,
+    icon: sym("calendar", "event"),
+    title: "Monthly reminders",
+    description: "Monthly and periodic habit reminders.",
+  },
+];
+
+function parseTime(value: string) {
+  const [hourText = "0", minuteText = "0"] = value.split(":");
+  const hour24 = Number(hourText);
+  const minute = Number(minuteText);
+  if (
+    !Number.isInteger(hour24) ||
+    !Number.isInteger(minute) ||
+    hour24 < 0 ||
+    hour24 > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return { hour: 9, minute: 0, period: "AM" as const };
+  }
+
+  return {
+    hour: hour24 % 12 || 12,
+    minute,
+    period: hour24 >= 12 ? ("PM" as const) : ("AM" as const),
+  };
+}
+
+function formatTimeValue({
+  hour,
+  minute,
+  period,
+}: {
+  hour: number;
+  minute: number;
+  period: "AM" | "PM";
+}) {
+  const hour24 =
+    period === "AM" ? (hour === 12 ? 0 : hour) : hour === 12 ? 12 : hour + 12;
+
+  return `${String(hour24).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function TimeSettingRow({
+  dayValue,
+  item,
+  onDayChange,
+  onChange,
+  showDivider,
+  value,
+}: {
+  dayValue?: string;
+  item: TimeItem;
+  onDayChange?: (value: string) => void;
+  onChange: (value: string) => void;
+  showDivider: boolean;
+  value: string;
+}) {
+  const theme = useTheme();
+  const time = parseTime(value);
+  const hourActions: MenuAction[] = HOURS.map((hour) => ({
+    id: String(hour),
+    title: String(hour),
+    state: time.hour === hour ? "on" : undefined,
+  }));
+  const minuteActions: MenuAction[] = MINUTES.map((minute) => ({
+    id: String(minute),
+    title: String(minute).padStart(2, "0"),
+    state: time.minute === minute ? "on" : undefined,
+  }));
+  const dayActions = item.dayOptions?.map((action) => ({
+    ...action,
+    state: dayValue === action.id ? ("on" as const) : undefined,
+  }));
+  const dayLabel =
+    dayActions?.find((action) => action.id === dayValue)?.title ?? null;
+  const periodActions: MenuAction[] = [
+    { id: "AM", title: "AM", state: time.period === "AM" ? "on" : undefined },
+    { id: "PM", title: "PM", state: time.period === "PM" ? "on" : undefined },
+  ];
+  const select = (part: "hour" | "minute" | "period", actionId: string) => {
+    const next = { ...time };
+    if (part === "hour") next.hour = Number(actionId);
+    if (part === "minute") next.minute = Number(actionId);
+    if (part === "period" && (actionId === "AM" || actionId === "PM")) {
+      next.period = actionId;
+    }
+    onChange(formatTimeValue(next));
+  };
+
+  return (
+    <View
+      style={[
+        styles.timeRow,
+        showDivider && {
+          borderBottomColor: theme.tabBorder,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
+      ]}
+    >
+      <View style={[styles.rowIcon, { backgroundColor: `${theme.primary}1A` }]}>
+        <SymbolView
+          name={item.icon}
+          size={18}
+          weight="semibold"
+          tintColor={theme.primary}
+        />
+      </View>
+      <View style={styles.rowText}>
+        <Text style={[styles.rowTitle, { color: theme.text }]}>
+          {item.title}
+        </Text>
+        <Text style={[styles.rowDescription, { color: theme.textSecondary }]}>
+          {item.description}
+        </Text>
+      </View>
+      <View style={styles.timeControls}>
+        {dayActions && onDayChange && dayLabel ? (
+          <TimeMenu
+            actions={dayActions}
+            label={dayLabel}
+            minWidth={82}
+            onSelect={onDayChange}
+          />
+        ) : null}
+        <TimeMenu
+          actions={hourActions}
+          label={String(time.hour)}
+          onSelect={(actionId) => select("hour", actionId)}
+        />
+        <TimeMenu
+          actions={minuteActions}
+          label={String(time.minute).padStart(2, "0")}
+          onSelect={(actionId) => select("minute", actionId)}
+        />
+        <TimeMenu
+          actions={periodActions}
+          label={time.period}
+          onSelect={(actionId) => select("period", actionId)}
+        />
+      </View>
+    </View>
+  );
+}
+
+function TimeMenu({
+  actions,
+  label,
+  minWidth,
+  onSelect,
+}: {
+  actions: MenuAction[];
+  label: string;
+  minWidth?: number;
+  onSelect: (actionId: string) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+    >
+      <View
+        style={[
+          styles.timeChip,
+          minWidth ? { minWidth } : null,
+          { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        ]}
+      >
+        <Text style={[styles.timeChipText, { color: theme.text }]}>
+          {label}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "expand_more")}
+          size={12}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
+  );
+}
 
 export function NotificationSettingsModal({
   visible,
@@ -222,7 +465,7 @@ export function NotificationSettingsModal({
     };
   }, [visible]);
 
-  const toggle = (key: keyof NotificationSettings, value: boolean) => {
+  const toggle = (key: NotificationToggleKey, value: boolean) => {
     const previous = settings;
     const next = { ...settings, [key]: value };
     setSettings(next);
@@ -230,6 +473,22 @@ export function NotificationSettingsModal({
       void cancelAllScheduleEventNotificationsAsync();
     }
     // Persist just the changed field; revert on failure.
+    updateNotificationSettings({ [key]: value }).catch(() => {
+      setSettings(previous);
+    });
+  };
+  const updateTime = (key: NotificationTimeKey, value: string) => {
+    const previous = settings;
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    updateNotificationSettings({ [key]: value }).catch(() => {
+      setSettings(previous);
+    });
+  };
+  const updateDay = (key: NotificationDayKey, value: string) => {
+    const previous = settings;
+    const next = { ...settings, [key]: value };
+    setSettings(next);
     updateNotificationSettings({ [key]: value }).catch(() => {
       setSettings(previous);
     });
@@ -281,6 +540,42 @@ export function NotificationSettingsModal({
                   {error}
                 </Text>
               ) : null}
+              <View style={styles.section}>
+                <Text
+                  style={[styles.groupTitle, { color: theme.textSecondary }]}
+                >
+                  Timing
+                </Text>
+                <View
+                  style={[
+                    styles.groupCard,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  {TIME_ITEMS.map((item, index) => (
+                    <TimeSettingRow
+                      key={item.key}
+                      dayValue={item.dayKey ? settings[item.dayKey] : undefined}
+                      item={item}
+                      onDayChange={
+                        item.dayKey
+                          ? (value) =>
+                              updateDay(
+                                item.dayKey as NotificationDayKey,
+                                value,
+                              )
+                          : undefined
+                      }
+                      onChange={(value) => updateTime(item.key, value)}
+                      showDivider={index < TIME_ITEMS.length - 1}
+                      value={settings[item.key]}
+                    />
+                  ))}
+                </View>
+              </View>
               {SECTIONS.map((section) => (
                 <View key={section.title} style={styles.section}>
                   <Text
@@ -428,6 +723,39 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
   rowDescription: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 76,
+  },
+  timeControls: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 5,
+    maxWidth: 230,
+  },
+  timeChip: {
+    minWidth: 47,
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 11,
+    paddingHorizontal: 7,
+  },
+  timeChipText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
   footnote: {
     fontSize: 12,
     lineHeight: 17,

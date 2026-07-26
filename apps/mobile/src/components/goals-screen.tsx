@@ -637,8 +637,8 @@ export function GoalsScreen() {
             style={[
               styles.search,
               {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.tabBorder,
+                backgroundColor: "transparent",
+                borderColor: `${theme.tabBorder}AA`,
               },
             ]}
           >
@@ -851,7 +851,7 @@ function GoalCard({
       }}
       style={[
         styles.goalCard,
-        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
         isDragging && styles.goalCardDragging,
       ]}
     >
@@ -873,21 +873,61 @@ function GoalCard({
         >
           <SymbolView
             name={symbol("line.3.horizontal", "drag_handle")}
-            size={22}
+            size={19}
             weight="semibold"
             tintColor={isDragging ? theme.primary : theme.textSecondary}
           />
         </View>
         <View style={styles.goalBody}>
+          <View style={styles.goalTitleRow}>
+            <Text
+              numberOfLines={2}
+              style={[styles.goalTitle, { color: theme.text }]}
+            >
+              {goal.title}
+            </Text>
+            <View
+              style={[
+                styles.goalContextChip,
+                { backgroundColor: theme.backgroundElement },
+              ]}
+            >
+              <Text style={[styles.goalContextText, { color: theme.primary }]}>
+                {goal.timing === "later" ? "Later" : "Current"}
+              </Text>
+            </View>
+          </View>
           <Text
-            numberOfLines={2}
-            style={[styles.goalTitle, { color: theme.text }]}
+            style={[styles.goalMeta, { color: theme.textSecondary }]}
+          >{`${completedCount}/${goal.checkpoints.length} checkpoints`}</Text>
+          <View
+            accessibilityLabel={`${completedCount} of ${goal.checkpoints.length} checkpoints complete`}
+            accessibilityRole="progressbar"
+            accessibilityValue={{
+              max: goal.checkpoints.length,
+              min: 0,
+              now: completedCount,
+            }}
+            style={[
+              styles.goalProgressTrack,
+              { backgroundColor: theme.backgroundElement },
+            ]}
           >
-            {goal.title}
-          </Text>
-          <Text style={[styles.goalMeta, { color: theme.textSecondary }]}>
-            {completedCount}/{goal.checkpoints.length} checkpoints complete
-          </Text>
+            {completedCount > 0 ? (
+              <View
+                style={[
+                  styles.goalProgressFill,
+                  {
+                    backgroundColor: theme.primary,
+                    width: `${Math.round(
+                      (completedCount / Math.max(goal.checkpoints.length, 1)) *
+                        100,
+                    )}%`,
+                  },
+                ]}
+              />
+            ) : null}
+          </View>
         </View>
         <MenuView
           actions={actionItems}
@@ -913,7 +953,7 @@ function GoalCard({
           >
             <SymbolView
               name={symbol("ellipsis", "more_horiz")}
-              size={21}
+              size={18}
               weight="semibold"
               tintColor={theme.textSecondary}
             />
@@ -922,17 +962,238 @@ function GoalCard({
       </View>
 
       {goal.checkpoints.length ? (
-        <GoalTimeline
-          checkpoints={goal.checkpoints}
-          plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-          onPressCheckpoint={onPressCheckpoint}
-        />
+        <>
+          <GoalTimeline
+            checkpoints={goal.checkpoints}
+            plannedEventsByCheckpointId={plannedEventsByCheckpointId}
+            onPressCheckpoint={onPressCheckpoint}
+            onViewAll={onEdit}
+          />
+          <NextCheckpointAction
+            checkpoints={goal.checkpoints}
+            plannedEventsByCheckpointId={plannedEventsByCheckpointId}
+            onPressCheckpoint={onPressCheckpoint}
+          />
+        </>
       ) : null}
     </View>
   );
 }
 
+function getCheckpointPreview(
+  checkpoints: Goal["checkpoints"],
+  plannedEventsByCheckpointId: Map<string, PlannedEvent>,
+) {
+  if (checkpoints.length <= 3) return checkpoints;
+
+  const firstActionableIndex = checkpoints.findIndex(
+    (checkpoint) =>
+      !checkpoint.completed || plannedEventsByCheckpointId.has(checkpoint.id),
+  );
+  const anchorIndex = firstActionableIndex >= 0 ? firstActionableIndex : 0;
+  const startIndex = Math.min(
+    Math.max(anchorIndex - 1, 0),
+    checkpoints.length - 3,
+  );
+
+  return checkpoints.slice(startIndex, startIndex + 3);
+}
+
+function getNextCheckpoint(
+  checkpoints: Goal["checkpoints"],
+  plannedEventsByCheckpointId: Map<string, PlannedEvent>,
+) {
+  return (
+    checkpoints.find(
+      (checkpoint) =>
+        !checkpoint.completed &&
+        !plannedEventsByCheckpointId.has(checkpoint.id),
+    ) ??
+    checkpoints.find((checkpoint) => !checkpoint.completed) ??
+    checkpoints[checkpoints.length - 1] ??
+    null
+  );
+}
+
+function getCheckpointDateLabel(
+  checkpoint: GoalCheckpoint,
+  plannedEvent?: PlannedEvent,
+) {
+  return plannedEvent || checkpoint.targetDate
+    ? formatCheckpointDate(plannedEvent?.date ?? checkpoint.targetDate)
+    : null;
+}
+
+function getCheckpointActionLabel(
+  checkpoint: GoalCheckpoint,
+  plannedEvent?: PlannedEvent,
+) {
+  const planTime = formatStoredPlanTimeDisplay(plannedEvent?.startTime);
+
+  if (checkpoint.completed) return "Complete";
+  if (planTime) return `Planned ${planTime}`;
+  if (plannedEvent) return "Planned";
+  return "Tap to plan";
+}
+
 function GoalTimeline({
+  checkpoints,
+  plannedEventsByCheckpointId,
+  onPressCheckpoint,
+  onViewAll,
+}: {
+  checkpoints: Goal["checkpoints"];
+  plannedEventsByCheckpointId: Map<string, PlannedEvent>;
+  onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
+  onViewAll: () => void;
+}) {
+  const theme = useTheme();
+  const previewCheckpoints = getCheckpointPreview(
+    checkpoints,
+    plannedEventsByCheckpointId,
+  );
+  const previewIds = new Set(
+    previewCheckpoints.map((checkpoint) => checkpoint.id),
+  );
+  const hiddenCount = checkpoints.filter(
+    (checkpoint) => !previewIds.has(checkpoint.id),
+  ).length;
+
+  return (
+    <View style={styles.timelineBlock}>
+      <View style={styles.timelinePreview}>
+        {previewCheckpoints.map((checkpoint, index) => {
+          const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
+          const nextCheckpoint = previewCheckpoints[index + 1];
+          const connectorIsComplete = Boolean(
+            checkpoint.completed && nextCheckpoint?.completed,
+          );
+          const markerColor = checkpoint.completed
+            ? theme.primary
+            : plannedEvent
+              ? theme.secondary
+              : theme.backgroundElement;
+          const markerBorderColor =
+            checkpoint.completed || plannedEvent
+              ? markerColor
+              : theme.tabBorder;
+          const dateLabel = getCheckpointDateLabel(checkpoint, plannedEvent);
+
+          return (
+            <View key={checkpoint.id} style={styles.timelineMilestone}>
+              <View style={styles.milestoneDateSlot}>
+                {dateLabel ? (
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.milestoneDate,
+                      {
+                        color: checkpoint.completed
+                          ? theme.primary
+                          : plannedEvent
+                            ? theme.secondary
+                            : theme.textSecondary,
+                      },
+                    ]}
+                  >
+                    {dateLabel}
+                  </Text>
+                ) : (
+                  <SymbolView
+                    name={symbol("calendar", "calendar_today")}
+                    size={12}
+                    tintColor={theme.textSecondary}
+                  />
+                )}
+              </View>
+              <View style={styles.milestoneTrackRow}>
+                <Pressable
+                  accessibilityLabel={`${checkpoint.title}. Tap for checkpoint actions.`}
+                  accessibilityRole="button"
+                  onPress={() => onPressCheckpoint(checkpoint)}
+                  style={({ pressed }) => [
+                    styles.milestoneMarker,
+                    {
+                      backgroundColor: markerColor,
+                      borderColor: markerBorderColor,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={
+                      checkpoint.completed
+                        ? symbol("checkmark", "check")
+                        : plannedEvent
+                          ? symbol("calendar", "calendar_today")
+                          : symbol("circle", "radio_button_unchecked")
+                    }
+                    size={checkpoint.completed ? 13 : 14}
+                    weight="semibold"
+                    tintColor={
+                      checkpoint.completed
+                        ? theme.primaryForeground
+                        : plannedEvent
+                          ? theme.secondaryForeground
+                          : theme.textSecondary
+                    }
+                  />
+                </Pressable>
+                {index < previewCheckpoints.length - 1 ? (
+                  <View
+                    style={[
+                      styles.milestoneConnector,
+                      {
+                        backgroundColor: connectorIsComplete
+                          ? theme.primary
+                          : theme.tabBorder,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </View>
+              <Pressable onPress={() => onPressCheckpoint(checkpoint)}>
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    styles.milestoneTitle,
+                    { color: theme.text },
+                    checkpoint.completed && styles.completedTimelineTitle,
+                  ]}
+                >
+                  {checkpoint.title}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })}
+      </View>
+      {hiddenCount > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onViewAll}
+          style={({ pressed }) => [
+            styles.viewAllCheckpoints,
+            { borderColor: theme.tabBorder },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.viewAllCheckpointsText, { color: theme.text }]}>
+            View all {checkpoints.length}
+          </Text>
+          <SymbolView
+            name={symbol("chevron.right", "chevron_right")}
+            size={14}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function NextCheckpointAction({
   checkpoints,
   plannedEventsByCheckpointId,
   onPressCheckpoint,
@@ -942,125 +1203,47 @@ function GoalTimeline({
   onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
 }) {
   const theme = useTheme();
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.timelineScroll}
-      contentContainerStyle={styles.timelineContent}
-    >
-      {checkpoints.map((checkpoint, index) => {
-        const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
-        const nextCheckpoint = checkpoints[index + 1];
-        const connectorIsComplete = Boolean(
-          checkpoint.completed && nextCheckpoint?.completed,
-        );
-        const markerColor = checkpoint.completed
-          ? theme.primary
-          : plannedEvent
-            ? theme.secondary
-            : theme.backgroundElement;
-        const markerBorderColor =
-          checkpoint.completed || plannedEvent ? markerColor : theme.tabBorder;
-        const planTime = formatStoredPlanTimeDisplay(plannedEvent?.startTime);
+  const checkpoint = getNextCheckpoint(
+    checkpoints,
+    plannedEventsByCheckpointId,
+  );
+  if (!checkpoint) return null;
 
-        return (
-          <View key={checkpoint.id} style={styles.timelineMilestone}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.milestoneDate,
-                {
-                  color: checkpoint.completed
-                    ? theme.primary
-                    : plannedEvent
-                      ? theme.secondary
-                      : theme.text,
-                },
-              ]}
-            >
-              {formatCheckpointDate(
-                plannedEvent?.date ?? checkpoint.targetDate,
-              )}
-            </Text>
-            <View style={styles.milestoneTrackRow}>
-              <Pressable
-                accessibilityLabel={`${checkpoint.title}. Tap for checkpoint actions.`}
-                accessibilityRole="button"
-                onPress={() => onPressCheckpoint(checkpoint)}
-                style={({ pressed }) => [
-                  styles.milestoneMarker,
-                  {
-                    backgroundColor: markerColor,
-                    borderColor: markerBorderColor,
-                    shadowColor: theme.text,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={
-                    checkpoint.completed
-                      ? symbol("checkmark", "check")
-                      : plannedEvent
-                        ? symbol("calendar", "calendar_today")
-                        : symbol("circle", "radio_button_unchecked")
-                  }
-                  size={checkpoint.completed ? 17 : 18}
-                  weight="semibold"
-                  tintColor={
-                    checkpoint.completed
-                      ? theme.primaryForeground
-                      : plannedEvent
-                        ? theme.secondaryForeground
-                        : theme.textSecondary
-                  }
-                />
-              </Pressable>
-              {index < checkpoints.length - 1 ? (
-                <View
-                  style={[
-                    styles.milestoneConnector,
-                    {
-                      backgroundColor: connectorIsComplete
-                        ? theme.primary
-                        : theme.tabBorder,
-                    },
-                  ]}
-                />
-              ) : null}
-            </View>
-            <Pressable onPress={() => onPressCheckpoint(checkpoint)}>
-              <Text
-                numberOfLines={2}
-                style={[
-                  styles.milestoneTitle,
-                  { color: theme.text },
-                  checkpoint.completed && styles.completedTimelineTitle,
-                ]}
-              >
-                {checkpoint.title}
-              </Text>
-              <Text
-                numberOfLines={2}
-                style={[
-                  styles.milestoneSubtitle,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                {checkpoint.completed
-                  ? "Complete"
-                  : planTime
-                    ? `Planned ${planTime}`
-                    : plannedEvent
-                      ? "Planned"
-                      : "Tap to plan"}
-              </Text>
-            </Pressable>
-          </View>
-        );
-      })}
-    </ScrollView>
+  const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
+  const actionLabel = getCheckpointActionLabel(checkpoint, plannedEvent);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => onPressCheckpoint(checkpoint)}
+      style={({ pressed }) => [
+        styles.nextCheckpointAction,
+        { backgroundColor: theme.backgroundElement },
+        pressed && styles.pressed,
+      ]}
+    >
+      <SymbolView
+        name={
+          checkpoint.completed
+            ? symbol("checkmark.circle", "check_circle")
+            : plannedEvent
+              ? symbol("calendar", "calendar_today")
+              : symbol("calendar.badge.plus", "event_available")
+        }
+        size={15}
+        weight="semibold"
+        tintColor={theme.primary}
+      />
+      <Text
+        numberOfLines={1}
+        style={[styles.nextCheckpointText, { color: theme.text }]}
+      >
+        Next: {checkpoint.title}
+      </Text>
+      <Text style={[styles.nextCheckpointMeta, { color: theme.textSecondary }]}>
+        {actionLabel}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -2475,28 +2658,28 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   addButton: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 13,
   },
   search: {
-    minHeight: 48,
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
+    gap: 9,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+  },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "500" },
+  goalList: { gap: 9 },
+  goalCard: {
     gap: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 16,
-    paddingHorizontal: 14,
-  },
-  searchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: "500" },
-  goalList: { gap: 10 },
-  goalCard: {
-    gap: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    padding: 12,
+    padding: 11,
   },
   goalCardDragging: {
     opacity: 0.82,
@@ -2505,89 +2688,145 @@ const styles = StyleSheet.create({
   goalCardTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
   },
   goalBody: { flex: 1, minWidth: 0, gap: 4 },
-  goalTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  goalTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  goalTitle: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "800" },
   goalMeta: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  goalContextChip: {
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  goalContextText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  goalProgressTrack: {
+    height: 4,
+    overflow: "hidden",
+    borderRadius: 999,
+  },
+  goalProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
   dragHandle: {
-    width: 38,
-    height: 38,
+    width: 30,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    borderRadius: 11,
   },
   iconButton: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    borderRadius: 12,
   },
-  timelineScroll: { marginHorizontal: -12 },
-  timelineContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 2,
-    overflow: "visible",
+  timelineBlock: {
+    gap: 8,
+  },
+  timelinePreview: {
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   timelineMilestone: {
-    width: 132,
-    minHeight: 122,
+    flex: 1,
+    minWidth: 0,
     alignItems: "center",
     overflow: "visible",
   },
+  milestoneDateSlot: {
+    minHeight: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 5,
+  },
   milestoneDate: {
-    marginBottom: 10,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "900",
     textAlign: "center",
   },
   milestoneTrackRow: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    height: 42,
+    height: 28,
     width: "100%",
     overflow: "visible",
   },
   milestoneMarker: {
-    width: 42,
-    height: 42,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderRadius: 21,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 1.5,
+    borderRadius: 14,
     zIndex: 2,
   },
   milestoneConnector: {
-    position: "absolute",
-    left: 66,
-    width: 132,
-    height: 9,
+    flex: 1,
+    height: 4,
+    marginLeft: 6,
+    marginRight: -6,
     borderRadius: 999,
     zIndex: 1,
   },
   milestoneTitle: {
-    marginTop: 11,
-    width: 120,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  milestoneSubtitle: {
-    marginTop: 3,
-    width: 120,
+    marginTop: 7,
+    maxWidth: 94,
     fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "600",
+    lineHeight: 14,
+    fontWeight: "800",
     textAlign: "center",
   },
   completedTimelineTitle: { textDecorationLine: "line-through", opacity: 0.7 },
+  viewAllCheckpoints: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    alignSelf: "flex-end",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+  },
+  viewAllCheckpointsText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+  },
+  nextCheckpointAction: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+  },
+  nextCheckpointText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  nextCheckpointMeta: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
   laterGoalsToggle: {
     minHeight: 46,
     flexDirection: "row",

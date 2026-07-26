@@ -951,7 +951,6 @@ export function FeedScreen() {
                 onPress={() => setIsFilterOpen(true)}
                 style={({ pressed }) => [
                   styles.filterButton,
-                  { backgroundColor: theme.backgroundElement },
                   pressed && styles.pressed,
                 ]}
               >
@@ -965,7 +964,10 @@ export function FeedScreen() {
                   <View
                     style={[
                       styles.filterBadge,
-                      { backgroundColor: theme.primary },
+                      {
+                        backgroundColor: theme.primary,
+                        borderColor: theme.background,
+                      },
                     ]}
                   >
                     <Text
@@ -1486,7 +1488,7 @@ export function FeedCard({
     <View
       style={[
         styles.card,
-        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
       ]}
     >
       {/* Header */}
@@ -1645,7 +1647,7 @@ export function FeedCard({
             style={({ pressed }) => [
               styles.propButton,
               entry.props.hasPropped && {
-                backgroundColor: `${theme.primary}18`,
+                backgroundColor: `${theme.primary}14`,
               },
               pressed && styles.pressed,
             ]}
@@ -1787,101 +1789,105 @@ function FeedAdCard({
 
   if (nativeAd && adsModule) {
     return (
-      <adsModule.NativeAdView
-        nativeAd={nativeAd}
-        style={[
-          styles.adCard,
-          styles.nativeAdContent,
-          { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-        ]}
-      >
-        <View style={styles.nativeAdHeader}>
-          {renderLabel()}
-          {renderActions()}
-        </View>
+      <adsModule.NativeAdView nativeAd={nativeAd} style={styles.nativeAdRoot}>
+        <View
+          style={[
+            styles.adCard,
+            styles.nativeAdContent,
+            {
+              backgroundColor: theme.tabBar,
+              borderColor: `${theme.tabBorder}99`,
+            },
+          ]}
+        >
+          <View style={styles.nativeAdHeader}>
+            {renderLabel()}
+            {renderActions()}
+          </View>
 
-        <View style={styles.nativeAdTopRow}>
-          {nativeAd.icon ? (
-            <adsModule.NativeAsset assetType={adsModule.NativeAssetType.ICON}>
-              <RNImage
-                resizeMode="cover"
-                source={{ uri: nativeAd.icon.url }}
-                style={styles.nativeAdIcon}
-              />
-            </adsModule.NativeAsset>
-          ) : null}
-          <View style={styles.nativeAdCopy}>
-            <adsModule.NativeAsset
-              assetType={adsModule.NativeAssetType.HEADLINE}
-            >
-              <Text
-                numberOfLines={2}
-                style={[styles.nativeAdHeadline, { color: theme.text }]}
-              >
-                {nativeAd.headline}
-              </Text>
-            </adsModule.NativeAsset>
-            {nativeAd.advertiser ? (
-              <adsModule.NativeAsset
-                assetType={adsModule.NativeAssetType.ADVERTISER}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.nativeAdAdvertiser,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  {nativeAd.advertiser}
-                </Text>
+          <View style={styles.nativeAdTopRow}>
+            {nativeAd.icon ? (
+              <adsModule.NativeAsset assetType={adsModule.NativeAssetType.ICON}>
+                <RNImage
+                  resizeMode="cover"
+                  source={{ uri: nativeAd.icon.url }}
+                  style={styles.nativeAdIcon}
+                />
               </adsModule.NativeAsset>
             ) : null}
+            <View style={styles.nativeAdCopy}>
+              <adsModule.NativeAsset
+                assetType={adsModule.NativeAssetType.HEADLINE}
+              >
+                <Text
+                  numberOfLines={2}
+                  style={[styles.nativeAdHeadline, { color: theme.text }]}
+                >
+                  {nativeAd.headline}
+                </Text>
+              </adsModule.NativeAsset>
+              {nativeAd.advertiser ? (
+                <adsModule.NativeAsset
+                  assetType={adsModule.NativeAssetType.ADVERTISER}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.nativeAdAdvertiser,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {nativeAd.advertiser}
+                  </Text>
+                </adsModule.NativeAsset>
+              ) : null}
+            </View>
           </View>
-        </View>
 
-        {nativeAd.body ? (
-          <adsModule.NativeAsset assetType={adsModule.NativeAssetType.BODY}>
-            <Text
-              numberOfLines={3}
-              style={[styles.nativeAdBody, { color: theme.textSecondary }]}
-            >
-              {nativeAd.body}
-            </Text>
-          </adsModule.NativeAsset>
-        ) : null}
+          {nativeAd.body ? (
+            <adsModule.NativeAsset assetType={adsModule.NativeAssetType.BODY}>
+              <Text
+                numberOfLines={3}
+                style={[styles.nativeAdBody, { color: theme.textSecondary }]}
+              >
+                {nativeAd.body}
+              </Text>
+            </adsModule.NativeAsset>
+          ) : null}
 
-        {nativeAd.mediaContent ? (
-          <View
-            style={[
-              styles.nativeAdMediaFrame,
-              { backgroundColor: theme.backgroundElement },
-            ]}
-          >
-            <adsModule.NativeMediaView
-              resizeMode="cover"
-              style={styles.nativeAdMedia}
-            />
-          </View>
-        ) : null}
-
-        {nativeAd.callToAction ? (
-          <adsModule.NativeAsset
-            assetType={adsModule.NativeAssetType.CALL_TO_ACTION}
-          >
-            <Text
+          {nativeAd.mediaContent ? (
+            <View
               style={[
-                styles.nativeAdCta,
-                styles.nativeAdCtaText,
-                {
-                  backgroundColor: theme.primary,
-                  color: theme.primaryForeground,
-                },
+                styles.nativeAdMediaFrame,
+                { backgroundColor: theme.backgroundElement },
               ]}
             >
-              {nativeAd.callToAction}
-            </Text>
-          </adsModule.NativeAsset>
-        ) : null}
+              <adsModule.NativeMediaView
+                resizeMode="cover"
+                style={styles.nativeAdMedia}
+              />
+            </View>
+          ) : null}
+
+          {nativeAd.callToAction ? (
+            <adsModule.NativeAsset
+              assetType={adsModule.NativeAssetType.CALL_TO_ACTION}
+            >
+              <Text
+                style={[
+                  styles.nativeAdCta,
+                  styles.nativeAdCtaText,
+                  {
+                    backgroundColor: theme.primary,
+                    color: theme.primaryForeground,
+                  },
+                ]}
+              >
+                {nativeAd.callToAction}
+              </Text>
+            </adsModule.NativeAsset>
+          ) : null}
+        </View>
       </adsModule.NativeAdView>
     );
   }
@@ -1890,7 +1896,7 @@ function FeedAdCard({
     <View
       style={[
         styles.adCard,
-        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
       ]}
     >
       <View style={styles.adHeader}>
@@ -2445,9 +2451,9 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     alignSelf: "center",
     paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingTop: 14,
     paddingBottom: 40,
-    gap: 18,
+    gap: 14,
   },
   pageHeader: {
     flexDirection: "row",
@@ -2467,17 +2473,18 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 22,
     position: "relative",
   },
   filterBadge: {
     position: "absolute",
-    top: 5,
-    right: 5,
+    top: 6,
+    right: 6,
     minWidth: 17,
     height: 17,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
     borderRadius: 9,
     paddingHorizontal: 4,
   },
@@ -2579,10 +2586,10 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  feedList: { gap: 14 },
+  feedList: { gap: 12 },
   adCard: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
   },
   adHeader: {
@@ -2633,6 +2640,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "800",
+  },
+  nativeAdRoot: {
+    width: "100%",
   },
   nativeAdContent: {
     gap: 10,
@@ -2714,15 +2724,15 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
+    borderRadius: 18,
     overflow: "hidden",
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
   },
   avatar: { flexShrink: 0 },
   avatarFallback: {
@@ -2776,7 +2786,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   carouselWrap: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   carouselFrame: {
     position: "relative",
@@ -2819,8 +2829,8 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   richNote: {
-    paddingHorizontal: 14,
-    paddingBottom: 12,
+    paddingHorizontal: 13,
+    paddingBottom: 10,
   },
   showMoreButton: {
     paddingTop: 2,
@@ -2832,18 +2842,18 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   propButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
   propText: {
     fontSize: 13,
@@ -2854,8 +2864,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   commentCountText: {
     fontSize: 13,

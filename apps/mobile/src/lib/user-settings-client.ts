@@ -16,6 +16,7 @@ export type NotificationSettings = {
   notifyEndOfDayNudge: boolean;
   notifyPostProps: boolean;
   notifyPostComments: boolean;
+  notifyFriendPosts: boolean;
   notifyFriendRequestAccepted: boolean;
   notifyFriendMilestone: boolean;
   notifySharedGoalResponses: boolean;
@@ -26,6 +27,11 @@ export type NotificationSettings = {
   notifyPlanTomorrow: boolean;
   notifyWeeklyRecap: boolean;
   notifyScheduleEvents: boolean;
+  dailyNotificationTime: string;
+  weeklyNotificationTime: string;
+  weeklyNotificationDay: string;
+  monthlyNotificationTime: string;
+  monthlyNotificationDay: string;
 };
 
 export type UserSettings = NotificationSettings & {
@@ -48,6 +54,7 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   notifyEndOfDayNudge: true,
   notifyPostProps: true,
   notifyPostComments: true,
+  notifyFriendPosts: true,
   notifyFriendRequestAccepted: true,
   notifyFriendMilestone: true,
   notifySharedGoalResponses: true,
@@ -58,6 +65,11 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   notifyPlanTomorrow: true,
   notifyWeeklyRecap: true,
   notifyScheduleEvents: true,
+  dailyNotificationTime: "20:30",
+  weeklyNotificationTime: "18:00",
+  weeklyNotificationDay: "sunday",
+  monthlyNotificationTime: "09:00",
+  monthlyNotificationDay: "first",
 };
 
 export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
@@ -71,6 +83,7 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyEndOfDayNudge: USER_SETTING_DEFAULTS.notifyEndOfDayNudge,
   notifyPostProps: USER_SETTING_DEFAULTS.notifyPostProps,
   notifyPostComments: USER_SETTING_DEFAULTS.notifyPostComments,
+  notifyFriendPosts: USER_SETTING_DEFAULTS.notifyFriendPosts,
   notifyFriendRequestAccepted:
     USER_SETTING_DEFAULTS.notifyFriendRequestAccepted,
   notifyFriendMilestone: USER_SETTING_DEFAULTS.notifyFriendMilestone,
@@ -82,6 +95,11 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyPlanTomorrow: USER_SETTING_DEFAULTS.notifyPlanTomorrow,
   notifyWeeklyRecap: USER_SETTING_DEFAULTS.notifyWeeklyRecap,
   notifyScheduleEvents: USER_SETTING_DEFAULTS.notifyScheduleEvents,
+  dailyNotificationTime: USER_SETTING_DEFAULTS.dailyNotificationTime,
+  weeklyNotificationTime: USER_SETTING_DEFAULTS.weeklyNotificationTime,
+  weeklyNotificationDay: USER_SETTING_DEFAULTS.weeklyNotificationDay,
+  monthlyNotificationTime: USER_SETTING_DEFAULTS.monthlyNotificationTime,
+  monthlyNotificationDay: USER_SETTING_DEFAULTS.monthlyNotificationDay,
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

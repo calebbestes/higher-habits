@@ -26,6 +26,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { notifyFriendsOfVisibleHabitPost } from "@/lib/friend-post-notifications";
 import {
   deleteGoogleCalendarHabitPlan,
   upsertGoogleCalendarHabitPlan,
@@ -747,6 +748,7 @@ export async function POST(request: Request) {
           plannedStartTime: goalLogs.plannedStartTime,
           status: goalLogs.status,
           completedCount: goalLogs.completedCount,
+          visibility: goalLogs.visibility,
         })
         .from(goalLogs)
         .where(
@@ -877,6 +879,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Insert failed" }, { status: 500 });
       }
 
+      if (
+        savedLog.status === "complete" &&
+        existingLog?.status !== "complete"
+      ) {
+        void notifyFriendsOfVisibleHabitPost(db, savedLog.id);
+      }
+
       if (data.status !== "planned") {
         return NextResponse.json({ ok: true });
       }
@@ -917,6 +926,39 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "setNote") {
+      const [previousLog] = await db
+        .select({
+          id: goalLogs.id,
+          notes: goalLogs.notes,
+          status: goalLogs.status,
+        })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .limit(1);
+      const [previousPhoto] = previousLog
+        ? await db
+            .select({ id: goalLogPhotos.id })
+            .from(goalLogPhotos)
+            .where(
+              and(
+                eq(goalLogPhotos.goalLogId, previousLog.id),
+                eq(goalLogPhotos.userId, user.id),
+              ),
+            )
+            .limit(1)
+        : [];
+      const shouldNotifyPost =
+        Boolean(data.notes.trim()) &&
+        previousLog?.status === "complete" &&
+        !previousLog.notes.trim() &&
+        !previousPhoto;
+
       if (data.notes.trim()) {
         await db
           .insert(goalLogs)
@@ -999,10 +1041,28 @@ export async function POST(request: Request) {
           );
       }
 
+      if (shouldNotifyPost && syncedLog) {
+        void notifyFriendsOfVisibleHabitPost(db, syncedLog.id);
+      }
+
       return NextResponse.json({ ok: true, calendarSync });
     }
 
     if (data.type === "setVisibility") {
+      const [previousLog] = await db
+        .select({
+          id: goalLogs.id,
+          visibility: goalLogs.visibility,
+        })
+        .from(goalLogs)
+        .where(
+          and(
+            eq(goalLogs.goalId, data.goalId),
+            eq(goalLogs.date, data.dateKey),
+            eq(goalLogs.userId, user.id),
+          ),
+        )
+        .limit(1);
       const [updatedLog] = await db
         .update(goalLogs)
         .set({ visibility: data.visibility, updatedAt: new Date() })
@@ -1020,6 +1080,13 @@ export async function POST(request: Request) {
           { error: "Habit report not found" },
           { status: 404 },
         );
+      }
+
+      if (
+        previousLog?.visibility === "only_me" &&
+        data.visibility !== "only_me"
+      ) {
+        void notifyFriendsOfVisibleHabitPost(db, updatedLog.id);
       }
 
       return NextResponse.json({ ok: true });

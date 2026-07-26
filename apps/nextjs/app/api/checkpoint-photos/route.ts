@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { notifyFriendsOfVisibleCheckpointPost } from "@/lib/friend-post-notifications";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -44,6 +45,7 @@ async function findOwnedCheckpoint(
       id: goalCheckpoints.id,
       completedAt: goalCheckpoints.completedAt,
       notes: goalCheckpoints.notes,
+      visibility: goalCheckpoints.visibility,
     })
     .from(goalCheckpoints)
     .where(
@@ -156,6 +158,22 @@ export async function POST(request: Request) {
       );
     }
 
+    const [existingPhoto] = await db
+      .select({ id: goalCheckpointPhotos.id })
+      .from(goalCheckpointPhotos)
+      .where(
+        and(
+          eq(goalCheckpointPhotos.checkpointId, checkpoint.id),
+          eq(goalCheckpointPhotos.userId, user.id),
+        ),
+      )
+      .limit(1);
+    const shouldNotifyPost =
+      Boolean(checkpoint.completedAt) &&
+      checkpoint.visibility === "all_friends" &&
+      !checkpoint.notes?.trim() &&
+      !existingPhoto;
+
     const safeUserId = user.id.replace(/[^a-zA-Z0-9_-]/g, "_");
     const storagePath = `${safeUserId}/checkpoint/${checkpoint.id}/${crypto.randomUUID()}.${extension}`;
     const storage = getSupabaseStorageAdmin();
@@ -188,6 +206,10 @@ export async function POST(request: Request) {
 
       if (!photo) {
         throw new Error("Could not save photo");
+      }
+
+      if (shouldNotifyPost) {
+        void notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
       }
 
       const responseBody = {

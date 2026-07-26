@@ -12,7 +12,7 @@ import { useColorThemePreference } from "@/lib/theme-preference";
 export function useTheme() {
   const scheme = useColorScheme();
   const colorThemePreference = useColorThemePreference();
-  const theme = scheme === "unspecified" ? "light" : scheme;
+  const theme = scheme === "light" ? "light" : "dark";
 
   return useMemo(
     () => ({
