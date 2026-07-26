@@ -943,7 +943,10 @@ function DashCard({ children }: { children: React.ReactNode }) {
     <View
       style={[
         styles.section,
-        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+        {
+          backgroundColor: theme.background,
+          borderColor: `${theme.tabBorder}80`,
+        },
       ]}
     >
       <View style={styles.cardContent}>{children}</View>
@@ -1179,7 +1182,7 @@ function CategoryHeatmap({
                     styles.dayBlock,
                     {
                       backgroundColor: dayStatuses[i]
-                        ? theme.primary
+                        ? `${theme.primary}DD`
                         : theme.backgroundElement,
                     },
                   ]}
@@ -1311,10 +1314,10 @@ const styles = StyleSheet.create({
   tabLabel: { fontSize: 14, fontWeight: "700" },
   section: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "visible",
   },
-  cardContent: { paddingHorizontal: 14, paddingVertical: 8 },
+  cardContent: { paddingHorizontal: 12, paddingVertical: 6 },
   emptyHint: {
     fontSize: 13,
     fontWeight: "500",
@@ -1377,17 +1380,17 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   catHeatmap: {
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 4,
-    gap: 5,
+    gap: 4,
   },
   catDivider: {
     height: StyleSheet.hairlineWidth,
     marginBottom: 6,
   },
   catLabel: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     fontWeight: "800",
     letterSpacing: 0.8,
     marginBottom: 2,
@@ -1414,14 +1417,14 @@ const styles = StyleSheet.create({
   heatmapRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    height: 32,
+    gap: 7,
+    height: 28,
     overflow: "visible",
   },
   heatmapIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -1430,7 +1433,7 @@ const styles = StyleSheet.create({
   },
   iconTooltip: {
     position: "absolute",
-    left: 30,
+    left: 28,
     top: -6,
     zIndex: 20,
     elevation: 20,
@@ -1449,12 +1452,12 @@ const styles = StyleSheet.create({
   dayBlocks: {
     flex: 1,
     flexDirection: "row",
-    gap: 3,
+    gap: 4,
     zIndex: 0,
   },
   dayBlock: {
     flex: 1,
-    height: 28,
+    height: 24,
     borderRadius: 7,
   },
   iconPreview: {

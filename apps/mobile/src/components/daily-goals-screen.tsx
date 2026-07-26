@@ -851,12 +851,7 @@ export function DailyGoalsScreen({
           ) : null}
 
           {/* Date navigator */}
-          <View
-            style={[
-              styles.dateNav,
-              { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-            ]}
-          >
+          <View style={styles.dateNav}>
             <Pressable
               accessibilityLabel="Previous day"
               hitSlop={8}
@@ -1016,7 +1011,7 @@ export function DailyGoalsScreen({
                         styles.goalSurface,
                         {
                           backgroundColor: theme.tabBar,
-                          borderColor: theme.tabBorder,
+                          borderColor: `${theme.tabBorder}99`,
                         },
                       ]}
                     >
@@ -1026,7 +1021,7 @@ export function DailyGoalsScreen({
                             <View
                               style={[
                                 styles.divider,
-                                { backgroundColor: theme.tabBorder },
+                                { backgroundColor: `${theme.tabBorder}70` },
                               ]}
                             />
                           ) : null}

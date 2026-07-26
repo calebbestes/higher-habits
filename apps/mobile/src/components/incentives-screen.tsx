@@ -270,7 +270,12 @@ function IncentiveCard({
   const goalLabel = getGoalLabel(friend, incentive);
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+      ]}
+    >
       <View style={styles.cardHeader}>
         <Avatar name={friend.friendName} size={38} />
         <View style={styles.cardHeaderText}>
@@ -283,10 +288,15 @@ function IncentiveCard({
           </Text>
         </View>
         {isAccepted && (
-          <View style={styles.acceptedStatus}>
+          <View
+            style={[
+              styles.acceptedStatus,
+              { backgroundColor: `${accent}12`, borderColor: `${accent}40` },
+            ]}
+          >
             <SymbolView
               name={sym("checkmark.circle.fill", "check_circle")}
-              size={15}
+              size={13}
               weight="semibold"
               tintColor={accent}
             />
@@ -300,12 +310,7 @@ function IncentiveCard({
       <Text style={[styles.body, { color: theme.text }]}>{incentive.body}</Text>
 
       {isAccepted && incentive.progress ? (
-        <View
-          style={[
-            styles.progressBlock,
-            { backgroundColor: theme.backgroundElement },
-          ]}
-        >
+        <View style={styles.progressBlock}>
           <View style={styles.progressHeader}>
             <View style={styles.progressTitle}>
               <SymbolView
@@ -846,14 +851,14 @@ export function IncentivesScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.backgroundElement }]}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: insets.top + 8,
-            backgroundColor: theme.backgroundElement,
+            backgroundColor: theme.background,
             borderBottomColor: theme.tabBorder,
           },
         ]}
@@ -888,7 +893,7 @@ export function IncentivesScreen() {
           style={[
             styles.tabSwitcher,
             {
-              backgroundColor: theme.backgroundSelected,
+              backgroundColor: theme.backgroundElement,
               marginHorizontal: 16,
               marginTop: 12,
               marginBottom: 4,
@@ -905,7 +910,7 @@ export function IncentivesScreen() {
                 style={[
                   styles.tabSwitcherBtn,
                   tab === t && {
-                    backgroundColor: theme.background,
+                    backgroundColor: theme.tabBar,
                   },
                 ]}
               >
@@ -1099,9 +1104,10 @@ const styles = StyleSheet.create({
   list: { paddingTop: 12, paddingHorizontal: 16, gap: 12 },
   // Card
   card: {
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
-    padding: 16,
-    gap: 14,
+    padding: 14,
+    gap: 12,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   cardHeaderText: { flex: 1 },
@@ -1110,14 +1116,17 @@ const styles = StyleSheet.create({
   acceptedStatus: {
     flexDirection: "row",
     alignItems: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
     gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  acceptedStatusText: { fontSize: 13, fontWeight: "600" },
-  body: { fontSize: 18, lineHeight: 24, letterSpacing: -0.15 },
+  acceptedStatusText: { fontSize: 12, fontWeight: "700" },
+  body: { fontSize: 17, lineHeight: 23, letterSpacing: 0 },
   progressBlock: {
-    borderRadius: 9,
-    padding: 11,
-    gap: 9,
+    gap: 8,
+    paddingTop: 2,
   },
   progressHeader: {
     flexDirection: "row",
@@ -1125,7 +1134,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   progressTitle: { flexDirection: "row", alignItems: "center", gap: 6 },
-  progressLabel: { fontSize: 13, fontWeight: "600" },
+  progressLabel: { fontSize: 13, fontWeight: "700" },
   progressDays: { fontSize: 13, fontWeight: "500" },
   progressTrack: {
     height: 4,
@@ -1136,9 +1145,9 @@ const styles = StyleSheet.create({
   metadataRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
+    gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
+    paddingTop: 11,
   },
   metadataItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   metadataText: { fontSize: 13, fontWeight: "500" },

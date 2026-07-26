@@ -12,6 +12,7 @@ export type ThemePreference = "system" | "light" | "dark";
 
 const THEME_STORAGE_KEY = "theme-preference";
 const COLOR_THEME_STORAGE_KEY = "color-theme-preference";
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = "dark";
 
 function createPreferenceStore<T>(initial: T) {
   let value = initial;
@@ -83,7 +84,7 @@ export function useColorThemePreference(): ColorThemePreference {
 export async function getThemePreference(): Promise<ThemePreference> {
   const stored = await getStoredPreference(THEME_STORAGE_KEY);
 
-  return isThemePreference(stored) ? stored : "system";
+  return isThemePreference(stored) ? stored : DEFAULT_THEME_PREFERENCE;
 }
 
 export async function getColorThemePreference(): Promise<ColorThemePreference> {

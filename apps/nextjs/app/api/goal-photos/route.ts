@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { notifyFriendsOfVisibleHabitPost } from "@/lib/friend-post-notifications";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -282,6 +283,19 @@ export async function POST(request: Request) {
       );
     }
 
+    const [existingPhoto] = await db
+      .select({ id: goalLogPhotos.id })
+      .from(goalLogPhotos)
+      .where(
+        and(
+          eq(goalLogPhotos.goalLogId, goalLog.id),
+          eq(goalLogPhotos.userId, user.id),
+        ),
+      )
+      .limit(1);
+    const shouldNotifyPost =
+      goalLog.status === "complete" && !goalLog.notes.trim() && !existingPhoto;
+
     const safeUserId = user.id.replace(/[^a-zA-Z0-9_-]/g, "_");
     const storagePath = `${safeUserId}/${goalLog.id}/${crypto.randomUUID()}.${extension}`;
     const storage = getSupabaseStorageAdmin();
@@ -314,6 +328,10 @@ export async function POST(request: Request) {
 
       if (!photo) {
         throw new Error("Could not save photo");
+      }
+
+      if (shouldNotifyPost) {
+        void notifyFriendsOfVisibleHabitPost(db, goalLog.id);
       }
 
       const responseBody = {

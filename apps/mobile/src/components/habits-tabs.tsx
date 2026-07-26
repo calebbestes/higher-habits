@@ -35,7 +35,13 @@ export function HabitsTabs({
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             onPress={() => onChange(tab.key)}
-            style={[styles.tab, active && { backgroundColor: theme.tabBar }]}
+            style={[
+              styles.tab,
+              active && {
+                backgroundColor: theme.tabBar,
+                borderColor: theme.tabBorder,
+              },
+            ]}
           >
             <Text
               style={[
@@ -56,16 +62,18 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    padding: 3,
-    gap: 3,
+    borderRadius: 12,
+    padding: 2,
+    gap: 2,
   },
   tab: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 9,
-    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "transparent",
+    paddingVertical: 7,
+    borderRadius: 10,
   },
-  tabLabel: { fontSize: 14, fontWeight: "700" },
+  tabLabel: { fontSize: 13, fontWeight: "700" },
 });

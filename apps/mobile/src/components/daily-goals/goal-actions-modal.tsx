@@ -1,6 +1,12 @@
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState } from "react";
+import {
+  type ComponentProps,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -42,10 +48,84 @@ import {
 
 type PlanTimePart = "hour" | "minute";
 type PlanTimeParts = { hour: number; minute: number };
+type ReliablePressableProps = Omit<
+  ComponentProps<typeof Pressable>,
+  "onPress"
+> & {
+  onPress: () => void;
+};
 
 const CLEAR_PLAN_TIME_ACTION = "clear-plan-time";
 const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
 const PLAN_TIME_MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
+const TAP_MOVE_CANCEL_DISTANCE = 10;
+const PRESS_LOCK_MS = 450;
+
+function ReliablePressable({
+  disabled,
+  onPress,
+  onTouchCancel,
+  onTouchEnd,
+  onTouchMove,
+  onTouchStart,
+  ...props
+}: ReliablePressableProps) {
+  const lockRef = useRef(false);
+  const touchStartRef = useRef<{
+    didMove: boolean;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+
+  const runPress = useCallback(() => {
+    if (disabled || lockRef.current || !onPress) return;
+
+    lockRef.current = true;
+    setTimeout(onPress, 0);
+    setTimeout(() => {
+      lockRef.current = false;
+    }, PRESS_LOCK_MS);
+  }, [disabled, onPress]);
+
+  return (
+    <Pressable
+      {...props}
+      disabled={disabled}
+      onPress={runPress}
+      onTouchCancel={(event) => {
+        touchStartRef.current = null;
+        onTouchCancel?.(event);
+      }}
+      onTouchEnd={(event) => {
+        const touchStart = touchStartRef.current;
+        touchStartRef.current = null;
+        if (touchStart && !touchStart.didMove) {
+          runPress();
+        }
+        onTouchEnd?.(event);
+      }}
+      onTouchMove={(event) => {
+        const touchStart = touchStartRef.current;
+        if (touchStart) {
+          const dx = Math.abs(event.nativeEvent.pageX - touchStart.pageX);
+          const dy = Math.abs(event.nativeEvent.pageY - touchStart.pageY);
+          if (dx > TAP_MOVE_CANCEL_DISTANCE || dy > TAP_MOVE_CANCEL_DISTANCE) {
+            touchStart.didMove = true;
+          }
+        }
+        onTouchMove?.(event);
+      }}
+      onTouchStart={(event) => {
+        touchStartRef.current = {
+          didMove: false,
+          pageX: event.nativeEvent.pageX,
+          pageY: event.nativeEvent.pageY,
+        };
+        onTouchStart?.(event);
+      }}
+    />
+  );
+}
 
 function GoalActionsModalImpl({
   goal,
@@ -225,7 +305,7 @@ function GoalActionsModalImpl({
       onRequestClose={onDismiss}
     >
       <View style={modalStyles.overlay}>
-        <Pressable
+        <ReliablePressable
           accessibilityLabel="Close"
           style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
           onPress={onDismiss}
@@ -251,7 +331,7 @@ function GoalActionsModalImpl({
                 >
                   {goal.name}
                 </Text>
-                <Pressable
+                <ReliablePressable
                   onPress={onDismiss}
                   hitSlop={8}
                   style={({ pressed }) => [
@@ -266,7 +346,7 @@ function GoalActionsModalImpl({
                     weight="bold"
                     tintColor={theme.tabIcon}
                   />
-                </Pressable>
+                </ReliablePressable>
               </View>
 
               <ScrollView
@@ -367,7 +447,7 @@ function GoalActionsModalImpl({
                       </View>
                     </View>
                   ) : (
-                    <Pressable
+                    <ReliablePressable
                       onPress={() =>
                         onSetStatus(
                           isDefaultComplete
@@ -420,13 +500,13 @@ function GoalActionsModalImpl({
                             ? "Reopen"
                             : "Mark complete"}
                       </Text>
-                    </Pressable>
+                    </ReliablePressable>
                   )
                 ) : null}
 
                 {showPlanAction ? (
                   <>
-                    <Pressable
+                    <ReliablePressable
                       disabled={isPlanActionDisabled}
                       onPress={() => {
                         if (!showPlanEditor && !isPlanned) {
@@ -483,7 +563,7 @@ function GoalActionsModalImpl({
                       >
                         {planActionLabel}
                       </Text>
-                    </Pressable>
+                    </ReliablePressable>
 
                     {showPlanEditor && isPlanActionDisabled ? (
                       <Text
@@ -655,7 +735,7 @@ function GoalActionsModalImpl({
 
                 {!isFutureDate ? (
                   <View style={modalStyles.photoRow}>
-                    <Pressable
+                    <ReliablePressable
                       disabled={isUploadingPhoto}
                       onPress={() => onAddPhoto("camera")}
                       style={({ pressed }) => [
@@ -679,8 +759,8 @@ function GoalActionsModalImpl({
                       >
                         Take photo
                       </Text>
-                    </Pressable>
-                    <Pressable
+                    </ReliablePressable>
+                    <ReliablePressable
                       disabled={isUploadingPhoto}
                       onPress={() => onAddPhoto("library")}
                       style={({ pressed }) => [
@@ -704,12 +784,12 @@ function GoalActionsModalImpl({
                       >
                         Add photo
                       </Text>
-                    </Pressable>
+                    </ReliablePressable>
                   </View>
                 ) : null}
 
                 {/* Add note */}
-                <Pressable
+                <ReliablePressable
                   onPress={onOpenNote}
                   style={({ pressed }) => [
                     modalStyles.actionRow,
@@ -740,7 +820,7 @@ function GoalActionsModalImpl({
                       </Text>
                     ) : null}
                   </View>
-                </Pressable>
+                </ReliablePressable>
 
                 {!isFutureDate && (hasNote || hasPhoto) ? (
                   <GoalLogVisibilityControl

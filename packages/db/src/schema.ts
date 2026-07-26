@@ -868,6 +868,7 @@ export const userSettings = pgTable("user_settings", {
   // Friends & social.
   notifyPostProps: boolean("notify_post_props").notNull().default(true),
   notifyPostComments: boolean("notify_post_comments").notNull().default(true),
+  notifyFriendPosts: boolean("notify_friend_posts").notNull().default(true),
   notifyFriendRequestAccepted: boolean("notify_friend_request_accepted")
     .notNull()
     .default(true),
@@ -896,6 +897,21 @@ export const userSettings = pgTable("user_settings", {
   notifyScheduleEvents: boolean("notify_schedule_events")
     .notNull()
     .default(true),
+  dailyNotificationTime: text("daily_notification_time")
+    .notNull()
+    .default("20:30"),
+  weeklyNotificationTime: text("weekly_notification_time")
+    .notNull()
+    .default("18:00"),
+  weeklyNotificationDay: text("weekly_notification_day")
+    .notNull()
+    .default("sunday"),
+  monthlyNotificationTime: text("monthly_notification_time")
+    .notNull()
+    .default("09:00"),
+  monthlyNotificationDay: text("monthly_notification_day")
+    .notNull()
+    .default("first"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

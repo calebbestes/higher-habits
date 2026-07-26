@@ -56,7 +56,7 @@ function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={colorScheme === "light" ? DefaultTheme : DarkTheme}>
         <AnimatedSplashOverlay />
         <AuthNavigator />
       </ThemeProvider>
