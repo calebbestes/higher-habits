@@ -25,10 +25,16 @@ function createSelectionStore<T>(initial: T) {
   return { get, set, subscribe };
 }
 
-export type PlanReportView = "day-plan" | "habits" | "goals" | "top-tasks";
+export type PlanReportView =
+  | "day-plan"
+  | "monthly-plan"
+  | "habits"
+  | "goals"
+  | "top-tasks";
 export type HabitsTab = "daily" | "monthly";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
 export type AppStartPage =
+  | "add"
   | "plan-report"
   | "journal"
   | "collab"
@@ -38,21 +44,22 @@ export type AppStartPage =
   | "settings";
 
 export const DEFAULT_PLAN_REPORT_VIEW: PlanReportView = "day-plan";
-export const DEFAULT_COLLAB_SECTION: CollabSection = "shared-goals";
+export const DEFAULT_COLLAB_SECTION: CollabSection = "feed";
 export const DEFAULT_APP_START_PAGE: AppStartPage = "collab";
 
 export const PLAN_REPORT_VIEW_HREFS = {
   "day-plan": "/plan-report?view=day-plan",
-  habits: "/plan-report?view=habits",
-  goals: "/plan-report?view=goals",
-  "top-tasks": "/plan-report?view=top-tasks",
+  "monthly-plan": "/plan-report?view=monthly-plan",
+  habits: "/add?type=habits",
+  goals: "/add?type=goals",
+  "top-tasks": "/add?type=tasks",
 } as const satisfies Record<PlanReportView, string>;
 
 export const COLLAB_SECTION_HREFS = {
-  feed: "/friends?section=feed",
+  feed: "/?section=feed",
   incentives: "/?section=incentives",
   "shared-goals": "/?section=shared-goals",
-  friends: "/friends?section=friends",
+  friends: "/?section=friends",
 } as const satisfies Record<CollabSection, string>;
 
 const planReportStore = createSelectionStore<PlanReportView>(
@@ -184,15 +191,16 @@ export function getAppStartHref({
   defaultCollabSection: CollabSection;
   defaultPlanReportView: PlanReportView;
 }): string {
+  if (defaultAppStartPage === "add") return "/add?type=habits";
   if (defaultAppStartPage === "plan-report") {
-    return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView];
+    return defaultPlanReportView === "monthly-plan"
+      ? PLAN_REPORT_VIEW_HREFS["monthly-plan"]
+      : PLAN_REPORT_VIEW_HREFS["day-plan"];
   }
   if (defaultAppStartPage === "collab") {
-    return defaultCollabSection === "incentives"
-      ? COLLAB_SECTION_HREFS.incentives
-      : COLLAB_SECTION_HREFS["shared-goals"];
+    return COLLAB_SECTION_HREFS[defaultCollabSection];
   }
-  if (defaultAppStartPage === "friends") return "/friends?section=feed";
+  if (defaultAppStartPage === "friends") return "/?section=friends";
   if (defaultAppStartPage === "history") return "/history?section=dashboard";
   if (defaultAppStartPage === "journal") return "/journal";
   if (defaultAppStartPage === "dashboard") return "/dashboard";
@@ -200,12 +208,7 @@ export function getAppStartHref({
 }
 
 export function isPlanReportView(value: unknown): value is PlanReportView {
-  return (
-    value === "day-plan" ||
-    value === "habits" ||
-    value === "goals" ||
-    value === "top-tasks"
-  );
+  return value === "day-plan" || value === "monthly-plan";
 }
 
 export function isCollabSection(value: unknown): value is CollabSection {
@@ -219,6 +222,7 @@ export function isCollabSection(value: unknown): value is CollabSection {
 
 export function isAppStartPage(value: unknown): value is AppStartPage {
   return (
+    value === "add" ||
     value === "plan-report" ||
     value === "journal" ||
     value === "collab" ||

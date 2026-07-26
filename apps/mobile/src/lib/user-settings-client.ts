@@ -4,6 +4,11 @@ import type {
   CollabSection,
   PlanReportView,
 } from "@/lib/tab-view-store";
+import {
+  isAppStartPage,
+  isCollabSection,
+  isPlanReportView,
+} from "@/lib/tab-view-store";
 
 export type NotificationSettings = {
   notifyFriendRequests: boolean;
@@ -42,7 +47,7 @@ export type UserSettings = NotificationSettings & {
 
 export const USER_SETTING_DEFAULTS: UserSettings = {
   defaultAppStartPage: "collab",
-  defaultCollabSection: "shared-goals",
+  defaultCollabSection: "feed",
   defaultPlanReportView: "day-plan",
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
@@ -115,10 +120,25 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export const fetchUserSettings = (): Promise<UserSettings> =>
   mobileApiFetch("/api/user-settings").then((r) =>
-    parseResponse<Partial<UserSettings>>(r).then((settings) => ({
-      ...USER_SETTING_DEFAULTS,
-      ...settings,
-    })),
+    parseResponse<Partial<UserSettings>>(r).then((settings) => {
+      const merged = {
+        ...USER_SETTING_DEFAULTS,
+        ...settings,
+      };
+
+      return {
+        ...merged,
+        defaultAppStartPage: isAppStartPage(merged.defaultAppStartPage)
+          ? merged.defaultAppStartPage
+          : USER_SETTING_DEFAULTS.defaultAppStartPage,
+        defaultCollabSection: isCollabSection(merged.defaultCollabSection)
+          ? merged.defaultCollabSection
+          : USER_SETTING_DEFAULTS.defaultCollabSection,
+        defaultPlanReportView: isPlanReportView(merged.defaultPlanReportView)
+          ? merged.defaultPlanReportView
+          : USER_SETTING_DEFAULTS.defaultPlanReportView,
+      };
+    }),
   );
 
 export const updateUserSettings = (

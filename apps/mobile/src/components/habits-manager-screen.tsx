@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { EXPO_SYMBOL_ICON_OPTIONS, GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -429,9 +430,7 @@ export function HabitsManagerScreen() {
                 />
               </View>
               <View>
-                <Text style={[styles.title, { color: theme.text }]}>
-                  Habits
-                </Text>
+                <CreateHeaderMenu currentSection="habits" />
                 <Text
                   style={[styles.description, { color: theme.textSecondary }]}
                 >

@@ -19,6 +19,7 @@ import {
   CelebrationOverlay,
   confettiSource,
 } from "@/components/celebration-overlay";
+import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { toInput } from "@/components/tasks/shared";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
@@ -431,7 +432,7 @@ export function TasksScreen() {
                 />
               </View>
               <View>
-                <Text style={[styles.title, { color: theme.text }]}>Tasks</Text>
+                <CreateHeaderMenu currentSection="tasks" />
                 <Text
                   style={[styles.description, { color: theme.textSecondary }]}
                 >

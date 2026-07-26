@@ -4,16 +4,12 @@ import { useCallback, useEffect } from "react";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DayPlanScreen } from "@/components/day-plan-screen";
-import { GoalsScreen } from "@/components/goals-screen";
-import { HabitsScreen } from "@/components/habits-screen";
+import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
-import { TopTasksScreen } from "@/components/top-tasks-screen";
 import {
-  type HabitsTab,
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
   isPlanReportView,
-  setHabitsTab,
   setPlanReportDateKey,
   setPlanReportView,
   useDefaultPlanReportView,
@@ -22,9 +18,7 @@ import {
 
 const PLAN_REPORT_ORDER: readonly PlanReportView[] = [
   "day-plan",
-  "habits",
-  "goals",
-  "top-tasks",
+  "monthly-plan",
 ];
 
 export default function PlanReportScreen() {
@@ -35,21 +29,22 @@ export default function PlanReportScreen() {
   }>();
   const defaultView = useDefaultPlanReportView();
   const rememberedDateKey = usePlanReportDateKey();
-  const legacyHabitsTab = isLegacyHabitsTab(view) ? view : undefined;
-  const activeView = legacyHabitsTab
-    ? "habits"
-    : isPlanReportView(view)
-      ? view
-      : defaultView;
+  const activeView = isPlanReportView(view)
+    ? view
+    : isPlanReportView(defaultView)
+      ? defaultView
+      : "day-plan";
+  const defaultPlanView = isPlanReportView(defaultView)
+    ? defaultView
+    : "day-plan";
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
 
   useEffect(() => {
-    if (legacyHabitsTab) {
-      setPlanReportView("habits");
-      setHabitsTab(legacyHabitsTab);
-      router.replace("/plan-report?view=habits");
+    const legacyHref = getLegacyCreateHref(view);
+    if (legacyHref) {
+      router.replace(legacyHref as Href);
       return;
     }
 
@@ -58,8 +53,8 @@ export default function PlanReportScreen() {
       return;
     }
 
-    setPlanReportView(defaultView);
-  }, [defaultView, legacyHabitsTab, router, view]);
+    setPlanReportView(defaultPlanView);
+  }, [defaultPlanView, router, view]);
 
   const changeView = useCallback(
     (nextView: PlanReportView) => {
@@ -74,7 +69,16 @@ export default function PlanReportScreen() {
 
   let content: ReactNode;
 
-  if (activeView === "day-plan") {
+  if (activeView === "monthly-plan") {
+    content = (
+      <ComponentErrorBoundary name="MonthlyGoalsScreen">
+        <MonthlyGoalsScreen
+          initialDateKey={activeDateKey}
+          onDateChange={setPlanReportDateKey}
+        />
+      </ComponentErrorBoundary>
+    );
+  } else {
     content = (
       <ComponentErrorBoundary name="DayPlanScreen">
         <DayPlanScreen
@@ -82,26 +86,6 @@ export default function PlanReportScreen() {
           onDateChange={setPlanReportDateKey}
         />
       </ComponentErrorBoundary>
-    );
-  } else if (activeView === "top-tasks") {
-    content = (
-      <ComponentErrorBoundary name="TopTasksScreen">
-        <TopTasksScreen />
-      </ComponentErrorBoundary>
-    );
-  } else if (activeView === "goals") {
-    content = (
-      <ComponentErrorBoundary name="GoalsScreen">
-        <GoalsScreen />
-      </ComponentErrorBoundary>
-    );
-  } else {
-    content = (
-      <HabitsScreen
-        initialDateKey={activeDateKey}
-        initialTab={legacyHabitsTab}
-        onDateChange={setPlanReportDateKey}
-      />
     );
   }
 
@@ -116,8 +100,12 @@ export default function PlanReportScreen() {
   );
 }
 
-function isLegacyHabitsTab(view: string | undefined): view is HabitsTab {
-  return view === "daily" || view === "monthly";
+function getLegacyCreateHref(view: string | undefined): string | null {
+  if (view === "daily" || view === "habits") return "/add?type=habits";
+  if (view === "goals") return "/add?type=goals";
+  if (view === "top-tasks") return "/add?type=tasks";
+  if (view === "monthly") return "/plan-report?view=monthly-plan";
+  return null;
 }
 
 function isDateKey(value: string | undefined): value is string {

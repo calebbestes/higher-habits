@@ -25,9 +25,9 @@ import {
   CelebrationOverlay,
   confettiSource,
 } from "@/components/celebration-overlay";
+import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { modalStyles } from "@/components/daily-goals/shared";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
-import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -609,7 +609,7 @@ export function GoalsScreen() {
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
-                <PlanReportHeaderMenu currentView="goals" />
+                <CreateHeaderMenu currentSection="goals" />
               </View>
             </View>
             <View style={styles.headerActions}>

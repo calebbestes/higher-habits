@@ -59,7 +59,7 @@ const DAY_DEFAULTS = {
 
 const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
-  defaultCollabSection: "shared-goals",
+  defaultCollabSection: "feed",
   defaultPlanReportView: "day-plan",
 } as const;
 
@@ -88,6 +88,7 @@ const daySchemaShape = {
 const bodySchema = z
   .object({
     defaultAppStartPage: z.enum([
+      "add",
       "plan-report",
       "journal",
       "collab",
@@ -102,7 +103,7 @@ const bodySchema = z
       "shared-goals",
       "friends",
     ]),
-    defaultPlanReportView: z.enum(["day-plan", "habits", "goals", "top-tasks"]),
+    defaultPlanReportView: z.enum(["day-plan", "monthly-plan"]),
     ...notificationSchemaShape,
     ...timeSchemaShape,
     ...daySchemaShape,

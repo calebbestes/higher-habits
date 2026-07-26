@@ -836,7 +836,7 @@ export function MonthlyGoalsScreen({
           {/* Page header */}
           <View style={styles.pageHeader}>
             <View style={[styles.pageHeaderText, { flex: 1 }]}>
-              <PlanReportHeaderMenu currentView="habits" />
+              <PlanReportHeaderMenu currentView="monthly-plan" />
             </View>
             <Pressable
               accessibilityLabel="Add habit"

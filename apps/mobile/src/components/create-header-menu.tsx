@@ -4,58 +4,46 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
-import { type CollabSection, setCollabSection } from "@/lib/tab-view-store";
 
-export type { CollabSection };
+export type CreateSection = "habits" | "goals" | "tasks";
 
 const MENU_ITEMS: {
-  id: CollabSection;
+  id: CreateSection;
   title: string;
-  href:
-    | "/?section=incentives"
-    | "/?section=shared-goals"
-    | "/?section=feed"
-    | "/?section=friends";
-  image: "rectangle.stack" | "gift" | "person.3.fill" | "person.2.fill";
+  href: "/add?type=habits" | "/add?type=goals" | "/add?type=tasks";
+  image: "repeat" | "target" | "checklist";
 }[] = [
   {
-    id: "feed",
-    title: "Feed",
-    href: "/?section=feed",
-    image: "rectangle.stack",
+    id: "habits",
+    title: "Habits",
+    href: "/add?type=habits",
+    image: "repeat",
   },
   {
-    id: "friends",
-    title: "Friends",
-    href: "/?section=friends",
-    image: "person.2.fill",
+    id: "goals",
+    title: "Goals",
+    href: "/add?type=goals",
+    image: "target",
   },
   {
-    id: "incentives",
-    title: "Incentives",
-    href: "/?section=incentives",
-    image: "gift",
-  },
-  {
-    id: "shared-goals",
-    title: "Shared Goals",
-    href: "/?section=shared-goals",
-    image: "person.3.fill",
+    id: "tasks",
+    title: "Tasks",
+    href: "/add?type=tasks",
+    image: "checklist",
   },
 ];
 
-export function CollabHeaderMenu({
+export function CreateHeaderMenu({
   currentSection,
 }: {
-  currentSection: CollabSection;
+  currentSection: CreateSection;
 }) {
   const theme = useTheme();
   const router = useRouter();
-  const { section } = useLocalSearchParams<{ section?: string }>();
-  const selectedSection = isCollabSection(section) ? section : currentSection;
+  const { type } = useLocalSearchParams<{ type?: string }>();
+  const selectedSection = isCreateSection(type) ? type : currentSection;
   const selectedItem =
     MENU_ITEMS.find((item) => item.id === selectedSection) ?? MENU_ITEMS[0];
-  const triggerWidth = getTriggerWidth(selectedSection);
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -78,19 +66,19 @@ export function CollabHeaderMenu({
         const selectedItem = MENU_ITEMS.find(
           (item) => item.id === nativeEvent.event,
         );
-        if (selectedItem) {
-          setCollabSection(selectedItem.id);
-          router.navigate(selectedItem.href);
-        }
+        if (selectedItem) router.navigate(selectedItem.href);
       }}
-      style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
-      title="Collab sections"
+      style={StyleSheet.flatten([
+        styles.menu,
+        { width: selectedSection === "habits" ? 120 : 105 },
+      ])}
+      title="Create sections"
     >
       <View
         accessible
-        accessibilityLabel="Switch Collab section"
+        accessibilityLabel="Switch Create section"
         accessibilityRole="button"
-        style={StyleSheet.flatten([styles.trigger, { width: triggerWidth }])}
+        style={styles.trigger}
       >
         <Text style={[styles.triggerLabel, { color: theme.text }]}>
           {selectedItem.title}
@@ -106,22 +94,10 @@ export function CollabHeaderMenu({
   );
 }
 
-function isCollabSection(
+function isCreateSection(
   section: string | undefined,
-): section is CollabSection {
-  return (
-    section === "feed" ||
-    section === "incentives" ||
-    section === "shared-goals" ||
-    section === "friends"
-  );
-}
-
-function getTriggerWidth(section: CollabSection): number {
-  if (section === "shared-goals") return 190;
-  if (section === "incentives") return 150;
-  if (section === "friends") return 115;
-  return 85;
+): section is CreateSection {
+  return section === "habits" || section === "goals" || section === "tasks";
 }
 
 const styles = StyleSheet.create({
