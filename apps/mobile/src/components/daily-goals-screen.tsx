@@ -18,10 +18,9 @@ import {
   confettiSource,
   fireSource,
 } from "@/components/celebration-overlay";
+import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HabitFormModal } from "@/components/habits-manager-screen";
-import { HabitsTabs } from "@/components/habits-tabs";
-import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -32,6 +31,7 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
+  type CategoryWithHabits,
   type HabitInCategory,
   type HabitLogStatus,
   type HabitLogsSnapshot,
@@ -53,13 +53,11 @@ import {
   updateHabit,
 } from "@/lib/habits-client";
 import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
-import type { HabitsTab } from "@/lib/tab-view-store";
 
 import { CategoryAccordionRow } from "./daily-goals/category-accordion-row";
 import { CompletedSection } from "./daily-goals/completed-section";
 import { EmptyState } from "./daily-goals/empty-state";
 import { GoalActionsModal } from "./daily-goals/goal-actions-modal";
-import { GoalRow } from "./daily-goals/goal-row";
 import { PriorityAccordion } from "./daily-goals/priority-accordion";
 import {
   type ActionGoal,
@@ -75,16 +73,39 @@ import {
 const DAY_SWIPE_MIN_DISTANCE = 70;
 const DAY_CHANGE_ANIMATION_DISTANCE = 28;
 
+const PERIOD_GROUPS = [
+  {
+    icon: "mdi:calendar-today",
+    id: "period-daily",
+    name: "Daily",
+    period: "daily",
+  },
+  {
+    icon: "mdi:calendar-week",
+    id: "period-weekly",
+    name: "Weekly",
+    period: "weekly",
+  },
+  {
+    icon: "mdi:calendar-month",
+    id: "period-monthly",
+    name: "Monthly",
+    period: "monthly",
+  },
+] as const;
+
+type PeriodKey = (typeof PERIOD_GROUPS)[number]["period"];
+type PeriodHabitGroup = {
+  category: CategoryWithHabits;
+  goals: HabitInCategory[];
+};
+
 export function DailyGoalsScreen({
   initialDateKey,
-  habitsTab,
   onDateChange,
-  onHabitsTabChange,
 }: {
   initialDateKey?: string;
-  habitsTab?: HabitsTab;
   onDateChange?: (dateKey: string) => void;
-  onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
@@ -313,17 +334,30 @@ export function DailyGoalsScreen({
   const openEditGoal = (goal: HabitInCategory) => {
     addCrashBreadcrumb("openEditGoal", { goalId: goal.id });
     const category = categories.find((item) => item.id === goal.categoryId);
+    const editableGoal = goal as HabitInCategory &
+      Partial<
+        Pick<
+          Habit,
+          | "createdAt"
+          | "repeatDays"
+          | "repeatCadence"
+          | "repeatInterval"
+          | "repeatMonthlyType"
+          | "updatedAt"
+        >
+      >;
     setEditingGoal({
-      ...goal,
+      ...editableGoal,
       categoryName: category?.name ?? "",
       categoryIcon: category?.icon ?? "",
       goalId: goal.goalId,
       goalTitle: goal.goalTitle,
-      repeatInterval: null,
-      repeatDays: null,
-      repeatMonthlyType: null,
-      createdAt: "",
-      updatedAt: "",
+      repeatCadence: editableGoal.repeatCadence ?? editableGoal.period,
+      repeatInterval: editableGoal.repeatInterval ?? 1,
+      repeatDays: editableGoal.repeatDays ?? null,
+      repeatMonthlyType: editableGoal.repeatMonthlyType ?? null,
+      createdAt: editableGoal.createdAt ?? new Date().toISOString(),
+      updatedAt: editableGoal.updatedAt ?? editableGoal.createdAt ?? "",
     });
     setFormOpen(true);
   };
@@ -569,14 +603,55 @@ export function DailyGoalsScreen({
     [isSharedOrIncentive],
   );
 
+  const periodicHabits = useMemo(
+    () =>
+      snapshot?.periodicHabits.map<HabitInCategory>((goal) => ({
+        ...goal,
+        hidden: false,
+      })) ?? [],
+    [snapshot],
+  );
+
+  const periodHabitGroups = useMemo<PeriodHabitGroup[]>(() => {
+    const habitsByPeriod: Record<PeriodKey, HabitInCategory[]> = {
+      daily: [],
+      monthly: [],
+      weekly: [],
+    };
+
+    for (const category of categoriesWithGoals) {
+      for (const habit of category.habits) {
+        habitsByPeriod[habit.period].push(habit);
+      }
+    }
+
+    for (const habit of periodicHabits) {
+      habitsByPeriod[habit.period].push(habit);
+    }
+
+    return PERIOD_GROUPS.map((group) => {
+      const goals = habitsByPeriod[group.period];
+      return {
+        category: {
+          goals,
+          habits: goals,
+          icon: group.icon,
+          id: group.id,
+          name: group.name,
+        },
+        goals,
+      };
+    }).filter((group) => group.goals.length > 0);
+  }, [categoriesWithGoals, periodicHabits]);
+
   const priorityProgress = useMemo(() => {
     const progress = {
       high: { completed: 0, total: 0 },
       low: { completed: 0, total: 0 },
     };
 
-    for (const cat of categoriesWithGoals) {
-      for (const goal of cat.habits) {
+    for (const group of periodHabitGroups) {
+      for (const goal of group.goals) {
         const pr = getDailyPriorityBucket(goal);
         progress[pr].total++;
         if (getGoalDateStatus(goal, dateKey, logsByHabitDate) === "complete") {
@@ -586,19 +661,19 @@ export function DailyGoalsScreen({
     }
 
     return progress;
-  }, [categoriesWithGoals, dateKey, logsByHabitDate, getDailyPriorityBucket]);
+  }, [periodHabitGroups, dateKey, logsByHabitDate, getDailyPriorityBucket]);
 
   const highGoalIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const cat of categoriesWithGoals) {
-      for (const goal of cat.habits) {
+    for (const group of periodHabitGroups) {
+      for (const goal of group.goals) {
         if (getDailyPriorityBucket(goal) === "high") {
           ids.add(goal.id);
         }
       }
     }
     return ids;
-  }, [categoriesWithGoals, getDailyPriorityBucket]);
+  }, [periodHabitGroups, getDailyPriorityBucket]);
   highGoalIdsRef.current = highGoalIds;
   highProgressRef.current = priorityProgress.high;
 
@@ -619,40 +694,14 @@ export function DailyGoalsScreen({
     allHighDoneRef.current = allHighDone;
   }, [priorityProgress]);
 
-  const monthlyPlannedGoals = useMemo(
-    () =>
-      snapshot?.periodicHabits.filter((goal) => {
-        const status = logsByHabitDate[`${goal.id}_${dateKey}`];
-        return status === "planned" || status === "complete";
-      }) ?? [],
-    [dateKey, logsByHabitDate, snapshot],
-  );
-  const monthlyPlannedCompleted = useMemo(
-    () =>
-      monthlyPlannedGoals.filter(
-        (goal) => logsByHabitDate[`${goal.id}_${dateKey}`] === "complete",
-      ).length,
-    [dateKey, logsByHabitDate, monthlyPlannedGoals],
-  );
-
-  const monthlyActionGoals = useMemo(
-    () =>
-      monthlyPlannedGoals.map<ActionGoal>((goal) => ({
-        ...goal,
-        hidden: false,
-      })),
-    [monthlyPlannedGoals],
-  );
-
-  // Habits grouped by priority, excluding completed habits. Shared/incentive
-  // habits stay in their actual category; only auto-created "Shared Goals"
-  // category habits show in that section.
+  // Habits grouped by priority and recurrence, excluding completed habits.
+  // Shared/incentive habits still count as high priority for the daily focus.
   const priorityGroups = useMemo(() => {
     const make = (p: "high" | "low") =>
-      categoriesWithGoals
-        .map((cat) => ({
-          category: cat,
-          goals: cat.habits.filter(
+      periodHabitGroups
+        .map((group) => ({
+          category: group.category,
+          goals: group.goals.filter(
             (g) =>
               getDailyPriorityBucket(g) === p &&
               getGoalDateStatus(g, dateKey, logsByHabitDate) !== "complete",
@@ -661,20 +710,20 @@ export function DailyGoalsScreen({
         .filter((g) => g.goals.length > 0);
 
     return { high: make("high"), low: make("low") };
-  }, [categoriesWithGoals, logsByHabitDate, dateKey, getDailyPriorityBucket]);
+  }, [periodHabitGroups, logsByHabitDate, dateKey, getDailyPriorityBucket]);
 
   // All completed habits for this date
   const completedList = useMemo(
     () =>
-      categoriesWithGoals.flatMap((cat) =>
-        cat.habits
+      periodHabitGroups.flatMap((group) =>
+        group.goals
           .filter(
             (g) =>
               getGoalDateStatus(g, dateKey, logsByHabitDate) === "complete",
           )
-          .map((g) => ({ goal: g, category: cat })),
+          .map((g) => ({ goal: g, category: group.category })),
       ),
-    [categoriesWithGoals, logsByHabitDate, dateKey],
+    [periodHabitGroups, logsByHabitDate, dateKey],
   );
 
   const togglePriority = useCallback((p: string) => {
@@ -824,7 +873,7 @@ export function DailyGoalsScreen({
           {/* Page header */}
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderText}>
-              <PlanReportHeaderMenu currentView="habits" />
+              <CreateHeaderMenu currentSection="habits" />
             </View>
             <Pressable
               accessibilityLabel="Add habit"
@@ -845,10 +894,6 @@ export function DailyGoalsScreen({
               />
             </Pressable>
           </View>
-
-          {habitsTab && onHabitsTabChange ? (
-            <HabitsTabs value={habitsTab} onChange={onHabitsTabChange} />
-          ) : null}
 
           {/* Date navigator */}
           <View style={styles.dateNav}>
@@ -950,8 +995,7 @@ export function DailyGoalsScreen({
               <View style={styles.centerState}>
                 <FloatingLogoLoader />
               </View>
-            ) : categoriesWithGoals.length === 0 &&
-              monthlyPlannedGoals.length === 0 ? (
+            ) : periodHabitGroups.length === 0 ? (
               <EmptyState />
             ) : (
               <View style={styles.prioritySections}>
@@ -997,57 +1041,6 @@ export function DailyGoalsScreen({
                     </PriorityAccordion>
                   );
                 })}
-                {monthlyPlannedGoals.length > 0 ? (
-                  <PriorityAccordion
-                    color={theme.primary}
-                    completed={monthlyPlannedCompleted}
-                    isOpen={openPriorities.has("monthly")}
-                    label="Periodic Habits"
-                    total={monthlyPlannedGoals.length}
-                    onToggle={() => togglePriority("monthly")}
-                  >
-                    <View
-                      style={[
-                        styles.goalSurface,
-                        {
-                          backgroundColor: theme.tabBar,
-                          borderColor: `${theme.tabBorder}99`,
-                        },
-                      ]}
-                    >
-                      {monthlyActionGoals.map((goal, index) => (
-                        <View key={goal.id}>
-                          {index > 0 ? (
-                            <View
-                              style={[
-                                styles.divider,
-                                { backgroundColor: `${theme.tabBorder}70` },
-                              ]}
-                            />
-                          ) : null}
-                          <GoalRow
-                            goal={goal}
-                            status={logsByHabitDate[`${goal.id}_${dateKey}`]}
-                            completedCount={
-                              completedCountsByHabitDate[
-                                `${goal.id}_${dateKey}`
-                              ] ?? 0
-                            }
-                            plannedTime={
-                              snapshot?.plannedTimesByHabitDate?.[
-                                `${goal.id}_${dateKey}`
-                              ] ?? null
-                            }
-                            isUpdating={updatingKeys.has(
-                              `${goal.id}_${dateKey}`,
-                            )}
-                            onPress={() => openGoalActions(goal)}
-                          />
-                        </View>
-                      ))}
-                    </View>
-                  </PriorityAccordion>
-                ) : null}
                 {(["low"] as const).map((p) => {
                   const groups = priorityGroups[p];
                   const progress = priorityProgress[p];

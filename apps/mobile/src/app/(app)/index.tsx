@@ -2,6 +2,8 @@ import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { useCallback, useEffect } from "react";
 
+import { FeedScreen } from "@/components/feed-screen";
+import { FriendsScreen } from "@/components/friends-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
@@ -12,18 +14,24 @@ import {
   useDefaultCollabSection,
 } from "@/lib/tab-view-store";
 
-const COLLAB_ORDER: readonly CollabSection[] = ["shared-goals", "incentives"];
+const COLLAB_ORDER: readonly CollabSection[] = [
+  "feed",
+  "friends",
+  "incentives",
+  "shared-goals",
+];
 
 export default function CollabScreen() {
   const router = useRouter();
   const { section } = useLocalSearchParams<{ section?: string }>();
   const defaultSection = useDefaultCollabSection();
   const activeSection =
-    section === "incentives" || section === "shared-goals"
+    section === "feed" ||
+    section === "friends" ||
+    section === "incentives" ||
+    section === "shared-goals"
       ? section
-      : defaultSection === "incentives"
-        ? defaultSection
-        : "shared-goals";
+      : defaultSection;
 
   useEffect(() => {
     setCollabSection(activeSection);
@@ -31,9 +39,6 @@ export default function CollabScreen() {
 
   const changeSection = useCallback(
     (nextSection: CollabSection) => {
-      if (nextSection !== "shared-goals" && nextSection !== "incentives") {
-        return;
-      }
       setCollabSection(nextSection);
       router.replace(COLLAB_SECTION_HREFS[nextSection] as Href);
     },
@@ -42,7 +47,11 @@ export default function CollabScreen() {
 
   let content: ReactNode;
 
-  if (activeSection === "shared-goals") {
+  if (activeSection === "feed") {
+    content = <FeedScreen />;
+  } else if (activeSection === "friends") {
+    content = <FriendsScreen />;
+  } else if (activeSection === "shared-goals") {
     content = <SharedGoalsScreen />;
   } else {
     content = <IncentivesScreen />;

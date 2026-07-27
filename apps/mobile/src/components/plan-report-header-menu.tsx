@@ -9,12 +9,8 @@ import { type PlanReportView, setPlanReportView } from "@/lib/tab-view-store";
 const MENU_ITEMS: {
   id: PlanReportView;
   title: string;
-  href:
-    | "/plan-report?view=day-plan"
-    | "/plan-report?view=habits"
-    | "/plan-report?view=goals"
-    | "/plan-report?view=top-tasks";
-  image: "repeat" | "target" | "checklist" | "calendar";
+  href: "/plan-report?view=day-plan" | "/plan-report?view=monthly-plan";
+  image: "calendar" | "calendar.badge.clock";
 }[] = [
   {
     id: "day-plan",
@@ -23,22 +19,10 @@ const MENU_ITEMS: {
     image: "calendar",
   },
   {
-    id: "habits",
-    title: "Habits",
-    href: "/plan-report?view=habits",
-    image: "repeat",
-  },
-  {
-    id: "goals",
-    title: "Goals",
-    href: "/plan-report?view=goals",
-    image: "target",
-  },
-  {
-    id: "top-tasks",
-    title: "Tasks",
-    href: "/plan-report?view=top-tasks",
-    image: "checklist",
+    id: "monthly-plan",
+    title: "Monthly Plan",
+    href: "/plan-report?view=monthly-plan",
+    image: "calendar.badge.clock",
   },
 ];
 
@@ -57,9 +41,9 @@ export function PlanReportHeaderMenu({
     MENU_ITEMS.find((item) => item.id === selectedView) ?? MENU_ITEMS[0];
   const triggerWidth = compact
     ? 116
-    : selectedView === "top-tasks" || selectedView === "day-plan"
-      ? 140
-      : 120;
+    : selectedView === "monthly-plan"
+      ? 176
+      : 140;
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -93,11 +77,11 @@ export function PlanReportHeaderMenu({
         }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
-      title="Plan/Report views"
+      title="Plan views"
     >
       <View
         accessible
-        accessibilityLabel="Switch Plan/Report view"
+        accessibilityLabel="Switch Plan view"
         accessibilityRole="button"
         style={StyleSheet.flatten([styles.trigger, { width: triggerWidth }])}
       >
@@ -121,12 +105,7 @@ export function PlanReportHeaderMenu({
 }
 
 function isPlanReportView(view: string | undefined): view is PlanReportView {
-  return (
-    view === "day-plan" ||
-    view === "habits" ||
-    view === "goals" ||
-    view === "top-tasks"
-  );
+  return view === "day-plan" || view === "monthly-plan";
 }
 
 const styles = StyleSheet.create({

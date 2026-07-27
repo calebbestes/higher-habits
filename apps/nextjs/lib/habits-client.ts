@@ -2,6 +2,7 @@ const HABITS_ENDPOINT = "/api/habits";
 const CATEGORIES_ENDPOINT = "/api/categories";
 
 export type HabitVisibility = "only_me" | "goal_friends" | "all_friends";
+export type HabitPeriod = "daily" | "weekly" | "monthly";
 
 export type Category = {
   id: string;
@@ -14,7 +15,11 @@ export type Habit = {
   id: string;
   name: string;
   frequencyGoal: number | null;
-  period: "daily" | "weekly" | "monthly";
+  period: HabitPeriod;
+  repeatCadence: HabitPeriod | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: "day_of_month" | "day_of_week" | null;
   categoryId: string;
   categoryName: string;
   categoryIcon: string;
@@ -33,7 +38,11 @@ export type Habit = {
 export type HabitInput = {
   name: string;
   frequencyGoal: number | null;
-  period: "daily" | "weekly" | "monthly";
+  period: HabitPeriod;
+  repeatCadence: HabitPeriod | null;
+  repeatInterval: number | null;
+  repeatDays: number[] | null;
+  repeatMonthlyType: "day_of_month" | "day_of_week" | null;
   categoryId: string;
   goalId?: string | null;
   priority: string;

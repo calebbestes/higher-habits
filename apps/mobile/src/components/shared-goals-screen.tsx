@@ -2425,6 +2425,10 @@ export function SharedGoalsScreen() {
           hidden: actionPersonalGoal?.hidden ?? false,
           visibility: actionPersonalGoal?.visibility ?? "only_me",
           period: actionPersonalGoal?.period ?? "daily",
+          repeatCadence:
+            actionPersonalGoal?.repeatCadence ??
+            actionPersonalGoal?.period ??
+            "daily",
           frequencyGoal: actionPersonalGoal?.frequencyGoal ?? null,
           defaultComplete: actionPersonalGoal?.defaultComplete ?? false,
           planOnCalendar: actionPersonalGoal?.planOnCalendar ?? true,

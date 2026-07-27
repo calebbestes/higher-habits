@@ -76,21 +76,21 @@ const PLAN_REPORT_DEFAULT_OPTIONS: {
   value: PlanReportView;
 }[] = [
   { label: "Day Plan", value: "day-plan" },
-  { label: "Habits", value: "habits" },
-  { label: "Goals", value: "goals" },
-  { label: "Tasks", value: "top-tasks" },
+  { label: "Monthly Plan", value: "monthly-plan" },
 ];
 
 const COLLAB_DEFAULT_OPTIONS: { label: string; value: CollabSection }[] = [
-  { label: "Shared Goals", value: "shared-goals" },
+  { label: "Feed", value: "feed" },
+  { label: "Friends", value: "friends" },
   { label: "Incentives", value: "incentives" },
+  { label: "Shared Goals", value: "shared-goals" },
 ];
 
 const APP_START_DEFAULT_OPTIONS: { label: string; value: AppStartPage }[] = [
-  { label: "Plan/Report", value: "plan-report" },
+  { label: "Create", value: "add" },
+  { label: "Plan", value: "plan-report" },
   { label: "Collab", value: "collab" },
-  { label: "Friends", value: "friends" },
-  { label: "History", value: "history" },
+  { label: "Profile", value: "history" },
   { label: "Settings", value: "settings" },
 ];
 
@@ -276,7 +276,7 @@ export function SettingsScreen() {
   };
 
   const choosePlanReportDefault = () => {
-    Alert.alert("Plan/Report default", "Choose the first Plan/Report page.", [
+    Alert.alert("Plan default", "Choose the first Plan page.", [
       ...PLAN_REPORT_DEFAULT_OPTIONS.map((option) => ({
         text: option.label,
         onPress: () =>
@@ -475,7 +475,7 @@ export function SettingsScreen() {
   const showPrivacySummary = () => {
     Alert.alert(
       "Privacy Summary",
-      "float uses your account details, goals, journal entries, photos, friends, contacts for friend lookup, notifications, and crash diagnostics to run the app. Your progress stays private unless you choose to share it.",
+      "float uses your account details, goals, journal entries, photos, friends, notifications, and crash diagnostics to run the app. Your progress stays private unless you choose to share it.",
       [{ text: "OK" }],
     );
   };
@@ -614,7 +614,7 @@ export function SettingsScreen() {
             />
             <SettingsRow
               icon={sym("calendar.badge.clock", "event_note")}
-              title="Plan/Report default"
+              title="Plan default"
               value={getPlanReportDefaultLabel(
                 navigationDefaults.defaultPlanReportView,
               )}
@@ -888,7 +888,7 @@ function getCollabDefaultLabel(value: CollabSection): string {
 function getAppStartDefaultLabel(value: AppStartPage): string {
   return (
     APP_START_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
-    (value === "journal" || value === "dashboard" ? "History" : "Collab")
+    (value === "journal" || value === "dashboard" ? "Profile" : "Collab")
   );
 }
 

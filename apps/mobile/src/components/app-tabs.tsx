@@ -26,9 +26,14 @@ export default function AppTabs() {
         shadowColor={theme.tabBorder}
         tintColor={theme.primary}
       >
+        <NativeTabs.Trigger name="add">
+          <NativeTabs.Trigger.Icon md="add_circle" sf="plus.circle.fill" />
+          <NativeTabs.Trigger.Label>Create</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+
         <NativeTabs.Trigger name="plan-report">
           <NativeTabs.Trigger.Icon md="event_note" sf="calendar.badge.clock" />
-          <NativeTabs.Trigger.Label>Plan/Report</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Label>Plan</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="index">
@@ -36,17 +41,12 @@ export default function AppTabs() {
           <NativeTabs.Trigger.Label>Collab</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
-        <NativeTabs.Trigger name="friends">
-          <NativeTabs.Trigger.Icon md="feed" sf="rectangle.stack.fill" />
-          <NativeTabs.Trigger.Label>Friends</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
-
         <NativeTabs.Trigger name="history">
           <NativeTabs.Trigger.Icon
-            md="speed"
-            sf="gauge.with.dots.needle.50percent"
+            md="account_circle"
+            sf="person.crop.circle.fill"
           />
-          <NativeTabs.Trigger.Label>History</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="settings">

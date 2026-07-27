@@ -1,25 +1,49 @@
-import { useLocalSearchParams } from "expo-router";
+import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import type { ReactNode } from "react";
+import { useCallback } from "react";
 
-import { HabitsManagerScreen } from "@/components/habits-manager-screen";
-import { TabPlaceholderScreen } from "@/components/tab-placeholder-screen";
+import type { CreateSection } from "@/components/create-header-menu";
+import { DailyGoalsScreen } from "@/components/daily-goals-screen";
+import { GoalsScreen } from "@/components/goals-screen";
+import { SwipePageTransition } from "@/components/swipe-page-transition";
 import { TasksScreen } from "@/components/tasks-screen";
 
+const CREATE_ORDER: readonly CreateSection[] = ["habits", "goals", "tasks"];
+const CREATE_HREFS = {
+  habits: "/add?type=habits",
+  goals: "/add?type=goals",
+  tasks: "/add?type=tasks",
+} as const satisfies Record<CreateSection, string>;
+
 export default function AddScreen() {
+  const router = useRouter();
   const { type } = useLocalSearchParams<{ type?: string }>();
+  const activeSection: CreateSection =
+    type === "goals" || type === "tasks" ? type : "habits";
 
-  if (type === "habits" || type === "goals") {
-    return <HabitsManagerScreen />;
-  }
+  const changeSection = useCallback(
+    (nextSection: CreateSection) => {
+      router.replace(CREATE_HREFS[nextSection] as Href);
+    },
+    [router],
+  );
 
-  if (type === "tasks") {
-    return <TasksScreen />;
+  let content: ReactNode;
+  if (activeSection === "goals") {
+    content = <GoalsScreen />;
+  } else if (activeSection === "tasks") {
+    content = <TasksScreen />;
+  } else {
+    content = <DailyGoalsScreen />;
   }
 
   return (
-    <TabPlaceholderScreen
-      title="Add"
-      description="Create a habit, task, journal entry, or collaboration."
-      icon={{ ios: "plus", android: "add", web: "add" }}
-    />
+    <SwipePageTransition
+      activeKey={activeSection}
+      orderedKeys={CREATE_ORDER}
+      onChange={changeSection}
+    >
+      {content}
+    </SwipePageTransition>
   );
 }

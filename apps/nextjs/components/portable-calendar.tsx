@@ -290,6 +290,7 @@ function isGoalScheduledForDate(
   goal: Pick<
     PeriodicGoalInfo,
     | "period"
+    | "repeatCadence"
     | "repeatInterval"
     | "repeatDays"
     | "repeatMonthlyType"
@@ -298,17 +299,18 @@ function isGoalScheduledForDate(
   date: Date,
 ): boolean {
   if (goal.period === "daily") return true;
+  const cadence = goal.repeatCadence ?? goal.period;
   const interval = goal.repeatInterval ?? 1;
   const dow = date.getDay();
 
-  if (goal.period === "weekly") {
+  if (cadence === "weekly") {
     const days = goal.repeatDays;
     if (days && days.length > 0 && !days.includes(dow)) return false;
     if (interval === 1) return true;
     return weeksBetween(new Date(goal.createdAt), date) % interval === 0;
   }
 
-  if (goal.period === "monthly") {
+  if (cadence === "monthly") {
     const ref = new Date(goal.createdAt);
     const monthDiff =
       (date.getFullYear() - ref.getFullYear()) * 12 +

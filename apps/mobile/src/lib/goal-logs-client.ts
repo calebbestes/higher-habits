@@ -24,6 +24,7 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   defaultComplete: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
@@ -80,6 +81,7 @@ export type PeriodicGoalInfo = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;

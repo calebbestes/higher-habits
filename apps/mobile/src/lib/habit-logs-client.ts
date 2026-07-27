@@ -24,6 +24,7 @@ export type HabitInCategory = {
   visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   defaultComplete: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
@@ -79,6 +80,7 @@ export type PeriodicHabitInfo = {
   visibility: HabitVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;

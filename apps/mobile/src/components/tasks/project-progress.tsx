@@ -58,14 +58,18 @@ export function ProjectProgressCard({
   onDeleteProject: (project: Project) => void;
 }) {
   const theme = useTheme();
-  if (projects.length === 0) return null;
+  const activeProjects = projects.filter(
+    (project) =>
+      project.totalTasks === 0 || project.completedTasks < project.totalTasks,
+  );
+  if (activeProjects.length === 0) return null;
 
   return (
     <View style={styles.projectsCard}>
       <Text style={[styles.projectsTitle, { color: theme.text }]}>
         Project progress
       </Text>
-      {projects.map((project) => (
+      {activeProjects.map((project) => (
         <ProjectProgressRow
           key={project.id}
           project={project}

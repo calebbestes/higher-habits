@@ -14,6 +14,7 @@ type HabitReminder = Pick<
   | "id"
   | "name"
   | "period"
+  | "repeatCadence"
   | "reminderEnabled"
   | "reminderTime"
   | "repeatDays"
@@ -217,10 +218,11 @@ export async function scheduleHabitReminderAsync(
     data: { habitId: habit.id, type: "habit-reminder" },
   };
 
-  if (habit.period === "weekly") {
-    const repeatDays = habit.repeatDays?.length
-      ? habit.repeatDays
-      : [new Date().getDay()];
+  const cadence = habit.repeatCadence ?? habit.period;
+
+  if (cadence === "weekly") {
+    const repeatDays = habit.repeatDays?.length ? habit.repeatDays : [];
+    if (repeatDays.length === 0) return;
 
     await Promise.all(
       repeatDays.map((day) =>
@@ -239,7 +241,7 @@ export async function scheduleHabitReminderAsync(
     return;
   }
 
-  if (habit.period === "monthly") {
+  if (cadence === "monthly") {
     const createdAt = new Date(habit.createdAt);
     const day = Number.isNaN(createdAt.getTime())
       ? new Date().getDate()

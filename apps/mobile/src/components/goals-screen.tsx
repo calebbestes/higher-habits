@@ -25,9 +25,9 @@ import {
   CelebrationOverlay,
   confettiSource,
 } from "@/components/celebration-overlay";
+import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { modalStyles } from "@/components/daily-goals/shared";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
-import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -609,7 +609,7 @@ export function GoalsScreen() {
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
-                <PlanReportHeaderMenu currentView="goals" />
+                <CreateHeaderMenu currentSection="goals" />
               </View>
             </View>
             <View style={styles.headerActions}>
@@ -886,16 +886,6 @@ function GoalCard({
             >
               {goal.title}
             </Text>
-            <View
-              style={[
-                styles.goalContextChip,
-                { backgroundColor: theme.backgroundElement },
-              ]}
-            >
-              <Text style={[styles.goalContextText, { color: theme.primary }]}>
-                {goal.timing === "later" ? "Later" : "Current"}
-              </Text>
-            </View>
           </View>
           <Text
             style={[styles.goalMeta, { color: theme.textSecondary }]}
@@ -1062,12 +1052,20 @@ function GoalTimeline({
   return (
     <View style={styles.timelineBlock}>
       <View style={styles.timelinePreview}>
+        {previewCheckpoints.length > 1 ? (
+          <View
+            style={[
+              styles.timelineTrack,
+              {
+                backgroundColor: theme.tabBorder,
+                left: `${100 / (previewCheckpoints.length * 2)}%`,
+                right: `${100 / (previewCheckpoints.length * 2)}%`,
+              },
+            ]}
+          />
+        ) : null}
         {previewCheckpoints.map((checkpoint, index) => {
           const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
-          const nextCheckpoint = previewCheckpoints[index + 1];
-          const connectorIsComplete = Boolean(
-            checkpoint.completed && nextCheckpoint?.completed,
-          );
           const markerColor = checkpoint.completed
             ? theme.primary
             : plannedEvent
@@ -1092,19 +1090,13 @@ function GoalTimeline({
                           ? theme.primary
                           : plannedEvent
                             ? theme.secondary
-                            : theme.textSecondary,
+                            : theme.primary,
                       },
                     ]}
                   >
                     {dateLabel}
                   </Text>
-                ) : (
-                  <SymbolView
-                    name={symbol("calendar", "calendar_today")}
-                    size={12}
-                    tintColor={theme.textSecondary}
-                  />
-                )}
+                ) : null}
               </View>
               <View style={styles.milestoneTrackRow}>
                 <Pressable
@@ -1120,37 +1112,15 @@ function GoalTimeline({
                     pressed && styles.pressed,
                   ]}
                 >
-                  <SymbolView
-                    name={
-                      checkpoint.completed
-                        ? symbol("checkmark", "check")
-                        : plannedEvent
-                          ? symbol("calendar", "calendar_today")
-                          : symbol("circle", "radio_button_unchecked")
-                    }
-                    size={checkpoint.completed ? 13 : 14}
-                    weight="semibold"
-                    tintColor={
-                      checkpoint.completed
-                        ? theme.primaryForeground
-                        : plannedEvent
-                          ? theme.secondaryForeground
-                          : theme.textSecondary
-                    }
-                  />
+                  {checkpoint.completed ? (
+                    <SymbolView
+                      name={symbol("checkmark", "check")}
+                      size={13}
+                      weight="semibold"
+                      tintColor={theme.primaryForeground}
+                    />
+                  ) : null}
                 </Pressable>
-                {index < previewCheckpoints.length - 1 ? (
-                  <View
-                    style={[
-                      styles.milestoneConnector,
-                      {
-                        backgroundColor: connectorIsComplete
-                          ? theme.primary
-                          : theme.tabBorder,
-                      },
-                    ]}
-                  />
-                ) : null}
               </View>
               <Pressable onPress={() => onPressCheckpoint(checkpoint)}>
                 <Text
@@ -1222,18 +1192,6 @@ function NextCheckpointAction({
         pressed && styles.pressed,
       ]}
     >
-      <SymbolView
-        name={
-          checkpoint.completed
-            ? symbol("checkmark.circle", "check_circle")
-            : plannedEvent
-              ? symbol("calendar", "calendar_today")
-              : symbol("calendar.badge.plus", "event_available")
-        }
-        size={15}
-        weight="semibold"
-        tintColor={theme.primary}
-      />
       <Text
         numberOfLines={1}
         style={[styles.nextCheckpointText, { color: theme.text }]}
@@ -2694,21 +2652,9 @@ const styles = StyleSheet.create({
   goalTitleRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 8,
   },
   goalTitle: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "800" },
   goalMeta: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  goalContextChip: {
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  goalContextText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
   goalProgressTrack: {
     height: 4,
     overflow: "hidden",
@@ -2738,6 +2684,13 @@ const styles = StyleSheet.create({
   timelinePreview: {
     flexDirection: "row",
     alignItems: "flex-start",
+    position: "relative",
+  },
+  timelineTrack: {
+    position: "absolute",
+    top: 38,
+    height: 4,
+    borderRadius: 999,
   },
   timelineMilestone: {
     flex: 1,
@@ -2746,14 +2699,18 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   milestoneDateSlot: {
-    minHeight: 18,
+    minHeight: 20,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 5,
+    marginBottom: 4,
   },
   milestoneDate: {
-    fontSize: 10,
-    lineHeight: 13,
+    borderRadius: 999,
+    backgroundColor: "#35BDEB1F",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "900",
     textAlign: "center",
   },
@@ -2773,14 +2730,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 14,
     zIndex: 2,
-  },
-  milestoneConnector: {
-    flex: 1,
-    height: 4,
-    marginLeft: 6,
-    marginRight: -6,
-    borderRadius: 999,
-    zIndex: 1,
   },
   milestoneTitle: {
     marginTop: 7,

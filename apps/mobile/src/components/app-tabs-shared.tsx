@@ -58,9 +58,52 @@ type TabItem = {
 
 const TABS: TabItem[] = [
   {
+    name: "add",
+    href: "/add?type=habits",
+    label: "Create",
+    icon: {
+      ios: "plus.circle.fill",
+      android: "add_circle",
+      web: "add_circle",
+    },
+    menu: {
+      alignment: "left",
+      width: 180,
+      items: [
+        {
+          label: "Habits",
+          href: "/add?type=habits",
+          icon: {
+            ios: "repeat",
+            android: "repeat",
+            web: "repeat",
+          },
+        },
+        {
+          label: "Goals",
+          href: "/add?type=goals",
+          icon: {
+            ios: "target",
+            android: "target",
+            web: "target",
+          },
+        },
+        {
+          label: "Tasks",
+          href: "/add?type=tasks",
+          icon: {
+            ios: "checklist",
+            android: "checklist",
+            web: "checklist",
+          },
+        },
+      ],
+    },
+  },
+  {
     name: "plan-report",
-    href: "/plan-report",
-    label: "Plan/Report",
+    href: "/plan-report?view=day-plan",
+    label: "Plan",
     icon: {
       ios: "calendar.badge.clock",
       android: "event_note",
@@ -68,7 +111,7 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "left",
-      width: 196,
+      width: 190,
       items: [
         {
           label: "Day Plan",
@@ -80,30 +123,12 @@ const TABS: TabItem[] = [
           },
         },
         {
-          label: "Habits",
-          href: "/plan-report?view=habits",
+          label: "Monthly Plan",
+          href: "/plan-report?view=monthly-plan",
           icon: {
-            ios: "repeat",
-            android: "repeat",
-            web: "repeat",
-          },
-        },
-        {
-          label: "Goals",
-          href: "/plan-report?view=goals",
-          icon: {
-            ios: "target",
-            android: "target",
-            web: "target",
-          },
-        },
-        {
-          label: "Tasks",
-          href: "/plan-report?view=top-tasks",
-          icon: {
-            ios: "checklist",
-            android: "checklist",
-            web: "checklist",
+            ios: "calendar",
+            android: "calendar_month",
+            web: "calendar_month",
           },
         },
       ],
@@ -120,15 +145,24 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "center",
-      width: 220,
+      width: 210,
       items: [
         {
-          label: "Shared Goals",
-          href: "/?section=shared-goals",
+          label: "Feed",
+          href: "/?section=feed",
           icon: {
-            ios: "person.3.fill",
-            android: "groups",
-            web: "groups",
+            ios: "rectangle.stack",
+            android: "feed",
+            web: "feed",
+          },
+        },
+        {
+          label: "Friends",
+          href: "/?section=friends",
+          icon: {
+            ios: "person.2.fill",
+            android: "group",
+            web: "group",
           },
         },
         {
@@ -140,38 +174,13 @@ const TABS: TabItem[] = [
             web: "card_giftcard",
           },
         },
-      ],
-    },
-  },
-  {
-    name: "friends",
-    href: "/friends",
-    label: "Friends",
-    icon: {
-      ios: "rectangle.stack.fill",
-      android: "feed",
-      web: "feed",
-    },
-    menu: {
-      alignment: "center",
-      width: 180,
-      items: [
         {
-          label: "Feed",
-          href: "/friends?section=feed",
+          label: "Shared Goals",
+          href: "/?section=shared-goals",
           icon: {
-            ios: "rectangle.stack",
-            android: "feed",
-            web: "feed",
-          },
-        },
-        {
-          label: "Friends",
-          href: "/friends?section=friends",
-          icon: {
-            ios: "person.2.fill",
-            android: "group",
-            web: "group",
+            ios: "person.3.fill",
+            android: "groups",
+            web: "groups",
           },
         },
       ],
@@ -180,11 +189,11 @@ const TABS: TabItem[] = [
   {
     name: "history",
     href: "/history",
-    label: "History",
+    label: "Profile",
     icon: {
-      ios: "gauge.with.dots.needle.50percent",
-      android: "speed",
-      web: "speed",
+      ios: "person.crop.circle.fill",
+      android: "account_circle",
+      web: "account_circle",
     },
     menu: {
       alignment: "right",
@@ -511,15 +520,13 @@ function rememberSubmenuSelection(href: Href) {
 
   const planReportViews: Record<string, PlanReportView> = {
     "/plan-report?view=day-plan": "day-plan",
-    "/plan-report?view=habits": "habits",
-    "/plan-report?view=goals": "goals",
-    "/plan-report?view=top-tasks": "top-tasks",
+    "/plan-report?view=monthly-plan": "monthly-plan",
   };
   const collabSections: Record<string, CollabSection> = {
     "/?section=incentives": "incentives",
     "/?section=shared-goals": "shared-goals",
-    "/friends?section=feed": "feed",
-    "/friends?section=friends": "friends",
+    "/?section=feed": "feed",
+    "/?section=friends": "friends",
   };
 
   const planReportView = planReportViews[href];
@@ -538,18 +545,18 @@ function getDefaultTabHref({
   defaultPlanReportView: PlanReportView;
   tab: TabItem;
 }): Href {
-  if (tab.name === "plan-report") {
-    return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView] as Href;
+  if (tab.name === "add") {
+    return "/add?type=habits";
   }
-  if (tab.name === "collab") {
+  if (tab.name === "plan-report") {
     return (
-      defaultCollabSection === "incentives"
-        ? COLLAB_SECTION_HREFS.incentives
-        : COLLAB_SECTION_HREFS["shared-goals"]
+      defaultPlanReportView === "monthly-plan"
+        ? PLAN_REPORT_VIEW_HREFS["monthly-plan"]
+        : PLAN_REPORT_VIEW_HREFS["day-plan"]
     ) as Href;
   }
-  if (tab.name === "friends") {
-    return "/friends?section=feed";
+  if (tab.name === "collab") {
+    return COLLAB_SECTION_HREFS[defaultCollabSection] as Href;
   }
   if (tab.name === "history") {
     return "/history?section=dashboard";
