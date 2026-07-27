@@ -3,7 +3,6 @@ import {
   feedProps,
   friends,
   getDb,
-  goalLogPhotos,
   goalLogs,
   habits,
 } from "@habit/db";
@@ -65,23 +64,6 @@ async function findAccessibleFeedEntry(
 
   if (entry.ownerId === userId) {
     return entry;
-  }
-
-  if (!entry.notes.trim()) {
-    const [photo] = await db
-      .select({ id: goalLogPhotos.id })
-      .from(goalLogPhotos)
-      .where(
-        and(
-          eq(goalLogPhotos.goalLogId, entry.id),
-          eq(goalLogPhotos.userId, entry.ownerId),
-        ),
-      )
-      .limit(1);
-
-    if (!photo) {
-      return null;
-    }
   }
 
   const [friendship] = await db

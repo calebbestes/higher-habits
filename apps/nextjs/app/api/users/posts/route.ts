@@ -37,6 +37,80 @@ async function createSignedPhotoUrl(storagePath: string) {
   return data.signedUrl;
 }
 
+type HabitCompletionHighlightRow = {
+  goalId: string;
+  dateKey: string;
+};
+
+function dateKeyToNoon(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1, 12);
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const date = dateKeyToNoon(dateKey);
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function daysBetweenDateKeys(fromDateKey: string, toDateKey: string) {
+  return Math.max(
+    1,
+    Math.round(
+      (dateKeyToNoon(toDateKey).getTime() -
+        dateKeyToNoon(fromDateKey).getTime()) /
+        86_400_000,
+    ),
+  );
+}
+
+function formatDayCount(days: number) {
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+function getHabitCompletionHighlights(
+  row: HabitCompletionHighlightRow,
+  rows: HabitCompletionHighlightRow[],
+) {
+  const uniqueDateKeys = [
+    ...new Set(
+      rows
+        .filter((candidate) => candidate.goalId === row.goalId)
+        .map((candidate) => candidate.dateKey),
+    ),
+  ].sort();
+  const completedDateKeys = new Set(uniqueDateKeys);
+  const previousDateKeys = uniqueDateKeys.filter(
+    (dateKey) => dateKey < row.dateKey,
+  );
+  const previousDateKey = previousDateKeys.at(-1) ?? null;
+  const highlights: string[] = [];
+  let streakDays = 1;
+  let cursor = addDaysKey(row.dateKey, -1);
+
+  while (completedDateKeys.has(cursor)) {
+    streakDays += 1;
+    cursor = addDaysKey(cursor, -1);
+  }
+
+  if (streakDays >= 2) {
+    highlights.push(`${streakDays}-day streak`);
+  } else if (previousDateKey) {
+    highlights.push(
+      `First time in ${formatDayCount(
+        daysBetweenDateKeys(previousDateKey, row.dateKey),
+      )}`,
+    );
+  } else {
+    highlights.push("First logged completion");
+  }
+
+  return highlights;
+}
+
 export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
@@ -166,6 +240,8 @@ export async function GET(request: Request) {
       notes: string;
       updatedAt: string;
       canDeletePhotos: boolean;
+      postType: "completion" | "journal";
+      highlights: string[];
       props: { count: number; hasPropped: boolean };
       comments: [];
       photos: Photo[];
@@ -173,7 +249,8 @@ export async function GET(request: Request) {
 
     for (const row of logRows) {
       const photos = photosByEntryId.get(row.entryId) ?? [];
-      if (!row.notes.trim() && photos.length === 0) continue;
+      const postType =
+        !row.notes.trim() && photos.length === 0 ? "completion" : "journal";
 
       entries.push({
         id: row.entryId,
@@ -188,6 +265,8 @@ export async function GET(request: Request) {
         notes: row.notes,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: true,
+        postType,
+        highlights: getHabitCompletionHighlights(row, logRows),
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,
@@ -197,7 +276,8 @@ export async function GET(request: Request) {
     for (const row of checkpointRows) {
       if (!row.completedAt) continue;
       const photos = photosByEntryId.get(row.entryId) ?? [];
-      if (!row.notes?.trim() && photos.length === 0) continue;
+      const postType =
+        !row.notes?.trim() && photos.length === 0 ? "completion" : "journal";
 
       entries.push({
         id: row.entryId,
@@ -212,6 +292,8 @@ export async function GET(request: Request) {
         notes: row.notes ?? "",
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: true,
+        postType,
+        highlights: ["Checkpoint complete"],
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,
@@ -238,7 +320,9 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not load posts" },
+      {
+        error: error instanceof Error ? error.message : "Could not load posts",
+      },
       { status: 500 },
     );
   }

@@ -338,6 +338,12 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
     notes: stringOrFallback(value.notes),
     updatedAt: stringOrFallback(value.updatedAt),
     canDeletePhotos: booleanOrFallback(value.canDeletePhotos),
+    postType: value.postType === "completion" ? "completion" : "journal",
+    highlights: Array.isArray(value.highlights)
+      ? value.highlights.filter(
+          (highlight): highlight is string => typeof highlight === "string",
+        )
+      : [],
     props: isRecord(value.props)
       ? {
           count: numberOrFallback(value.props.count),
@@ -433,6 +439,8 @@ export type FriendFeedEntry = {
   notes: string;
   updatedAt: string;
   canDeletePhotos: boolean;
+  postType: "completion" | "journal";
+  highlights: string[];
   props: {
     count: number;
     hasPropped: boolean;
