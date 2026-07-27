@@ -54,6 +54,7 @@ type HabitFilter = "all" | "high" | "hidden";
 
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
+const CADENCES: HabitPeriod[] = ["weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_DAY_LETTERS = ["S", "M", "T", "W", "Th", "F", "S"];
 const MONTH_DATES = Array.from({ length: 31 }, (_, index) => index + 1);
@@ -115,6 +116,7 @@ const EMPTY_HABIT: HabitInput = {
   name: "",
   frequencyGoal: null,
   period: "daily",
+  repeatCadence: "daily",
   repeatInterval: 1,
   repeatDays: [new Date().getDay()],
   repeatMonthlyType: "day_of_month",
@@ -135,19 +137,20 @@ function symbol(ios: string, android: string): SymbolName {
 }
 
 function frequencyLabel(habit: Habit) {
+  const target = Math.max(habit.frequencyGoal ?? 1, 1);
+  const cadence = habit.repeatCadence ?? habit.period;
   const interval = habit.repeatInterval ?? 1;
   const unit =
-    habit.period === "daily"
-      ? "day"
-      : habit.period === "weekly"
-        ? "week"
-        : "month";
+    cadence === "daily" ? "day" : cadence === "weekly" ? "week" : "month";
   const base =
-    interval === 1 ? capitalize(habit.period) : `Every ${interval} ${unit}s`;
+    interval === 1 ? capitalize(cadence) : `Every ${interval} ${unit}s`;
   if (habit.period === "daily" && (habit.frequencyGoal ?? 1) > 1) {
     return `${base} · ${habit.frequencyGoal}/day`;
   }
-  if (habit.period === "weekly" && habit.repeatDays?.length) {
+  if (habit.period !== "daily" && target > 1) {
+    return `${target}/${habit.period} · ${base}`;
+  }
+  if (cadence === "weekly" && habit.repeatDays?.length) {
     return `${base} · ${habit.repeatDays.map((d) => DAY_LETTERS[d]).join("")}`;
   }
   return base;
@@ -168,18 +171,15 @@ function normalizeReminderTime(value: string | null | undefined) {
 
 function toInput(habit: Habit): HabitInput {
   const today = new Date();
+  const cadence = habit.repeatCadence ?? habit.period;
   return {
     name: habit.name,
     frequencyGoal: habit.frequencyGoal,
     period: habit.period,
+    repeatCadence: cadence,
     repeatInterval: habit.repeatInterval ?? 1,
     repeatDays:
-      habit.repeatDays ??
-      (habit.period === "weekly"
-        ? [today.getDay()]
-        : habit.period === "monthly"
-          ? [today.getDate()]
-          : null),
+      habit.repeatDays ?? (cadence === "monthly" ? [today.getDate()] : null),
     repeatMonthlyType:
       (habit.repeatMonthlyType as HabitRepeatMonthlyType | null) ??
       "day_of_month",
@@ -1000,7 +1000,15 @@ export function HabitFormModal({
   }, [habit, isOpen]);
 
   const save = async () => {
-    if (!form.name.trim() || !form.categoryId || isSaving) return;
+    if (isSaving) return;
+    if (!form.name.trim()) {
+      setError("Add a habit name before saving.");
+      return;
+    }
+    if (!form.categoryId) {
+      setError("Choose a category before saving.");
+      return;
+    }
     const today = new Date();
     const weeklyRepeatDays =
       form.repeatDays?.filter((day) => day >= 0 && day <= 6) ?? [];
@@ -1008,6 +1016,12 @@ export function HabitFormModal({
       form.repeatDays?.filter((day) => day >= 1 && day <= 31) ?? [];
     const monthlyRepeatWeekdays =
       form.repeatDays?.filter((day) => day >= 0 && day <= 34) ?? [];
+    const repeatCadence =
+      form.period === "daily"
+        ? "daily"
+        : form.period === "weekly"
+          ? "weekly"
+          : (form.repeatCadence ?? "monthly");
     const reminderTime = form.reminderEnabled
       ? normalizeReminderTime(form.reminderTime)
       : null;
@@ -1027,23 +1041,24 @@ export function HabitFormModal({
             ? (form.frequencyGoal ?? 1) > 1
               ? form.frequencyGoal
               : null
-            : form.frequencyGoal,
+            : Math.max(form.frequencyGoal ?? 1, 1),
+        repeatCadence,
         repeatDays:
-          form.period === "weekly"
+          repeatCadence === "weekly"
             ? weeklyRepeatDays.length
               ? weeklyRepeatDays
-              : [today.getDay()]
-            : form.period === "monthly"
+              : null
+            : repeatCadence === "monthly"
               ? form.repeatMonthlyType === "day_of_week"
                 ? monthlyRepeatWeekdays.length
                   ? monthlyRepeatWeekdays
-                  : [today.getDay()]
+                  : [monthlyWeekdayCell(getWeekOfMonth(today), today.getDay())]
                 : monthlyRepeatDates.length
                   ? monthlyRepeatDates
                   : [today.getDate()]
               : null,
         repeatMonthlyType:
-          form.period === "monthly" ? form.repeatMonthlyType : null,
+          repeatCadence === "monthly" ? form.repeatMonthlyType : null,
         reminderTime,
       });
     } catch (saveError) {
@@ -1185,7 +1200,9 @@ export function HabitFormModal({
               {habit ? "Edit Habit" : "New Habit"}
             </Text>
             <Pressable
+              accessibilityRole="button"
               disabled={!form.name.trim() || !form.categoryId || isSaving}
+              hitSlop={8}
               onPress={() => void save()}
               style={styles.formHeaderButton}
             >
@@ -1209,10 +1226,21 @@ export function HabitFormModal({
             </Pressable>
           </View>
 
+          {error ? (
+            <View style={styles.formErrorBanner}>
+              <SymbolView
+                name={symbol("exclamationmark.circle.fill", "error")}
+                size={17}
+                tintColor="#B84D54"
+              />
+              <Text style={styles.formError}>{error}</Text>
+            </View>
+          ) : null}
+
           <ScrollView
             canCancelContentTouches
             contentContainerStyle={styles.formContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
             <FormSection title="Habit">
@@ -1237,10 +1265,10 @@ export function HabitFormModal({
               />
             </FormSection>
 
-            <FormSection title="Schedule">
+            <FormSection title="Goal">
               <View style={styles.inputField}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Repeat
+                  Goal period
                 </Text>
                 <View style={styles.choiceWrap}>
                   {PERIODS.map((period) => (
@@ -1254,6 +1282,14 @@ export function HabitFormModal({
                           return {
                             ...current,
                             period,
+                            frequencyGoal:
+                              period === "daily" ? current.frequencyGoal : 1,
+                            repeatCadence:
+                              period === "daily"
+                                ? "daily"
+                                : period === "weekly"
+                                  ? "weekly"
+                                  : "monthly",
                             repeatDays:
                               period === "weekly"
                                 ? [today.getDay()]
@@ -1272,7 +1308,63 @@ export function HabitFormModal({
                 </View>
               </View>
 
+              <View style={styles.repeatIntervalRow}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Target
+                </Text>
+                <VerticalNumberStepper
+                  accessibilityLabel={`Times per ${form.period}`}
+                  value={form.frequencyGoal ?? 1}
+                  onChange={(frequencyGoal) =>
+                    setForm((current) => ({ ...current, frequencyGoal }))
+                  }
+                />
+                <Text style={[styles.intervalUnit, { color: theme.text }]}>
+                  {`time${(form.frequencyGoal ?? 1) !== 1 ? "s" : ""} per ${
+                    form.period
+                  }`}
+                </Text>
+              </View>
+            </FormSection>
+
+            <FormSection title="Schedule">
               <>
+                {form.period === "monthly" ? (
+                  <View style={styles.inputField}>
+                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                      Cadence
+                    </Text>
+                    <View style={styles.choiceWrap}>
+                      {CADENCES.map((cadence) => (
+                        <Choice
+                          key={cadence}
+                          label={capitalize(cadence)}
+                          selected={
+                            (form.repeatCadence ?? "monthly") === cadence
+                          }
+                          onPress={() =>
+                            setForm((current) => {
+                              const today = new Date();
+                              return {
+                                ...current,
+                                repeatCadence: cadence,
+                                repeatDays:
+                                  cadence === "weekly"
+                                    ? [today.getDay()]
+                                    : [today.getDate()],
+                                repeatMonthlyType:
+                                  cadence === "monthly"
+                                    ? "day_of_month"
+                                    : current.repeatMonthlyType,
+                              };
+                            })
+                          }
+                        />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+
                 <View style={styles.repeatIntervalRow}>
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>
                     Repeat every
@@ -1284,9 +1376,9 @@ export function HabitFormModal({
                     }
                   />
                   <Text style={[styles.intervalUnit, { color: theme.text }]}>
-                    {form.period === "daily"
+                    {(form.repeatCadence ?? form.period) === "daily"
                       ? "day"
-                      : form.period === "weekly"
+                      : (form.repeatCadence ?? form.period) === "weekly"
                         ? "week"
                         : "month"}
                     {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
@@ -1294,10 +1386,15 @@ export function HabitFormModal({
                 </View>
 
                 {/* Weekly: day-of-week chips */}
-                {form.period === "weekly" ? (
+                {(form.repeatCadence ?? form.period) === "weekly" ? (
                   <View style={styles.inputField}>
                     <Text style={[styles.fieldLabel, { color: theme.text }]}>
                       Repeat on
+                    </Text>
+                    <Text
+                      style={[styles.fieldHint, { color: theme.textSecondary }]}
+                    >
+                      Leave all days off to plan this habit manually.
                     </Text>
                     <View style={styles.dayChipRow}>
                       {DAY_LETTERS.map((letter, idx) => {
@@ -1344,7 +1441,7 @@ export function HabitFormModal({
                 ) : null}
 
                 {/* Monthly: day-of-month vs day-of-week */}
-                {form.period === "monthly"
+                {(form.repeatCadence ?? form.period) === "monthly"
                   ? (() => {
                       const today = new Date();
                       const monthlyFallbackDate = habit?.createdAt
@@ -1816,45 +1913,6 @@ export function HabitFormModal({
                   ))}
                 </View>
 
-                {form.period === "daily" ? (
-                  <View
-                    style={[
-                      styles.switchRow,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.tabBorder,
-                      },
-                    ]}
-                  >
-                    <View style={styles.switchCopy}>
-                      <Text style={[styles.switchTitle, { color: theme.text }]}>
-                        # of instances per day
-                      </Text>
-                      <Text
-                        style={[
-                          styles.switchDescription,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        Use for habits where more than one completion counts
-                        toward the day.
-                      </Text>
-                    </View>
-                    <View style={styles.instanceStepperWrap}>
-                      <VerticalNumberStepper
-                        accessibilityLabel="Instances per day"
-                        value={form.frequencyGoal ?? 1}
-                        onChange={(frequencyGoal) =>
-                          setForm((current) => ({
-                            ...current,
-                            frequencyGoal,
-                          }))
-                        }
-                      />
-                    </View>
-                  </View>
-                ) : null}
-
                 <View
                   style={[
                     styles.switchRow,
@@ -1964,8 +2022,6 @@ export function HabitFormModal({
                 ) : null}
               </FormSection>
             ) : null}
-
-            {error ? <Text style={styles.formError}>{error}</Text> : null}
           </ScrollView>
         </SafeAreaView>
       </KeyboardAvoidingView>
@@ -2504,6 +2560,19 @@ const styles = StyleSheet.create({
   },
   formHeaderButtonText: { fontSize: 15, fontWeight: "700" },
   formTitle: { fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  formErrorBanner: {
+    maxWidth: 620,
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    marginHorizontal: 18,
+    borderRadius: 14,
+    backgroundColor: "#F3B7B933",
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
   formContent: {
     width: "100%",
     maxWidth: 620,
@@ -2743,8 +2812,8 @@ const styles = StyleSheet.create({
   switchTitle: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
   switchDescription: { fontSize: 11, lineHeight: 16, fontWeight: "500" },
   formError: {
+    flex: 1,
     color: "#B84D54",
-    paddingHorizontal: 4,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",

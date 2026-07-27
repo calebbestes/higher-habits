@@ -1,50 +1,22 @@
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DailyGoalsScreen } from "@/components/daily-goals-screen";
-import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
-import {
-  type HabitsTab,
-  setHabitsTab,
-  useHabitsTab,
-} from "@/lib/tab-view-store";
 
 /**
- * Combines daily and monthly goals into one "Habits" page with a Daily/Monthly
- * tab switcher. The selected tab persists (via the tab-view store) while the
- * app is open. Each sub-screen renders the shared HabitsTabs control in its
- * own header so the date/month navigation stays intact.
+ * Legacy Habits wrapper. Periodic habits now live under the Plan tab's monthly
+ * plan page, so this route always shows the daily habit progress screen.
  */
 export function HabitsScreen({
   initialDateKey,
-  initialTab,
   onDateChange,
 }: {
   initialDateKey?: string;
-  initialTab?: HabitsTab;
   onDateChange?: (dateKey: string) => void;
 }) {
-  const rememberedTab = useHabitsTab();
-  const tab = initialTab ?? rememberedTab;
-
-  if (tab === "monthly") {
-    return (
-      <ComponentErrorBoundary name="MonthlyGoalsScreen">
-        <MonthlyGoalsScreen
-          habitsTab={tab}
-          initialDateKey={initialDateKey}
-          onDateChange={onDateChange}
-          onHabitsTabChange={setHabitsTab}
-        />
-      </ComponentErrorBoundary>
-    );
-  }
-
   return (
     <ComponentErrorBoundary name="DailyGoalsScreen">
       <DailyGoalsScreen
         initialDateKey={initialDateKey}
-        habitsTab={tab}
         onDateChange={onDateChange}
-        onHabitsTabChange={setHabitsTab}
       />
     </ComponentErrorBoundary>
   );

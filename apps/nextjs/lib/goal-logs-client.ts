@@ -12,6 +12,7 @@ export type GoalInCategory = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   reminderEnabled: boolean;
   reminderTime: string | null;
   sharedGoals: SharedGoalLink[];
@@ -44,6 +45,7 @@ export type PeriodicGoalInfo = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
@@ -62,6 +64,7 @@ export type HiddenGoalInfo = {
   visibility: GoalVisibility;
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
+  repeatCadence: "daily" | "weekly" | "monthly" | null;
   reminderEnabled: boolean;
   reminderTime: string | null;
 };

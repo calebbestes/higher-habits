@@ -421,16 +421,6 @@ export function TasksScreen() {
         >
           <View style={styles.header}>
             <View style={styles.headerIdentity}>
-              <View
-                style={[styles.headerIcon, { backgroundColor: theme.primary }]}
-              >
-                <SymbolView
-                  name={symbol("checklist", "checklist")}
-                  size={21}
-                  weight="semibold"
-                  tintColor={theme.primaryForeground}
-                />
-              </View>
               <View>
                 <CreateHeaderMenu currentSection="tasks" />
                 <Text

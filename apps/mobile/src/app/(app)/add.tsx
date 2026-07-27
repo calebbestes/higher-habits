@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { useCallback } from "react";
 
 import type { CreateSection } from "@/components/create-header-menu";
+import { DailyGoalsScreen } from "@/components/daily-goals-screen";
 import { GoalsScreen } from "@/components/goals-screen";
-import { HabitsManagerScreen } from "@/components/habits-manager-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
 import { TasksScreen } from "@/components/tasks-screen";
 
@@ -34,7 +34,7 @@ export default function AddScreen() {
   } else if (activeSection === "tasks") {
     content = <TasksScreen />;
   } else {
-    content = <HabitsManagerScreen />;
+    content = <DailyGoalsScreen />;
   }
 
   return (

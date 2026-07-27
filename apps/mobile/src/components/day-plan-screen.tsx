@@ -5589,6 +5589,7 @@ function isPeriodicHabitScheduledForDate(
     PeriodicHabitInfo,
     | "createdAt"
     | "period"
+    | "repeatCadence"
     | "repeatDays"
     | "repeatInterval"
     | "repeatMonthlyType"
@@ -5597,17 +5598,19 @@ function isPeriodicHabitScheduledForDate(
 ) {
   if (habit.period === "daily") return true;
 
+  const cadence = habit.repeatCadence ?? habit.period;
   const interval = habit.repeatInterval ?? 1;
   const dayOfWeek = date.getDay();
 
-  if (habit.period === "weekly") {
+  if (cadence === "weekly") {
     const days = habit.repeatDays;
-    if (days?.length && !days.includes(dayOfWeek)) return false;
+    if (!days?.length) return false;
+    if (!days.includes(dayOfWeek)) return false;
     if (interval === 1) return true;
     return weeksBetween(new Date(habit.createdAt), date) % interval === 0;
   }
 
-  if (habit.period === "monthly") {
+  if (cadence === "monthly") {
     const referenceDate = new Date(habit.createdAt);
     const monthDiff =
       (date.getFullYear() - referenceDate.getFullYear()) * 12 +

@@ -17,6 +17,7 @@ export type Habit = {
   name: string;
   frequencyGoal: number | null;
   period: HabitPeriod;
+  repeatCadence: HabitPeriod | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: HabitRepeatMonthlyType | null;
@@ -41,6 +42,7 @@ export type HabitInput = {
   name: string;
   frequencyGoal: number | null;
   period: HabitPeriod;
+  repeatCadence: HabitPeriod | null;
   repeatInterval: number | null;
   repeatDays: number[] | null;
   repeatMonthlyType: HabitRepeatMonthlyType | null;

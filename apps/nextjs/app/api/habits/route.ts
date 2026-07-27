@@ -11,6 +11,10 @@ const habitFields = {
   name: z.string().trim().min(1),
   frequencyGoal: z.number().int().positive().nullable().default(null),
   period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+  repeatCadence: z
+    .enum(["daily", "weekly", "monthly"])
+    .nullable()
+    .default(null),
   repeatInterval: z.number().int().min(1).max(99).nullable().default(null),
   repeatDays: z.array(z.number().int().min(0).max(34)).nullable().default(null),
   repeatMonthlyType: z
@@ -55,6 +59,7 @@ const selectHabitShape = {
   name: habits.name,
   frequencyGoal: habits.frequencyGoal,
   period: habits.period,
+  repeatCadence: habits.repeatCadence,
   repeatInterval: habits.repeatInterval,
   repeatDays: habits.repeatDays,
   repeatMonthlyType: habits.repeatMonthlyType,
@@ -207,6 +212,7 @@ export async function POST(request: Request) {
       name: d.name,
       frequencyGoal: d.frequencyGoal,
       period: d.period,
+      repeatCadence: d.repeatCadence,
       repeatInterval: d.repeatInterval,
       repeatDays: d.repeatDays,
       repeatMonthlyType: d.repeatMonthlyType,

@@ -472,6 +472,7 @@ export const habits = pgTable(
     name: text("name").notNull(),
     frequencyGoal: integer("frequency_goal"),
     period: goalPeriodEnum("period").default("daily").notNull(),
+    repeatCadence: goalPeriodEnum("repeat_cadence"),
     repeatInterval: integer("repeat_interval"),
     repeatDays: json("repeat_days").$type<number[]>(),
     repeatMonthlyType: text("repeat_monthly_type"),
