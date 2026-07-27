@@ -110,6 +110,105 @@ async function createSignedPhotoUrl(storagePath: string) {
   return data.signedUrl;
 }
 
+type HabitCompletionHighlightRow = {
+  friendId: string;
+  goalId: string;
+  goalPeriod: (typeof habits.period.enumValues)[number];
+  dateKey: string;
+};
+
+function dateKeyToNoon(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1, 12);
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const date = dateKeyToNoon(dateKey);
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function daysBetweenDateKeys(fromDateKey: string, toDateKey: string) {
+  return Math.max(
+    1,
+    Math.round(
+      (dateKeyToNoon(toDateKey).getTime() -
+        dateKeyToNoon(fromDateKey).getTime()) /
+        86_400_000,
+    ),
+  );
+}
+
+function formatDayCount(days: number) {
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}
+
+function isSameCalendarWeek(leftDateKey: string, rightDateKey: string) {
+  const left = dateKeyToNoon(leftDateKey);
+  const right = dateKeyToNoon(rightDateKey);
+  const leftWeekStart = new Date(left);
+  const rightWeekStart = new Date(right);
+  leftWeekStart.setDate(left.getDate() - left.getDay());
+  rightWeekStart.setDate(right.getDate() - right.getDay());
+  return leftWeekStart.toDateString() === rightWeekStart.toDateString();
+}
+
+function getHabitCompletionHighlights(
+  row: HabitCompletionHighlightRow,
+  rows: HabitCompletionHighlightRow[],
+) {
+  const habitRows = rows
+    .filter(
+      (candidate) =>
+        candidate.friendId === row.friendId && candidate.goalId === row.goalId,
+    )
+    .map((candidate) => candidate.dateKey);
+  const uniqueDateKeys = [...new Set(habitRows)].sort();
+  const completedDateKeys = new Set(uniqueDateKeys);
+  const previousDateKeys = uniqueDateKeys.filter(
+    (dateKey) => dateKey < row.dateKey,
+  );
+  const previousDateKey = previousDateKeys.at(-1) ?? null;
+  const highlights: string[] = [];
+
+  if (row.goalPeriod === "daily") {
+    let streakDays = 1;
+    let cursor = addDaysKey(row.dateKey, -1);
+    while (completedDateKeys.has(cursor)) {
+      streakDays += 1;
+      cursor = addDaysKey(cursor, -1);
+    }
+
+    if (streakDays >= 2) {
+      highlights.push(`${streakDays}-day streak`);
+    }
+  }
+
+  if (!highlights.length && previousDateKey) {
+    highlights.push(
+      `First time in ${formatDayCount(
+        daysBetweenDateKeys(previousDateKey, row.dateKey),
+      )}`,
+    );
+  }
+
+  if (!highlights.length) {
+    highlights.push("First logged completion");
+  }
+
+  const completedThisWeek = uniqueDateKeys.filter((dateKey) =>
+    isSameCalendarWeek(dateKey, row.dateKey),
+  ).length;
+  if (completedThisWeek >= 2) {
+    highlights.push(`${completedThisWeek}x this week`);
+  }
+
+  return highlights.slice(0, 2);
+}
+
 export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
@@ -284,6 +383,8 @@ export async function GET(request: Request) {
         notes: string;
         updatedAt: string;
         canDeletePhotos: boolean;
+        postType: "completion" | "journal";
+        highlights: string[];
         props: {
           count: number;
           hasPropped: boolean;
@@ -313,7 +414,8 @@ export async function GET(request: Request) {
       const friend = friendsById.get(row.friendId);
       if (!friend) continue;
       const photos = photosByLogId.get(row.entryId) ?? [];
-      if (!row.notes.trim() && photos.length === 0) continue;
+      const postType =
+        !row.notes.trim() && photos.length === 0 ? "completion" : "journal";
 
       entries.set(row.entryId, {
         id: row.entryId,
@@ -333,6 +435,8 @@ export async function GET(request: Request) {
         notes: row.notes,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: row.friendId === user.id,
+        postType,
+        highlights: getHabitCompletionHighlights(row, visibleLogRows),
         props: {
           count: 0,
           hasPropped: false,
@@ -464,7 +568,8 @@ export async function GET(request: Request) {
       const friend = friendsById.get(row.friendId);
       if (!friend || !row.completedAt) continue;
       const photos = checkpointPhotosById.get(row.entryId) ?? [];
-      if (!row.notes?.trim() && photos.length === 0) continue;
+      const postType =
+        !row.notes?.trim() && photos.length === 0 ? "completion" : "journal";
 
       entries.set(row.entryId, {
         id: row.entryId,
@@ -480,6 +585,8 @@ export async function GET(request: Request) {
         notes: row.notes ?? "",
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: row.friendId === user.id,
+        postType,
+        highlights: ["Checkpoint complete"],
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,

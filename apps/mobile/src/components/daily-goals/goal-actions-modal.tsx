@@ -320,7 +320,7 @@ function GoalActionsModalImpl({
                 style={[
                   modalStyles.header,
                   {
-                    backgroundColor: theme.tabBar,
+                    backgroundColor: theme.background,
                     borderBottomColor: theme.tabBorder,
                   },
                 ]}
@@ -336,7 +336,10 @@ function GoalActionsModalImpl({
                   hitSlop={8}
                   style={({ pressed }) => [
                     modalStyles.closeBtn,
-                    { backgroundColor: theme.backgroundElement },
+                    {
+                      backgroundColor: "transparent",
+                      borderColor: theme.tabBorder,
+                    },
                     pressed && styles.pressed,
                   ]}
                 >
@@ -359,7 +362,10 @@ function GoalActionsModalImpl({
                     <View
                       style={[
                         modalStyles.actionRow,
-                        { backgroundColor: theme.backgroundElement },
+                        {
+                          backgroundColor: "transparent",
+                          borderColor: theme.tabBorder,
+                        },
                       ]}
                     >
                       {isUpdating ? (
@@ -367,7 +373,7 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={sym("checkmark.circle.fill", "check_circle")}
-                          size={26}
+                          size={22}
                           tintColor={
                             currentCompletedCount >= instanceTarget
                               ? theme.primary
@@ -461,7 +467,16 @@ function GoalActionsModalImpl({
                       }
                       style={({ pressed }) => [
                         modalStyles.actionRow,
-                        { backgroundColor: theme.backgroundElement },
+                        {
+                          backgroundColor:
+                            isComplete || hasSlip
+                              ? "transparent"
+                              : `${theme.primary}12`,
+                          borderColor:
+                            isComplete || hasSlip
+                              ? theme.tabBorder
+                              : `${theme.primary}55`,
+                        },
                         pressed && styles.pressed,
                       ]}
                     >
@@ -481,7 +496,7 @@ function GoalActionsModalImpl({
                                     )
                                   : sym("checkmark.circle.fill", "check_circle")
                           }
-                          size={26}
+                          size={22}
                           tintColor={
                             isComplete || hasSlip
                               ? theme.textSecondary
@@ -533,7 +548,16 @@ function GoalActionsModalImpl({
                       }}
                       style={({ pressed }) => [
                         modalStyles.actionRow,
-                        { backgroundColor: theme.backgroundElement },
+                        {
+                          backgroundColor:
+                            isPlanned && !hasPlanChanges
+                              ? "transparent"
+                              : `${theme.secondary}10`,
+                          borderColor:
+                            isPlanned && !hasPlanChanges
+                              ? theme.tabBorder
+                              : `${theme.secondary}44`,
+                        },
                         isPlanActionDisabled && modalStyles.disabled,
                         pressed && styles.pressed,
                       ]}
@@ -550,7 +574,7 @@ function GoalActionsModalImpl({
                               ? sym("calendar.badge.minus", "event_busy")
                               : sym("calendar.badge.plus", "event_available")
                           }
-                          size={26}
+                          size={22}
                           tintColor={
                             isPlanned && !hasPlanChanges
                               ? theme.textSecondary
@@ -580,7 +604,10 @@ function GoalActionsModalImpl({
                       <View
                         style={[
                           modalStyles.planTimeSection,
-                          { backgroundColor: theme.backgroundElement },
+                          {
+                            backgroundColor: "transparent",
+                            borderColor: theme.tabBorder,
+                          },
                         ]}
                       >
                         <Text
@@ -740,7 +767,10 @@ function GoalActionsModalImpl({
                       onPress={() => onAddPhoto("camera")}
                       style={({ pressed }) => [
                         modalStyles.photoBtn,
-                        { backgroundColor: theme.backgroundElement },
+                        {
+                          backgroundColor: "transparent",
+                          borderColor: theme.tabBorder,
+                        },
                         isUploadingPhoto && modalStyles.disabled,
                         pressed && styles.pressed,
                       ]}
@@ -750,12 +780,15 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={sym("camera.fill", "camera_alt")}
-                          size={26}
+                          size={21}
                           tintColor={theme.primary}
                         />
                       )}
                       <Text
-                        style={[modalStyles.actionText, { color: theme.text }]}
+                        style={[
+                          modalStyles.photoBtnText,
+                          { color: theme.text },
+                        ]}
                       >
                         Take photo
                       </Text>
@@ -765,7 +798,10 @@ function GoalActionsModalImpl({
                       onPress={() => onAddPhoto("library")}
                       style={({ pressed }) => [
                         modalStyles.photoBtn,
-                        { backgroundColor: theme.backgroundElement },
+                        {
+                          backgroundColor: "transparent",
+                          borderColor: theme.tabBorder,
+                        },
                         isUploadingPhoto && modalStyles.disabled,
                         pressed && styles.pressed,
                       ]}
@@ -775,12 +811,15 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={sym("photo.fill", "photo_library")}
-                          size={26}
+                          size={21}
                           tintColor={theme.primary}
                         />
                       )}
                       <Text
-                        style={[modalStyles.actionText, { color: theme.text }]}
+                        style={[
+                          modalStyles.photoBtnText,
+                          { color: theme.text },
+                        ]}
                       >
                         Add photo
                       </Text>
@@ -793,13 +832,16 @@ function GoalActionsModalImpl({
                   onPress={onOpenNote}
                   style={({ pressed }) => [
                     modalStyles.actionRow,
-                    { backgroundColor: theme.backgroundElement },
+                    {
+                      backgroundColor: "transparent",
+                      borderColor: theme.tabBorder,
+                    },
                     pressed && styles.pressed,
                   ]}
                 >
                   <SymbolView
                     name={sym("note.text", "notes")}
-                    size={26}
+                    size={22}
                     tintColor={theme.primary}
                   />
                   <View style={modalStyles.noteRowContent}>

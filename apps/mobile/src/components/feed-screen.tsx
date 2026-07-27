@@ -562,14 +562,12 @@ export function FeedScreen() {
                     const photos = entry.photos.filter(
                       (photo) => photo.id !== active.photo.id,
                     );
-                    if (
-                      !richTextToPlainText(entry.notes).trim() &&
-                      !photos.length
-                    ) {
-                      return [];
-                    }
+                    const postType =
+                      !richTextToPlainText(entry.notes).trim() && !photos.length
+                        ? "completion"
+                        : entry.postType;
 
-                    return [{ ...entry, photos }];
+                    return [{ ...entry, photos, postType }];
                   }),
                 );
                 setActivePhoto(null);
@@ -1491,6 +1489,10 @@ export function FeedCard({
   const [carouselWidth, setCarouselWidth] = useState(0);
   const plainNotes = richTextToPlainText(entry.notes);
   const commentCount = countComments(entry.comments);
+  const isCompletionOnly =
+    entry.postType === "completion" &&
+    entry.photos.length === 0 &&
+    !plainNotes.trim();
 
   return (
     <View
@@ -1647,6 +1649,8 @@ export function FeedCard({
         />
       ) : null}
 
+      {isCompletionOnly ? <CompletionPostBody entry={entry} /> : null}
+
       {/* Actions row — props/comments are habit-only for now */}
       {entry.kind === "habit" ? (
         <View style={[styles.actionsRow, { borderTopColor: theme.tabBorder }]}>
@@ -1701,6 +1705,59 @@ export function FeedCard({
           </Pressable>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function CompletionPostBody({ entry }: { entry: FriendFeedEntry }) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.completionBody}>
+      <View
+        style={[
+          styles.completionIcon,
+          { backgroundColor: `${theme.primary}18` },
+        ]}
+      >
+        <SymbolView
+          name={sym("checkmark", "check")}
+          size={16}
+          weight="bold"
+          tintColor={theme.primary}
+        />
+      </View>
+      <View style={styles.completionTextStack}>
+        <Text
+          numberOfLines={2}
+          style={[styles.completionTitle, { color: theme.text }]}
+        >
+          Completed {entry.goal.name}
+        </Text>
+        {entry.highlights.length > 0 ? (
+          <View style={styles.completionHighlights}>
+            {entry.highlights.map((highlight) => (
+              <View
+                key={highlight}
+                style={[
+                  styles.completionHighlightChip,
+                  { backgroundColor: theme.backgroundElement },
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.completionHighlightText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {highlight}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -2841,6 +2898,47 @@ const styles = StyleSheet.create({
   richNote: {
     paddingHorizontal: 13,
     paddingBottom: 10,
+  },
+  completionBody: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 13,
+    paddingBottom: 11,
+  },
+  completionIcon: {
+    width: 34,
+    height: 34,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  completionTextStack: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  completionTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  completionHighlights: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  completionHighlightChip: {
+    maxWidth: "100%",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  completionHighlightText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
   },
   showMoreButton: {
     paddingTop: 2,
