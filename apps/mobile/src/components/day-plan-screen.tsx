@@ -4145,6 +4145,13 @@ function getInternalEntryStatusLabel(
   return "Mark complete";
 }
 
+function getSuggestedEntryTypeLabel(entry: DayPlanEntry) {
+  if (entry.kind === "habit") return "Habit";
+  if (entry.kind === "task") return "Task";
+  if (entry.kind === "goal") return "Goal";
+  return entry.description;
+}
+
 function FloatingScheduleChip({
   entry,
   pageX,
@@ -4160,6 +4167,7 @@ function FloatingScheduleChip({
   const width = Math.min(220, Math.max(140, screenWidth - 32));
   const left = clampNumber(pageX - width / 2, 16, screenWidth - width - 16);
   const top = Math.max(8, pageY - 26);
+  const metaLabel = getSuggestedEntryTypeLabel(entry);
 
   return (
     <View
@@ -4176,12 +4184,12 @@ function FloatingScheduleChip({
         },
       ]}
     >
-      {entry.description ? (
+      {metaLabel ? (
         <Text
           numberOfLines={1}
           style={[styles.allDayChipMeta, { color: theme.primary }]}
         >
-          {entry.description}
+          {metaLabel}
         </Text>
       ) : null}
       <Text
@@ -4221,6 +4229,9 @@ function EntryChip({
   const { backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledChip = Boolean(onBeginSchedule);
   const chipColor = isUnscheduledChip ? theme.text : color;
+  const metaLabel = isUnscheduledChip
+    ? getSuggestedEntryTypeLabel(entry)
+    : entry.description;
   const clearLongPressTimer = () => {
     if (!longPressTimerRef.current) return;
 
@@ -4264,7 +4275,7 @@ function EntryChip({
           : { backgroundColor },
       ]}
     >
-      {entry.description ? (
+      {metaLabel ? (
         <Text
           numberOfLines={1}
           style={[
@@ -4273,7 +4284,7 @@ function EntryChip({
             { color: isUnscheduledChip ? theme.primary : color },
           ]}
         >
-          {entry.description}
+          {metaLabel}
         </Text>
       ) : null}
       <Text
@@ -5069,33 +5080,15 @@ function buildSuggestedPlanEntries({
   snapshot: HabitLogsSnapshot | null;
   tasks: Task[];
 }): SuggestedPlanEntry[] {
-  const checkpointEntries = planGoals.flatMap((goal) =>
-    goal.checkpoints
-      .filter(
-        (checkpoint) =>
-          !checkpoint.completed &&
-          checkpoint.targetDate === dateKey &&
-          !scheduledCheckpointIds.has(checkpoint.id),
-      )
-      .map((checkpoint) =>
-        suggestedEntry({
-          description: goal.title,
-          id: `suggested-goal-${checkpoint.id}`,
-          kind: "goal",
-          sourceId: checkpoint.id,
-          title: checkpoint.title,
-        }),
-      ),
-  );
-
-  const periodicEntries = allDayEntries
+  const habitById = buildHabitMap(snapshot);
+  const allDayHabitEntries = allDayEntries
     .filter(
       (entry) =>
         entry.kind === "habit" &&
         entry.habitId &&
-        entry.description === "Periodic habit" &&
         !entry.completed &&
-        (scheduledHabitCounts.get(entry.habitId) ?? 0) < 1,
+        (scheduledHabitCounts.get(entry.habitId) ?? 0) <
+          Math.max(habitById.get(entry.habitId)?.frequencyGoal ?? 1, 1),
     )
     .map((entry) => ({
       ...entry,
@@ -5103,7 +5096,31 @@ function buildSuggestedPlanEntries({
         entry.habitId && snapshot
           ? getLastPlannedDurationMinutes(snapshot, entry.habitId, dateKey)
           : DEFAULT_UNSCHEDULED_DROP_MINUTES,
-    }));
+    }))
+    .sort((left, right) => {
+      const leftHabit = left.habitId ? habitById.get(left.habitId) : null;
+      const rightHabit = right.habitId ? habitById.get(right.habitId) : null;
+      return (
+        getHabitPriorityScore(rightHabit?.priority) -
+          getHabitPriorityScore(leftHabit?.priority) ||
+        left.title.localeCompare(right.title)
+      );
+    });
+
+  const periodicEntries = allDayHabitEntries.filter((entry) => {
+    const habit = entry.habitId ? habitById.get(entry.habitId) : null;
+    return habit?.period === "weekly" || habit?.period === "monthly";
+  });
+
+  const periodicHabitIds = new Set(
+    periodicEntries.map((entry) => entry.habitId).filter(Boolean),
+  );
+  const recurringEntries = allDayHabitEntries.filter(
+    (entry) => entry.habitId && !periodicHabitIds.has(entry.habitId),
+  );
+  const plannedAllDayHabitIds = new Set(
+    allDayHabitEntries.map((entry) => entry.habitId).filter(Boolean),
+  );
 
   const dailyHabitEntries =
     snapshot?.categories
@@ -5115,6 +5132,7 @@ function buildSuggestedPlanEntries({
               habit.priority === "high" &&
               !habit.hidden &&
               habit.planOnCalendar &&
+              !plannedAllDayHabitIds.has(habit.id) &&
               (scheduledHabitCounts.get(habit.id) ?? 0) <
                 Math.max(habit.frequencyGoal ?? 1, 1),
           )
@@ -5142,12 +5160,7 @@ function buildSuggestedPlanEntries({
       .map((row) => row.entry) ?? [];
 
   const taskEntries = tasks
-    .filter(
-      (task) =>
-        !task.completedAt &&
-        !scheduledTaskIds.has(task.id) &&
-        isSuggestedTask(task, dateKey),
-    )
+    .filter((task) => !task.completedAt && !scheduledTaskIds.has(task.id))
     .sort((left, right) => {
       const leftDue = left.dueDate ?? "9999-99-99";
       const rightDue = right.dueDate ?? "9999-99-99";
@@ -5171,14 +5184,98 @@ function buildSuggestedPlanEntries({
         sourceId: task.id,
         title: task.name,
       }),
-    );
+    )
+    .slice(0, 2);
+
+  const checkpointEntries = planGoals
+    .flatMap((goal) => {
+      const checkpoint = [...goal.checkpoints]
+        .sort(sortCheckpointsForPlanning)
+        .find(
+          (candidate) =>
+            !candidate.completed && !scheduledCheckpointIds.has(candidate.id),
+        );
+
+      return checkpoint
+        ? [
+            {
+              checkpoint,
+              entry: suggestedEntry({
+                description: goal.title,
+                id: `suggested-goal-${checkpoint.id}`,
+                kind: "goal",
+                sourceId: checkpoint.id,
+                title: checkpoint.title,
+              }),
+              goal,
+            },
+          ]
+        : [];
+    })
+    .sort(
+      (left, right) =>
+        getGoalTimingScore(right.goal.timing) -
+          getGoalTimingScore(left.goal.timing) ||
+        compareCheckpointDates(left.checkpoint, right.checkpoint, dateKey) ||
+        left.goal.sortOrder - right.goal.sortOrder ||
+        left.goal.title.localeCompare(right.goal.title) ||
+        left.checkpoint.sortOrder - right.checkpoint.sortOrder ||
+        left.checkpoint.title.localeCompare(right.checkpoint.title),
+    )
+    .map((row) => row.entry);
 
   return [
-    ...checkpointEntries,
     ...periodicEntries,
+    ...recurringEntries,
     ...dailyHabitEntries,
     ...taskEntries,
+    ...checkpointEntries,
   ];
+}
+
+function getHabitPriorityScore(priority: ActionHabit["priority"] | undefined) {
+  return priority === "high" ? 1 : 0;
+}
+
+function sortCheckpointsForPlanning(
+  left: GoalCheckpoint,
+  right: GoalCheckpoint,
+) {
+  return (
+    compareOptionalDateKeys(left.targetDate, right.targetDate) ||
+    left.sortOrder - right.sortOrder ||
+    left.title.localeCompare(right.title)
+  );
+}
+
+function compareCheckpointDates(
+  left: GoalCheckpoint,
+  right: GoalCheckpoint,
+  dateKey: string,
+) {
+  const leftRank = getCheckpointDateRank(left.targetDate, dateKey);
+  const rightRank = getCheckpointDateRank(right.targetDate, dateKey);
+
+  return (
+    leftRank - rightRank ||
+    compareOptionalDateKeys(left.targetDate, right.targetDate)
+  );
+}
+
+function getCheckpointDateRank(targetDate: string | null, dateKey: string) {
+  if (!targetDate) return 2;
+  return targetDate <= dateKey ? 0 : 1;
+}
+
+function compareOptionalDateKeys(left: string | null, right: string | null) {
+  if (left && right) return left.localeCompare(right);
+  if (left) return -1;
+  if (right) return 1;
+  return 0;
+}
+
+function getGoalTimingScore(timing: Goal["timing"]) {
+  return timing === "current" ? 1 : 0;
 }
 
 function countHabitCompletionsInLastDays(
@@ -5227,12 +5324,6 @@ function suggestedEntry({
     startMinutes: 0,
     title,
   };
-}
-
-function isSuggestedTask(task: Task, dateKey: string) {
-  if (task.importance === "High") return true;
-  if (!task.dueDate) return false;
-  return task.dueDate <= toDateKey(addDays(dateFromKey(dateKey), 3));
 }
 
 function getScheduleNotificationEventId(entry: DayPlanEntry, dateKey: string) {

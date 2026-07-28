@@ -51,6 +51,19 @@ export const SHARED_GOAL_PARTICIPANT_STATUSES = [
   "declined",
   "left",
 ] as const;
+export const MODERATION_REPORT_TARGET_TYPES = [
+  "feed_post",
+  "feed_comment",
+  "user",
+  "ad",
+  "general",
+] as const;
+export const MODERATION_REPORT_STATUSES = [
+  "open",
+  "reviewed",
+  "dismissed",
+  "actioned",
+] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
@@ -81,6 +94,14 @@ export const sharedGoalStakeTypeEnum = pgEnum(
 export const sharedGoalParticipantStatusEnum = pgEnum(
   "shared_goal_participant_status",
   SHARED_GOAL_PARTICIPANT_STATUSES,
+);
+export const moderationReportTargetTypeEnum = pgEnum(
+  "moderation_report_target_type",
+  MODERATION_REPORT_TARGET_TYPES,
+);
+export const moderationReportStatusEnum = pgEnum(
+  "moderation_report_status",
+  MODERATION_REPORT_STATUSES,
 );
 
 export const users = pgTable(
@@ -510,6 +531,62 @@ export const habits = pgTable(
   ],
 );
 
+export const habitAudienceFriends = pgTable(
+  "habit_audience_friends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    friendUserId: text("friend_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("habit_audience_friends_habit_id_idx").on(table.habitId),
+    index("habit_audience_friends_user_id_idx").on(table.userId),
+    index("habit_audience_friends_friend_user_id_idx").on(table.friendUserId),
+    unique("habit_audience_friends_habit_friend_uidx").on(
+      table.habitId,
+      table.friendUserId,
+    ),
+  ],
+);
+
+export const habitAudienceGroups = pgTable(
+  "habit_audience_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => friendGroups.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("habit_audience_groups_habit_id_idx").on(table.habitId),
+    index("habit_audience_groups_user_id_idx").on(table.userId),
+    index("habit_audience_groups_group_id_idx").on(table.groupId),
+    unique("habit_audience_groups_habit_group_uidx").on(
+      table.habitId,
+      table.groupId,
+    ),
+  ],
+);
+
 export const goalLogs = pgTable(
   "goal_logs",
   {
@@ -641,6 +718,33 @@ export const feedComments = pgTable(
     index("feed_comments_goal_log_id_idx").on(table.goalLogId),
     index("feed_comments_parent_comment_id_idx").on(table.parentCommentId),
     index("feed_comments_user_id_idx").on(table.userId),
+  ],
+);
+
+export const moderationReports = pgTable(
+  "moderation_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reporterId: text("reporter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: moderationReportTargetTypeEnum("target_type").notNull(),
+    targetId: text("target_id"),
+    reason: text("reason").notNull(),
+    context: json("context").$type<Record<string, unknown>>().default({}),
+    status: moderationReportStatusEnum("status").notNull().default("open"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("moderation_reports_reporter_id_idx").on(table.reporterId),
+    index("moderation_reports_status_created_at_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+    index("moderation_reports_target_idx").on(table.targetType, table.targetId),
   ],
 );
 

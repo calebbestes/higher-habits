@@ -22,6 +22,8 @@ export type GoalInCategory = {
   priority: "high" | "low";
   hidden: boolean;
   visibility: GoalVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
@@ -79,6 +81,8 @@ export type PeriodicGoalInfo = {
   goalTitle: string | null;
   priority: "high" | "low";
   visibility: GoalVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
@@ -164,6 +168,12 @@ function mapValues<T>(
 function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
   return {
     ...goal,
+    audienceFriendIds: Array.isArray(goal.audienceFriendIds)
+      ? goal.audienceFriendIds.filter((id) => typeof id === "string")
+      : [],
+    audienceGroupIds: Array.isArray(goal.audienceGroupIds)
+      ? goal.audienceGroupIds.filter((id) => typeof id === "string")
+      : [],
     defaultComplete: normalizeDefaultComplete(goal.defaultComplete),
     planOnCalendar: normalizePlanOnCalendar(goal.planOnCalendar),
     priority: normalizePriority(goal.priority),

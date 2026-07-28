@@ -1,3 +1,4 @@
+import { getDb, moderationReports } from "@habit/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -21,10 +22,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid report." }, { status: 400 });
     }
 
-    console.warn("Moderation report submitted", {
+    const db = getDb();
+    if (!db) {
+      return NextResponse.json(
+        { error: "Database unavailable" },
+        { status: 503 },
+      );
+    }
+
+    const context = {
+      ...(parsed.data.context ?? {}),
+      requestUserAgent: request.headers.get("user-agent"),
+    };
+
+    await db.insert(moderationReports).values({
+      context,
+      reason: parsed.data.reason,
       reporterId: user.id,
-      ...parsed.data,
-      submittedAt: new Date().toISOString(),
+      targetId: parsed.data.targetId ?? null,
+      targetType: parsed.data.targetType,
     });
 
     return NextResponse.json({ ok: true });

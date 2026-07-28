@@ -143,11 +143,13 @@ export const styles = StyleSheet.create({
     minHeight: 42,
   },
   navArrow: {
-    width: 36,
-    height: 36,
+    width: 46,
+    height: 46,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
+    zIndex: 2,
+    elevation: 2,
   },
   dateLabel: {
     flex: 1,
@@ -301,10 +303,17 @@ export const styles = StyleSheet.create({
   goalRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
     minHeight: 56,
+  },
+  goalRowMain: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 12,
+    paddingVertical: 9,
   },
   planTimeBadge: {
     minWidth: 48,
@@ -376,11 +385,11 @@ export const styles = StyleSheet.create({
   },
   completedText: { textDecorationLine: "line-through" },
   goalMenuButton: {
-    width: 28,
-    height: 28,
+    width: 48,
+    minHeight: 56,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 10,
+    borderRadius: 14,
   },
   pressed: { opacity: 0.72 },
 });

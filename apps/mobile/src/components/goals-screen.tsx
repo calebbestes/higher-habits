@@ -1066,16 +1066,21 @@ function GoalTimeline({
         ) : null}
         {previewCheckpoints.map((checkpoint, index) => {
           const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
+          const hasSchedule = Boolean(plannedEvent || checkpoint.targetDate);
           const markerColor = checkpoint.completed
             ? theme.primary
-            : plannedEvent
-              ? theme.secondary
+            : hasSchedule
+              ? `${theme.primary}1F`
               : theme.backgroundElement;
           const markerBorderColor =
-            checkpoint.completed || plannedEvent
-              ? markerColor
+            checkpoint.completed || hasSchedule
+              ? theme.primary
               : theme.tabBorder;
           const dateLabel = getCheckpointDateLabel(checkpoint, plannedEvent);
+          const dateColor =
+            checkpoint.completed || hasSchedule
+              ? theme.primary
+              : theme.textSecondary;
 
           return (
             <View key={checkpoint.id} style={styles.timelineMilestone}>
@@ -1086,11 +1091,8 @@ function GoalTimeline({
                     style={[
                       styles.milestoneDate,
                       {
-                        color: checkpoint.completed
-                          ? theme.primary
-                          : plannedEvent
-                            ? theme.secondary
-                            : theme.primary,
+                        backgroundColor: `${dateColor}1F`,
+                        color: dateColor,
                       },
                     ]}
                   >

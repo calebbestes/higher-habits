@@ -6,6 +6,8 @@ import {
   getDb,
   goalLogPhotos,
   goalLogs,
+  habitAudienceFriends,
+  habitAudienceGroups,
   habits,
   sharedGoalParticipants,
   sharedGoals,
@@ -413,6 +415,61 @@ export async function GET(request: Request) {
       return links;
     }, {});
 
+    const audienceByHabitId = new Map<
+      string,
+      { audienceFriendIds: string[]; audienceGroupIds: string[] }
+    >();
+    const habitIds = [
+      ...new Set(
+        [...dailyGoals, ...periodicGoals, ...hiddenGoals].map(
+          (goal) => goal.id,
+        ),
+      ),
+    ];
+    for (const habitId of habitIds) {
+      audienceByHabitId.set(habitId, {
+        audienceFriendIds: [],
+        audienceGroupIds: [],
+      });
+    }
+    if (habitIds.length > 0) {
+      const [audienceFriendRows, audienceGroupRows] = await Promise.all([
+        db
+          .select({
+            habitId: habitAudienceFriends.habitId,
+            friendUserId: habitAudienceFriends.friendUserId,
+          })
+          .from(habitAudienceFriends)
+          .where(
+            and(
+              eq(habitAudienceFriends.userId, user.id),
+              inArray(habitAudienceFriends.habitId, habitIds),
+            ),
+          ),
+        db
+          .select({
+            habitId: habitAudienceGroups.habitId,
+            groupId: habitAudienceGroups.groupId,
+          })
+          .from(habitAudienceGroups)
+          .where(
+            and(
+              eq(habitAudienceGroups.userId, user.id),
+              inArray(habitAudienceGroups.habitId, habitIds),
+            ),
+          ),
+      ]);
+
+      for (const row of audienceFriendRows) {
+        audienceByHabitId
+          .get(row.habitId)
+          ?.audienceFriendIds.push(row.friendUserId);
+      }
+      for (const row of audienceGroupRows) {
+        audienceByHabitId.get(row.habitId)?.audienceGroupIds.push(row.groupId);
+      }
+    }
+
     const goalsByCategoryId = dailyGoals.reduce<
       Record<string, typeof dailyGoals>
     >((acc, goal) => {
@@ -432,6 +489,10 @@ export async function GET(request: Request) {
         priority: g.priority as "high" | "low",
         hidden: g.hidden,
         visibility: g.visibility,
+        ...(audienceByHabitId.get(g.id) ?? {
+          audienceFriendIds: [],
+          audienceGroupIds: [],
+        }),
         period: g.period,
         frequencyGoal: g.frequencyGoal,
         repeatCadence: g.repeatCadence,
@@ -460,6 +521,10 @@ export async function GET(request: Request) {
       goalTitle: null,
       priority: g.priority as "high" | "low",
       visibility: g.visibility,
+      ...(audienceByHabitId.get(g.id) ?? {
+        audienceFriendIds: [],
+        audienceGroupIds: [],
+      }),
       period: g.period,
       frequencyGoal: g.frequencyGoal,
       repeatCadence: g.repeatCadence,

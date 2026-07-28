@@ -37,6 +37,12 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function hasProfileGridContent(post: FriendFeedEntry) {
+  return (
+    post.photos.length > 0 || richTextToPlainText(post.notes).trim().length > 0
+  );
+}
+
 export function FriendProfileScreen({
   friendId,
   friendshipId,
@@ -100,9 +106,9 @@ export function FriendProfileScreen({
           }
 
           setPosts(
-            myPosts.sort((left, right) =>
-              right.dateKey.localeCompare(left.dateKey),
-            ),
+            myPosts
+              .filter(hasProfileGridContent)
+              .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
           setArePostsLoading(false);
         } else {
@@ -126,6 +132,7 @@ export function FriendProfileScreen({
           setPosts(
             feed
               .filter((entry) => entry.friend.id === nextProfile.friend.id)
+              .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
           setArePostsLoading(false);

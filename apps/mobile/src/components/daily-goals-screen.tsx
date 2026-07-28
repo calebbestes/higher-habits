@@ -49,10 +49,14 @@ import {
   type HabitVisibility,
   createCategory,
   createHabit,
+  deleteHabit,
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
-import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
+import {
+  cancelHabitReminderAsync,
+  scheduleHabitReminderAsync,
+} from "@/lib/push-notifications";
 
 import { CategoryAccordionRow } from "./daily-goals/category-accordion-row";
 import { CompletedSection } from "./daily-goals/completed-section";
@@ -325,6 +329,38 @@ export function DailyGoalsScreen({
     }
   };
 
+  const confirmDeleteHabit = (habit: Habit) => {
+    Alert.alert(
+      "Delete habit?",
+      `"${habit.name}" and its history will be permanently deleted.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteHabit(habit.id);
+              await cancelHabitReminderAsync(habit.id);
+              await load();
+              setFormOpen(false);
+              setEditingGoal(null);
+            } catch (deleteError) {
+              captureHandledError(deleteError, {
+                handler: "confirmDeleteHabit",
+              });
+              setError(
+                deleteError instanceof Error
+                  ? deleteError.message
+                  : "Could not delete habit.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const addCategory = async (name: string, icon: string): Promise<Category> => {
     const category = await createCategory({ name, icon });
     setCategories((current) => [...current, category]);
@@ -352,6 +388,8 @@ export function DailyGoalsScreen({
       categoryIcon: category?.icon ?? "",
       goalId: goal.goalId,
       goalTitle: goal.goalTitle,
+      audienceFriendIds: editableGoal.audienceFriendIds ?? [],
+      audienceGroupIds: editableGoal.audienceGroupIds ?? [],
       repeatCadence: editableGoal.repeatCadence ?? editableGoal.period,
       repeatInterval: editableGoal.repeatInterval ?? 1,
       repeatDays: editableGoal.repeatDays ?? null,
@@ -900,7 +938,10 @@ export function DailyGoalsScreen({
             <Pressable
               accessibilityLabel="Previous day"
               hitSlop={8}
-              onPress={() => moveDate(-1)}
+              onPress={(event) => {
+                event.stopPropagation();
+                moveDate(-1);
+              }}
               style={({ pressed }) => [
                 styles.navArrow,
                 pressed && styles.pressed,
@@ -941,7 +982,10 @@ export function DailyGoalsScreen({
               {!isToday ? (
                 <Pressable
                   accessibilityLabel="Go to today"
-                  onPress={goToToday}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    goToToday();
+                  }}
                   style={({ pressed }) => [
                     styles.todayButton,
                     { borderColor: theme.primary },
@@ -958,7 +1002,10 @@ export function DailyGoalsScreen({
               <Pressable
                 accessibilityLabel="Next day"
                 hitSlop={8}
-                onPress={() => moveDate(1)}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  moveDate(1);
+                }}
                 style={({ pressed }) => [
                   styles.navArrow,
                   pressed && styles.pressed,
@@ -1109,6 +1156,7 @@ export function DailyGoalsScreen({
           setFormOpen(false);
           setEditingGoal(null);
         }}
+        onDelete={confirmDeleteHabit}
         onSave={saveGoal}
       />
       <GoalActionsModal

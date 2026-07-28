@@ -421,7 +421,7 @@ export function TasksScreen() {
         >
           <View style={styles.header}>
             <View style={styles.headerIdentity}>
-              <View>
+              <View style={styles.headerText}>
                 <CreateHeaderMenu currentSection="tasks" />
                 <Text
                   style={[styles.description, { color: theme.textSecondary }]}
@@ -917,6 +917,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 11,
   },
+  headerText: { flex: 1, minWidth: 0 },
   headerIcon: {
     width: 42,
     height: 42,
@@ -934,6 +935,13 @@ const styles = StyleSheet.create({
   addButton: {
     width: 44,
     height: 44,
+    maxWidth: 44,
+    maxHeight: 44,
+    minWidth: 44,
+    minHeight: 44,
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "flex-start",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 15,

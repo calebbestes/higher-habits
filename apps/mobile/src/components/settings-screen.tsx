@@ -70,6 +70,12 @@ type NavigationDefaultKey =
   | "defaultCollabSection"
   | "defaultPlanReportView";
 type NavigationDefaults = Pick<UserSettings, NavigationDefaultKey>;
+type SettingsSubmenu =
+  | "account"
+  | "appearance"
+  | "integrations"
+  | "notifications"
+  | "support";
 
 const PLAN_REPORT_DEFAULT_OPTIONS: {
   label: string;
@@ -125,6 +131,9 @@ export function SettingsScreen() {
       defaultCollabSection: USER_SETTING_DEFAULTS.defaultCollabSection,
       defaultPlanReportView: USER_SETTING_DEFAULTS.defaultPlanReportView,
     });
+  const [activeSubmenu, setActiveSubmenu] = useState<SettingsSubmenu | null>(
+    null,
+  );
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
@@ -487,6 +496,12 @@ export function SettingsScreen() {
   };
 
   const profileImageUrl = session?.user.image;
+  const appearanceValue =
+    appearance === "system"
+      ? "Automatic"
+      : appearance === "dark"
+        ? "Dark"
+        : "Light";
   const googleCalendarValue = isGoogleConnecting
     ? "Connecting"
     : googleCalendarStatus
@@ -498,6 +513,42 @@ export function SettingsScreen() {
             : "Connect"
         : "Not configured"
       : "Checking";
+  const submenuCopy: Record<
+    SettingsSubmenu,
+    { title: string; subtitle: string }
+  > = {
+    account: {
+      title: "Account",
+      subtitle: "Sign out or delete your account",
+    },
+    appearance: {
+      title: "Appearance",
+      subtitle: "Color, defaults, and startup behavior",
+    },
+    integrations: {
+      title: "Integrations",
+      subtitle: "Connect outside services",
+    },
+    notifications: {
+      title: "Notifications",
+      subtitle: "Device alerts and reminder preferences",
+    },
+    support: {
+      title: "Safety & Support",
+      subtitle: "Privacy, policies, and help",
+    },
+  };
+  const headerTitle = activeSubmenu
+    ? submenuCopy[activeSubmenu].title
+    : "Settings";
+  const headerSubtitle = activeSubmenu
+    ? submenuCopy[activeSubmenu].subtitle
+    : "Account and app preferences";
+
+  const openSubmenu = (submenu: SettingsSubmenu) => {
+    playSelectionHaptic();
+    setActiveSubmenu(submenu);
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -511,264 +562,333 @@ export function SettingsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>
+            {activeSubmenu ? (
+              <Pressable
+                accessibilityLabel="Back to settings"
+                accessibilityRole="button"
+                hitSlop={10}
+                onPress={() => {
+                  playSelectionHaptic();
+                  setActiveSubmenu(null);
+                }}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("chevron.left", "chevron_left")}
+                  size={22}
+                  weight="bold"
+                  tintColor={theme.primary}
+                />
+              </Pressable>
+            ) : null}
             <View style={styles.pageHeaderText}>
               <Text style={[styles.pageTitle, { color: theme.text }]}>
-                Settings
+                {headerTitle}
               </Text>
               <Text
                 style={[styles.pageSubtitle, { color: theme.textSecondary }]}
               >
-                Account and app preferences
+                {headerSubtitle}
               </Text>
             </View>
           </View>
 
-          <View
-            style={[
-              styles.profileCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.tabBorder,
-              },
-            ]}
-          >
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Change profile picture"
-              disabled={isUploadingPhoto}
-              onPress={() => void pickProfilePicture()}
-              style={({ pressed }) => [
-                styles.avatarWrapper,
-                pressed && styles.pressed,
-              ]}
-            >
-              {profileImageUrl ? (
-                <Image
-                  source={{ uri: profileImageUrl }}
-                  style={[styles.avatar, styles.avatarImage]}
-                  contentFit="cover"
-                />
-              ) : (
-                <View
-                  style={[styles.avatar, { backgroundColor: theme.primary }]}
-                >
-                  <Text
-                    style={[
-                      styles.avatarText,
-                      { color: theme.primaryForeground },
-                    ]}
-                  >
-                    {initials(
-                      session?.user.name ?? session?.user.email ?? "HH",
-                    )}
-                  </Text>
-                </View>
-              )}
+          {activeSubmenu === null ? (
+            <>
               <View
                 style={[
-                  styles.avatarBadge,
-                  { backgroundColor: theme.backgroundElement },
+                  styles.profileCard,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
                 ]}
               >
-                {isUploadingPhoto ? (
-                  <ActivityIndicator size={10} color={theme.primary} />
-                ) : (
-                  <SymbolView
-                    name={sym("camera.fill", "photo_camera")}
-                    size={10}
-                    weight="semibold"
-                    tintColor={theme.primary}
-                  />
-                )}
-              </View>
-            </Pressable>
-            <View style={styles.profileText}>
-              <Text style={[styles.profileName, { color: theme.text }]}>
-                {session?.user.name ?? "float account"}
-              </Text>
-              <Text
-                numberOfLines={1}
-                style={[styles.profileEmail, { color: theme.textSecondary }]}
-              >
-                {session?.user.email ?? "Signed in"}
-              </Text>
-            </View>
-          </View>
-
-          <SettingsGroup title="Appearance">
-            <SettingsRow
-              icon={sym("paintpalette.fill", "palette")}
-              title="Appearance"
-              value={
-                appearance === "system"
-                  ? "Automatic"
-                  : appearance === "dark"
-                    ? "Dark"
-                    : "Light"
-              }
-              onPress={chooseAppearance}
-            />
-            <ColorThemePickerRow
-              value={colorTheme}
-              onChange={chooseColorTheme}
-            />
-            <SettingsRow
-              icon={sym("calendar.badge.clock", "event_note")}
-              title="Plan default"
-              value={getPlanReportDefaultLabel(
-                navigationDefaults.defaultPlanReportView,
-              )}
-              onPress={choosePlanReportDefault}
-            />
-            <SettingsRow
-              icon={sym("person.2.fill", "groups")}
-              title="Collab default"
-              value={getCollabDefaultLabel(
-                navigationDefaults.defaultCollabSection,
-              )}
-              onPress={chooseCollabDefault}
-            />
-            <SettingsRow
-              icon={sym("house.fill", "home")}
-              title="App start page"
-              value={getAppStartDefaultLabel(
-                navigationDefaults.defaultAppStartPage,
-              )}
-              onPress={chooseAppStartDefault}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup title="Notifications">
-            <SettingsRow
-              icon={sym("bell.badge.fill", "notifications_active")}
-              title="Enable device notifications"
-              value={isRegisteringNotifications ? "Enabling" : "Enable"}
-              onPress={
-                isRegisteringNotifications
-                  ? undefined
-                  : () => void enableDeviceNotifications()
-              }
-            />
-            <SettingsRow
-              icon={sym("bell.fill", "notifications")}
-              title="Notifications"
-              value="Manage"
-              onPress={() => {
-                playSelectionHaptic();
-                setShowNotifications(true);
-              }}
-            />
-            <SettingsRow
-              icon={sym("paperplane.fill", "send")}
-              title="Test notification"
-              value={isSendingTestNotification ? "Sending" : "Send"}
-              onPress={
-                isSendingTestNotification
-                  ? undefined
-                  : () => void sendTestNotification()
-              }
-            />
-          </SettingsGroup>
-
-          <SettingsGroup title="Integrations">
-            <SettingsRow
-              icon={sym("calendar.badge.plus", "event_available")}
-              title="Google Calendar"
-              value={googleCalendarValue}
-              onPress={
-                googleCalendarStatus?.configured && !isGoogleConnecting
-                  ? () => void connectGoogleCalendar()
-                  : undefined
-              }
-            />
-          </SettingsGroup>
-
-          <SettingsGroup title="Safety & Support">
-            <SettingsRow
-              icon={sym("exclamationmark.bubble.fill", "report")}
-              title="Report a concern"
-              value="Send"
-              onPress={() => void reportSafetyConcern()}
-            />
-            <SettingsRow
-              icon={sym("shield.lefthalf.filled", "shield")}
-              title="Community Standards"
-              value="View"
-              onPress={showCommunityStandards}
-            />
-            <SettingsRow
-              icon={sym("lock.shield.fill", "lock")}
-              title="Privacy Summary"
-              value="View"
-              onPress={showPrivacySummary}
-            />
-            <SettingsRow
-              icon={sym("doc.text.fill", "article")}
-              title="Privacy Policy"
-              value="Open"
-              onPress={openPrivacyPolicy}
-            />
-            <SettingsRow
-              icon={sym("envelope.fill", "mail")}
-              title="Contact support"
-              value="Email"
-              onPress={contactSupport}
-            />
-          </SettingsGroup>
-
-          <SettingsGroup title="Account">
-            <Pressable
-              accessibilityRole="button"
-              disabled={isSigningOut || isDeletingAccount}
-              onPress={confirmSignOut}
-              style={({ pressed }) => [
-                styles.signOutRow,
-                { borderBottomColor: theme.tabBorder },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("rectangle.portrait.and.arrow.right", "logout")}
-                size={20}
-                weight="semibold"
-                tintColor="#B4232C"
-              />
-              <Text style={styles.signOutText}>Sign Out</Text>
-              {isSigningOut ? (
-                <ActivityIndicator color="#B4232C" size="small" />
-              ) : null}
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={isSigningOut || isDeletingAccount}
-              onPress={confirmDeleteAccount}
-              style={({ pressed }) => [
-                styles.deleteAccountRow,
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("trash.fill", "delete")}
-                size={20}
-                weight="semibold"
-                tintColor="#B4232C"
-              />
-              <View style={styles.deleteAccountText}>
-                <Text style={styles.deleteAccountTitle}>Delete Account</Text>
-                <Text
-                  style={[
-                    styles.deleteAccountDescription,
-                    { color: theme.textSecondary },
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change profile picture"
+                  disabled={isUploadingPhoto}
+                  onPress={() => void pickProfilePicture()}
+                  style={({ pressed }) => [
+                    styles.avatarWrapper,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  Permanently remove your account and data
-                </Text>
+                  {profileImageUrl ? (
+                    <Image
+                      source={{ uri: profileImageUrl }}
+                      style={[styles.avatar, styles.avatarImage]}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.avatar,
+                        { backgroundColor: theme.primary },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.avatarText,
+                          { color: theme.primaryForeground },
+                        ]}
+                      >
+                        {initials(
+                          session?.user.name ?? session?.user.email ?? "HH",
+                        )}
+                      </Text>
+                    </View>
+                  )}
+                  <View
+                    style={[
+                      styles.avatarBadge,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                  >
+                    {isUploadingPhoto ? (
+                      <ActivityIndicator size={10} color={theme.primary} />
+                    ) : (
+                      <SymbolView
+                        name={sym("camera.fill", "photo_camera")}
+                        size={10}
+                        weight="semibold"
+                        tintColor={theme.primary}
+                      />
+                    )}
+                  </View>
+                </Pressable>
+                <View style={styles.profileText}>
+                  <Text style={[styles.profileName, { color: theme.text }]}>
+                    {session?.user.name ?? "float account"}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.profileEmail,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {session?.user.email ?? "Signed in"}
+                  </Text>
+                </View>
               </View>
-              {isDeletingAccount ? (
-                <ActivityIndicator color="#B4232C" size="small" />
-              ) : null}
-            </Pressable>
-          </SettingsGroup>
+
+              <SettingsGroup title="Preferences">
+                <SettingsRow
+                  icon={sym("paintpalette.fill", "palette")}
+                  title="Appearance"
+                  value={appearanceValue}
+                  onPress={() => openSubmenu("appearance")}
+                />
+                <SettingsRow
+                  icon={sym("bell.fill", "notifications")}
+                  title="Notifications"
+                  value="Manage"
+                  onPress={() => openSubmenu("notifications")}
+                />
+                <SettingsRow
+                  icon={sym("calendar.badge.plus", "event_available")}
+                  title="Integrations"
+                  value={googleCalendarValue}
+                  onPress={() => openSubmenu("integrations")}
+                />
+                <SettingsRow
+                  icon={sym("shield.lefthalf.filled", "shield")}
+                  title="Safety & Support"
+                  value="Help"
+                  onPress={() => openSubmenu("support")}
+                />
+                <SettingsRow
+                  icon={sym("person.crop.circle.fill", "account_circle")}
+                  title="Account"
+                  value="Manage"
+                  onPress={() => openSubmenu("account")}
+                />
+              </SettingsGroup>
+            </>
+          ) : null}
+
+          {activeSubmenu === "appearance" ? (
+            <SettingsGroup title="Appearance">
+              <SettingsRow
+                icon={sym("paintpalette.fill", "palette")}
+                title="Appearance"
+                value={appearanceValue}
+                onPress={chooseAppearance}
+              />
+              <ColorThemePickerRow
+                value={colorTheme}
+                onChange={chooseColorTheme}
+              />
+              <SettingsRow
+                icon={sym("calendar.badge.clock", "event_note")}
+                title="Plan default"
+                value={getPlanReportDefaultLabel(
+                  navigationDefaults.defaultPlanReportView,
+                )}
+                onPress={choosePlanReportDefault}
+              />
+              <SettingsRow
+                icon={sym("person.2.fill", "groups")}
+                title="Collab default"
+                value={getCollabDefaultLabel(
+                  navigationDefaults.defaultCollabSection,
+                )}
+                onPress={chooseCollabDefault}
+              />
+              <SettingsRow
+                icon={sym("house.fill", "home")}
+                title="App start page"
+                value={getAppStartDefaultLabel(
+                  navigationDefaults.defaultAppStartPage,
+                )}
+                onPress={chooseAppStartDefault}
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {activeSubmenu === "notifications" ? (
+            <SettingsGroup title="Notifications">
+              <SettingsRow
+                icon={sym("bell.badge.fill", "notifications_active")}
+                title="Enable device notifications"
+                value={isRegisteringNotifications ? "Enabling" : "Enable"}
+                onPress={
+                  isRegisteringNotifications
+                    ? undefined
+                    : () => void enableDeviceNotifications()
+                }
+              />
+              <SettingsRow
+                icon={sym("bell.fill", "notifications")}
+                title="Notifications"
+                value="Manage"
+                onPress={() => {
+                  playSelectionHaptic();
+                  setShowNotifications(true);
+                }}
+              />
+              <SettingsRow
+                icon={sym("paperplane.fill", "send")}
+                title="Test notification"
+                value={isSendingTestNotification ? "Sending" : "Send"}
+                onPress={
+                  isSendingTestNotification
+                    ? undefined
+                    : () => void sendTestNotification()
+                }
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {activeSubmenu === "integrations" ? (
+            <SettingsGroup title="Integrations">
+              <SettingsRow
+                icon={sym("calendar.badge.plus", "event_available")}
+                title="Google Calendar"
+                value={googleCalendarValue}
+                onPress={
+                  googleCalendarStatus?.configured && !isGoogleConnecting
+                    ? () => void connectGoogleCalendar()
+                    : undefined
+                }
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {activeSubmenu === "support" ? (
+            <SettingsGroup title="Safety & Support">
+              <SettingsRow
+                icon={sym("exclamationmark.bubble.fill", "report")}
+                title="Report a concern"
+                value="Send"
+                onPress={() => void reportSafetyConcern()}
+              />
+              <SettingsRow
+                icon={sym("shield.lefthalf.filled", "shield")}
+                title="Community Standards"
+                value="View"
+                onPress={showCommunityStandards}
+              />
+              <SettingsRow
+                icon={sym("lock.shield.fill", "lock")}
+                title="Privacy Summary"
+                value="View"
+                onPress={showPrivacySummary}
+              />
+              <SettingsRow
+                icon={sym("doc.text.fill", "article")}
+                title="Privacy Policy"
+                value="Open"
+                onPress={openPrivacyPolicy}
+              />
+              <SettingsRow
+                icon={sym("envelope.fill", "mail")}
+                title="Contact support"
+                value="Email"
+                onPress={contactSupport}
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {activeSubmenu === "account" ? (
+            <SettingsGroup title="Account">
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSigningOut || isDeletingAccount}
+                onPress={confirmSignOut}
+                style={({ pressed }) => [
+                  styles.signOutRow,
+                  { borderBottomColor: theme.tabBorder },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("rectangle.portrait.and.arrow.right", "logout")}
+                  size={20}
+                  weight="semibold"
+                  tintColor="#B4232C"
+                />
+                <Text style={styles.signOutText}>Sign Out</Text>
+                {isSigningOut ? (
+                  <ActivityIndicator color="#B4232C" size="small" />
+                ) : null}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSigningOut || isDeletingAccount}
+                onPress={confirmDeleteAccount}
+                style={({ pressed }) => [
+                  styles.deleteAccountRow,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("trash.fill", "delete")}
+                  size={20}
+                  weight="semibold"
+                  tintColor="#B4232C"
+                />
+                <View style={styles.deleteAccountText}>
+                  <Text style={styles.deleteAccountTitle}>Delete Account</Text>
+                  <Text
+                    style={[
+                      styles.deleteAccountDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Permanently remove your account and data
+                  </Text>
+                </View>
+                {isDeletingAccount ? (
+                  <ActivityIndicator color="#B4232C" size="small" />
+                ) : null}
+              </Pressable>
+            </SettingsGroup>
+          ) : null}
           <View style={styles.brandFooter}>
             <Image
               source={abiLogoSource}
@@ -1003,6 +1123,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
+  },
+  backButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
   },
   pageHeaderIcon: {
     width: 42,

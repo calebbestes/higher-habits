@@ -1347,16 +1347,20 @@ type CreateState = {
   stakeDescription: string;
 };
 
-function CreateGoalModal({
+export type CreateSharedGoalInitialValues = Partial<CreateState>;
+
+export function CreateGoalModal({
   personalGoals,
   friends,
   friendGroups,
+  initialValues,
   onClose,
   onCreate,
 }: {
   personalGoals: Goal[];
   friends: FriendRow[];
   friendGroups: FriendGroupRow[];
+  initialValues?: CreateSharedGoalInitialValues;
   onClose: () => void;
   onCreate: (input: CreateSharedGoalInput) => Promise<void>;
 }) {
@@ -1377,6 +1381,7 @@ function CreateGoalModal({
     invitedUserIds: [],
     stakeType: "none",
     stakeDescription: "",
+    ...initialValues,
   });
 
   const acceptedFriends = friends.filter((f) => f.status === "accepted");
@@ -2424,6 +2429,8 @@ export function SharedGoalsScreen() {
           priority: actionPersonalGoal?.priority ?? "high",
           hidden: actionPersonalGoal?.hidden ?? false,
           visibility: actionPersonalGoal?.visibility ?? "only_me",
+          audienceFriendIds: actionPersonalGoal?.audienceFriendIds ?? [],
+          audienceGroupIds: actionPersonalGoal?.audienceGroupIds ?? [],
           period: actionPersonalGoal?.period ?? "daily",
           repeatCadence:
             actionPersonalGoal?.repeatCadence ??

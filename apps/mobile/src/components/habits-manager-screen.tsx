@@ -26,6 +26,12 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type FriendGroupRow,
+  type FriendRow,
+  fetchFriendGroups,
+  fetchFriends,
+} from "@/lib/friends-client";
+import {
   type Category,
   type Habit,
   type HabitInput,
@@ -124,6 +130,8 @@ const EMPTY_HABIT: HabitInput = {
   goalId: null,
   priority: "low",
   visibility: "only_me",
+  audienceFriendIds: [],
+  audienceGroupIds: [],
   iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
   defaultComplete: false,
   planOnCalendar: true,
@@ -187,6 +195,8 @@ function toInput(habit: Habit): HabitInput {
     goalId: habit.goalId,
     priority: habit.priority,
     visibility: habit.visibility,
+    audienceFriendIds: habit.audienceFriendIds ?? [],
+    audienceGroupIds: habit.audienceGroupIds ?? [],
     iconKey: habit.iconKey,
     defaultComplete: habit.defaultComplete,
     planOnCalendar: habit.planOnCalendar !== false,
@@ -365,7 +375,7 @@ export function HabitsManagerScreen() {
     }
   };
 
-  const confirmDelete = (habit: Habit) => {
+  const confirmDelete = (habit: Habit, onDeleted?: () => void) => {
     setActionHabit(null);
     Alert.alert(
       "Delete habit?",
@@ -382,6 +392,7 @@ export function HabitsManagerScreen() {
               setHabits((current) =>
                 current.filter((item) => item.id !== habit.id),
               );
+              onDeleted?.();
             } catch (deleteError) {
               setError(
                 deleteError instanceof Error
@@ -593,6 +604,12 @@ export function HabitsManagerScreen() {
           setFormOpen(false);
           setEditingHabit(null);
         }}
+        onDelete={(habit) =>
+          confirmDelete(habit, () => {
+            setFormOpen(false);
+            setEditingHabit(null);
+          })
+        }
         onSave={saveHabit}
       />
       <HabitActionsModal
@@ -951,6 +968,7 @@ export function HabitFormModal({
   onDeleteCategory,
   onUpdateCategory,
   onClose,
+  onDelete,
   onSave,
 }: {
   categories: Category[];
@@ -965,6 +983,7 @@ export function HabitFormModal({
     icon: string,
   ) => Promise<Category>;
   onClose: () => void;
+  onDelete?: (habit: Habit) => void;
   onSave: (input: HabitInput) => Promise<void>;
 }) {
   const theme = useTheme();
@@ -973,7 +992,7 @@ export function HabitFormModal({
   const [error, setError] = useState<string | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  const [audienceOpen, setAudienceOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [categoryIcon, setCategoryIcon] = useState<string>("mdi:heart-outline");
   const categoriesRef = useRef(categories);
@@ -995,9 +1014,12 @@ export function HabitFormModal({
     setError(null);
     setAddingCategory(false);
     setEditingCategory(null);
-    setMoreOptionsOpen(Boolean(habit));
+    setAudienceOpen(false);
     setCategoryName("");
   }, [habit, isOpen]);
+
+  const audienceCount =
+    form.audienceFriendIds.length + form.audienceGroupIds.length;
 
   const save = async () => {
     if (isSaving) return;
@@ -1263,12 +1285,162 @@ export function HabitFormModal({
                   setForm((current) => ({ ...current, iconKey }))
                 }
               />
+
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Category
+              </Text>
+              {categories.length ? (
+                <View style={styles.choiceWrap}>
+                  {categories.map((category) => (
+                    <Choice
+                      key={category.id}
+                      label={category.name}
+                      selected={form.categoryId === category.id}
+                      onPress={() =>
+                        setForm((current) => ({
+                          ...current,
+                          categoryId: category.id,
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {selectedCategory && (onUpdateCategory || onDeleteCategory) ? (
+                <View style={styles.categoryActions}>
+                  {onUpdateCategory ? (
+                    <SmallButton
+                      label="Edit category"
+                      onPress={() => {
+                        setAddingCategory(false);
+                        setEditingCategory(selectedCategory);
+                        setCategoryName(selectedCategory.name);
+                        setCategoryIcon(selectedCategory.icon);
+                      }}
+                    />
+                  ) : null}
+                  {onDeleteCategory ? (
+                    <SmallButton
+                      label="Delete category"
+                      onPress={() => confirmDeleteCategory(selectedCategory)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+              {editingCategory ? (
+                <View
+                  style={[
+                    styles.newCategory,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <LabeledInput
+                    label="Category name"
+                    onChangeText={setCategoryName}
+                    placeholder="Category name"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => {
+                        setEditingCategory(null);
+                        setCategoryName("");
+                      }}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Save category"
+                      onPress={() => void saveCategoryEdit()}
+                    />
+                  </View>
+                </View>
+              ) : addingCategory ? (
+                <View
+                  style={[
+                    styles.newCategory,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <LabeledInput
+                    label="New category"
+                    onChangeText={setCategoryName}
+                    placeholder="Category name"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => setAddingCategory(false)}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Add category"
+                      onPress={() => void saveCategory()}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    setEditingCategory(null);
+                    setAddingCategory(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.inlineAdd,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("plus.circle", "add_circle")}
+                    size={18}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inlineAddLabel, { color: theme.primary }]}
+                  >
+                    Create category
+                  </Text>
+                </Pressable>
+              )}
+
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Priority
+              </Text>
+              <View style={styles.choiceWrap}>
+                {PRIORITIES.map((priority) => (
+                  <Choice
+                    key={priority}
+                    label={capitalize(priority)}
+                    selected={form.priority === priority}
+                    onPress={() =>
+                      setForm((current) => ({ ...current, priority }))
+                    }
+                  />
+                ))}
+              </View>
             </FormSection>
 
-            <FormSection title="Goal">
+            <FormSection title="Target">
               <View style={styles.inputField}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Goal period
+                  Frequency
                 </Text>
                 <View style={styles.choiceWrap}>
                   {PERIODS.map((period) => (
@@ -1310,7 +1482,7 @@ export function HabitFormModal({
 
               <View style={styles.repeatIntervalRow}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Target
+                  Goal
                 </Text>
                 <VerticalNumberStepper
                   accessibilityLabel={`Times per ${form.period}`}
@@ -1321,18 +1493,22 @@ export function HabitFormModal({
                 />
                 <Text style={[styles.intervalUnit, { color: theme.text }]}>
                   {`time${(form.frequencyGoal ?? 1) !== 1 ? "s" : ""} per ${
-                    form.period
+                    form.period === "daily"
+                      ? "day"
+                      : form.period === "weekly"
+                        ? "week"
+                        : "month"
                   }`}
                 </Text>
               </View>
             </FormSection>
 
-            <FormSection title="Schedule">
+            <FormSection title="Plan">
               <>
                 {form.period === "monthly" ? (
                   <View style={styles.inputField}>
                     <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Cadence
+                      Appears
                     </Text>
                     <View style={styles.choiceWrap}>
                       {CADENCES.map((cadence) => (
@@ -1365,36 +1541,36 @@ export function HabitFormModal({
                   </View>
                 ) : null}
 
-                <View style={styles.repeatIntervalRow}>
-                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                    Repeat every
-                  </Text>
-                  <VerticalNumberStepper
-                    value={form.repeatInterval ?? 1}
-                    onChange={(repeatInterval) =>
-                      setForm((current) => ({ ...current, repeatInterval }))
-                    }
-                  />
-                  <Text style={[styles.intervalUnit, { color: theme.text }]}>
-                    {(form.repeatCadence ?? form.period) === "daily"
-                      ? "day"
-                      : (form.repeatCadence ?? form.period) === "weekly"
+                {(form.repeatCadence ?? form.period) !== "daily" ? (
+                  <View style={styles.repeatIntervalRow}>
+                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                      Every
+                    </Text>
+                    <VerticalNumberStepper
+                      value={form.repeatInterval ?? 1}
+                      onChange={(repeatInterval) =>
+                        setForm((current) => ({ ...current, repeatInterval }))
+                      }
+                    />
+                    <Text style={[styles.intervalUnit, { color: theme.text }]}>
+                      {(form.repeatCadence ?? form.period) === "weekly"
                         ? "week"
                         : "month"}
-                    {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
-                  </Text>
-                </View>
+                      {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {/* Weekly: day-of-week chips */}
                 {(form.repeatCadence ?? form.period) === "weekly" ? (
                   <View style={styles.inputField}>
                     <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Repeat on
+                      Suggested days
                     </Text>
                     <Text
                       style={[styles.fieldHint, { color: theme.textSecondary }]}
                     >
-                      Leave all days off to plan this habit manually.
+                      These show up on your Day Plan.
                     </Text>
                     <View style={styles.dayChipRow}>
                       {DAY_LETTERS.map((letter, idx) => {
@@ -1458,6 +1634,11 @@ export function HabitFormModal({
                         form.repeatMonthlyType ?? "day_of_month";
                       return (
                         <View style={styles.inputField}>
+                          <Text
+                            style={[styles.fieldLabel, { color: theme.text }]}
+                          >
+                            Suggested dates
+                          </Text>
                           <View style={styles.choiceWrap}>
                             <Choice
                               label="Dates"
@@ -1707,211 +1888,6 @@ export function HabitFormModal({
                     value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
                   />
                 </View>
-              </>
-            </FormSection>
-
-            <FormSection title="Details">
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Priority
-              </Text>
-              <View style={styles.choiceWrap}>
-                {PRIORITIES.map((priority) => (
-                  <Choice
-                    key={priority}
-                    label={capitalize(priority)}
-                    selected={form.priority === priority}
-                    onPress={() =>
-                      setForm((current) => ({ ...current, priority }))
-                    }
-                  />
-                ))}
-              </View>
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Category
-              </Text>
-              {categories.length ? (
-                <View style={styles.choiceWrap}>
-                  {categories.map((category) => (
-                    <Choice
-                      key={category.id}
-                      label={category.name}
-                      selected={form.categoryId === category.id}
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          categoryId: category.id,
-                        }))
-                      }
-                    />
-                  ))}
-                </View>
-              ) : null}
-              {selectedCategory && (onUpdateCategory || onDeleteCategory) ? (
-                <View style={styles.categoryActions}>
-                  {onUpdateCategory ? (
-                    <SmallButton
-                      label="Edit category"
-                      onPress={() => {
-                        setAddingCategory(false);
-                        setEditingCategory(selectedCategory);
-                        setCategoryName(selectedCategory.name);
-                        setCategoryIcon(selectedCategory.icon);
-                      }}
-                    />
-                  ) : null}
-                  {onDeleteCategory ? (
-                    <SmallButton
-                      label="Delete category"
-                      onPress={() => confirmDeleteCategory(selectedCategory)}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-              {editingCategory ? (
-                <View
-                  style={[
-                    styles.newCategory,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <LabeledInput
-                    label="Category name"
-                    onChangeText={setCategoryName}
-                    placeholder="Category name"
-                    value={categoryName}
-                  />
-                  <IconSearchPicker
-                    value={categoryIcon}
-                    onChange={setCategoryIcon}
-                  />
-                  <View style={styles.inlineActions}>
-                    <SmallButton
-                      label="Cancel"
-                      onPress={() => {
-                        setEditingCategory(null);
-                        setCategoryName("");
-                      }}
-                    />
-                    <SmallButton
-                      primary
-                      disabled={!categoryName.trim() || isSaving}
-                      label="Save category"
-                      onPress={() => void saveCategoryEdit()}
-                    />
-                  </View>
-                </View>
-              ) : addingCategory ? (
-                <View
-                  style={[
-                    styles.newCategory,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <LabeledInput
-                    label="New category"
-                    onChangeText={setCategoryName}
-                    placeholder="Category name"
-                    value={categoryName}
-                  />
-                  <IconSearchPicker
-                    value={categoryIcon}
-                    onChange={setCategoryIcon}
-                  />
-                  <View style={styles.inlineActions}>
-                    <SmallButton
-                      label="Cancel"
-                      onPress={() => setAddingCategory(false)}
-                    />
-                    <SmallButton
-                      primary
-                      disabled={!categoryName.trim() || isSaving}
-                      label="Add category"
-                      onPress={() => void saveCategory()}
-                    />
-                  </View>
-                </View>
-              ) : (
-                <Pressable
-                  onPress={() => {
-                    setEditingCategory(null);
-                    setAddingCategory(true);
-                  }}
-                  style={({ pressed }) => [
-                    styles.inlineAdd,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={symbol("plus.circle", "add_circle")}
-                    size={18}
-                    tintColor={theme.primary}
-                  />
-                  <Text
-                    style={[styles.inlineAddLabel, { color: theme.primary }]}
-                  >
-                    Create category
-                  </Text>
-                </Pressable>
-              )}
-            </FormSection>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: moreOptionsOpen }}
-              onPress={() => {
-                playSelectionHaptic();
-                setMoreOptionsOpen((open) => !open);
-              }}
-              style={({ pressed }) => [
-                styles.moreOptionsButton,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderColor: theme.tabBorder,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.moreOptionsLabel, { color: theme.text }]}>
-                More options
-              </Text>
-              <SymbolView
-                name={symbol(
-                  moreOptionsOpen ? "chevron.up" : "chevron.down",
-                  moreOptionsOpen ? "keyboard_arrow_up" : "keyboard_arrow_down",
-                )}
-                size={17}
-                weight="semibold"
-                tintColor={theme.textSecondary}
-              />
-            </Pressable>
-
-            {moreOptionsOpen ? (
-              <FormSection title="More">
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Default visibility
-                </Text>
-                <View style={styles.choiceWrap}>
-                  {VISIBILITY_OPTIONS.map((option) => (
-                    <Choice
-                      key={option.value}
-                      label={option.label}
-                      selected={form.visibility === option.value}
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          visibility: option.value,
-                        }))
-                      }
-                    />
-                  ))}
-                </View>
 
                 <View
                   style={[
@@ -1924,7 +1900,7 @@ export function HabitFormModal({
                 >
                   <View style={styles.switchCopy}>
                     <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      Default complete
+                      Show in Day Plan
                     </Text>
                     <Text
                       style={[
@@ -1932,43 +1908,7 @@ export function HabitFormModal({
                         { color: theme.textSecondary },
                       ]}
                     >
-                      Use for habits about not doing something. Record a slip
-                      when it happens.
-                    </Text>
-                  </View>
-                  <Switch
-                    onValueChange={(defaultComplete) => {
-                      playSelectionHaptic();
-                      setForm((current) => ({ ...current, defaultComplete }));
-                    }}
-                    trackColor={{
-                      false: theme.backgroundSelected,
-                      true: theme.primary,
-                    }}
-                    value={form.defaultComplete}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.switchRow,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <View style={styles.switchCopy}>
-                    <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      Plan on calendar
-                    </Text>
-                    <Text
-                      style={[
-                        styles.switchDescription,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      Show this as an unscheduled block in Day Plan.
+                      Keep this habit available when planning your day.
                     </Text>
                   </View>
                   <Switch
@@ -1983,48 +1923,373 @@ export function HabitFormModal({
                     value={form.planOnCalendar}
                   />
                 </View>
+              </>
+            </FormSection>
 
-                {habit ? (
-                  <View
+            <FormSection title="Options">
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Visibility
+              </Text>
+              <View style={styles.choiceWrap}>
+                {VISIBILITY_OPTIONS.map((option) => (
+                  <Choice
+                    key={option.value}
+                    label={option.label}
+                    selected={form.visibility === option.value}
+                    onPress={() => {
+                      setForm((current) => ({
+                        ...current,
+                        visibility: option.value,
+                      }));
+                      if (option.value === "goal_friends") {
+                        setAudienceOpen(true);
+                      }
+                    }}
+                  />
+                ))}
+              </View>
+              {form.visibility === "goal_friends" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setAudienceOpen(true)}
+                  style={({ pressed }) => [
+                    styles.audienceSummary,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("person.2", "groups")}
+                    size={18}
+                    tintColor={theme.primary}
+                  />
+                  <View style={styles.switchCopy}>
+                    <Text style={[styles.switchTitle, { color: theme.text }]}>
+                      {audienceCount > 0
+                        ? `${audienceCount} selected`
+                        : "Choose friends or groups"}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.switchDescription,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Only selected people can see this habit.
+                    </Text>
+                  </View>
+                  <SymbolView
+                    name={symbol("chevron.right", "chevron_right")}
+                    size={17}
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
+
+              <View
+                style={[
+                  styles.switchRow,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.switchCopy}>
+                  <Text style={[styles.switchTitle, { color: theme.text }]}>
+                    Default complete
+                  </Text>
+                  <Text
                     style={[
-                      styles.switchRow,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.tabBorder,
-                      },
+                      styles.switchDescription,
+                      { color: theme.textSecondary },
                     ]}
                   >
-                    <View style={styles.switchCopy}>
-                      <Text style={[styles.switchTitle, { color: theme.text }]}>
-                        Archive
-                      </Text>
-                      <Text
-                        style={[
-                          styles.switchDescription,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        Keep this habit out of planning views.
-                      </Text>
-                    </View>
-                    <Switch
-                      onValueChange={(hidden) => {
-                        playSelectionHaptic();
-                        setForm((current) => ({ ...current, hidden }));
-                      }}
-                      trackColor={{
-                        false: theme.backgroundSelected,
-                        true: theme.primary,
-                      }}
-                      value={form.hidden}
-                    />
+                    Use for habits about not doing something.
+                  </Text>
+                </View>
+                <Switch
+                  onValueChange={(defaultComplete) => {
+                    playSelectionHaptic();
+                    setForm((current) => ({ ...current, defaultComplete }));
+                  }}
+                  trackColor={{
+                    false: theme.backgroundSelected,
+                    true: theme.primary,
+                  }}
+                  value={form.defaultComplete}
+                />
+              </View>
+
+              {habit && onDelete ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onDelete(habit)}
+                  style={({ pressed }) => [
+                    styles.deleteRow,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("trash", "delete")}
+                    size={19}
+                    tintColor="#B84D54"
+                  />
+                  <View style={styles.switchCopy}>
+                    <Text style={[styles.switchTitle, { color: "#B84D54" }]}>
+                      Delete habit
+                    </Text>
+                    <Text
+                      style={[
+                        styles.switchDescription,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Permanently remove this habit and its history.
+                    </Text>
                   </View>
-                ) : null}
-              </FormSection>
-            ) : null}
+                </Pressable>
+              ) : null}
+            </FormSection>
           </ScrollView>
         </SafeAreaView>
       </KeyboardAvoidingView>
+      <HabitAudiencePickerModal
+        isOpen={audienceOpen}
+        selectedFriendIds={form.audienceFriendIds}
+        selectedGroupIds={form.audienceGroupIds}
+        onClose={() => setAudienceOpen(false)}
+        onSave={({ friendIds, groupIds }) => {
+          setForm((current) => ({
+            ...current,
+            visibility: "goal_friends",
+            audienceFriendIds: friendIds,
+            audienceGroupIds: groupIds,
+          }));
+          setAudienceOpen(false);
+        }}
+      />
+    </Modal>
+  );
+}
+
+function HabitAudiencePickerModal({
+  isOpen,
+  onClose,
+  onSave,
+  selectedFriendIds,
+  selectedGroupIds,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (selection: { friendIds: string[]; groupIds: string[] }) => void;
+  selectedFriendIds: string[];
+  selectedGroupIds: string[];
+}) {
+  const theme = useTheme();
+  const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [groups, setGroups] = useState<FriendGroupRow[]>([]);
+  const [friendIds, setFriendIds] = useState<string[]>(selectedFriendIds);
+  const [groupIds, setGroupIds] = useState<string[]>(selectedGroupIds);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setFriendIds(selectedFriendIds);
+    setGroupIds(selectedGroupIds);
+    setError(null);
+    setIsLoading(true);
+
+    Promise.all([fetchFriends(), fetchFriendGroups()])
+      .then(([nextFriends, nextGroups]) => {
+        setFriends(
+          nextFriends.filter((friend) => friend.status === "accepted"),
+        );
+        setGroups(nextGroups);
+      })
+      .catch((loadError) => {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load friends.",
+        );
+      })
+      .finally(() => setIsLoading(false));
+  }, [isOpen, selectedFriendIds, selectedGroupIds]);
+
+  const toggle = (ids: string[], id: string) =>
+    ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
+
+  const renderRow = ({
+    detail,
+    icon,
+    isSelected,
+    onPress,
+    title,
+  }: {
+    detail: string;
+    icon: SymbolName;
+    isSelected: boolean;
+    onPress: () => void;
+    title: string;
+  }) => (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: isSelected }}
+      key={title}
+      onPress={() => {
+        playSelectionHaptic();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.audienceRow,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <SymbolView
+        name={icon}
+        size={19}
+        tintColor={isSelected ? theme.primary : theme.textSecondary}
+      />
+      <View style={styles.switchCopy}>
+        <Text style={[styles.switchTitle, { color: theme.text }]}>{title}</Text>
+        <Text
+          style={[styles.switchDescription, { color: theme.textSecondary }]}
+        >
+          {detail}
+        </Text>
+      </View>
+      {isSelected ? (
+        <SymbolView
+          name={symbol("checkmark.circle.fill", "check_circle")}
+          size={20}
+          tintColor={theme.primary}
+        />
+      ) : null}
+    </Pressable>
+  );
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={isOpen}
+    >
+      <SafeAreaView
+        edges={["top", "bottom"]}
+        style={[styles.formScreen, { backgroundColor: theme.background }]}
+      >
+        <View
+          style={[styles.formHeader, { borderBottomColor: theme.tabBorder }]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            onPress={onClose}
+            style={styles.formHeaderButton}
+          >
+            <Text
+              style={[styles.formHeaderButtonText, { color: theme.primary }]}
+            >
+              Cancel
+            </Text>
+          </Pressable>
+          <Text style={[styles.formTitle, { color: theme.text }]}>
+            Select friends
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onSave({ friendIds, groupIds })}
+            style={styles.formHeaderButton}
+          >
+            <Text
+              style={[styles.formHeaderButtonText, { color: theme.primary }]}
+            >
+              Done
+            </Text>
+          </Pressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={styles.formContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {error ? (
+            <View style={styles.formErrorBanner}>
+              <SymbolView
+                name={symbol("exclamationmark.circle.fill", "error")}
+                size={16}
+                tintColor="#B84D54"
+              />
+              <Text style={styles.formError}>{error}</Text>
+            </View>
+          ) : null}
+          {isLoading ? (
+            <View style={styles.audienceLoading}>
+              <ActivityIndicator color={theme.primary} />
+              <Text style={[styles.fieldHint, { color: theme.textSecondary }]}>
+                Loading friends
+              </Text>
+            </View>
+          ) : (
+            <>
+              <FormSection title="Groups">
+                {groups.length > 0 ? (
+                  groups.map((group) =>
+                    renderRow({
+                      title: group.name,
+                      detail: `${group.members.length} friend${
+                        group.members.length === 1 ? "" : "s"
+                      }`,
+                      icon: symbol("person.3", "groups"),
+                      isSelected: groupIds.includes(group.id),
+                      onPress: () =>
+                        setGroupIds((ids) => toggle(ids, group.id)),
+                    }),
+                  )
+                ) : (
+                  <Text
+                    style={[styles.fieldHint, { color: theme.textSecondary }]}
+                  >
+                    No groups yet.
+                  </Text>
+                )}
+              </FormSection>
+              <FormSection title="Friends">
+                {friends.length > 0 ? (
+                  friends.map((friend) =>
+                    renderRow({
+                      title: friend.friendName,
+                      detail: friend.friendEmail || "Friend",
+                      icon: symbol("person", "person"),
+                      isSelected: friendIds.includes(friend.friendId),
+                      onPress: () =>
+                        setFriendIds((ids) => toggle(ids, friend.friendId)),
+                    }),
+                  )
+                ) : (
+                  <Text
+                    style={[styles.fieldHint, { color: theme.textSecondary }]}
+                  >
+                    Add friends before selecting a habit audience.
+                  </Text>
+                )}
+              </FormSection>
+            </>
+          )}
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -2042,14 +2307,7 @@ function FormSection({
       <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
         {title}
       </Text>
-      <View
-        style={[
-          styles.sectionSurface,
-          { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
-        ]}
-      >
-        {children}
-      </View>
+      <View style={styles.sectionSurface}>{children}</View>
     </View>
   );
 }
@@ -2588,12 +2846,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  sectionSurface: {
-    gap: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
-    padding: 16,
-  },
+  sectionSurface: { gap: 14 },
   inputField: { gap: 7 },
   fieldLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
   fieldHint: { fontSize: 12, lineHeight: 17, fontWeight: "600" },
@@ -2728,6 +2981,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  audienceSummary: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  audienceLoading: {
+    minHeight: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  audienceRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   reminderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2786,20 +3065,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
   },
   smallButtonLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
-  moreOptionsButton: {
-    minHeight: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-  },
-  moreOptionsLabel: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 22,
+    padding: 16,
+  },
+  deleteRow: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 22,
     padding: 16,
