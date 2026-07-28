@@ -1,7 +1,10 @@
 import {
   type GoalVisibility,
+  friendGroupMembers,
   friendMessages,
   type getDb,
+  habitAudienceFriends,
+  habitAudienceGroups,
   sharedGoalParticipants,
 } from "@habit/db";
 import { and, eq, inArray, or } from "drizzle-orm";
@@ -27,7 +30,40 @@ export async function getGoalIdsTiedToFriend(
     return relatedGoalIds;
   }
 
-  const [incentiveLinks, ownerSharedLinks] = await Promise.all([
+  const [
+    audienceFriendLinks,
+    audienceGroupLinks,
+    incentiveLinks,
+    ownerSharedLinks,
+  ] = await Promise.all([
+    db
+      .select({
+        goalId: habitAudienceFriends.habitId,
+      })
+      .from(habitAudienceFriends)
+      .where(
+        and(
+          eq(habitAudienceFriends.userId, ownerId),
+          eq(habitAudienceFriends.friendUserId, viewerId),
+          inArray(habitAudienceFriends.habitId, tiedGoalIds),
+        ),
+      ),
+    db
+      .select({
+        goalId: habitAudienceGroups.habitId,
+      })
+      .from(habitAudienceGroups)
+      .innerJoin(
+        friendGroupMembers,
+        eq(habitAudienceGroups.groupId, friendGroupMembers.groupId),
+      )
+      .where(
+        and(
+          eq(habitAudienceGroups.userId, ownerId),
+          eq(friendGroupMembers.memberUserId, viewerId),
+          inArray(habitAudienceGroups.habitId, tiedGoalIds),
+        ),
+      ),
     db
       .select({
         goalId: friendMessages.goalId,
@@ -64,6 +100,10 @@ export async function getGoalIdsTiedToFriend(
         ),
       ),
   ]);
+
+  for (const link of [...audienceFriendLinks, ...audienceGroupLinks]) {
+    relatedGoalIds.add(link.goalId);
+  }
 
   for (const link of incentiveLinks) {
     if (link.goalScope === "single" && link.goalId) {

@@ -22,6 +22,8 @@ export type HabitInCategory = {
   priority: "high" | "low";
   hidden: boolean;
   visibility: HabitVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
@@ -78,6 +80,8 @@ export type PeriodicHabitInfo = {
   goalTitle: string | null;
   priority: "high" | "low";
   visibility: HabitVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   period: "daily" | "weekly" | "monthly";
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
@@ -180,6 +184,12 @@ function mapValues<T>(
 function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
   return {
     ...habit,
+    audienceFriendIds: Array.isArray(habit.audienceFriendIds)
+      ? habit.audienceFriendIds.filter((id) => typeof id === "string")
+      : [],
+    audienceGroupIds: Array.isArray(habit.audienceGroupIds)
+      ? habit.audienceGroupIds.filter((id) => typeof id === "string")
+      : [],
     defaultComplete: normalizeDefaultComplete(habit.defaultComplete),
     planOnCalendar: normalizePlanOnCalendar(habit.planOnCalendar),
     priority: normalizePriority(habit.priority),

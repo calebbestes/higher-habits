@@ -31,6 +31,10 @@ import {
   PhotoBackdropHitTargets,
   getContainedImageFrame,
 } from "@/components/photo-backdrop-hit-targets";
+import {
+  CreateGoalModal,
+  type CreateSharedGoalInitialValues,
+} from "@/components/shared-goals-screen";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -40,6 +44,7 @@ import {
   type FriendFeedEntry,
   type FriendFeedPhoto,
   type FriendGroupRow,
+  type FriendRow,
   addFeedComment,
   archiveFriend,
   deleteFeedComment,
@@ -47,9 +52,11 @@ import {
   fetchFriends,
   fetchFriendsFeed,
   reportContent,
+  sendFriendIncentive,
   toggleFeedProp,
 } from "@/lib/friends-client";
 import { deleteGoalPhoto } from "@/lib/goal-photos-client";
+import { type Goal, fetchGoals } from "@/lib/goals-client";
 import {
   playSelectionHaptic,
   playSuccessHaptic,
@@ -60,6 +67,12 @@ import {
   loadTestNativeFeedAd,
 } from "@/lib/mobile-ads";
 import { richTextToPlainText } from "@/lib/rich-text";
+import {
+  type CreateSharedGoalInput,
+  type SharedGoalSnapshot,
+  createSharedGoal,
+  fetchSharedGoals,
+} from "@/lib/shared-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
 type ActiveFeedPhoto = {
@@ -71,6 +84,7 @@ const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
 const HIDDEN_FEED_ADS_KEY = "hidden-feed-ads";
 const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
 const FEED_AD_INTERVAL = 3;
+const POST_DOUBLE_TAP_DELAY_MS = 260;
 
 type FeedFilters = {
   groupIds: string[];
@@ -92,6 +106,31 @@ function sym(ios: string, android: string): SymbolName {
 
 function feedGoalKey(entry: Pick<FriendFeedEntry, "goal" | "kind">): string {
   return `${entry.kind}:${entry.goal.id}`;
+}
+
+function hasJoinedSharedGoal(
+  entry: FriendFeedEntry,
+  sharedGoals: SharedGoalSnapshot[],
+) {
+  const entryGoalName = entry.goal.name.trim().toLowerCase();
+  return sharedGoals.some((goal) => {
+    if (goal.status !== "active") return false;
+    const hasCurrentUser =
+      goal.currentUserParticipant?.status === "accepted" ||
+      goal.currentUserParticipant?.status === "invited";
+    if (!hasCurrentUser) return false;
+
+    const hasFriend = goal.participants.some(
+      (participant) =>
+        participant.userId === entry.friend.id &&
+        participant.status !== "declined" &&
+        participant.status !== "left" &&
+        (participant.personalGoalId === entry.goal.id ||
+          goal.name.trim().toLowerCase() === entryGoalName),
+    );
+
+    return hasFriend;
+  });
 }
 
 function formatFeedDate(dateKey: string): string {
@@ -143,6 +182,12 @@ function countComments(comments: FriendFeedComment[]): number {
     (total, comment) => total + 1 + countComments(comment.replies),
     0,
   );
+}
+
+function getCommentPreview(comments: FriendFeedComment[]) {
+  return [...comments]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, 2);
 }
 
 function removeCommentById(
@@ -294,7 +339,9 @@ export function FeedScreen() {
     [viewportHeight, viewportWidth],
   );
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
+  const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
+  const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
     groupIds: [],
     categoryIds: [],
@@ -329,6 +376,16 @@ export function FeedScreen() {
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
+  const [activeIncentiveEntry, setActiveIncentiveEntry] =
+    useState<FriendFeedEntry | null>(null);
+  const [incentiveBody, setIncentiveBody] = useState("");
+  const [incentiveDays, setIncentiveDays] = useState("7");
+  const [incentivePercent, setIncentivePercent] = useState("80");
+  const [isSendingIncentive, setIsSendingIncentive] = useState(false);
+  const [activeJoinGoalEntry, setActiveJoinGoalEntry] =
+    useState<FriendFeedEntry | null>(null);
+  const [joinedGoalKeys, setJoinedGoalKeys] = useState<Set<string>>(new Set());
+  const [isPreparingJoinGoal, setIsPreparingJoinGoal] = useState(false);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const lightboxPagerRef = useRef<ScrollView>(null);
@@ -375,15 +432,28 @@ export function FeedScreen() {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
     try {
-      const [data, groups] = await Promise.all([
-        fetchFriendsFeed(),
-        fetchFriendGroups().catch(() => []),
-      ]);
+      const [data, groups, nextFriends, nextPersonalGoals, sharedGoals] =
+        await Promise.all([
+          fetchFriendsFeed(),
+          fetchFriendGroups().catch(() => []),
+          fetchFriends().catch(() => []),
+          fetchGoals().catch(() => []),
+          fetchSharedGoals().catch(() => []),
+        ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
       setEntries(data);
       setFriendGroups(groups);
+      setFriends(nextFriends);
+      setPersonalGoals(nextPersonalGoals);
+      setJoinedGoalKeys(
+        new Set(
+          data
+            .filter((entry) => hasJoinedSharedGoal(entry, sharedGoals))
+            .map(feedGoalKey),
+        ),
+      );
     } catch (err) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
@@ -801,6 +871,141 @@ export function FeedScreen() {
     [blockFriend, reportPost, unfollowFeedGoal, unfollowFriend],
   );
 
+  const openPostIncentive = useCallback((entry: FriendFeedEntry) => {
+    if (entry.kind !== "habit") return;
+    playSelectionHaptic();
+    setActiveIncentiveEntry(entry);
+    setIncentiveBody("");
+    setIncentiveDays("7");
+    setIncentivePercent("80");
+  }, []);
+
+  const closePostIncentive = useCallback(() => {
+    if (isSendingIncentive) return;
+    setActiveIncentiveEntry(null);
+  }, [isSendingIncentive]);
+
+  const sendPostIncentive = useCallback(async () => {
+    if (!activeIncentiveEntry || isSendingIncentive) return;
+
+    const days = Number.parseInt(incentiveDays, 10);
+    const percent = Number.parseInt(incentivePercent, 10);
+    if (!incentiveBody.trim()) {
+      Alert.alert("Add an incentive", "Write what they can earn.");
+      return;
+    }
+    if (
+      !Number.isFinite(days) ||
+      days < 1 ||
+      !Number.isFinite(percent) ||
+      percent < 1 ||
+      percent > 100
+    ) {
+      Alert.alert("Check the goal", "Use at least 1 day and 1-100%.");
+      return;
+    }
+
+    setIsSendingIncentive(true);
+    try {
+      const friends = await fetchFriends();
+      const friendship = friends.find(
+        (friend) =>
+          friend.friendId === activeIncentiveEntry.friend.id &&
+          friend.status === "accepted",
+      );
+
+      if (!friendship) {
+        throw new Error("Friendship not found.");
+      }
+
+      await sendFriendIncentive(friendship.id, {
+        type: "incentive",
+        body: incentiveBody.trim(),
+        streakDays: days,
+        streakPercent: percent,
+        goalScope: "single",
+        goalId: activeIncentiveEntry.goal.id,
+      });
+      if (!isMountedRef.current) return;
+      playSuccessHaptic();
+      setActiveIncentiveEntry(null);
+      Alert.alert(
+        "Incentive sent",
+        `${activeIncentiveEntry.friend.name} can accept it from Incentives.`,
+      );
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not send incentive",
+        err instanceof Error ? err.message : undefined,
+      );
+    } finally {
+      if (isMountedRef.current) setIsSendingIncentive(false);
+    }
+  }, [
+    activeIncentiveEntry,
+    incentiveBody,
+    incentiveDays,
+    incentivePercent,
+    isSendingIncentive,
+  ]);
+
+  const openJoinGoal = useCallback(
+    async (entry: FriendFeedEntry) => {
+      if (entry.kind !== "habit" || joinedGoalKeys.has(feedGoalKey(entry))) {
+        return;
+      }
+
+      playSelectionHaptic();
+      setIsPreparingJoinGoal(true);
+      try {
+        const [nextFriends, nextPersonalGoals] = await Promise.all([
+          friends.length ? Promise.resolve(friends) : fetchFriends(),
+          personalGoals.length ? Promise.resolve(personalGoals) : fetchGoals(),
+        ]);
+        if (!isMountedRef.current) return;
+        setFriends(nextFriends);
+        setPersonalGoals(nextPersonalGoals);
+        setActiveJoinGoalEntry(entry);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not start shared goal",
+          err instanceof Error ? err.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setIsPreparingJoinGoal(false);
+      }
+    },
+    [friends, joinedGoalKeys, personalGoals],
+  );
+
+  const joinGoalInitialValues =
+    activeJoinGoalEntry === null
+      ? undefined
+      : ({
+          name: activeJoinGoalEntry.goal.name,
+          invitedUserIds: [activeJoinGoalEntry.friend.id],
+        } satisfies CreateSharedGoalInitialValues);
+
+  const handleCreateJoinedGoal = useCallback(
+    async (input: CreateSharedGoalInput) => {
+      const entry = activeJoinGoalEntry;
+      await createSharedGoal(input);
+      playSuccessHaptic();
+      if (!isMountedRef.current) return;
+      if (entry) {
+        setJoinedGoalKeys((current) => {
+          const next = new Set(current);
+          next.add(feedGoalKey(entry));
+          return next;
+        });
+      }
+      setActiveJoinGoalEntry(null);
+    },
+    [activeJoinGoalEntry],
+  );
+
   const openFriendProfile = useCallback(
     (entry: FriendFeedEntry) => {
       router.push({
@@ -954,8 +1159,12 @@ export function FeedScreen() {
                 style={({ pressed }) => [
                   styles.filterButton,
                   {
-                    backgroundColor: theme.backgroundElement,
-                    borderColor: theme.tabBorder,
+                    backgroundColor:
+                      activeFilterCount > 0
+                        ? `${theme.primary}18`
+                        : "transparent",
+                    borderColor:
+                      activeFilterCount > 0 ? theme.primary : theme.tabBorder,
                   },
                   pressed && styles.pressed,
                 ]}
@@ -1034,6 +1243,15 @@ export function FeedScreen() {
                       onOpenSafetyActions={() =>
                         openPostSafetyActions(item.entry)
                       }
+                      onOpenIncentive={() => openPostIncentive(item.entry)}
+                      joinGoalStatus={
+                        joinedGoalKeys.has(feedGoalKey(item.entry))
+                          ? "joined"
+                          : isPreparingJoinGoal
+                            ? "loading"
+                            : "idle"
+                      }
+                      onOpenJoinGoal={() => void openJoinGoal(item.entry)}
                     />
                   ) : (
                     <FeedAdCard
@@ -1238,6 +1456,35 @@ export function FeedScreen() {
           }));
         }}
       />
+      <PostIncentiveModal
+        body={incentiveBody}
+        days={incentiveDays}
+        entry={activeIncentiveEntry}
+        isSending={isSendingIncentive}
+        percent={incentivePercent}
+        onBodyChange={setIncentiveBody}
+        onClose={closePostIncentive}
+        onDaysChange={setIncentiveDays}
+        onPercentChange={setIncentivePercent}
+        onSend={() => void sendPostIncentive()}
+      />
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setActiveJoinGoalEntry(null)}
+        presentationStyle="pageSheet"
+        visible={activeJoinGoalEntry !== null}
+      >
+        {activeJoinGoalEntry ? (
+          <CreateGoalModal
+            friends={friends}
+            friendGroups={friendGroups}
+            initialValues={joinGoalInitialValues}
+            personalGoals={personalGoals}
+            onClose={() => setActiveJoinGoalEntry(null)}
+            onCreate={handleCreateJoinedGoal}
+          />
+        ) : null}
+      </Modal>
       <FeedFilterModal
         activeCategoryIds={activeCategoryIds}
         activeGroupIds={activeGroupIds}
@@ -1468,8 +1715,240 @@ function FilterChip({
   );
 }
 
+function PostIncentiveModal({
+  body,
+  days,
+  entry,
+  isSending,
+  onBodyChange,
+  onClose,
+  onDaysChange,
+  onPercentChange,
+  onSend,
+  percent,
+}: {
+  body: string;
+  days: string;
+  entry: FriendFeedEntry | null;
+  isSending: boolean;
+  onBodyChange: (value: string) => void;
+  onClose: () => void;
+  onDaysChange: (value: string) => void;
+  onPercentChange: (value: string) => void;
+  onSend: () => void;
+  percent: string;
+}) {
+  const theme = useTheme();
+  const daysValue = Number.parseInt(days, 10);
+  const percentValue = Number.parseInt(percent, 10);
+  const canSend =
+    body.trim().length > 0 &&
+    Number.isFinite(daysValue) &&
+    daysValue >= 1 &&
+    Number.isFinite(percentValue) &&
+    percentValue >= 1 &&
+    percentValue <= 100 &&
+    !isSending;
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      transparent
+      visible={entry !== null}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.incentiveModalOverlay}
+      >
+        <Pressable style={styles.incentiveModalBackdrop} onPress={onClose} />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.incentiveSheet, { backgroundColor: theme.background }]}
+        >
+          <View
+            style={[
+              styles.incentiveHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <View style={styles.incentiveHeaderCopy}>
+              <Text style={[styles.incentiveTitle, { color: theme.text }]}>
+                Incentivize
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.incentiveSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {entry
+                  ? `${entry.friend.name} · ${entry.goal.name}`
+                  : "Friend habit"}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close incentive"
+              hitSlop={10}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.incentiveClose,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={15}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+
+          <View style={styles.incentiveContent}>
+            <View style={styles.incentiveField}>
+              <Text style={[styles.incentiveLabel, { color: theme.text }]}>
+                Reward
+              </Text>
+              <TextInput
+                autoFocus
+                onChangeText={onBodyChange}
+                placeholder="Lunch on me when you hit it"
+                placeholderTextColor={theme.textSecondary}
+                selectionColor={theme.primary}
+                style={[
+                  styles.incentiveInput,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    color: theme.text,
+                  },
+                ]}
+                value={body}
+              />
+            </View>
+
+            <View
+              style={[
+                styles.incentiveGoalBox,
+                {
+                  backgroundColor: theme.backgroundElement,
+                  borderColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.incentiveGoalKicker,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                EARN THIS WHEN
+              </Text>
+              <Text style={[styles.incentiveGoalText, { color: theme.text }]}>
+                {entry?.goal.name ?? "This habit"} reaches
+              </Text>
+              <View style={styles.incentiveNumberRow}>
+                <View style={styles.incentiveNumberField}>
+                  <Text
+                    style={[
+                      styles.incentiveSmallLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Days
+                  </Text>
+                  <TextInput
+                    keyboardType="number-pad"
+                    onChangeText={onDaysChange}
+                    placeholder="7"
+                    placeholderTextColor={theme.textSecondary}
+                    selectionColor={theme.primary}
+                    style={[
+                      styles.incentiveSmallInput,
+                      {
+                        backgroundColor: theme.background,
+                        borderColor: theme.tabBorder,
+                        color: theme.text,
+                      },
+                    ]}
+                    value={days}
+                  />
+                </View>
+                <View style={styles.incentiveNumberField}>
+                  <Text
+                    style={[
+                      styles.incentiveSmallLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Completion %
+                  </Text>
+                  <TextInput
+                    keyboardType="number-pad"
+                    onChangeText={onPercentChange}
+                    placeholder="80"
+                    placeholderTextColor={theme.textSecondary}
+                    selectionColor={theme.primary}
+                    style={[
+                      styles.incentiveSmallInput,
+                      {
+                        backgroundColor: theme.background,
+                        borderColor: theme.tabBorder,
+                        color: theme.text,
+                      },
+                    ]}
+                    value={percent}
+                  />
+                </View>
+              </View>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={!canSend}
+              onPress={onSend}
+              style={({ pressed }) => [
+                styles.incentiveSendButton,
+                {
+                  backgroundColor: canSend
+                    ? theme.primary
+                    : theme.backgroundElement,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              {isSending ? (
+                <ActivityIndicator color={theme.primaryForeground} />
+              ) : (
+                <Text
+                  style={[
+                    styles.incentiveSendText,
+                    {
+                      color: canSend
+                        ? theme.primaryForeground
+                        : theme.textSecondary,
+                    },
+                  ]}
+                >
+                  Send incentive
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 export function FeedCard({
   entry,
+  joinGoalStatus = "idle",
+  onOpenIncentive,
+  onOpenJoinGoal,
   onToggleProp,
   onPhotoPress,
   onOpenComments,
@@ -1477,6 +1956,9 @@ export function FeedCard({
   onOpenSafetyActions,
 }: {
   entry: FriendFeedEntry;
+  joinGoalStatus?: "idle" | "joined" | "loading";
+  onOpenIncentive?: () => void;
+  onOpenJoinGoal?: () => void;
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
@@ -1487,12 +1969,47 @@ export function FeedCard({
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
+  const lastContentTapAtRef = useRef(0);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const plainNotes = richTextToPlainText(entry.notes);
   const commentCount = countComments(entry.comments);
+  const commentPreview = getCommentPreview(entry.comments);
   const isCompletionOnly =
     entry.postType === "completion" &&
     entry.photos.length === 0 &&
     !plainNotes.trim();
+  const clearSingleTapTimer = useCallback(() => {
+    if (!singleTapTimerRef.current) return;
+    clearTimeout(singleTapTimerRef.current);
+    singleTapTimerRef.current = null;
+  }, []);
+  const handlePostContentTap = useCallback(
+    (onSingleTap?: () => void) => {
+      const now = Date.now();
+
+      if (now - lastContentTapAtRef.current <= POST_DOUBLE_TAP_DELAY_MS) {
+        lastContentTapAtRef.current = 0;
+        clearSingleTapTimer();
+        if (!entry.props.hasPropped) {
+          onToggleProp();
+        } else {
+          playSelectionHaptic();
+        }
+        return;
+      }
+
+      lastContentTapAtRef.current = now;
+      clearSingleTapTimer();
+      singleTapTimerRef.current = setTimeout(() => {
+        lastContentTapAtRef.current = 0;
+        singleTapTimerRef.current = null;
+        onSingleTap?.();
+      }, POST_DOUBLE_TAP_DELAY_MS);
+    },
+    [clearSingleTapTimer, entry.props.hasPropped, onToggleProp],
+  );
+
+  useEffect(() => clearSingleTapTimer, [clearSingleTapTimer]);
 
   return (
     <View
@@ -1591,7 +2108,9 @@ export function FeedCard({
               {entry.photos.map((photo) => (
                 <Pressable
                   key={photo.id}
-                  onPress={() => onPhotoPress(photo)}
+                  onPress={() =>
+                    handlePostContentTap(() => onPhotoPress(photo))
+                  }
                   style={({ pressed }) => [
                     styles.carouselSlide,
                     { width: carouselWidth || 1 },
@@ -1642,67 +2161,206 @@ export function FeedCard({
 
       {/* Notes */}
       {plainNotes ? (
-        <RichFeedNote
-          expanded={notesExpanded}
-          html={entry.notes}
-          onToggleExpanded={() => setNotesExpanded((x) => !x)}
-        />
+        <Pressable
+          onPress={() => handlePostContentTap()}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <RichFeedNote
+            expanded={notesExpanded}
+            html={entry.notes}
+            onToggleExpanded={() => setNotesExpanded((x) => !x)}
+          />
+        </Pressable>
       ) : null}
 
-      {isCompletionOnly ? <CompletionPostBody entry={entry} /> : null}
+      {isCompletionOnly ? (
+        <Pressable
+          onPress={() => handlePostContentTap()}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <CompletionPostBody entry={entry} />
+        </Pressable>
+      ) : null}
 
       {/* Actions row — props/comments are habit-only for now */}
       {entry.kind === "habit" ? (
-        <View style={[styles.actionsRow, { borderTopColor: theme.tabBorder }]}>
-          <Pressable
-            onPress={onToggleProp}
-            style={({ pressed }) => [
-              styles.propButton,
-              entry.props.hasPropped && {
-                backgroundColor: `${theme.primary}14`,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("hands.clap.fill", "volunteer_activism")}
-              size={18}
-              weight="semibold"
-              tintColor={entry.props.hasPropped ? theme.primary : theme.tabIcon}
-            />
-            <Text
-              style={[
-                styles.propText,
-                {
-                  color: entry.props.hasPropped ? theme.primary : theme.tabIcon,
+        <View
+          style={[styles.actionsBlock, { borderTopColor: theme.tabBorder }]}
+        >
+          <View style={styles.actionsRow}>
+            <Pressable
+              onPress={onToggleProp}
+              style={({ pressed }) => [
+                styles.propButton,
+                entry.props.hasPropped && {
+                  backgroundColor: `${theme.primary}14`,
                 },
+                pressed && styles.pressed,
               ]}
             >
-              {entry.props.count > 0
-                ? `${entry.props.count} ${entry.props.count === 1 ? "Prop" : "Props"}`
-                : "Prop"}
-            </Text>
-          </Pressable>
+              <SymbolView
+                name={sym("hands.clap.fill", "volunteer_activism")}
+                size={18}
+                weight="semibold"
+                tintColor={
+                  entry.props.hasPropped ? theme.primary : theme.tabIcon
+                }
+              />
+              <Text
+                style={[
+                  styles.propText,
+                  {
+                    color: entry.props.hasPropped
+                      ? theme.primary
+                      : theme.tabIcon,
+                  },
+                ]}
+              >
+                {entry.props.count > 0
+                  ? `${entry.props.count} ${entry.props.count === 1 ? "Prop" : "Props"}`
+                  : "Prop"}
+              </Text>
+            </Pressable>
 
-          <Pressable
-            onPress={onOpenComments}
-            style={({ pressed }) => [
-              styles.commentCountWrap,
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("bubble.left", "chat_bubble_outline")}
-              size={16}
-              weight="semibold"
-              tintColor={theme.textSecondary}
-            />
-            <Text
-              style={[styles.commentCountText, { color: theme.textSecondary }]}
+            {onOpenIncentive ? (
+              <Pressable
+                accessibilityLabel="Incentivize post"
+                onPress={onOpenIncentive}
+                style={({ pressed }) => [
+                  styles.incentiveButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("gift.fill", "card_giftcard")}
+                  size={16}
+                  weight="semibold"
+                  tintColor={theme.textSecondary}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.commentCountText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Incentive
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {onOpenJoinGoal ? (
+              <Pressable
+                accessibilityLabel={
+                  joinGoalStatus === "joined"
+                    ? "Already joined goal"
+                    : "Join goal"
+                }
+                disabled={joinGoalStatus !== "idle"}
+                onPress={onOpenJoinGoal}
+                style={({ pressed }) => [
+                  styles.joinGoalButton,
+                  joinGoalStatus === "joined" && {
+                    backgroundColor: `${theme.primary}14`,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym(
+                    joinGoalStatus === "joined"
+                      ? "checkmark.circle.fill"
+                      : "person.badge.plus",
+                    joinGoalStatus === "joined" ? "check_circle" : "group_add",
+                  )}
+                  size={16}
+                  weight="semibold"
+                  tintColor={
+                    joinGoalStatus === "joined" ? theme.primary : theme.tabIcon
+                  }
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.commentCountText,
+                    {
+                      color:
+                        joinGoalStatus === "joined"
+                          ? theme.primary
+                          : theme.tabIcon,
+                    },
+                  ]}
+                >
+                  {joinGoalStatus === "joined"
+                    ? "Joined"
+                    : joinGoalStatus === "loading"
+                      ? "Opening..."
+                      : "Join"}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              accessibilityLabel={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
+              onPress={onOpenComments}
+              style={({ pressed }) => [
+                styles.commentCountWrap,
+                pressed && styles.pressed,
+              ]}
             >
-              {commentCount} {commentCount === 1 ? "comment" : "comments"}
-            </Text>
-          </Pressable>
+              <SymbolView
+                name={sym("bubble.left", "chat_bubble_outline")}
+                size={16}
+                weight="semibold"
+                tintColor={theme.textSecondary}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.commentCountText,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {commentCount}
+              </Text>
+            </Pressable>
+          </View>
+
+          {commentPreview.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenComments}
+              style={({ pressed }) => [
+                styles.commentPreviewBlock,
+                pressed && styles.pressed,
+              ]}
+            >
+              {commentPreview.map((comment) => (
+                <Text
+                  key={comment.id}
+                  numberOfLines={1}
+                  style={[styles.commentPreviewText, { color: theme.text }]}
+                >
+                  <Text style={styles.commentPreviewAuthor}>
+                    {comment.authorName}
+                  </Text>{" "}
+                  <Text style={{ color: theme.textSecondary }}>
+                    {comment.body}
+                  </Text>
+                </Text>
+              ))}
+              {commentCount > commentPreview.length ? (
+                <Text
+                  style={[
+                    styles.viewAllCommentsText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  View all {commentCount} comments
+                </Text>
+              ) : null}
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -1855,120 +2513,132 @@ function FeedAdCard({
   if (nativeAd && adsModule) {
     return (
       <adsModule.NativeAdView nativeAd={nativeAd} style={styles.nativeAdRoot}>
-        <View
-          style={[
-            styles.adCard,
-            styles.nativeAdContent,
-            {
-              backgroundColor: theme.tabBar,
-              borderColor: `${theme.tabBorder}99`,
-            },
-          ]}
-        >
+        <View style={styles.adOuter}>
+          <View
+            style={[styles.adDivider, { backgroundColor: theme.tabBorder }]}
+          />
           <View style={styles.nativeAdHeader}>
             {renderLabel()}
             {renderActions()}
           </View>
 
-          <View style={styles.nativeAdTopRow}>
-            {nativeAd.icon ? (
-              <adsModule.NativeAsset assetType={adsModule.NativeAssetType.ICON}>
-                <RNImage
-                  resizeMode="cover"
-                  source={{ uri: nativeAd.icon.url }}
-                  style={styles.nativeAdIcon}
-                />
-              </adsModule.NativeAsset>
-            ) : null}
-            <View style={styles.nativeAdCopy}>
-              <adsModule.NativeAsset
-                assetType={adsModule.NativeAssetType.HEADLINE}
-              >
-                <Text
-                  numberOfLines={2}
-                  style={[styles.nativeAdHeadline, { color: theme.text }]}
-                >
-                  {nativeAd.headline}
-                </Text>
-              </adsModule.NativeAsset>
-              {nativeAd.advertiser ? (
+          <View
+            style={[
+              styles.adCard,
+              styles.nativeAdContent,
+              {
+                backgroundColor: theme.tabBar,
+                borderColor: `${theme.tabBorder}99`,
+              },
+            ]}
+          >
+            <View style={styles.nativeAdTopRow}>
+              {nativeAd.icon ? (
                 <adsModule.NativeAsset
-                  assetType={adsModule.NativeAssetType.ADVERTISER}
+                  assetType={adsModule.NativeAssetType.ICON}
                 >
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.nativeAdAdvertiser,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    {nativeAd.advertiser}
-                  </Text>
+                  <RNImage
+                    resizeMode="cover"
+                    source={{ uri: nativeAd.icon.url }}
+                    style={styles.nativeAdIcon}
+                  />
                 </adsModule.NativeAsset>
               ) : null}
+              <View style={styles.nativeAdCopy}>
+                <adsModule.NativeAsset
+                  assetType={adsModule.NativeAssetType.HEADLINE}
+                >
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.nativeAdHeadline, { color: theme.text }]}
+                  >
+                    {nativeAd.headline}
+                  </Text>
+                </adsModule.NativeAsset>
+                {nativeAd.advertiser ? (
+                  <adsModule.NativeAsset
+                    assetType={adsModule.NativeAssetType.ADVERTISER}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.nativeAdAdvertiser,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {nativeAd.advertiser}
+                    </Text>
+                  </adsModule.NativeAsset>
+                ) : null}
+              </View>
             </View>
-          </View>
 
-          {nativeAd.body ? (
-            <adsModule.NativeAsset assetType={adsModule.NativeAssetType.BODY}>
-              <Text
-                numberOfLines={3}
-                style={[styles.nativeAdBody, { color: theme.textSecondary }]}
-              >
-                {nativeAd.body}
-              </Text>
-            </adsModule.NativeAsset>
-          ) : null}
+            {nativeAd.body ? (
+              <adsModule.NativeAsset assetType={adsModule.NativeAssetType.BODY}>
+                <Text
+                  numberOfLines={3}
+                  style={[styles.nativeAdBody, { color: theme.textSecondary }]}
+                >
+                  {nativeAd.body}
+                </Text>
+              </adsModule.NativeAsset>
+            ) : null}
 
-          {nativeAd.mediaContent ? (
-            <View
-              style={[
-                styles.nativeAdMediaFrame,
-                { backgroundColor: theme.backgroundElement },
-              ]}
-            >
-              <adsModule.NativeMediaView
-                resizeMode="cover"
-                style={styles.nativeAdMedia}
-              />
-            </View>
-          ) : null}
-
-          {nativeAd.callToAction ? (
-            <adsModule.NativeAsset
-              assetType={adsModule.NativeAssetType.CALL_TO_ACTION}
-            >
-              <Text
+            {nativeAd.mediaContent ? (
+              <View
                 style={[
-                  styles.nativeAdCta,
-                  styles.nativeAdCtaText,
-                  {
-                    backgroundColor: theme.primary,
-                    color: theme.primaryForeground,
-                  },
+                  styles.nativeAdMediaFrame,
+                  { backgroundColor: theme.backgroundElement },
                 ]}
               >
-                {nativeAd.callToAction}
-              </Text>
-            </adsModule.NativeAsset>
-          ) : null}
+                <adsModule.NativeMediaView
+                  resizeMode="cover"
+                  style={styles.nativeAdMedia}
+                />
+              </View>
+            ) : null}
+
+            {nativeAd.callToAction ? (
+              <adsModule.NativeAsset
+                assetType={adsModule.NativeAssetType.CALL_TO_ACTION}
+              >
+                <Text
+                  style={[
+                    styles.nativeAdCta,
+                    styles.nativeAdCtaText,
+                    {
+                      backgroundColor: theme.primary,
+                      color: theme.primaryForeground,
+                    },
+                  ]}
+                >
+                  {nativeAd.callToAction}
+                </Text>
+              </adsModule.NativeAsset>
+            ) : null}
+          </View>
         </View>
       </adsModule.NativeAdView>
     );
   }
 
   return (
-    <View
-      style={[
-        styles.adCard,
-        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
-      ]}
-    >
+    <View style={styles.adOuter}>
+      <View style={[styles.adDivider, { backgroundColor: theme.tabBorder }]} />
       <View style={styles.adHeader}>
         {renderLabel()}
         {renderActions()}
       </View>
-      <View style={styles.nativeAdPlaceholder}>
+      <View
+        style={[
+          styles.adCard,
+          styles.nativeAdPlaceholder,
+          {
+            backgroundColor: theme.tabBar,
+            borderColor: `${theme.tabBorder}99`,
+          },
+        ]}
+      >
         <View
           style={[
             styles.nativeAdPlaceholderIcon,
@@ -2535,24 +3205,24 @@ const styles = StyleSheet.create({
   },
   pageHeaderText: { flex: 1, gap: 1 },
   filterButton: {
-    width: 52,
-    height: 52,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 21,
     borderWidth: StyleSheet.hairlineWidth,
     position: "relative",
   },
   filterBadge: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    minWidth: 17,
-    height: 17,
+    top: -3,
+    right: -3,
+    minWidth: 16,
+    height: 16,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderRadius: 9,
+    borderWidth: 1.5,
+    borderRadius: 8,
     paddingHorizontal: 4,
   },
   filterBadgeText: {
@@ -2653,21 +3323,29 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  feedList: { gap: 12 },
+  feedList: { gap: 14 },
+  adOuter: {
+    gap: 9,
+    paddingVertical: 4,
+  },
+  adDivider: {
+    alignSelf: "center",
+    width: 44,
+    height: StyleSheet.hairlineWidth,
+    opacity: 0.75,
+  },
   adCard: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
+    borderRadius: 16,
     overflow: "hidden",
   },
   adHeader: {
-    minHeight: 44,
+    minHeight: 24,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 4,
   },
   adLabelRow: {
     flexDirection: "row",
@@ -2675,22 +3353,22 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   adBadge: {
-    minWidth: 28,
-    height: 22,
+    minWidth: 24,
+    height: 19,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 7,
-    paddingHorizontal: 7,
+    borderRadius: 6,
+    paddingHorizontal: 6,
   },
   adBadgeText: {
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "900",
   },
   adSponsoredText: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "800",
   },
   adActions: {
@@ -2712,10 +3390,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   nativeAdContent: {
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 14,
+    gap: 9,
+    padding: 12,
   },
   nativeAdHeader: {
     minHeight: 30,
@@ -2738,8 +3414,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
+    padding: 12,
   },
   nativeAdPlaceholderIcon: {
     width: 42,
@@ -2754,8 +3429,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   nativeAdHeadline: {
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: "900",
   },
   nativeAdAdvertiser: {
@@ -2947,19 +3622,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
   },
+  actionsBlock: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
+    gap: 4,
+    paddingHorizontal: 10,
     paddingVertical: 9,
-    borderTopWidth: StyleSheet.hairlineWidth,
   },
   propButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 9,
+    flexShrink: 0,
+    gap: 5,
+    paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 999,
   },
@@ -2968,17 +3646,171 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "600",
   },
+  incentiveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    gap: 5,
+    minWidth: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  joinGoalButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+    gap: 5,
+    minWidth: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
   commentCountWrap: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 8,
+    flexShrink: 0,
+    gap: 5,
+    paddingHorizontal: 7,
     paddingVertical: 6,
   },
   commentCountText: {
     fontSize: 13,
     lineHeight: 17,
     fontWeight: "600",
+  },
+  commentPreviewBlock: {
+    gap: 4,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
+  },
+  commentPreviewText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
+  commentPreviewAuthor: {
+    fontWeight: "800",
+  },
+  viewAllCommentsText: {
+    paddingTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  incentiveModalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "#00000066",
+  },
+  incentiveModalBackdrop: {
+    ...StyleSheet.absoluteFill,
+  },
+  incentiveSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: "hidden",
+  },
+  incentiveHeader: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  incentiveHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  incentiveTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "800",
+  },
+  incentiveSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  incentiveClose: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+  },
+  incentiveContent: {
+    gap: 16,
+    padding: 18,
+    paddingBottom: 24,
+  },
+  incentiveField: {
+    gap: 8,
+  },
+  incentiveLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  incentiveInput: {
+    minHeight: 52,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 17,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  incentiveGoalBox: {
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 20,
+    padding: 14,
+  },
+  incentiveGoalKicker: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  incentiveGoalText: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "800",
+  },
+  incentiveNumberRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  incentiveNumberField: {
+    flex: 1,
+    gap: 7,
+  },
+  incentiveSmallLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  incentiveSmallInput: {
+    minHeight: 48,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  incentiveSendButton: {
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+  },
+  incentiveSendText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
   },
   commentThread: {
     gap: 6,

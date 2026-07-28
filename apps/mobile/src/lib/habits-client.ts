@@ -28,6 +28,8 @@ export type Habit = {
   goalTitle: string | null;
   priority: HabitPriority;
   visibility: HabitVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   iconKey: string;
   defaultComplete: boolean;
   planOnCalendar: boolean;
@@ -50,6 +52,8 @@ export type HabitInput = {
   goalId: string | null;
   priority: HabitPriority;
   visibility: HabitVisibility;
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
   iconKey: string;
   defaultComplete: boolean;
   planOnCalendar: boolean;

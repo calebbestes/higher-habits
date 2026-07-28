@@ -510,6 +510,62 @@ export const habits = pgTable(
   ],
 );
 
+export const habitAudienceFriends = pgTable(
+  "habit_audience_friends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    friendUserId: text("friend_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("habit_audience_friends_habit_id_idx").on(table.habitId),
+    index("habit_audience_friends_user_id_idx").on(table.userId),
+    index("habit_audience_friends_friend_user_id_idx").on(table.friendUserId),
+    unique("habit_audience_friends_habit_friend_uidx").on(
+      table.habitId,
+      table.friendUserId,
+    ),
+  ],
+);
+
+export const habitAudienceGroups = pgTable(
+  "habit_audience_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    habitId: uuid("habit_id")
+      .notNull()
+      .references(() => habits.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => friendGroups.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("habit_audience_groups_habit_id_idx").on(table.habitId),
+    index("habit_audience_groups_user_id_idx").on(table.userId),
+    index("habit_audience_groups_group_id_idx").on(table.groupId),
+    unique("habit_audience_groups_habit_group_uidx").on(
+      table.habitId,
+      table.groupId,
+    ),
+  ],
+);
+
 export const goalLogs = pgTable(
   "goal_logs",
   {

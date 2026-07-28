@@ -307,6 +307,8 @@ export function MonthlyGoalsScreen({
   updatingKeysRef.current = updatingKeys;
   const logsByHabitDateRef = useRef(logsByHabitDate);
   logsByHabitDateRef.current = logsByHabitDate;
+  const scrollRef = useRef<ScrollView>(null);
+  const detailPanelYRef = useRef(0);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
 
@@ -391,6 +393,8 @@ export function MonthlyGoalsScreen({
       categoryIcon: category?.icon ?? "",
       goalId: goal.goalId,
       goalTitle: goal.goalTitle,
+      audienceFriendIds: goal.audienceFriendIds ?? [],
+      audienceGroupIds: goal.audienceGroupIds ?? [],
       hidden: false,
       repeatCadence: goal.repeatCadence ?? goal.period,
       repeatInterval: goal.repeatInterval ?? 1,
@@ -403,7 +407,10 @@ export function MonthlyGoalsScreen({
     setFormOpen(true);
   };
 
-  const confirmDelete = (goal: PeriodicHabitInfo) => {
+  const confirmDelete = (
+    goal: Pick<PeriodicHabitInfo, "id" | "name">,
+    onDeleted?: () => void,
+  ) => {
     Alert.alert(
       "Delete habit?",
       `"${goal.name}" and its history will be permanently deleted.`,
@@ -417,6 +424,7 @@ export function MonthlyGoalsScreen({
               await deleteHabit(goal.id);
               await cancelHabitReminderAsync(goal.id);
               await load();
+              onDeleted?.();
             } catch (deleteError) {
               setError(
                 deleteError instanceof Error
@@ -657,6 +665,23 @@ export function MonthlyGoalsScreen({
     setSelectedDateKey(todayDateKey);
   }, [today, todayDateKey]);
 
+  const scrollToDetailPanel = useCallback(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        animated: true,
+        y: Math.max(detailPanelYRef.current - 10, 0),
+      });
+    });
+  }, []);
+
+  const selectDateAndScroll = useCallback(
+    (dateKey: string) => {
+      setSelectedDateKey(dateKey);
+      scrollToDetailPanel();
+    },
+    [scrollToDetailPanel],
+  );
+
   const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
 
@@ -664,6 +689,7 @@ export function MonthlyGoalsScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
+          ref={scrollRef}
           canCancelContentTouches
           contentContainerStyle={[
             styles.content,
@@ -795,7 +821,7 @@ export function MonthlyGoalsScreen({
               logsByHabitDate={logsByHabitDate}
               todayDateKey={todayDateKey}
               selectedDateKey={selectedDateKey}
-              onDayPress={setSelectedDateKey}
+              onDayPress={selectDateAndScroll}
             />
           )}
 
@@ -818,6 +844,9 @@ export function MonthlyGoalsScreen({
                 })
               }
               updatingKeys={updatingKeys}
+              onLayout={(y) => {
+                detailPanelYRef.current = y;
+              }}
               onMoreGoal={openHabitMenu}
               onToggleGoal={toggleHabitForSelectedDay}
             />
@@ -835,6 +864,12 @@ export function MonthlyGoalsScreen({
           setFormOpen(false);
           setEditingGoal(null);
         }}
+        onDelete={(habit) =>
+          confirmDelete(habit, () => {
+            setFormOpen(false);
+            setEditingGoal(null);
+          })
+        }
         onSave={saveGoal}
       />
 
@@ -1066,6 +1101,7 @@ function DayDetailPanel({
   monthProgressByGoal,
   selectedDateStatus,
   updatingKeys,
+  onLayout,
   onMoreGoal,
   onToggleGoal,
 }: {
@@ -1081,6 +1117,7 @@ function DayDetailPanel({
   >;
   selectedDateStatus: (goal: PeriodicHabitInfo) => boolean;
   updatingKeys: Set<string>;
+  onLayout?: (y: number) => void;
   onMoreGoal: (goal: PeriodicHabitInfo) => void;
   onToggleGoal: (goal: PeriodicHabitInfo) => void;
 }) {
@@ -1120,6 +1157,7 @@ function DayDetailPanel({
 
   return (
     <View
+      onLayout={(event) => onLayout?.(event.nativeEvent.layout.y)}
       style={[
         styles.detailPanel,
         { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
