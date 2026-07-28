@@ -1129,7 +1129,7 @@ function AddFriendModal({
       return;
     }
 
-    const body = `Join me on float so we can build habits together: ${INVITE_LINK}\n\nThe app is in TestFlight right now, so that link has the next step.`;
+    const body = `Join me on float so we can build habits together: ${INVITE_LINK}`;
     let url: string;
     if (channel === "email") {
       const query = `subject=${encodeURIComponent(

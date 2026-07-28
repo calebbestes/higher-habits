@@ -64,7 +64,8 @@ import {
 } from "@/lib/haptics";
 import {
   type LoadedNativeFeedAd,
-  loadTestNativeFeedAd,
+  isNativeFeedAdsEnabled,
+  loadNativeFeedAd,
 } from "@/lib/mobile-ads";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
@@ -305,6 +306,10 @@ function buildFeedRenderItems(
   entries: FriendFeedEntry[],
   hiddenAdKeys: Set<string>,
 ): FeedRenderItem[] {
+  if (!isNativeFeedAdsEnabled()) {
+    return entries.map((entry) => ({ type: "entry", entry }));
+  }
+
   return entries.flatMap((entry, index) => {
     const items: FeedRenderItem[] = [{ type: "entry", entry }];
     const postNumber = index + 1;
@@ -313,7 +318,7 @@ function buildFeedRenderItems(
 
     if (shouldInsertAd) {
       const slotIndex = postNumber / FEED_AD_INTERVAL;
-      const id = `feed-native-test-ad-${slotIndex}-after-${entry.id}`;
+      const id = `feed-native-ad-${slotIndex}-after-${entry.id}`;
       if (!hiddenAdKeys.has(id)) {
         items.push({
           type: "ad",
@@ -827,7 +832,7 @@ export function FeedScreen() {
           reason: "Reported from feed ad card.",
           context: {
             adNetwork: "google_mobile_ads",
-            adUnit: "test_native",
+            adUnit: "native_feed",
             afterEntryId: item.afterEntryId,
             slotIndex: item.slotIndex,
           },
@@ -2438,7 +2443,7 @@ function FeedAdCard({
     let cancelled = false;
     let nativeAdToDestroy: LoadedNativeFeedAd["nativeAd"] | null = null;
 
-    void loadTestNativeFeedAd().then((nextLoadedAd) => {
+    void loadNativeFeedAd().then((nextLoadedAd) => {
       if (!nextLoadedAd) return;
 
       if (cancelled) {
@@ -2622,47 +2627,7 @@ function FeedAdCard({
     );
   }
 
-  return (
-    <View style={styles.adOuter}>
-      <View style={[styles.adDivider, { backgroundColor: theme.tabBorder }]} />
-      <View style={styles.adHeader}>
-        {renderLabel()}
-        {renderActions()}
-      </View>
-      <View
-        style={[
-          styles.adCard,
-          styles.nativeAdPlaceholder,
-          {
-            backgroundColor: theme.tabBar,
-            borderColor: `${theme.tabBorder}99`,
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.nativeAdPlaceholderIcon,
-            { backgroundColor: `${theme.primary}22` },
-          ]}
-        >
-          <SymbolView
-            name={sym("megaphone.fill", "campaign")}
-            size={22}
-            tintColor={theme.primary}
-            weight="semibold"
-          />
-        </View>
-        <View style={styles.nativeAdCopy}>
-          <Text style={[styles.nativeAdHeadline, { color: theme.text }]}>
-            Test sponsored card
-          </Text>
-          <Text style={[styles.nativeAdBody, { color: theme.textSecondary }]}>
-            Google test ads appear here in a native TestFlight build.
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
+  return null;
 }
 
 const FEED_NOTE_COLLAPSE_HEIGHT = 112;

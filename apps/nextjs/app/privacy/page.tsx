@@ -13,9 +13,7 @@ export default function PrivacyPage() {
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
             float
           </p>
-          <h1 className="text-4xl font-black tracking-tight">
-            Privacy Policy
-          </h1>
+          <h1 className="text-4xl font-black tracking-tight">Privacy Policy</h1>
           <p className="text-sm text-foreground-500">
             Effective date: July 3, 2026
           </p>
@@ -65,8 +63,18 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold">Diagnostics</h2>
           <p>
             float uses diagnostics and crash reporting to understand failures
-            and improve reliability. Diagnostic reports may include device,
-            app, and error details.
+            and improve reliability. Diagnostic reports may include device, app,
+            and error details.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-xl font-bold">Advertising</h2>
+          <p>
+            float may show sponsored content from advertising partners such as
+            Google AdMob. Ads may use app and device information to deliver,
+            measure, and limit ads. float requests non-personalized ads unless
+            you separately grant tracking permission where required.
           </p>
         </section>
 
@@ -74,9 +82,10 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold">Third-Party Services</h2>
           <p>
             float uses service providers for authentication, hosting, database
-            storage, file storage, push notifications, and crash reporting. If
-            you connect Google Calendar, float uses the Google Calendar access
-            you grant to read and manage calendar events for planning features.
+            storage, file storage, push notifications, crash reporting, and
+            advertising. If you connect Google Calendar, float uses the Google
+            Calendar access you grant to read and manage calendar events for
+            planning features.
           </p>
         </section>
 
@@ -84,15 +93,15 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold">Account Deletion</h2>
           <p>
             You can delete your account in the app from Settings. Deleting your
-            account permanently removes your account and associated app data.
+            account permanently removes your account, associated app data, and
+            uploaded photos controlled by float.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Contact</h2>
           <p>
-            For privacy or support questions, contact
-            estes.caleb.b@gmail.com.
+            For privacy or support questions, contact estes.caleb.b@gmail.com.
           </p>
         </section>
       </div>
