@@ -313,6 +313,7 @@ async function getFriendProfile(
 
   const [friendship] = await db
     .select({
+      id: friends.id,
       userId1: friends.userId1,
       userId2: friends.userId2,
     })
@@ -478,6 +479,7 @@ async function getFriendProfile(
   return NextResponse.json({
     friend: {
       id: friend.id,
+      friendshipId: friendship.id,
       name: friend.name,
       email: friend.email,
       image: friend.image,

@@ -1901,7 +1901,7 @@ export function ContactsTable() {
       {selectedCount > 0 && (
         <div className="fixed inset-x-4 bottom-6 z-50 flex items-center gap-3 rounded-2xl border border-divider bg-content1/95 px-4 py-3 shadow-xl backdrop-blur-sm sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-fit sm:min-w-[320px]">
           <Chip size="sm" variant="flat" color="primary">
-            {selectedCount} selected
+            {selectedCount} friends selected
           </Chip>
           <div className="h-5 w-px bg-divider" />
           <Button

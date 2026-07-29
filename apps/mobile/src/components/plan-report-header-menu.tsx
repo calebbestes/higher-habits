@@ -14,7 +14,7 @@ const MENU_ITEMS: {
 }[] = [
   {
     id: "day-plan",
-    title: "Day Plan",
+    title: "Daily Plan",
     href: "/plan-report?view=day-plan",
     image: "calendar",
   },

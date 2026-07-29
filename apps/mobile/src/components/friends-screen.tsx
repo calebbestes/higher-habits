@@ -35,6 +35,7 @@ import {
   fetchFriendGroups,
   fetchFriends,
   searchFriendUsers,
+  sendFriendNudge,
 } from "@/lib/friends-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
@@ -64,6 +65,9 @@ export function FriendsScreen() {
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
+  const [nudgingFriendshipId, setNudgingFriendshipId] = useState<string | null>(
+    null,
+  );
 
   const load = useCallback(async (refresh = false) => {
     const requestId = ++loadRequestIdRef.current;
@@ -151,6 +155,23 @@ export function FriendsScreen() {
     Linking.openURL(`sms:${encodeURIComponent(phone)}`).catch(() => {
       Alert.alert("Could not open", "No messaging app is available.");
     });
+  };
+
+  const nudgeFriend = async (friend: FriendRow) => {
+    if (nudgingFriendshipId) return;
+    setNudgingFriendshipId(friend.id);
+    try {
+      await sendFriendNudge(friend.id, "Keep going. You got this.");
+      playSuccessHaptic();
+      Alert.alert("Nudge sent", `${friend.friendName} got a quick nudge.`);
+    } catch (nudgeError) {
+      Alert.alert(
+        "Could not send nudge",
+        nudgeError instanceof Error ? nudgeError.message : "Please try again.",
+      );
+    } finally {
+      setNudgingFriendshipId(null);
+    }
   };
 
   const acceptRequest = async (friend: FriendRow) => {
@@ -385,7 +406,9 @@ export function FriendsScreen() {
                       <FriendCard
                         key={friend.id}
                         friend={friend}
+                        isNudging={nudgingFriendshipId === friend.id}
                         onMessage={() => messageFriend(friend)}
+                        onNudge={() => void nudgeFriend(friend)}
                         onOpenProfile={() =>
                           router.push({
                             pathname: "/friend-profile",
@@ -455,11 +478,15 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 function FriendCard({
   friend,
+  isNudging,
   onMessage,
+  onNudge,
   onOpenProfile,
 }: {
   friend: FriendRow;
+  isNudging: boolean;
   onMessage: () => void;
+  onNudge: () => void;
   onOpenProfile: () => void;
 }) {
   const theme = useTheme();
@@ -521,6 +548,28 @@ function FriendCard({
           weight="semibold"
           tintColor={theme.primary}
         />
+      </Pressable>
+      <Pressable
+        accessibilityLabel={`Nudge ${friend.friendName}`}
+        disabled={isNudging}
+        hitSlop={8}
+        onPress={onNudge}
+        style={({ pressed }) => [
+          styles.messageButton,
+          { backgroundColor: theme.backgroundElement },
+          pressed && styles.pressed,
+        ]}
+      >
+        {isNudging ? (
+          <ActivityIndicator color={theme.primary} size="small" />
+        ) : (
+          <SymbolView
+            name={sym("hand.tap.fill", "touch_app")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+        )}
       </Pressable>
     </View>
   );

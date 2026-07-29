@@ -1,4 +1,6 @@
 import {
+  dailyReflectionPhotos,
+  dailyReflectionPosts,
   getDb,
   goalCheckpointPhotos,
   goalCheckpoints,
@@ -233,11 +235,12 @@ export async function GET(request: Request) {
 
     const entries: Array<{
       id: string;
-      kind: "habit" | "goal_checkpoint";
+      kind: "habit" | "goal_checkpoint" | "reflection";
       friend: { id: string; name: string; image: string | null };
       goal: { id: string; name: string; icon: string };
       dateKey: string;
       notes: string;
+      reflectionPrompt: string | null;
       updatedAt: string;
       canDeletePhotos: boolean;
       postType: "completion" | "journal";
@@ -263,6 +266,7 @@ export async function GET(request: Request) {
         },
         dateKey: row.dateKey,
         notes: row.notes,
+        reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: true,
         postType,
@@ -290,10 +294,82 @@ export async function GET(request: Request) {
         },
         dateKey: row.completedAt.toISOString().slice(0, 10),
         notes: row.notes ?? "",
+        reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: true,
         postType,
         highlights: ["Checkpoint complete"],
+        props: { count: 0, hasPropped: false },
+        comments: [],
+        photos,
+      });
+    }
+
+    const reflectionRows = await db
+      .select({
+        entryId: dailyReflectionPosts.id,
+        prompt: dailyReflectionPosts.prompt,
+        body: dailyReflectionPosts.body,
+        dateKey: dailyReflectionPosts.date,
+        updatedAt: dailyReflectionPosts.updatedAt,
+      })
+      .from(dailyReflectionPosts)
+      .where(eq(dailyReflectionPosts.userId, user.id))
+      .orderBy(desc(dailyReflectionPosts.updatedAt));
+    const reflectionIds = reflectionRows.map((row) => row.entryId);
+    const reflectionPhotoRows =
+      reflectionIds.length > 0
+        ? await db
+            .select({
+              entryId: dailyReflectionPhotos.reflectionPostId,
+              photoId: dailyReflectionPhotos.id,
+              storagePath: dailyReflectionPhotos.storagePath,
+              contentType: dailyReflectionPhotos.contentType,
+              photoCreatedAt: dailyReflectionPhotos.createdAt,
+            })
+            .from(dailyReflectionPhotos)
+            .where(
+              inArray(dailyReflectionPhotos.reflectionPostId, reflectionIds),
+            )
+            .orderBy(desc(dailyReflectionPhotos.createdAt))
+        : [];
+    const reflectionPhotosById = (
+      await Promise.all(
+        reflectionPhotoRows.map(async (row) => ({
+          entryId: row.entryId,
+          photo: {
+            id: row.photoId,
+            url: await createSignedPhotoUrl(row.storagePath),
+            contentType: row.contentType,
+            createdAt: row.photoCreatedAt.toISOString(),
+          } satisfies Photo,
+        })),
+      )
+    ).reduce<Map<string, Photo[]>>((photosByReflection, row) => {
+      const photos = photosByReflection.get(row.entryId) ?? [];
+      photos.push(row.photo);
+      photosByReflection.set(row.entryId, photos);
+      return photosByReflection;
+    }, new Map());
+
+    for (const row of reflectionRows) {
+      const photos = reflectionPhotosById.get(row.entryId) ?? [];
+      entries.push({
+        id: row.entryId,
+        kind: "reflection",
+        friend: author,
+        goal: {
+          id: row.entryId,
+          name: "Daily reflection",
+          icon: "sparkles",
+        },
+        dateKey: row.dateKey,
+        notes: row.body,
+        reflectionPrompt: row.prompt,
+        updatedAt: row.updatedAt.toISOString(),
+        canDeletePhotos: true,
+        postType: "journal",
+        highlights: ["Daily reflection"],
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,

@@ -357,170 +357,187 @@ function GoalActionsModalImpl({
                 contentContainerStyle={modalStyles.actions}
                 showsVerticalScrollIndicator={false}
               >
-                {showCompleteAction ? (
-                  supportsPartialCredit ? (
+                <View
+                  style={[
+                    modalStyles.actionGroup,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  {showCompleteAction ? (
+                    supportsPartialCredit ? (
+                      <View style={modalStyles.actionRow}>
+                        {isUpdating ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={theme.primary}
+                          />
+                        ) : (
+                          <SymbolView
+                            name={sym("checkmark.circle.fill", "check_circle")}
+                            size={21}
+                            tintColor={
+                              currentCompletedCount >= instanceTarget
+                                ? theme.primary
+                                : theme.textSecondary
+                            }
+                          />
+                        )}
+                        <Text
+                          style={[
+                            modalStyles.actionText,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {currentCompletedCount}/{instanceTarget} complete
+                        </Text>
+                        <View style={modalStyles.countStepper}>
+                          <Pressable
+                            disabled={isUpdating || currentCompletedCount <= 0}
+                            onPress={() => {
+                              const nextCount = Math.max(
+                                currentCompletedCount - 1,
+                                0,
+                              );
+                              onSetStatus(nextCount > 0 ? "incomplete" : null, {
+                                completedCount: nextCount,
+                              });
+                            }}
+                            style={({ pressed }) => [
+                              modalStyles.countButton,
+                              { backgroundColor: theme.backgroundElement },
+                              (isUpdating || currentCompletedCount <= 0) &&
+                                modalStyles.disabled,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                modalStyles.countButtonText,
+                                { color: theme.text },
+                              ]}
+                            >
+                              -
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            disabled={
+                              isUpdating ||
+                              currentCompletedCount >= instanceTarget
+                            }
+                            onPress={() => {
+                              const nextCount = Math.min(
+                                currentCompletedCount + 1,
+                                instanceTarget,
+                              );
+                              onSetStatus(
+                                nextCount >= instanceTarget
+                                  ? "complete"
+                                  : "incomplete",
+                                { completedCount: nextCount },
+                              );
+                            }}
+                            style={({ pressed }) => [
+                              modalStyles.countButton,
+                              { backgroundColor: theme.primary },
+                              (isUpdating ||
+                                currentCompletedCount >= instanceTarget) &&
+                                modalStyles.disabled,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                modalStyles.countButtonText,
+                                { color: theme.primaryForeground },
+                              ]}
+                            >
+                              +
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <ReliablePressable
+                        onPress={() =>
+                          onSetStatus(
+                            isDefaultComplete
+                              ? hasSlip
+                                ? null
+                                : "incomplete"
+                              : isComplete
+                                ? null
+                                : "complete",
+                          )
+                        }
+                        style={({ pressed }) => [
+                          modalStyles.actionRow,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        {isUpdating ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={theme.primary}
+                          />
+                        ) : (
+                          <SymbolView
+                            name={
+                              hasSlip
+                                ? sym(
+                                    "arrow.uturn.backward.circle.fill",
+                                    "undo",
+                                  )
+                                : isDefaultComplete
+                                  ? sym("exclamationmark.circle.fill", "error")
+                                  : isComplete
+                                    ? sym(
+                                        "arrow.uturn.backward.circle.fill",
+                                        "undo",
+                                      )
+                                    : sym(
+                                        "checkmark.circle.fill",
+                                        "check_circle",
+                                      )
+                            }
+                            size={21}
+                            tintColor={
+                              isComplete || hasSlip
+                                ? theme.textSecondary
+                                : theme.primary
+                            }
+                          />
+                        )}
+                        <Text
+                          style={[
+                            modalStyles.actionText,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {isDefaultComplete
+                            ? hasSlip
+                              ? "Clear slip"
+                              : "Record slip"
+                            : isComplete
+                              ? "Reopen"
+                              : "Mark complete"}
+                        </Text>
+                      </ReliablePressable>
+                    )
+                  ) : null}
+
+                  {showCompleteAction && showPlanAction ? (
                     <View
                       style={[
-                        modalStyles.actionRow,
-                        {
-                          backgroundColor: "transparent",
-                          borderColor: theme.tabBorder,
-                        },
+                        modalStyles.actionDivider,
+                        { backgroundColor: theme.tabBorder },
                       ]}
-                    >
-                      {isUpdating ? (
-                        <ActivityIndicator size="small" color={theme.primary} />
-                      ) : (
-                        <SymbolView
-                          name={sym("checkmark.circle.fill", "check_circle")}
-                          size={22}
-                          tintColor={
-                            currentCompletedCount >= instanceTarget
-                              ? theme.primary
-                              : theme.textSecondary
-                          }
-                        />
-                      )}
-                      <Text
-                        style={[modalStyles.actionText, { color: theme.text }]}
-                      >
-                        {currentCompletedCount}/{instanceTarget} complete
-                      </Text>
-                      <View style={modalStyles.countStepper}>
-                        <Pressable
-                          disabled={isUpdating || currentCompletedCount <= 0}
-                          onPress={() => {
-                            const nextCount = Math.max(
-                              currentCompletedCount - 1,
-                              0,
-                            );
-                            onSetStatus(nextCount > 0 ? "incomplete" : null, {
-                              completedCount: nextCount,
-                            });
-                          }}
-                          style={({ pressed }) => [
-                            modalStyles.countButton,
-                            { backgroundColor: theme.backgroundSelected },
-                            (isUpdating || currentCompletedCount <= 0) &&
-                              modalStyles.disabled,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              modalStyles.countButtonText,
-                              { color: theme.text },
-                            ]}
-                          >
-                            -
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          disabled={
-                            isUpdating ||
-                            currentCompletedCount >= instanceTarget
-                          }
-                          onPress={() => {
-                            const nextCount = Math.min(
-                              currentCompletedCount + 1,
-                              instanceTarget,
-                            );
-                            onSetStatus(
-                              nextCount >= instanceTarget
-                                ? "complete"
-                                : "incomplete",
-                              { completedCount: nextCount },
-                            );
-                          }}
-                          style={({ pressed }) => [
-                            modalStyles.countButton,
-                            { backgroundColor: theme.primary },
-                            (isUpdating ||
-                              currentCompletedCount >= instanceTarget) &&
-                              modalStyles.disabled,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              modalStyles.countButtonText,
-                              { color: theme.primaryForeground },
-                            ]}
-                          >
-                            +
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ) : (
-                    <ReliablePressable
-                      onPress={() =>
-                        onSetStatus(
-                          isDefaultComplete
-                            ? hasSlip
-                              ? null
-                              : "incomplete"
-                            : isComplete
-                              ? null
-                              : "complete",
-                        )
-                      }
-                      style={({ pressed }) => [
-                        modalStyles.actionRow,
-                        {
-                          backgroundColor:
-                            isComplete || hasSlip
-                              ? "transparent"
-                              : `${theme.primary}12`,
-                          borderColor:
-                            isComplete || hasSlip
-                              ? theme.tabBorder
-                              : `${theme.primary}55`,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      {isUpdating ? (
-                        <ActivityIndicator size="small" color={theme.primary} />
-                      ) : (
-                        <SymbolView
-                          name={
-                            hasSlip
-                              ? sym("arrow.uturn.backward.circle.fill", "undo")
-                              : isDefaultComplete
-                                ? sym("exclamationmark.circle.fill", "error")
-                                : isComplete
-                                  ? sym(
-                                      "arrow.uturn.backward.circle.fill",
-                                      "undo",
-                                    )
-                                  : sym("checkmark.circle.fill", "check_circle")
-                          }
-                          size={22}
-                          tintColor={
-                            isComplete || hasSlip
-                              ? theme.textSecondary
-                              : theme.primary
-                          }
-                        />
-                      )}
-                      <Text
-                        style={[modalStyles.actionText, { color: theme.text }]}
-                      >
-                        {isDefaultComplete
-                          ? hasSlip
-                            ? "Clear slip"
-                            : "Record slip"
-                          : isComplete
-                            ? "Reopen"
-                            : "Mark complete"}
-                      </Text>
-                    </ReliablePressable>
-                  )
-                ) : null}
+                    />
+                  ) : null}
 
-                {showPlanAction ? (
-                  <>
+                  {showPlanAction ? (
                     <ReliablePressable
                       disabled={isPlanActionDisabled}
                       onPress={() => {
@@ -548,16 +565,6 @@ function GoalActionsModalImpl({
                       }}
                       style={({ pressed }) => [
                         modalStyles.actionRow,
-                        {
-                          backgroundColor:
-                            isPlanned && !hasPlanChanges
-                              ? "transparent"
-                              : `${theme.secondary}10`,
-                          borderColor:
-                            isPlanned && !hasPlanChanges
-                              ? theme.tabBorder
-                              : `${theme.secondary}44`,
-                        },
                         isPlanActionDisabled && modalStyles.disabled,
                         pressed && styles.pressed,
                       ]}
@@ -565,7 +572,7 @@ function GoalActionsModalImpl({
                       {isUpdating ? (
                         <ActivityIndicator
                           size="small"
-                          color={theme.secondary}
+                          color={theme.textSecondary}
                         />
                       ) : (
                         <SymbolView
@@ -574,11 +581,11 @@ function GoalActionsModalImpl({
                               ? sym("calendar.badge.minus", "event_busy")
                               : sym("calendar.badge.plus", "event_available")
                           }
-                          size={22}
+                          size={21}
                           tintColor={
                             isPlanned && !hasPlanChanges
                               ? theme.textSecondary
-                              : theme.secondary
+                              : theme.tabIcon
                           }
                         />
                       )}
@@ -588,176 +595,176 @@ function GoalActionsModalImpl({
                         {planActionLabel}
                       </Text>
                     </ReliablePressable>
+                  ) : null}
+                </View>
 
-                    {showPlanEditor && isPlanActionDisabled ? (
-                      <Text
-                        style={[
-                          modalStyles.planHint,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        Add a note or a time range to plan this habit.
-                      </Text>
-                    ) : null}
+                {showPlanEditor && isPlanActionDisabled ? (
+                  <Text
+                    style={[
+                      modalStyles.planHint,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Add a note or a time range to plan this habit.
+                  </Text>
+                ) : null}
 
-                    {showPlanEditor ? (
-                      <View
-                        style={[
-                          modalStyles.planTimeSection,
-                          {
-                            backgroundColor: "transparent",
-                            borderColor: theme.tabBorder,
-                          },
-                        ]}
-                      >
+                {showPlanEditor ? (
+                  <View
+                    style={[
+                      modalStyles.planTimeSection,
+                      {
+                        backgroundColor: theme.tabBar,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        modalStyles.planTimeSectionTitle,
+                        { color: theme.text },
+                      ]}
+                    >
+                      Time range
+                    </Text>
+                    <View style={modalStyles.planTimeFields}>
+                      <View style={modalStyles.planTimeField}>
                         <Text
                           style={[
-                            modalStyles.planTimeSectionTitle,
+                            modalStyles.planTimeLabel,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          Start
+                        </Text>
+                        <PlanTimeSelect
+                          fallbackHour={9}
+                          onChange={setPlanStartTime}
+                          value={planStartTime}
+                        />
+                        <View style={modalStyles.planPeriodToggle}>
+                          {PLAN_PERIODS.map((period) => {
+                            const isSelected = planStartPeriod === period;
+
+                            return (
+                              <Pressable
+                                key={period}
+                                onPress={() => setPlanStartPeriod(period)}
+                                style={[
+                                  modalStyles.planPeriodOption,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? theme.primary
+                                      : "transparent",
+                                    borderColor: theme.tabBorder,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    modalStyles.planPeriodText,
+                                    {
+                                      color: isSelected
+                                        ? theme.primaryForeground
+                                        : theme.textSecondary,
+                                    },
+                                  ]}
+                                >
+                                  {period}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                      <View style={modalStyles.planTimeField}>
+                        <Text
+                          style={[
+                            modalStyles.planTimeLabel,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          End
+                        </Text>
+                        <PlanTimeSelect
+                          fallbackHour={10}
+                          onChange={setPlanEndTime}
+                          value={planEndTime}
+                        />
+                        <View style={modalStyles.planPeriodToggle}>
+                          {PLAN_PERIODS.map((period) => {
+                            const isSelected = planEndPeriod === period;
+
+                            return (
+                              <Pressable
+                                key={period}
+                                onPress={() => setPlanEndPeriod(period)}
+                                style={[
+                                  modalStyles.planPeriodOption,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? theme.primary
+                                      : "transparent",
+                                    borderColor: theme.tabBorder,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    modalStyles.planPeriodText,
+                                    {
+                                      color: isSelected
+                                        ? theme.primaryForeground
+                                        : theme.textSecondary,
+                                    },
+                                  ]}
+                                >
+                                  {period}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    </View>
+                    {canRepeatPlan ? (
+                      <Pressable
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: planRepeatsDaily }}
+                        onPress={() =>
+                          setPlanRepeatsDaily((current) => !current)
+                        }
+                        style={({ pressed }) => [
+                          modalStyles.planRepeatRow,
+                          { borderTopColor: theme.tabBorder },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <SymbolView
+                          name={
+                            planRepeatsDaily
+                              ? sym("checkmark.square.fill", "check_box")
+                              : sym("square", "check_box_outline_blank")
+                          }
+                          size={24}
+                          weight="semibold"
+                          tintColor={
+                            planRepeatsDaily
+                              ? theme.primary
+                              : theme.textSecondary
+                          }
+                        />
+                        <Text
+                          style={[
+                            modalStyles.planRepeatText,
                             { color: theme.text },
                           ]}
                         >
-                          Time range
+                          Repeat daily
                         </Text>
-                        <View style={modalStyles.planTimeFields}>
-                          <View style={modalStyles.planTimeField}>
-                            <Text
-                              style={[
-                                modalStyles.planTimeLabel,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              Start
-                            </Text>
-                            <PlanTimeSelect
-                              fallbackHour={9}
-                              onChange={setPlanStartTime}
-                              value={planStartTime}
-                            />
-                            <View style={modalStyles.planPeriodToggle}>
-                              {PLAN_PERIODS.map((period) => {
-                                const isSelected = planStartPeriod === period;
-
-                                return (
-                                  <Pressable
-                                    key={period}
-                                    onPress={() => setPlanStartPeriod(period)}
-                                    style={[
-                                      modalStyles.planPeriodOption,
-                                      {
-                                        backgroundColor: isSelected
-                                          ? theme.primary
-                                          : "transparent",
-                                        borderColor: theme.tabBorder,
-                                      },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        modalStyles.planPeriodText,
-                                        {
-                                          color: isSelected
-                                            ? theme.primaryForeground
-                                            : theme.textSecondary,
-                                        },
-                                      ]}
-                                    >
-                                      {period}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          </View>
-                          <View style={modalStyles.planTimeField}>
-                            <Text
-                              style={[
-                                modalStyles.planTimeLabel,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              End
-                            </Text>
-                            <PlanTimeSelect
-                              fallbackHour={10}
-                              onChange={setPlanEndTime}
-                              value={planEndTime}
-                            />
-                            <View style={modalStyles.planPeriodToggle}>
-                              {PLAN_PERIODS.map((period) => {
-                                const isSelected = planEndPeriod === period;
-
-                                return (
-                                  <Pressable
-                                    key={period}
-                                    onPress={() => setPlanEndPeriod(period)}
-                                    style={[
-                                      modalStyles.planPeriodOption,
-                                      {
-                                        backgroundColor: isSelected
-                                          ? theme.primary
-                                          : "transparent",
-                                        borderColor: theme.tabBorder,
-                                      },
-                                    ]}
-                                  >
-                                    <Text
-                                      style={[
-                                        modalStyles.planPeriodText,
-                                        {
-                                          color: isSelected
-                                            ? theme.primaryForeground
-                                            : theme.textSecondary,
-                                        },
-                                      ]}
-                                    >
-                                      {period}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          </View>
-                        </View>
-                        {canRepeatPlan ? (
-                          <Pressable
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: planRepeatsDaily }}
-                            onPress={() =>
-                              setPlanRepeatsDaily((current) => !current)
-                            }
-                            style={({ pressed }) => [
-                              modalStyles.planRepeatRow,
-                              { borderTopColor: theme.tabBorder },
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <SymbolView
-                              name={
-                                planRepeatsDaily
-                                  ? sym("checkmark.square.fill", "check_box")
-                                  : sym("square", "check_box_outline_blank")
-                              }
-                              size={24}
-                              weight="semibold"
-                              tintColor={
-                                planRepeatsDaily
-                                  ? theme.primary
-                                  : theme.textSecondary
-                              }
-                            />
-                            <Text
-                              style={[
-                                modalStyles.planRepeatText,
-                                { color: theme.text },
-                              ]}
-                            >
-                              Repeat daily
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
+                      </Pressable>
                     ) : null}
-                  </>
+                  </View>
                 ) : null}
 
                 {!isFutureDate ? (
@@ -768,7 +775,7 @@ function GoalActionsModalImpl({
                       style={({ pressed }) => [
                         modalStyles.photoBtn,
                         {
-                          backgroundColor: "transparent",
+                          backgroundColor: theme.tabBar,
                           borderColor: theme.tabBorder,
                         },
                         isUploadingPhoto && modalStyles.disabled,
@@ -780,8 +787,8 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={sym("camera.fill", "camera_alt")}
-                          size={21}
-                          tintColor={theme.primary}
+                          size={20}
+                          tintColor={theme.tabIcon}
                         />
                       )}
                       <Text
@@ -799,7 +806,7 @@ function GoalActionsModalImpl({
                       style={({ pressed }) => [
                         modalStyles.photoBtn,
                         {
-                          backgroundColor: "transparent",
+                          backgroundColor: theme.tabBar,
                           borderColor: theme.tabBorder,
                         },
                         isUploadingPhoto && modalStyles.disabled,
@@ -811,8 +818,8 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={sym("photo.fill", "photo_library")}
-                          size={21}
-                          tintColor={theme.primary}
+                          size={20}
+                          tintColor={theme.tabIcon}
                         />
                       )}
                       <Text
@@ -832,8 +839,9 @@ function GoalActionsModalImpl({
                   onPress={onOpenNote}
                   style={({ pressed }) => [
                     modalStyles.actionRow,
+                    modalStyles.standaloneActionRow,
                     {
-                      backgroundColor: "transparent",
+                      backgroundColor: theme.tabBar,
                       borderColor: theme.tabBorder,
                     },
                     pressed && styles.pressed,
@@ -841,8 +849,8 @@ function GoalActionsModalImpl({
                 >
                   <SymbolView
                     name={sym("note.text", "notes")}
-                    size={22}
-                    tintColor={theme.primary}
+                    size={21}
+                    tintColor={theme.tabIcon}
                   />
                   <View style={modalStyles.noteRowContent}>
                     <Text

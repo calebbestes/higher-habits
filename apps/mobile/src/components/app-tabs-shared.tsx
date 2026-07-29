@@ -114,7 +114,7 @@ const TABS: TabItem[] = [
       width: 190,
       items: [
         {
-          label: "Day Plan",
+          label: "Daily Plan",
           href: "/plan-report?view=day-plan",
           icon: {
             ios: "calendar.day.timeline.left",

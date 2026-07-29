@@ -4,6 +4,8 @@ import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -28,7 +30,9 @@ import {
   fetchFriendsFeed,
   fetchMyPosts,
   fetchMyProfile,
+  sendFriendNudge,
 } from "@/lib/friends-client";
+import { playSuccessHaptic } from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
@@ -68,8 +72,10 @@ export function FriendProfileScreen({
   const [arePostsLoading, setArePostsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isNudging, setIsNudging] = useState(false);
 
   const tileSize = Math.floor((Math.min(width, MaxContentWidth) - 4) / 3);
+  const nudgeFriendshipId = profile?.friend.friendshipId ?? friendshipId;
   const habits = useMemo(
     () => profile?.categories.flatMap((category) => category.habits) ?? [],
     [profile],
@@ -171,6 +177,23 @@ export function FriendProfileScreen({
     void load();
   }, [load]);
 
+  const handleNudge = async () => {
+    if (!nudgeFriendshipId || !profile || isNudging) return;
+    setIsNudging(true);
+    try {
+      await sendFriendNudge(nudgeFriendshipId, "Keep going. You got this.");
+      playSuccessHaptic();
+      Alert.alert("Nudge sent", `${profile.friend.name} got a quick nudge.`);
+    } catch (nudgeError) {
+      Alert.alert(
+        "Could not send nudge",
+        nudgeError instanceof Error ? nudgeError.message : "Please try again.",
+      );
+    } finally {
+      setIsNudging(false);
+    }
+  };
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -257,6 +280,36 @@ export function FriendProfileScreen({
                   />
                 </View>
               </View>
+              {!self && nudgeFriendshipId ? (
+                <View style={styles.profileActions}>
+                  <Pressable
+                    accessibilityLabel={`Nudge ${profile.friend.name}`}
+                    disabled={isNudging}
+                    onPress={() => void handleNudge()}
+                    style={({ pressed }) => [
+                      styles.nudgeButton,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {isNudging ? (
+                      <ActivityIndicator color={theme.primary} size="small" />
+                    ) : (
+                      <SymbolView
+                        name={sym("hand.tap.fill", "touch_app")}
+                        size={17}
+                        weight="semibold"
+                        tintColor={theme.primary}
+                      />
+                    )}
+                    <Text
+                      style={[styles.nudgeButtonText, { color: theme.primary }]}
+                    >
+                      Nudge
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <Text
                 numberOfLines={1}
                 style={[styles.profileName, { color: theme.text }]}
@@ -589,6 +642,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
   },
+  profileActions: {
+    alignItems: "flex-start",
+    paddingHorizontal: 22,
+    paddingTop: 12,
+  },
+  nudgeButton: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+  },
+  nudgeButtonText: { fontSize: 14, fontWeight: "800" },
   avatar: {
     alignItems: "center",
     justifyContent: "center",

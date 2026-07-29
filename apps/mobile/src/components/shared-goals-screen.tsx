@@ -33,6 +33,7 @@ import {
   type FriendRow,
   fetchFriendGroups,
   fetchFriends,
+  sendFriendNudge,
 } from "@/lib/friends-client";
 import {
   type GoalLogStatus,
@@ -387,13 +388,17 @@ function GoalCard({
   onDetails,
   onReport,
   onRelink,
+  onNudge,
   onMenu,
+  nudging,
 }: {
   goal: SharedGoalSnapshot;
   onDetails: () => void;
   onReport: () => void;
   onRelink: () => void;
+  onNudge: () => void;
   onMenu: () => void;
+  nudging: boolean;
 }) {
   const theme = useTheme();
   const cur = goal.currentUserParticipant;
@@ -504,6 +509,29 @@ function GoalCard({
           >
             <Text style={[styles.cardBtnText, { color: theme.textSecondary }]}>
               Details
+            </Text>
+          </Pressable>
+          <Pressable
+            disabled={nudging}
+            onPress={onNudge}
+            style={[
+              styles.cardBtn,
+              styles.cardBtnOutline,
+              { borderColor: theme.tabBorder },
+            ]}
+          >
+            {nudging ? (
+              <ActivityIndicator color={theme.primary} size="small" />
+            ) : (
+              <SymbolView
+                name={sym("hand.tap.fill", "touch_app")}
+                size={14}
+                weight="semibold"
+                tintColor={theme.primary}
+              />
+            )}
+            <Text style={[styles.cardBtnText, { color: theme.primary }]}>
+              Nudge
             </Text>
           </Pressable>
           {noGoalLinked ? (
@@ -2301,6 +2329,7 @@ export function SharedGoalsScreen() {
   const [actionGoal, setActionGoal] = useState<SharedGoalSnapshot | null>(null);
   const [pendingActionGoal, setPendingActionGoal] =
     useState<SharedGoalSnapshot | null>(null);
+  const [nudgingGoalId, setNudgingGoalId] = useState<string | null>(null);
   const [logsSnapshot, setLogsSnapshot] = useState<GoalLogsSnapshot | null>(
     null,
   );
@@ -2648,6 +2677,52 @@ export function SharedGoalsScreen() {
     await load();
   }
 
+  async function handleNudge(goal: SharedGoalSnapshot) {
+    if (nudgingGoalId) return;
+
+    const currentUserId = goal.currentUserParticipant?.userId;
+    const recipientFriends = goal.participants
+      .filter(
+        (participant) =>
+          participant.status === "accepted" &&
+          participant.userId !== currentUserId,
+      )
+      .flatMap((participant) => {
+        const friend = friends.find(
+          (row) => row.friendId === participant.userId,
+        );
+        return friend ? [friend] : [];
+      });
+
+    if (recipientFriends.length === 0) {
+      Alert.alert("No one to nudge", "There are no accepted friends to nudge.");
+      return;
+    }
+
+    setNudgingGoalId(goal.id);
+    try {
+      await Promise.all(
+        recipientFriends.map((friend) =>
+          sendFriendNudge(friend.id, `Quick nudge for ${goal.name}.`),
+        ),
+      );
+      playSuccessHaptic();
+      Alert.alert(
+        "Nudge sent",
+        recipientFriends.length === 1
+          ? `${recipientFriends[0]?.friendName ?? "Your friend"} got a quick nudge.`
+          : `${recipientFriends.length} friends got a quick nudge.`,
+      );
+    } catch (nudgeError) {
+      Alert.alert(
+        "Could not send nudge",
+        nudgeError instanceof Error ? nudgeError.message : "Please try again.",
+      );
+    } finally {
+      setNudgingGoalId(null);
+    }
+  }
+
   const invitations = goals.filter(
     (g) =>
       g.status === "active" && g.currentUserParticipant?.status === "invited",
@@ -2773,7 +2848,9 @@ export function SharedGoalsScreen() {
                 <GoalCard
                   key={g.id}
                   goal={g}
+                  nudging={nudgingGoalId === g.id}
                   onDetails={() => setSelectedGoal(g)}
+                  onNudge={() => void handleNudge(g)}
                   onReport={() => openGoalActions(g)}
                   onRelink={() => setRelinkGoal(g)}
                   onMenu={() => setMenuGoal(g)}
@@ -2826,7 +2903,9 @@ export function SharedGoalsScreen() {
                     <GoalCard
                       key={g.id}
                       goal={g}
+                      nudging={nudgingGoalId === g.id}
                       onDetails={() => setSelectedGoal(g)}
+                      onNudge={() => void handleNudge(g)}
                       onReport={() => openGoalActions(g)}
                       onRelink={() => setRelinkGoal(g)}
                       onMenu={() => setMenuGoal(g)}

@@ -1,4 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -959,11 +960,115 @@ function HabitActionsModal({
   );
 }
 
+function getSelectedAudienceFriends(
+  form: Pick<HabitInput, "audienceFriendIds" | "audienceGroupIds">,
+  friends: FriendRow[],
+  groups: FriendGroupRow[],
+) {
+  const selectedFriendIds = new Set(form.audienceFriendIds);
+  const selectedGroupIds = new Set(form.audienceGroupIds);
+  const selected = new Map<
+    string,
+    { id: string; name: string; image: string | null }
+  >();
+
+  for (const friend of friends) {
+    if (!selectedFriendIds.has(friend.friendId)) continue;
+    selected.set(friend.friendId, {
+      id: friend.friendId,
+      name: friend.friendName,
+      image: friend.friendImage,
+    });
+  }
+
+  for (const group of groups) {
+    if (!selectedGroupIds.has(group.id)) continue;
+    for (const member of group.members) {
+      selected.set(member.id, {
+        id: member.id,
+        name: member.name,
+        image: member.image,
+      });
+    }
+  }
+
+  return [...selected.values()];
+}
+
+function AudienceAvatarStack({
+  friends,
+}: {
+  friends: Array<{ id: string; name: string; image: string | null }>;
+}) {
+  const theme = useTheme();
+  const visibleFriends = friends.slice(0, 3);
+  const overflowCount = friends.length - visibleFriends.length;
+
+  return (
+    <View style={styles.audienceAvatarStack}>
+      {visibleFriends.map((friend, index) => (
+        <View
+          key={friend.id}
+          style={[
+            styles.audienceAvatar,
+            {
+              backgroundColor: theme.tabBar,
+              borderColor: theme.backgroundElement,
+              marginLeft: index === 0 ? 0 : -9,
+              zIndex: visibleFriends.length - index,
+            },
+          ]}
+        >
+          {friend.image ? (
+            <Image
+              contentFit="cover"
+              source={{ uri: friend.image }}
+              style={styles.audienceAvatarImage}
+            />
+          ) : (
+            <Text style={[styles.audienceAvatarText, { color: theme.primary }]}>
+              {getAudienceInitials(friend.name)}
+            </Text>
+          )}
+        </View>
+      ))}
+      {overflowCount > 0 ? (
+        <View
+          style={[
+            styles.audienceAvatar,
+            styles.audienceAvatarOverflow,
+            {
+              backgroundColor: theme.tabBar,
+              borderColor: theme.backgroundElement,
+              marginLeft: -9,
+            },
+          ]}
+        >
+          <Text style={[styles.audienceAvatarText, { color: theme.text }]}>
+            +{overflowCount}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function getAudienceInitials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function HabitFormModal({
   categories,
   habit,
   initialValues,
   isOpen,
+  friends = [],
+  friendGroups = [],
   onAddCategory,
   onDeleteCategory,
   onUpdateCategory,
@@ -975,6 +1080,8 @@ export function HabitFormModal({
   habit: Habit | null;
   initialValues?: Partial<HabitInput>;
   isOpen: boolean;
+  friends?: FriendRow[];
+  friendGroups?: FriendGroupRow[];
   onAddCategory: (name: string, icon: string) => Promise<Category>;
   onDeleteCategory?: (id: string) => Promise<void>;
   onUpdateCategory?: (
@@ -1020,6 +1127,11 @@ export function HabitFormModal({
 
   const audienceCount =
     form.audienceFriendIds.length + form.audienceGroupIds.length;
+  const selectedAudienceFriends = useMemo(
+    () => getSelectedAudienceFriends(form, friends, friendGroups),
+    [form, friends, friendGroups],
+  );
+  const displayAudienceCount = selectedAudienceFriends.length || audienceCount;
 
   const save = async () => {
     if (isSaving) return;
@@ -1570,7 +1682,7 @@ export function HabitFormModal({
                     <Text
                       style={[styles.fieldHint, { color: theme.textSecondary }]}
                     >
-                      These show up on your Day Plan.
+                      These show up on your Daily Plan.
                     </Text>
                     <View style={styles.dayChipRow}>
                       {DAY_LETTERS.map((letter, idx) => {
@@ -1900,7 +2012,7 @@ export function HabitFormModal({
                 >
                   <View style={styles.switchCopy}>
                     <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      Show in Day Plan
+                      Show in Daily Plan
                     </Text>
                     <Text
                       style={[
@@ -1968,8 +2080,8 @@ export function HabitFormModal({
                   />
                   <View style={styles.switchCopy}>
                     <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      {audienceCount > 0
-                        ? `${audienceCount} selected`
+                      {displayAudienceCount > 0
+                        ? `${displayAudienceCount} friends selected`
                         : "Choose friends or groups"}
                     </Text>
                     <Text
@@ -1981,6 +2093,9 @@ export function HabitFormModal({
                       Only selected people can see this habit.
                     </Text>
                   </View>
+                  {selectedAudienceFriends.length > 0 ? (
+                    <AudienceAvatarStack friends={selectedAudienceFriends} />
+                  ) : null}
                   <SymbolView
                     name={symbol("chevron.right", "chevron_right")}
                     size={17}
@@ -2990,6 +3105,32 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 12,
+  },
+  audienceAvatarStack: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 2,
+  },
+  audienceAvatar: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 2,
+    borderRadius: 15,
+  },
+  audienceAvatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  audienceAvatarOverflow: {
+    overflow: "visible",
+  },
+  audienceAvatarText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
   },
   audienceLoading: {
     minHeight: 120,

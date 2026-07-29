@@ -81,7 +81,7 @@ const PLAN_REPORT_DEFAULT_OPTIONS: {
   label: string;
   value: PlanReportView;
 }[] = [
-  { label: "Day Plan", value: "day-plan" },
+  { label: "Daily Plan", value: "day-plan" },
   { label: "Monthly Plan", value: "monthly-plan" },
 ];
 
@@ -994,7 +994,7 @@ function pickNavigationDefaults(settings: UserSettings): NavigationDefaults {
 function getPlanReportDefaultLabel(value: PlanReportView): string {
   return (
     PLAN_REPORT_DEFAULT_OPTIONS.find((option) => option.value === value)
-      ?.label ?? "Day Plan"
+      ?.label ?? "Daily Plan"
   );
 }
 

@@ -4,6 +4,7 @@ import { Pressable, Text, View } from "react-native";
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
+import type { FriendGroupRow, FriendRow } from "@/lib/friends-client";
 import type { CategoryWithGoals, GoalInCategory } from "@/lib/goal-logs-client";
 
 import { GoalRow } from "./goal-row";
@@ -16,6 +17,8 @@ function CategoryAccordionRowImpl({
   logsByGoalDate,
   completedCountsByGoalDate,
   plannedTimesByGoalDate,
+  friends,
+  friendGroups,
   updatingKeys,
   isExpanded,
   onToggleExpand,
@@ -31,6 +34,8 @@ function CategoryAccordionRowImpl({
     string,
     { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
   >;
+  friends: FriendRow[];
+  friendGroups: FriendGroupRow[];
   updatingKeys: Set<string>;
   isExpanded: boolean;
   onToggleExpand: () => void;
@@ -105,6 +110,8 @@ function CategoryAccordionRowImpl({
                   completedCountsByGoalDate?.[`${goal.id}_${dateKey}`] ?? 0
                 }
                 plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
+                friends={friends}
+                friendGroups={friendGroups}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}

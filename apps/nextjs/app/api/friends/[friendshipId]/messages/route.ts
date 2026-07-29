@@ -96,7 +96,13 @@ export async function POST(
 
     const [row] = await db.insert(friendMessages).values(values).returning();
 
-    if (parsed.data.type === "incentive") {
+    if (parsed.data.type === "message") {
+      void sendPushToUser(recipientId, "notifyFriendMilestone", {
+        title: `${user.name} nudged you`,
+        body: parsed.data.body,
+        data: { type: "friend_nudge", friendshipId },
+      });
+    } else if (parsed.data.type === "incentive") {
       void sendPushToUser(recipientId, "notifySharedGoalInvites", {
         title: "New incentive",
         body: `${user.name} sent you an incentive challenge.`,

@@ -1,3 +1,4 @@
+import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type StreakGoalScope = "all" | "shared" | "single" | "high";
@@ -78,6 +79,7 @@ export type FriendProfileCategory = {
 export type FriendProfile = {
   friend: {
     id: string;
+    friendshipId: string | null;
     name: string;
     email: string;
     image: string | null;
@@ -252,6 +254,7 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
   return {
     friend: {
       id: stringOrFallback(value.friend.id),
+      friendshipId: nullableString(value.friend.friendshipId),
       name: stringOrFallback(value.friend.name, "Friend"),
       email: stringOrFallback(value.friend.email),
       image: nullableString(value.friend.image),
@@ -312,7 +315,12 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
 
   return {
     id: value.id,
-    kind: value.kind === "goal_checkpoint" ? "goal_checkpoint" : "habit",
+    kind:
+      value.kind === "goal_checkpoint"
+        ? "goal_checkpoint"
+        : value.kind === "reflection"
+          ? "reflection"
+          : "habit",
     friend: isRecord(value.friend)
       ? {
           id: stringOrFallback(value.friend.id),
@@ -336,6 +344,7 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
       : null,
     dateKey: stringOrFallback(value.dateKey),
     notes: stringOrFallback(value.notes),
+    reflectionPrompt: nullableString(value.reflectionPrompt),
     updatedAt: stringOrFallback(value.updatedAt),
     canDeletePhotos: booleanOrFallback(value.canDeletePhotos),
     postType: value.postType === "completion" ? "completion" : "journal",
@@ -419,7 +428,7 @@ export type FriendFeedComment = {
 
 export type FriendFeedEntry = {
   id: string;
-  kind: "habit" | "goal_checkpoint";
+  kind: "habit" | "goal_checkpoint" | "reflection";
   friend: {
     id: string;
     name: string;
@@ -437,6 +446,7 @@ export type FriendFeedEntry = {
   } | null;
   dateKey: string;
   notes: string;
+  reflectionPrompt: string | null;
   updatedAt: string;
   canDeletePhotos: boolean;
   postType: "completion" | "journal";
@@ -635,6 +645,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
   return {
     friend: {
       id: friend.friendId,
+      friendshipId: friend.id,
       name: friend.friendName,
       email: friend.friendEmail,
       image: friend.friendImage,
@@ -740,6 +751,24 @@ export const fetchFriendsFeed = () =>
     .then((r) => parseResponse<unknown>(r))
     .then(normalizeFeed);
 
+export const fetchDailyReflectionPromptStats = () =>
+  mobileApiFetch("/api/daily-reflections/prompts")
+    .then((r) => parseResponse<unknown>(r))
+    .then((value) =>
+      Array.isArray(value)
+        ? value.flatMap((row) =>
+            isRecord(row) && typeof row.prompt === "string"
+              ? [
+                  {
+                    prompt: row.prompt,
+                    answerCount: numberOrFallback(row.answerCount),
+                  },
+                ]
+              : [],
+          )
+        : [],
+    );
+
 export const fetchMyPosts = () =>
   mobileApiFetch("/api/users/posts")
     .then((r) => parseResponse<unknown>(r))
@@ -747,6 +776,12 @@ export const fetchMyPosts = () =>
 
 export const toggleFeedProp = (goalLogId: string) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "toggleProp" }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const toggleReflectionProp = (postId: string) =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
     method: "POST",
     body: JSON.stringify({ type: "toggleProp" }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
@@ -761,11 +796,65 @@ export const addFeedComment = (
     body: JSON.stringify({ type: "addComment", body, parentCommentId }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
 
+export const addReflectionComment = (
+  postId: string,
+  body: string,
+  parentCommentId?: string | null,
+) =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "addComment", body, parentCommentId }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
 export const deleteFeedComment = (goalLogId: string, commentId: string) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {
     method: "POST",
     body: JSON.stringify({ type: "deleteComment", commentId }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const deleteReflectionComment = (postId: string, commentId: string) =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "deleteComment", commentId }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const createDailyReflection = (payload: {
+  prompt: string;
+  body: string;
+  visibility: "only_me" | "goal_friends" | "all_friends";
+  audienceFriendIds?: string[];
+  audienceGroupIds?: string[];
+  date?: string;
+}) =>
+  mobileApiFetch("/api/daily-reflections", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }).then((r) => parseResponse<{ id: string }>(r));
+
+function uriToBlob(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => resolve(xhr.response as Blob);
+    xhr.onerror = reject;
+    xhr.responseType = "blob";
+    xhr.open("GET", uri);
+    xhr.send();
+  });
+}
+
+export async function uploadDailyReflectionPhoto(
+  postId: string,
+  photo: GoalPhotoUpload,
+): Promise<FriendFeedPhoto> {
+  const blob = photo.file ?? (await uriToBlob(photo.uri));
+  const formData = new FormData();
+  formData.append("file", blob, photo.name);
+
+  return mobileApiFetch(`/api/daily-reflections/${postId}/photos`, {
+    method: "POST",
+    body: formData,
+  }).then((r) => parseResponse<FriendFeedPhoto>(r));
+}
 
 export type SendIncentivePayload = {
   type: "incentive";
@@ -783,6 +872,12 @@ export const sendFriendIncentive = (
   mobileApiFetch(`/api/friends/${friendshipId}/messages`, {
     method: "POST",
     body: JSON.stringify(payload),
+  }).then((r) => parseResponse<{ id: string }>(r));
+
+export const sendFriendNudge = (friendshipId: string, body: string) =>
+  mobileApiFetch(`/api/friends/${friendshipId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ type: "message", body }),
   }).then((r) => parseResponse<{ id: string }>(r));
 
 export const acceptFriendIncentive = (

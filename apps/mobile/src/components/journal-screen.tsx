@@ -38,7 +38,11 @@ import {
   fetchAllCheckpointPhotos,
   uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
-import { addFeedComment } from "@/lib/friends-client";
+import {
+  type FriendFeedEntry,
+  addFeedComment,
+  fetchMyPosts,
+} from "@/lib/friends-client";
 import {
   type GoalLogsSnapshot,
   deleteGoalLog,
@@ -103,6 +107,16 @@ type CheckpointJournalEntry = {
   visibility: GoalVisibility;
   photos: GoalPhoto[];
 };
+
+type ReflectionJournalEntry = {
+  id: string;
+  dateKey: string;
+  prompt: string;
+  answer: string;
+  photos: GoalPhoto[];
+};
+
+const DAILY_REFLECTION_FILTER_ID = "__daily_reflections";
 
 const MONTHS = [
   "January",
@@ -278,6 +292,7 @@ export function JournalScreen() {
   const [checkpointPhotos, setCheckpointPhotos] = useState<CheckpointPhoto[]>(
     [],
   );
+  const [myPosts, setMyPosts] = useState<FriendFeedEntry[]>([]);
   const [activePost, setActivePost] = useState<JournalEntry | null>(null);
   const [isUpdatingPost, setIsUpdatingPost] = useState(false);
   const [noteEditEntry, setNoteEditEntry] = useState<JournalEntry | null>(null);
@@ -313,17 +328,21 @@ export function JournalScreen() {
       setPhotoLoadFailed(false);
 
       try {
+        const photoGoalId =
+          selectedGoalId === DAILY_REFLECTION_FILTER_ID ? null : selectedGoalId;
         const nextSnapshot = selectedDate
           ? await fetchGoalLogsSnapshot(getMonthKey(selectedDate))
           : await fetchAllGoalLogsSnapshot();
         let nextPhotoLoadFailed = false;
-        const nextPhotos = await (range
-          ? fetchGoalPhotosForRange(
-              selectedGoalId,
-              range.startDateKey,
-              range.endDateKey,
-            )
-          : fetchAllGoalPhotos(selectedGoalId)
+        const nextPhotos = await (selectedGoalId === DAILY_REFLECTION_FILTER_ID
+          ? Promise.resolve([] as GoalPhoto[])
+          : range
+            ? fetchGoalPhotosForRange(
+                photoGoalId,
+                range.startDateKey,
+                range.endDateKey,
+              )
+            : fetchAllGoalPhotos(photoGoalId)
         ).catch(() => {
           nextPhotoLoadFailed = true;
           return [];
@@ -335,15 +354,18 @@ export function JournalScreen() {
         setPhotos(nextPhotos);
         setPhotoLoadFailed(nextPhotoLoadFailed);
 
-        const [nextGoals, nextCheckpointPhotos] = await Promise.all([
-          fetchPlanGoals().catch(() => [] as Goal[]),
-          fetchAllCheckpointPhotos().catch(() => [] as CheckpointPhoto[]),
-        ]);
+        const [nextGoals, nextCheckpointPhotos, nextMyPosts] =
+          await Promise.all([
+            fetchPlanGoals().catch(() => [] as Goal[]),
+            fetchAllCheckpointPhotos().catch(() => [] as CheckpointPhoto[]),
+            fetchMyPosts().catch(() => [] as FriendFeedEntry[]),
+          ]);
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
         }
         setCheckpointGoals(nextGoals);
         setCheckpointPhotos(nextCheckpointPhotos);
+        setMyPosts(nextMyPosts);
       } catch (loadError) {
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
           setError(
@@ -390,17 +412,13 @@ export function JournalScreen() {
     const keys = new Set([
       ...Object.keys(snapshot.notesByGoalDate),
       ...Object.keys(snapshot.photoCountsByGoalDate ?? {}),
-      ...Object.keys(snapshot.socialByGoalDate ?? {}),
     ]);
 
     for (const key of keys) {
       if (snapshot.logsByGoalDate[key] !== "complete") continue;
       const note = snapshot.notesByGoalDate[key] ?? "";
       const photoCount = snapshot.photoCountsByGoalDate?.[key] ?? 0;
-      const social = snapshot.socialByGoalDate?.[key] ?? null;
-      const hasSocial =
-        (social?.props.count ?? 0) > 0 || (social?.comments.length ?? 0) > 0;
-      if (note.trim() || photoCount > 0 || hasSocial) {
+      if (note.trim() || photoCount > 0) {
         ids.add(key.slice(0, key.indexOf("_")));
       }
     }
@@ -420,6 +438,10 @@ export function JournalScreen() {
   const selectedGoal = selectedGoalId
     ? (goalById.get(selectedGoalId) ?? null)
     : null;
+  const selectedFilterLabel =
+    selectedGoalId === DAILY_REFLECTION_FILTER_ID
+      ? "Daily reflections"
+      : (selectedGoal?.name ?? "All goals");
   const goalFilterActions = useMemo<MenuAction[]>(() => {
     const actions: MenuAction[] = [
       {
@@ -427,6 +449,12 @@ export function JournalScreen() {
         image: "book",
         state: selectedGoalId === null ? "on" : undefined,
         title: "All goals",
+      },
+      {
+        id: "reflections",
+        image: "sparkles",
+        state: selectedGoalId === DAILY_REFLECTION_FILTER_ID ? "on" : undefined,
+        title: "Daily reflections",
       },
     ];
 
@@ -446,7 +474,12 @@ export function JournalScreen() {
   }, [sections, selectedGoalId]);
 
   useEffect(() => {
-    if (selectedGoalId && snapshot && !journalGoalIds.has(selectedGoalId)) {
+    if (
+      selectedGoalId &&
+      selectedGoalId !== DAILY_REFLECTION_FILTER_ID &&
+      snapshot &&
+      !journalGoalIds.has(selectedGoalId)
+    ) {
       setSelectedGoalId(null);
     }
   }, [journalGoalIds, selectedGoalId, snapshot]);
@@ -565,6 +598,36 @@ export function JournalScreen() {
     );
   }, [checkpointGoals, checkpointPhotosById, range, selectedGoalId]);
 
+  const reflectionEntries = useMemo(() => {
+    if (selectedGoalId && selectedGoalId !== DAILY_REFLECTION_FILTER_ID) {
+      return [] as ReflectionJournalEntry[];
+    }
+
+    return myPosts
+      .filter((post) => post.kind === "reflection" && post.notes.trim())
+      .filter(
+        (post) =>
+          !range ||
+          (post.dateKey >= range.startDateKey &&
+            post.dateKey <= range.endDateKey),
+      )
+      .map((post) => ({
+        id: post.id,
+        dateKey: post.dateKey,
+        prompt: post.reflectionPrompt ?? "Daily reflection",
+        answer: post.notes,
+        photos: post.photos.map((photo) => ({
+          id: photo.id,
+          url: photo.url,
+          contentType: photo.contentType,
+          createdAt: photo.createdAt,
+          dateKey: post.dateKey,
+          goalId: post.id,
+        })),
+      }))
+      .sort((left, right) => right.dateKey.localeCompare(left.dateKey));
+  }, [myPosts, range, selectedGoalId]);
+
   const mergedEntries = useMemo(
     () =>
       [
@@ -573,10 +636,14 @@ export function JournalScreen() {
           kind: "checkpoint" as const,
           entry,
         })),
+        ...reflectionEntries.map((entry) => ({
+          kind: "reflection" as const,
+          entry,
+        })),
       ].sort((left, right) =>
         right.entry.dateKey.localeCompare(left.entry.dateKey),
       ),
-    [entries, checkpointEntries],
+    [entries, checkpointEntries, reflectionEntries],
   );
 
   const handleSetPostVisibility = useCallback(
@@ -836,10 +903,16 @@ export function JournalScreen() {
               actions={goalFilterActions}
               icon={sym("book", "menu_book")}
               label="Goal"
-              value={selectedGoal?.name ?? "All goals"}
+              value={selectedFilterLabel}
               onSelect={(event) => {
                 playSelectionHaptic();
-                setSelectedGoalId(event === "all" ? null : event.slice(5));
+                setSelectedGoalId(
+                  event === "all"
+                    ? null
+                    : event === "reflections"
+                      ? DAILY_REFLECTION_FILTER_ID
+                      : event.slice(5),
+                );
               }}
             />
             <MonthButton
@@ -873,6 +946,7 @@ export function JournalScreen() {
           ) : mergedEntries.length === 0 ? (
             <EmptyState
               goalName={selectedGoal?.name ?? null}
+              isReflectionFilter={selectedGoalId === DAILY_REFLECTION_FILTER_ID}
               dateLabel={
                 selectedMonth !== null && selectedYear !== null
                   ? `${MONTHS[selectedMonth]} ${selectedYear}`
@@ -891,6 +965,14 @@ export function JournalScreen() {
                         playSelectionHaptic();
                         setActivePhoto(photo);
                       }}
+                    />
+                  );
+                }
+                if (item.kind === "reflection") {
+                  return (
+                    <ReflectionJournalCard
+                      key={`reflection_${item.entry.id}`}
+                      entry={item.entry}
                     />
                   );
                 }
@@ -1037,6 +1119,7 @@ function GoalFilterButton({
       onPressAction={({ nativeEvent }) => {
         if (
           nativeEvent.event === "all" ||
+          nativeEvent.event === "reflections" ||
           nativeEvent.event.startsWith("goal:")
         ) {
           onSelect(nativeEvent.event);
@@ -1176,6 +1259,77 @@ function CheckpointJournalCard({
 
       {entry.photos.length > 0 ? (
         <JournalPhotoCarousel photos={entry.photos} onOpenPhoto={onOpenPhoto} />
+      ) : null}
+    </View>
+  );
+}
+
+function ReflectionJournalCard({ entry }: { entry: ReflectionJournalEntry }) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.card,
+        styles.reflectionJournalCard,
+        {
+          backgroundColor: `${theme.primary}0F`,
+          borderColor: `${theme.primary}33`,
+        },
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View
+          style={[styles.goalIcon, { backgroundColor: `${theme.primary}18` }]}
+        >
+          <SymbolView
+            name={sym("sparkles", "auto_awesome")}
+            size={16}
+            tintColor={theme.primary}
+          />
+        </View>
+        <View style={styles.cardHeaderText}>
+          <Text style={[styles.cardDate, { color: theme.text }]}>
+            {formatDate(entry.dateKey)}
+          </Text>
+          <Text style={[styles.cardGoal, { color: theme.textSecondary }]}>
+            Daily reflection
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.reflectionJournalBody}>
+        <Text
+          style={[styles.reflectionJournalPrompt, { color: theme.primary }]}
+        >
+          {entry.prompt}
+        </Text>
+        <Text style={[styles.reflectionJournalAnswer, { color: theme.text }]}>
+          {entry.answer}
+        </Text>
+      </View>
+
+      {entry.photos.length > 0 ? (
+        <View style={styles.reflectionPhotoStrip}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.reflectionPhotoStripContent}
+          >
+            {entry.photos.map((photo) => (
+              <Image
+                key={photo.id}
+                contentFit="cover"
+                source={{ uri: photo.url }}
+                style={[
+                  styles.reflectionPhotoThumb,
+                  { backgroundColor: theme.backgroundElement },
+                ]}
+                transition={180}
+              />
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
     </View>
   );
@@ -1919,17 +2073,25 @@ function RichJournalNote({ html }: { html: string }) {
 
 function EmptyState({
   goalName,
+  isReflectionFilter,
   dateLabel,
 }: {
   goalName: string | null;
+  isReflectionFilter: boolean;
   dateLabel: string | null;
 }) {
+  const subject = isReflectionFilter
+    ? "No daily reflections"
+    : goalName
+      ? `${goalName} has no journal entries`
+      : "No journal entries";
+  const detail = isReflectionFilter
+    ? `Your reflection answers will appear here${dateLabel ? ` in ${dateLabel}` : ""}.`
+    : `${goalName ? `${goalName} has` : "No goals have"} notes or photos from completed days${dateLabel ? ` in ${dateLabel}` : ""}.`;
+
   return (
     <View style={styles.centerState}>
-      <BrandedEmptyState
-        title="No journal entries"
-        description={`${goalName ? `${goalName} has` : "No goals have"} notes or photos from completed days${dateLabel ? ` in ${dateLabel}` : ""}.`}
-      />
+      <BrandedEmptyState title={subject} description={detail} />
     </View>
   );
 }
@@ -2441,6 +2603,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     overflow: "hidden",
   },
+  reflectionJournalCard: {
+    borderWidth: 1,
+  },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2475,6 +2640,33 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     paddingHorizontal: 14,
     paddingBottom: 12,
+  },
+  reflectionJournalBody: {
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  reflectionJournalPrompt: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  reflectionJournalAnswer: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
+  },
+  reflectionPhotoStrip: {
+    paddingBottom: 14,
+  },
+  reflectionPhotoStripContent: {
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  reflectionPhotoThumb: {
+    width: 112,
+    height: 112,
+    borderRadius: 16,
   },
   postMenuButton: {
     width: 34,

@@ -18,6 +18,12 @@ import { sendPushToUser } from "@/lib/push";
 
 type Db = NonNullable<ReturnType<typeof getDb>>;
 
+function getPostContentVerb(hasNotes: boolean, hasPhoto: boolean) {
+  if (hasNotes && hasPhoto) return "posted an update";
+  if (hasPhoto) return "posted a photo";
+  return "posted a note";
+}
+
 async function getAcceptedFriendIds(db: Db, userId: string) {
   const rows = await db
     .select({
@@ -83,7 +89,8 @@ export async function notifyFriendsOfVisibleHabitPost(
       )
       .limit(1);
 
-    if (!hasNotes && !photo) return;
+    const hasPhoto = Boolean(photo);
+    if (!hasNotes && !hasPhoto) return;
 
     let recipientIds = await getAcceptedFriendIds(db, entry.ownerId);
     if (entry.visibility === "goal_friends") {
@@ -111,8 +118,8 @@ export async function notifyFriendsOfVisibleHabitPost(
       recipientIds.map((recipientId) =>
         sendPushToUser(recipientId, "notifyFriendPosts", {
           title: entry.ownerName,
-          body: `shared ${entry.goalName}.`,
-          data: { goalLogId, type: "friend_post" },
+          body: `${getPostContentVerb(hasNotes, hasPhoto)} for ${entry.goalName}.`,
+          data: { goalLogId, kind: "journal", type: "friend_post" },
         }),
       ),
     );
@@ -164,15 +171,16 @@ export async function notifyFriendsOfVisibleCheckpointPost(
       )
       .limit(1);
 
-    if (!hasNotes && !photo) return;
+    const hasPhoto = Boolean(photo);
+    if (!hasNotes && !hasPhoto) return;
 
     const recipientIds = await getAcceptedFriendIds(db, entry.ownerId);
     await Promise.all(
       recipientIds.map((recipientId) =>
         sendPushToUser(recipientId, "notifyFriendPosts", {
           title: entry.ownerName,
-          body: `shared ${entry.goalTitle} · ${entry.checkpointTitle}.`,
-          data: { checkpointId, type: "friend_post" },
+          body: `${getPostContentVerb(hasNotes, hasPhoto)} for ${entry.goalTitle} · ${entry.checkpointTitle}.`,
+          data: { checkpointId, kind: "journal", type: "friend_post" },
         }),
       ),
     );

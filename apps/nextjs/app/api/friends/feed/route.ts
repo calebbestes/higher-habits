@@ -1,7 +1,14 @@
 import {
   categories,
+  dailyReflectionAudienceFriends,
+  dailyReflectionAudienceGroups,
+  dailyReflectionComments,
+  dailyReflectionPhotos,
+  dailyReflectionPosts,
+  dailyReflectionProps,
   feedComments,
   feedProps,
+  friendGroupMembers,
   friends,
   getDb,
   goalCheckpointPhotos,
@@ -34,6 +41,10 @@ type FeedCommentRow = {
   body: string;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type ReflectionCommentRow = Omit<FeedCommentRow, "goalLogId"> & {
+  reflectionPostId: string;
 };
 
 type SerializedFeedComment = {
@@ -95,6 +106,54 @@ function groupNestedComments(
   }
 
   return rootCommentsByGoalLogId;
+}
+
+function groupNestedReflectionComments(
+  commentRows: ReflectionCommentRow[],
+  currentUserId: string,
+) {
+  const commentsById = new Map<string, SerializedFeedComment>();
+  const postIdByCommentId = new Map<string, string>();
+  const rootCommentsByPostId = new Map<string, SerializedFeedComment[]>();
+
+  for (const comment of commentRows) {
+    commentsById.set(comment.id, {
+      id: comment.id,
+      userId: comment.userId,
+      parentCommentId: comment.parentCommentId,
+      authorName: comment.authorName,
+      authorImage: comment.authorImage,
+      body: comment.body,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      canDelete: comment.userId === currentUserId,
+      replies: [],
+    });
+    postIdByCommentId.set(comment.id, comment.reflectionPostId);
+  }
+
+  for (const comment of commentRows) {
+    const serialized = commentsById.get(comment.id);
+    if (!serialized) continue;
+
+    const parent = comment.parentCommentId
+      ? commentsById.get(comment.parentCommentId)
+      : null;
+    const parentPostId = comment.parentCommentId
+      ? postIdByCommentId.get(comment.parentCommentId)
+      : null;
+
+    if (parent && parentPostId === comment.reflectionPostId) {
+      parent.replies.push(serialized);
+      continue;
+    }
+
+    const comments = rootCommentsByPostId.get(comment.reflectionPostId) ?? [];
+    comments.push(serialized);
+    rootCommentsByPostId.set(comment.reflectionPostId, comments);
+  }
+
+  return rootCommentsByPostId;
 }
 
 async function createSignedPhotoUrl(storagePath: string) {
@@ -375,12 +434,13 @@ export async function GET(request: Request) {
       string,
       {
         id: string;
-        kind: "habit" | "goal_checkpoint";
+        kind: "habit" | "goal_checkpoint" | "reflection";
         friend: { id: string; name: string; image: string | null };
         goal: { id: string; name: string; icon: string };
         category: { id: string; name: string; icon: string } | null;
         dateKey: string;
         notes: string;
+        reflectionPrompt: string | null;
         updatedAt: string;
         canDeletePhotos: boolean;
         postType: "completion" | "journal";
@@ -433,6 +493,7 @@ export async function GET(request: Request) {
         },
         dateKey: row.dateKey,
         notes: row.notes,
+        reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: row.friendId === user.id,
         postType,
@@ -583,6 +644,7 @@ export async function GET(request: Request) {
         category: null,
         dateKey: row.completedAt.toISOString().slice(0, 10),
         notes: row.notes ?? "",
+        reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
         canDeletePhotos: row.friendId === user.id,
         postType,
@@ -591,6 +653,206 @@ export async function GET(request: Request) {
         comments: [],
         photos,
       });
+    }
+
+    const reflectionRows = await db
+      .select({
+        entryId: dailyReflectionPosts.id,
+        friendId: dailyReflectionPosts.userId,
+        prompt: dailyReflectionPosts.prompt,
+        body: dailyReflectionPosts.body,
+        visibility: dailyReflectionPosts.visibility,
+        dateKey: dailyReflectionPosts.date,
+        updatedAt: dailyReflectionPosts.updatedAt,
+      })
+      .from(dailyReflectionPosts)
+      .where(
+        and(
+          inArray(dailyReflectionPosts.userId, friendIds),
+          or(
+            eq(dailyReflectionPosts.visibility, "all_friends"),
+            eq(dailyReflectionPosts.visibility, "goal_friends"),
+          ),
+        ),
+      )
+      .orderBy(desc(dailyReflectionPosts.updatedAt));
+
+    const rawReflectionIds = reflectionRows.map((row) => row.entryId);
+    const [reflectionAudienceFriendRows, reflectionAudienceGroupRows] =
+      rawReflectionIds.length > 0
+        ? await Promise.all([
+            db
+              .select({
+                reflectionPostId:
+                  dailyReflectionAudienceFriends.reflectionPostId,
+              })
+              .from(dailyReflectionAudienceFriends)
+              .where(
+                and(
+                  inArray(
+                    dailyReflectionAudienceFriends.reflectionPostId,
+                    rawReflectionIds,
+                  ),
+                  eq(dailyReflectionAudienceFriends.friendUserId, user.id),
+                ),
+              ),
+            db
+              .select({
+                reflectionPostId:
+                  dailyReflectionAudienceGroups.reflectionPostId,
+              })
+              .from(dailyReflectionAudienceGroups)
+              .innerJoin(
+                friendGroupMembers,
+                eq(
+                  dailyReflectionAudienceGroups.groupId,
+                  friendGroupMembers.groupId,
+                ),
+              )
+              .where(
+                and(
+                  inArray(
+                    dailyReflectionAudienceGroups.reflectionPostId,
+                    rawReflectionIds,
+                  ),
+                  eq(friendGroupMembers.memberUserId, user.id),
+                ),
+              ),
+          ])
+        : [[], []];
+    const selectedReflectionIds = new Set([
+      ...reflectionAudienceFriendRows.map((row) => row.reflectionPostId),
+      ...reflectionAudienceGroupRows.map((row) => row.reflectionPostId),
+    ]);
+    const visibleReflectionRows = reflectionRows.filter(
+      (row) =>
+        row.visibility === "all_friends" ||
+        selectedReflectionIds.has(row.entryId),
+    );
+    const reflectionIds = visibleReflectionRows.map((row) => row.entryId);
+    const reflectionPhotoRows =
+      reflectionIds.length > 0
+        ? await db
+            .select({
+              entryId: dailyReflectionPhotos.reflectionPostId,
+              photoId: dailyReflectionPhotos.id,
+              storagePath: dailyReflectionPhotos.storagePath,
+              contentType: dailyReflectionPhotos.contentType,
+              photoCreatedAt: dailyReflectionPhotos.createdAt,
+            })
+            .from(dailyReflectionPhotos)
+            .where(
+              inArray(dailyReflectionPhotos.reflectionPostId, reflectionIds),
+            )
+            .orderBy(desc(dailyReflectionPhotos.createdAt))
+        : [];
+
+    const reflectionPhotosById = (
+      await Promise.all(
+        reflectionPhotoRows.map(async (row) => ({
+          ...row,
+          url: await createSignedPhotoUrl(row.storagePath),
+        })),
+      )
+    ).reduce<
+      Map<
+        string,
+        Array<{
+          id: string;
+          url: string;
+          contentType: string;
+          createdAt: string;
+        }>
+      >
+    >((photosByReflection, row) => {
+      const photos = photosByReflection.get(row.entryId) ?? [];
+      photos.push({
+        id: row.photoId,
+        url: row.url,
+        contentType: row.contentType,
+        createdAt: row.photoCreatedAt.toISOString(),
+      });
+      photosByReflection.set(row.entryId, photos);
+      return photosByReflection;
+    }, new Map());
+
+    for (const row of visibleReflectionRows) {
+      const friend = friendsById.get(row.friendId);
+      if (!friend) continue;
+      const photos = reflectionPhotosById.get(row.entryId) ?? [];
+
+      entries.set(row.entryId, {
+        id: row.entryId,
+        kind: "reflection",
+        friend,
+        goal: {
+          id: row.entryId,
+          name: "Daily reflection",
+          icon: "sparkles",
+        },
+        category: null,
+        dateKey: row.dateKey,
+        notes: row.body,
+        reflectionPrompt: row.prompt,
+        updatedAt: row.updatedAt.toISOString(),
+        canDeletePhotos: false,
+        postType: "journal",
+        highlights: ["Daily reflection"],
+        props: { count: 0, hasPropped: false },
+        comments: [],
+        photos,
+      });
+    }
+
+    if (reflectionIds.length > 0) {
+      const [reflectionPropRows, reflectionCommentRows] = await Promise.all([
+        db
+          .select({
+            reflectionPostId: dailyReflectionProps.reflectionPostId,
+            userId: dailyReflectionProps.userId,
+          })
+          .from(dailyReflectionProps)
+          .where(inArray(dailyReflectionProps.reflectionPostId, reflectionIds)),
+        db
+          .select({
+            id: dailyReflectionComments.id,
+            reflectionPostId: dailyReflectionComments.reflectionPostId,
+            userId: dailyReflectionComments.userId,
+            parentCommentId: dailyReflectionComments.parentCommentId,
+            authorName: users.name,
+            authorImage: users.image,
+            body: dailyReflectionComments.body,
+            createdAt: dailyReflectionComments.createdAt,
+            updatedAt: dailyReflectionComments.updatedAt,
+          })
+          .from(dailyReflectionComments)
+          .innerJoin(users, eq(dailyReflectionComments.userId, users.id))
+          .where(
+            inArray(dailyReflectionComments.reflectionPostId, reflectionIds),
+          )
+          .orderBy(asc(dailyReflectionComments.createdAt)),
+      ]);
+
+      for (const prop of reflectionPropRows) {
+        const entry = entries.get(prop.reflectionPostId);
+        if (!entry) continue;
+
+        entry.props.count += 1;
+        if (prop.userId === user.id) {
+          entry.props.hasPropped = true;
+        }
+      }
+
+      const commentsByPostId = groupNestedReflectionComments(
+        reflectionCommentRows,
+        user.id,
+      );
+      for (const [postId, comments] of commentsByPostId) {
+        const entry = entries.get(postId);
+        if (!entry) continue;
+
+        entry.comments = comments;
+      }
     }
 
     const orderedEntries = [...entries.values()].sort((a, b) =>

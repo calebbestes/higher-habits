@@ -721,6 +721,173 @@ export const feedComments = pgTable(
   ],
 );
 
+export const dailyReflectionPosts = pgTable(
+  "daily_reflection_posts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    prompt: text("prompt").notNull(),
+    body: text("body").notNull(),
+    visibility: goalVisibilityEnum("visibility")
+      .default("all_friends")
+      .notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("daily_reflection_posts_user_id_idx").on(table.userId),
+    index("daily_reflection_posts_date_idx").on(table.date),
+    index("daily_reflection_posts_updated_at_idx").on(table.updatedAt),
+  ],
+);
+
+export const dailyReflectionProps = pgTable(
+  "daily_reflection_props",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reflectionPostId: uuid("reflection_post_id")
+      .notNull()
+      .references(() => dailyReflectionPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("daily_reflection_props_post_user_uidx").on(
+      table.reflectionPostId,
+      table.userId,
+    ),
+    index("daily_reflection_props_post_id_idx").on(table.reflectionPostId),
+    index("daily_reflection_props_user_id_idx").on(table.userId),
+  ],
+);
+
+export const dailyReflectionPhotos = pgTable(
+  "daily_reflection_photos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reflectionPostId: uuid("reflection_post_id")
+      .notNull()
+      .references(() => dailyReflectionPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storagePath: text("storage_path").notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("daily_reflection_photos_post_id_idx").on(table.reflectionPostId),
+    index("daily_reflection_photos_user_id_idx").on(table.userId),
+    unique("daily_reflection_photos_storage_path_uidx").on(table.storagePath),
+  ],
+);
+
+export const dailyReflectionAudienceFriends = pgTable(
+  "daily_reflection_audience_friends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reflectionPostId: uuid("reflection_post_id")
+      .notNull()
+      .references(() => dailyReflectionPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    friendUserId: text("friend_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("daily_reflection_audience_friends_post_id_idx").on(
+      table.reflectionPostId,
+    ),
+    index("daily_reflection_audience_friends_user_id_idx").on(table.userId),
+    index("daily_reflection_audience_friends_friend_user_id_idx").on(
+      table.friendUserId,
+    ),
+    unique("daily_reflection_audience_friends_post_friend_uidx").on(
+      table.reflectionPostId,
+      table.friendUserId,
+    ),
+  ],
+);
+
+export const dailyReflectionAudienceGroups = pgTable(
+  "daily_reflection_audience_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reflectionPostId: uuid("reflection_post_id")
+      .notNull()
+      .references(() => dailyReflectionPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => friendGroups.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("daily_reflection_audience_groups_post_id_idx").on(
+      table.reflectionPostId,
+    ),
+    index("daily_reflection_audience_groups_user_id_idx").on(table.userId),
+    index("daily_reflection_audience_groups_group_id_idx").on(table.groupId),
+    unique("daily_reflection_audience_groups_post_group_uidx").on(
+      table.reflectionPostId,
+      table.groupId,
+    ),
+  ],
+);
+
+export const dailyReflectionComments = pgTable(
+  "daily_reflection_comments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    reflectionPostId: uuid("reflection_post_id")
+      .notNull()
+      .references(() => dailyReflectionPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    parentCommentId: uuid("parent_comment_id").references(
+      (): AnyPgColumn => dailyReflectionComments.id,
+      { onDelete: "cascade" },
+    ),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("daily_reflection_comments_post_id_idx").on(table.reflectionPostId),
+    index("daily_reflection_comments_parent_comment_id_idx").on(
+      table.parentCommentId,
+    ),
+    index("daily_reflection_comments_user_id_idx").on(table.userId),
+  ],
+);
+
 export const moderationReports = pgTable(
   "moderation_reports",
   {

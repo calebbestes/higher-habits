@@ -28,6 +28,12 @@ import {
   captureHandledError,
   setCrashContext,
 } from "@/lib/crash-reporting";
+import {
+  type FriendGroupRow,
+  type FriendRow,
+  fetchFriendGroups,
+  fetchFriends,
+} from "@/lib/friends-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import {
@@ -147,6 +153,8 @@ export function DailyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [fireCelebrate, setFireCelebrate] = useState(false);
   const daySwipeRef = useRef<{
@@ -273,9 +281,11 @@ export function DailyGoalsScreen({
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
       try {
-        const [snap, cats] = await Promise.all([
+        const [snap, cats, nextFriends, nextFriendGroups] = await Promise.all([
           fetchHabitLogsSnapshot(monthKey),
           fetchCategories(),
+          fetchFriends().catch(() => [] as FriendRow[]),
+          fetchFriendGroups().catch(() => [] as FriendGroupRow[]),
         ]);
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
@@ -284,6 +294,10 @@ export function DailyGoalsScreen({
         setLogsByGoalDate(snap.logsByHabitDate);
         setCompletedCountsByHabitDate(snap.completedCountsByHabitDate);
         setCategories(cats);
+        setFriends(
+          nextFriends.filter((friend) => friend.status === "accepted"),
+        );
+        setFriendGroups(nextFriendGroups);
       } catch (err) {
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
@@ -1077,6 +1091,8 @@ export function DailyGoalsScreen({
                             plannedTimesByGoalDate={
                               snapshot?.plannedTimesByHabitDate
                             }
+                            friends={friends}
+                            friendGroups={friendGroups}
                             updatingKeys={updatingKeys}
                             isExpanded={isExpanded}
                             onToggleExpand={() => toggleCatKey(catKey)}
@@ -1119,6 +1135,8 @@ export function DailyGoalsScreen({
                             plannedTimesByGoalDate={
                               snapshot?.plannedTimesByHabitDate
                             }
+                            friends={friends}
+                            friendGroups={friendGroups}
                             updatingKeys={updatingKeys}
                             isExpanded={isExpanded}
                             onToggleExpand={() => toggleCatKey(catKey)}
@@ -1135,6 +1153,8 @@ export function DailyGoalsScreen({
                   dateKey={dateKey}
                   logsByGoalDate={logsByHabitDate}
                   plannedTimesByGoalDate={snapshot?.plannedTimesByHabitDate}
+                  friends={friends}
+                  friendGroups={friendGroups}
                   updatingKeys={updatingKeys}
                   isOpen={showCompleted}
                   onToggle={() => setShowCompleted((v) => !v)}
@@ -1148,6 +1168,8 @@ export function DailyGoalsScreen({
       </SafeAreaView>
       <HabitFormModal
         categories={categories}
+        friends={friends}
+        friendGroups={friendGroups}
         habit={editingGoal}
         initialValues={{ period: "daily" }}
         isOpen={formOpen}
