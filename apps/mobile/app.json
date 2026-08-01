@@ -58,6 +58,8 @@
       "@react-native-vector-icons/material-design-icons",
       "@react-native-vector-icons/lucide",
       "expo-image",
+      "expo-asset",
+      "expo-web-browser",
       [
         "expo-notifications",
         {
