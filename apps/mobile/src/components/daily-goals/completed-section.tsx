@@ -3,6 +3,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { useTheme } from "@/hooks/use-theme";
+import type { FriendGroupRow, FriendRow } from "@/lib/friends-client";
 import type { CategoryWithGoals, GoalInCategory } from "@/lib/goal-logs-client";
 
 import { GoalRow } from "./goal-row";
@@ -13,6 +14,8 @@ function CompletedSectionImpl({
   dateKey,
   logsByGoalDate,
   plannedTimesByGoalDate,
+  friends,
+  friendGroups,
   updatingKeys,
   isOpen,
   onToggle,
@@ -26,6 +29,8 @@ function CompletedSectionImpl({
     string,
     { startTime: string | null; endTime: string | null; repeatsDaily?: boolean }
   >;
+  friends: FriendRow[];
+  friendGroups: FriendGroupRow[];
   updatingKeys: Set<string>;
   isOpen: boolean;
   onToggle: () => void;
@@ -79,6 +84,8 @@ function CompletedSectionImpl({
                 goal={goal}
                 status={getGoalDateStatus(goal, dateKey, logsByGoalDate)}
                 plannedTime={plannedTimesByGoalDate?.[`${goal.id}_${dateKey}`]}
+                friends={friends}
+                friendGroups={friendGroups}
                 isUpdating={updatingKeys.has(`${goal.id}_${dateKey}`)}
                 onEdit={() => onEditGoal(goal)}
                 onPress={() => onPressGoal(goal)}

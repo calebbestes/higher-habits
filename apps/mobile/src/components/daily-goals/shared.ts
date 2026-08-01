@@ -437,19 +437,30 @@ export const modalStyles = StyleSheet.create({
     justifyContent: "center",
   },
   actions: {
-    gap: 8,
+    gap: 10,
     padding: 14,
     paddingBottom: 32,
+  },
+  actionGroup: {
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+  },
+  actionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 49,
   },
   actionRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 13,
-    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 15,
     paddingVertical: 12,
-    borderRadius: 14,
     minHeight: 54,
+  },
+  standaloneActionRow: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
   },
   actionText: {
     flex: 1,
@@ -573,18 +584,18 @@ export const modalStyles = StyleSheet.create({
   },
   photoRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
   },
   photoBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    gap: 8,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     minHeight: 52,
   },
   photoBtnText: {

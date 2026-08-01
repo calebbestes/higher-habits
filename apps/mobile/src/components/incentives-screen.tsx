@@ -32,7 +32,9 @@ import {
   acceptFriendIncentive,
   fetchFriends,
   sendFriendIncentive,
+  sendFriendNudge,
 } from "@/lib/friends-client";
+import { playSuccessHaptic } from "@/lib/haptics";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -166,30 +168,6 @@ function ProgressBar({ percent, color }: { percent: number; color: string }) {
   );
 }
 
-function MetadataItem({
-  icon,
-  label,
-}: {
-  icon: SymbolName;
-  label: string;
-}) {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.metadataItem}>
-      <SymbolView
-        name={icon}
-        size={14}
-        weight="semibold"
-        tintColor={theme.textSecondary}
-      />
-      <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function GoalDropdown({
   goals,
   selectedGoalId,
@@ -254,13 +232,17 @@ function IncentiveCard({
   incentive,
   direction,
   accepting,
+  nudging,
   onAccept,
+  onNudge,
 }: {
   friend: FriendRow;
   incentive: FriendIncentiveRow;
   direction: "sent" | "received";
   accepting: boolean;
+  nudging: boolean;
   onAccept: () => void;
+  onNudge: () => void;
 }) {
   const theme = useTheme();
   const accent = theme.primary;
@@ -268,6 +250,17 @@ function IncentiveCard({
   const isReceived = direction === "received";
   const isAccepted = incentive.accepted === true;
   const goalLabel = getGoalLabel(friend, incentive);
+  const daysLabel = incentive.streakDays
+    ? `${incentive.streakDays} days`
+    : null;
+  const percentLabel = incentive.streakPercent
+    ? `${incentive.streakPercent}%`
+    : null;
+  const statusLabel = isAccepted
+    ? "Accepted"
+    : isReceived
+      ? "Needs response"
+      : "Pending";
 
   return (
     <View
@@ -276,41 +269,123 @@ function IncentiveCard({
         { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
       ]}
     >
+      <View style={styles.cardTopRow}>
+        <View
+          style={[
+            styles.challengeTypePill,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
+          <SymbolView
+            name={sym("flag.checkered", "sports_score")}
+            size={13}
+            weight="semibold"
+            tintColor={accent}
+          />
+          <Text style={[styles.challengeTypeText, { color: theme.text }]}>
+            Challenge
+          </Text>
+        </View>
+        <Text style={[styles.cardHeaderDate, { color: theme.textSecondary }]}>
+          {formatDate(incentive.createdAt)}
+        </Text>
+      </View>
+
       <View style={styles.cardHeader}>
-        <Avatar name={friend.friendName} size={38} />
+        <Avatar name={friend.friendName} size={42} />
         <View style={styles.cardHeaderText}>
           <Text style={[styles.cardHeaderName, { color: theme.text }]}>
             {friend.friendName}
           </Text>
           <Text style={[styles.cardHeaderDate, { color: theme.textSecondary }]}>
-            {isReceived ? "Received" : "Sent"} ·{" "}
-            {formatDate(incentive.createdAt)}
+            {isReceived ? "Challenged you" : "You challenged them"}
           </Text>
         </View>
-        {isAccepted && (
-          <View
-            style={[
-              styles.acceptedStatus,
-              { backgroundColor: `${accent}12`, borderColor: `${accent}40` },
-            ]}
-          >
+        <View
+          style={[
+            styles.acceptedStatus,
+            {
+              backgroundColor: isAccepted ? `${accent}12` : theme.background,
+              borderColor: isAccepted ? `${accent}40` : theme.tabBorder,
+            },
+          ]}
+        >
+          {isAccepted ? (
             <SymbolView
               name={sym("checkmark.circle.fill", "check_circle")}
               size={13}
               weight="semibold"
               tintColor={accent}
             />
-            <Text style={[styles.acceptedStatusText, { color: accent }]}>
-              Accepted
-            </Text>
-          </View>
-        )}
+          ) : null}
+          <Text
+            style={[
+              styles.acceptedStatusText,
+              { color: isAccepted ? accent : theme.textSecondary },
+            ]}
+          >
+            {statusLabel}
+          </Text>
+        </View>
       </View>
 
-      <Text style={[styles.body, { color: theme.text }]}>{incentive.body}</Text>
+      <View style={styles.challengeBody}>
+        <Text style={[styles.body, { color: theme.text }]}>
+          {incentive.body}
+        </Text>
+        <Text style={[styles.goalLine, { color: theme.textSecondary }]}>
+          {goalLabel}
+        </Text>
+      </View>
+
+      {daysLabel || percentLabel ? (
+        <View style={styles.challengeMetrics}>
+          {daysLabel ? (
+            <View
+              style={[
+                styles.challengeMetric,
+                { backgroundColor: theme.backgroundElement },
+              ]}
+            >
+              <SymbolView
+                name={sym("calendar", "calendar_today")}
+                size={14}
+                weight="semibold"
+                tintColor={accent}
+              />
+              <Text style={[styles.challengeMetricText, { color: theme.text }]}>
+                {daysLabel}
+              </Text>
+            </View>
+          ) : null}
+          {percentLabel ? (
+            <View
+              style={[
+                styles.challengeMetric,
+                { backgroundColor: theme.backgroundElement },
+              ]}
+            >
+              <SymbolView
+                name={sym("chart.bar.fill", "bar_chart")}
+                size={14}
+                weight="semibold"
+                tintColor={accent}
+              />
+              <Text style={[styles.challengeMetricText, { color: theme.text }]}>
+                {percentLabel}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {isAccepted && incentive.progress ? (
-        <View style={styles.progressBlock}>
+        <View
+          style={[
+            styles.progressBlock,
+            { backgroundColor: theme.backgroundElement },
+          ]}
+        >
           <View style={styles.progressHeader}>
             <View style={styles.progressTitle}>
               <SymbolView
@@ -333,19 +408,27 @@ function IncentiveCard({
       ) : null}
 
       <View style={[styles.metadataRow, { borderTopColor: theme.tabBorder }]}>
-        {incentive.streakDays ? (
-          <MetadataItem
-            icon={sym("calendar", "calendar_today")}
-            label={`${incentive.streakDays} days`}
-          />
-        ) : null}
-        {incentive.streakPercent ? (
-          <MetadataItem
-            icon={sym("chart.bar.fill", "bar_chart")}
-            label={`${incentive.streakPercent}%`}
-          />
-        ) : null}
-        <MetadataItem icon={sym("scope", "track_changes")} label={goalLabel} />
+        <Pressable
+          accessibilityLabel={`Nudge ${friend.friendName}`}
+          disabled={nudging}
+          onPress={onNudge}
+          style={({ pressed }) => [
+            styles.nudgeMetaButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          {nudging ? (
+            <ActivityIndicator color={accent} size="small" />
+          ) : (
+            <SymbolView
+              name={sym("hand.tap.fill", "touch_app")}
+              size={14}
+              weight="semibold"
+              tintColor={accent}
+            />
+          )}
+          <Text style={[styles.metadataText, { color: accent }]}>Nudge</Text>
+        </Pressable>
       </View>
 
       {isReceived && !isAccepted ? (
@@ -790,6 +873,9 @@ export function IncentivesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"received" | "sent">("received");
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [nudgingFriendshipId, setNudgingFriendshipId] = useState<string | null>(
+    null,
+  );
   const [showCreate, setShowCreate] = useState(false);
 
   const load = useCallback(async () => {
@@ -830,6 +916,27 @@ export function IncentivesScreen() {
     await sendFriendIncentive(friendshipId, payload);
     setShowCreate(false);
     await load();
+  }
+
+  async function handleNudge(friend: FriendRow, incentive: FriendIncentiveRow) {
+    if (nudgingFriendshipId) return;
+    setNudgingFriendshipId(friend.id);
+    try {
+      const goalLabel = getGoalLabel(friend, incentive);
+      await sendFriendNudge(
+        friend.id,
+        `Quick nudge for ${goalLabel.toLowerCase()}.`,
+      );
+      playSuccessHaptic();
+      Alert.alert("Nudge sent", `${friend.friendName} got a quick nudge.`);
+    } catch (nudgeError) {
+      Alert.alert(
+        "Could not send nudge",
+        nudgeError instanceof Error ? nudgeError.message : "Please try again.",
+      );
+    } finally {
+      setNudgingFriendshipId(null);
+    }
   }
 
   // Build flat list of incentive items
@@ -1004,7 +1111,9 @@ export function IncentivesScreen() {
               incentive={incentive}
               direction={tab === "received" ? "received" : "sent"}
               accepting={acceptingId === incentive.id}
+              nudging={nudgingFriendshipId === friend.id}
               onAccept={() => handleAccept(friend, incentive)}
+              onNudge={() => void handleNudge(friend, incentive)}
             />
           ))}
         </ScrollView>
@@ -1105,14 +1214,33 @@ const styles = StyleSheet.create({
   // Card
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 18,
+    padding: 16,
+    gap: 14,
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 12,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  challengeTypePill: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+  },
+  challengeTypeText: { fontSize: 12, fontWeight: "800" },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   cardHeaderText: { flex: 1 },
-  cardHeaderName: { fontSize: 16, fontWeight: "600" },
-  cardHeaderDate: { fontSize: 13, marginTop: 1 },
+  cardHeaderName: { fontSize: 17, fontWeight: "800" },
+  cardHeaderDate: { fontSize: 13, fontWeight: "600", marginTop: 1 },
   acceptedStatus: {
     flexDirection: "row",
     alignItems: "center",
@@ -1123,10 +1251,27 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   acceptedStatusText: { fontSize: 12, fontWeight: "700" },
-  body: { fontSize: 17, lineHeight: 23, letterSpacing: 0 },
+  challengeBody: { gap: 4 },
+  body: { fontSize: 19, lineHeight: 25, fontWeight: "800", letterSpacing: 0 },
+  goalLine: { fontSize: 13, fontWeight: "700" },
+  challengeMetrics: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  challengeMetric: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+  },
+  challengeMetricText: { fontSize: 14, fontWeight: "800" },
   progressBlock: {
     gap: 8,
-    paddingTop: 2,
+    borderRadius: 14,
+    padding: 12,
   },
   progressHeader: {
     flexDirection: "row",
@@ -1144,13 +1289,14 @@ const styles = StyleSheet.create({
   progressFill: { height: 4, borderRadius: 2 },
   metadataRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 11,
+    paddingTop: 12,
   },
-  metadataItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  metadataText: { fontSize: 13, fontWeight: "500" },
+  nudgeMetaButton: { flexDirection: "row", alignItems: "center", gap: 5 },
+  metadataText: { fontSize: 14, fontWeight: "800" },
   acceptBtn: {
     minHeight: 44,
     borderRadius: 10,

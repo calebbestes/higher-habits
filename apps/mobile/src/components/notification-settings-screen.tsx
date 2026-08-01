@@ -84,7 +84,7 @@ const SECTIONS: ToggleSection[] = [
         key: "notifyScheduleEvents",
         icon: sym("calendar.badge.clock", "event_available"),
         title: "Scheduled events",
-        description: "A reminder when an event on your day plan starts.",
+        description: "A reminder when an event on your daily plan starts.",
       },
       {
         key: "notifyMonthlyGoalToday",

@@ -1,4 +1,10 @@
-import { getDb, goalCheckpointPhotos, goalLogPhotos, users } from "@habit/db";
+import {
+  dailyReflectionPhotos,
+  getDb,
+  goalCheckpointPhotos,
+  goalLogPhotos,
+  users,
+} from "@habit/db";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -13,7 +19,7 @@ async function deleteStorageFilesForUser(userId: string) {
   const db = getDb();
   if (!db) throw new Error("Database unavailable");
 
-  const [goalPhotos, checkpointPhotos] = await Promise.all([
+  const [goalPhotos, checkpointPhotos, reflectionPhotos] = await Promise.all([
     db
       .select({ storagePath: goalLogPhotos.storagePath })
       .from(goalLogPhotos)
@@ -22,12 +28,17 @@ async function deleteStorageFilesForUser(userId: string) {
       .select({ storagePath: goalCheckpointPhotos.storagePath })
       .from(goalCheckpointPhotos)
       .where(eq(goalCheckpointPhotos.userId, userId)),
+    db
+      .select({ storagePath: dailyReflectionPhotos.storagePath })
+      .from(dailyReflectionPhotos)
+      .where(eq(dailyReflectionPhotos.userId, userId)),
   ]);
 
   const storage = getSupabaseStorageAdmin();
   const goalPhotoPaths = [
     ...goalPhotos.map((photo) => photo.storagePath),
     ...checkpointPhotos.map((photo) => photo.storagePath),
+    ...reflectionPhotos.map((photo) => photo.storagePath),
   ];
 
   if (goalPhotoPaths.length > 0) {

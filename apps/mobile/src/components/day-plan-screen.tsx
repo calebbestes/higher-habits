@@ -97,9 +97,9 @@ import {
   fetchPlanGoals,
   updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
-import { scheduleHabitReminderAsync } from "@/lib/push-notifications";
 import {
   cancelScheduleEventNotificationAsync,
+  scheduleHabitReminderAsync,
   scheduleScheduleEventNotificationAsync,
 } from "@/lib/push-notifications";
 import {
@@ -108,7 +108,6 @@ import {
   createTask,
   fetchTasks,
   getTaskImportanceScore,
-  updateTask,
   updateTaskCompletion,
 } from "@/lib/tasks-client";
 
@@ -797,7 +796,7 @@ export function DayPlanScreen({
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "Could not load day plan.",
+            : "Could not load daily plan.",
         );
       } finally {
         if (isMountedRef.current && sequence === loadSequenceRef.current) {
@@ -1968,7 +1967,7 @@ export function DayPlanScreen({
     } catch (updateError) {
       if (!isMountedRef.current) return;
       Alert.alert(
-        "Day Plan",
+        "Daily Plan",
         updateError instanceof Error
           ? updateError.message
           : "Could not update this habit.",
@@ -1991,7 +1990,7 @@ export function DayPlanScreen({
     } catch (updateError) {
       if (!isMountedRef.current) return;
       Alert.alert(
-        "Day Plan",
+        "Daily Plan",
         updateError instanceof Error
           ? updateError.message
           : "Could not update visibility.",
@@ -2082,7 +2081,7 @@ export function DayPlanScreen({
       if (activeEntry.kind === "task") {
         const task = taskById.get(activeEntry.sourceId);
         if (!task) {
-          Alert.alert("Day Plan", "Could not find that task.");
+          Alert.alert("Daily Plan", "Could not find that task.");
           return;
         }
         const wasComplete = Boolean(task.completedAt);
@@ -2097,7 +2096,7 @@ export function DayPlanScreen({
       } else if (activeEntry.kind === "goal") {
         const checkpoint = checkpointById.get(activeEntry.sourceId);
         if (!checkpoint) {
-          Alert.alert("Day Plan", "Could not find that checkpoint.");
+          Alert.alert("Daily Plan", "Could not find that checkpoint.");
           return;
         }
         const wasComplete = checkpoint.checkpoint.completed;
@@ -2136,7 +2135,7 @@ export function DayPlanScreen({
     const sourceId = activeEntry.sourceId;
     Alert.alert(
       "Delete event?",
-      `"${entry.title}" will be removed from your day plan and calendar.`,
+      `"${entry.title}" will be removed from your daily plan and calendar.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -2225,7 +2224,7 @@ export function DayPlanScreen({
 
     const ref = checkpointById.get(activeEntry.sourceId);
     if (!ref) {
-      Alert.alert("Day Plan", "Could not find that checkpoint.");
+      Alert.alert("Daily Plan", "Could not find that checkpoint.");
       return;
     }
 
@@ -2246,7 +2245,7 @@ export function DayPlanScreen({
 
     const checkpoint = checkpointById.get(activeEntry.sourceId);
     if (!checkpoint) {
-      Alert.alert("Day Plan", "Could not find that checkpoint.");
+      Alert.alert("Daily Plan", "Could not find that checkpoint.");
       return;
     }
 
@@ -3048,6 +3047,13 @@ function DayPlanDatePicker({
   const todayKey = toDateKey(new Date());
   const selectedKey = toDateKey(selectedDate);
   const days = useMemo(() => getCalendarMonthDays(month), [month]);
+  const weeks = useMemo(
+    () =>
+      Array.from({ length: Math.ceil(days.length / 7) }, (_, index) =>
+        days.slice(index * 7, index * 7 + 7),
+      ),
+    [days],
+  );
   const runPressAction = (key: string, action: () => void) => {
     if (pressLocksRef.current.has(key)) return;
 
@@ -3135,49 +3141,60 @@ function DayPlanDatePicker({
           </View>
 
           <View style={styles.datePickerGrid}>
-            {days.map((day) => {
-              const dayKey = toDateKey(day);
-              const isSelected = dayKey === selectedKey;
-              const isToday = dayKey === todayKey;
-              const inMonth = day.getMonth() === month.getMonth();
+            {weeks.map((week) => (
+              <View
+                key={toDateKey(week[0] ?? month)}
+                style={styles.datePickerWeek}
+              >
+                {week.map((day) => {
+                  const dayKey = toDateKey(day);
+                  const isSelected = dayKey === selectedKey;
+                  const isToday = dayKey === todayKey;
+                  const inMonth = day.getMonth() === month.getMonth();
 
-              return (
-                <Pressable
-                  accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
-                  accessibilityRole="button"
-                  key={dayKey}
-                  onPress={() =>
-                    runPressAction(`date-${dayKey}`, () => onSelectDate(day))
-                  }
-                  style={({ pressed }) => [
-                    styles.datePickerDay,
-                    {
-                      backgroundColor: isSelected
-                        ? theme.primary
-                        : theme.backgroundElement,
-                      borderColor: isToday ? theme.primary : theme.tabBorder,
-                    },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.datePickerDayText,
-                      {
-                        color: isSelected
-                          ? theme.primaryForeground
-                          : inMonth
-                            ? theme.text
-                            : theme.textSecondary,
-                        opacity: inMonth || isSelected ? 1 : 0.48,
-                      },
-                    ]}
-                  >
-                    {day.getDate()}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                  return (
+                    <Pressable
+                      accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
+                      accessibilityRole="button"
+                      key={dayKey}
+                      onPress={() =>
+                        runPressAction(`date-${dayKey}`, () =>
+                          onSelectDate(day),
+                        )
+                      }
+                      style={({ pressed }) => [
+                        styles.datePickerDay,
+                        {
+                          backgroundColor: isSelected
+                            ? theme.primary
+                            : theme.backgroundElement,
+                          borderColor: isToday
+                            ? theme.primary
+                            : theme.tabBorder,
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.datePickerDayText,
+                          {
+                            color: isSelected
+                              ? theme.primaryForeground
+                              : inMonth
+                                ? theme.text
+                                : theme.textSecondary,
+                            opacity: inMonth || isSelected ? 1 : 0.48,
+                          },
+                        ]}
+                      >
+                        {day.getDate()}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         </View>
       </View>
@@ -5009,7 +5026,12 @@ function getScheduledHabitCounts(
     if (!key.endsWith(`_${dateKey}`)) continue;
     const status = snapshot.logsByHabitDate[key];
     if (status === "planned") {
-      addCount(key.slice(0, -dateKey.length - 1));
+      const plannedTime = snapshot.plannedTimesByHabitDate[key];
+      const startMinutes = timeToMinutes(plannedTime?.startTime);
+      const endMinutes = timeToMinutes(plannedTime?.endTime);
+      if (startMinutes !== null && endMinutes !== null) {
+        addCount(key.slice(0, -dateKey.length - 1));
+      }
     } else if (status === "complete") {
       const habitId = key.slice(0, -dateKey.length - 1);
       addCount(
@@ -5061,6 +5083,20 @@ function sortByCompletionTotal(
     .map((row) => row.option);
 }
 
+function isExplicitDatePlannedEntry(
+  entry: DayPlanEntry,
+  snapshot: HabitLogsSnapshot | null,
+  dateKey: string,
+) {
+  if (!snapshot || entry.kind !== "habit" || !entry.habitId) return false;
+  const key = `${entry.habitId}_${dateKey}`;
+  if (snapshot.logsByHabitDate[key] !== "planned") return false;
+  const plannedTime = snapshot.plannedTimesByHabitDate[key];
+  const startMinutes = timeToMinutes(plannedTime?.startTime);
+  const endMinutes = timeToMinutes(plannedTime?.endTime);
+  return startMinutes === null || endMinutes === null;
+}
+
 function buildSuggestedPlanEntries({
   allDayEntries,
   dateKey,
@@ -5107,10 +5143,21 @@ function buildSuggestedPlanEntries({
       );
     });
 
-  const periodicEntries = allDayHabitEntries.filter((entry) => {
-    const habit = entry.habitId ? habitById.get(entry.habitId) : null;
-    return habit?.period === "weekly" || habit?.period === "monthly";
-  });
+  const periodicEntries = allDayHabitEntries
+    .filter((entry) => {
+      const habit = entry.habitId ? habitById.get(entry.habitId) : null;
+      return habit?.period === "weekly" || habit?.period === "monthly";
+    })
+    .sort((left, right) => {
+      const leftExplicit = isExplicitDatePlannedEntry(left, snapshot, dateKey);
+      const rightExplicit = isExplicitDatePlannedEntry(
+        right,
+        snapshot,
+        dateKey,
+      );
+      if (leftExplicit !== rightExplicit) return leftExplicit ? -1 : 1;
+      return left.title.localeCompare(right.title);
+    });
 
   const periodicHabitIds = new Set(
     periodicEntries.map((entry) => entry.habitId).filter(Boolean),
@@ -5188,6 +5235,7 @@ function buildSuggestedPlanEntries({
     .slice(0, 2);
 
   const checkpointEntries = planGoals
+    .filter((goal) => goal.timing !== "later")
     .flatMap((goal) => {
       const checkpoint = [...goal.checkpoints]
         .sort(sortCheckpointsForPlanning)
@@ -5998,13 +6046,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   datePickerGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 5,
     marginTop: 7,
   },
+  datePickerWeek: {
+    flexDirection: "row",
+    gap: 5,
+  },
   datePickerDay: {
-    width: "13.15%",
+    flex: 1,
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center",

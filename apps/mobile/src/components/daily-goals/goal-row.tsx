@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalIcon } from "@/components/goal-icon";
 import { useTheme } from "@/hooks/use-theme";
+import type { FriendGroupRow, FriendRow } from "@/lib/friends-client";
 import { formatStoredPlanTimeDisplay } from "@/lib/plan-time";
 
 import { type ActionGoal, type GoalDateStatus, styles, sym } from "./shared";
@@ -13,6 +14,8 @@ function GoalRowImpl({
   goal,
   status,
   completedCount = 0,
+  friends,
+  friendGroups,
   plannedTime,
   onEdit,
   onPress,
@@ -20,6 +23,8 @@ function GoalRowImpl({
   goal: ActionGoal;
   status: GoalDateStatus;
   completedCount?: number;
+  friends?: FriendRow[];
+  friendGroups?: FriendGroupRow[];
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
@@ -52,7 +57,15 @@ function GoalRowImpl({
       : null;
   const hasPlannedTime = Boolean(plannedTimeDisplay);
 
-  const sharedFriends = getSharedFriends(goal).slice(0, 3);
+  const audienceFriends = getAudienceFriends(
+    goal,
+    friends ?? [],
+    friendGroups ?? [],
+  );
+  const sharedFriends = getSharedFriends(goal);
+  const visibleFriends =
+    goal.visibility === "goal_friends" ? audienceFriends : sharedFriends;
+  const friendBadges = visibleFriends.slice(0, 3);
 
   return (
     <View style={styles.goalRow}>
@@ -112,15 +125,21 @@ function GoalRowImpl({
             numberOfLines={1}
             style={[styles.goalVisibilityText, { color: theme.textSecondary }]}
           >
-            {[getDefaultVisibilityLabel(goal.visibility), progressLabel]
+            {[
+              getDefaultVisibilityLabel(
+                goal.visibility,
+                audienceFriends.length,
+              ),
+              progressLabel,
+            ]
               .filter(Boolean)
               .join(" · ")}
           </Text>
         </View>
 
-        {sharedFriends.length ? (
+        {friendBadges.length ? (
           <View style={styles.sharedFriendBadgeStack}>
-            {sharedFriends.map((friend, index) => (
+            {friendBadges.map((friend, index) => (
               <View
                 key={friend.userId}
                 style={[
@@ -129,7 +148,7 @@ function GoalRowImpl({
                     backgroundColor: theme.backgroundElement,
                     borderColor: theme.tabBar,
                     marginLeft: index === 0 ? 0 : -8,
-                    zIndex: sharedFriends.length - index,
+                    zIndex: friendBadges.length - index,
                   },
                 ]}
               >
@@ -202,9 +221,49 @@ function getSharedFriends(goal: ActionGoal) {
   return [...friendsById.values()];
 }
 
-function getDefaultVisibilityLabel(visibility: ActionGoal["visibility"]) {
+function getAudienceFriends(
+  goal: ActionGoal,
+  friends: FriendRow[],
+  groups: FriendGroupRow[],
+) {
+  const friendsById = new Map<
+    string,
+    { userId: string; name: string; image: string | null }
+  >();
+  const selectedFriendIds = new Set(goal.audienceFriendIds ?? []);
+  const selectedGroupIds = new Set(goal.audienceGroupIds ?? []);
+
+  for (const friend of friends) {
+    if (!selectedFriendIds.has(friend.friendId)) continue;
+    friendsById.set(friend.friendId, {
+      userId: friend.friendId,
+      name: friend.friendName,
+      image: friend.friendImage,
+    });
+  }
+
+  for (const group of groups) {
+    if (!selectedGroupIds.has(group.id)) continue;
+    for (const member of group.members) {
+      friendsById.set(member.id, {
+        userId: member.id,
+        name: member.name,
+        image: member.image,
+      });
+    }
+  }
+
+  return [...friendsById.values()];
+}
+
+function getDefaultVisibilityLabel(
+  visibility: ActionGoal["visibility"],
+  audienceCount: number,
+) {
   if (visibility === "all_friends") return "Public";
-  if (visibility === "goal_friends") return "Goal friends";
+  if (visibility === "goal_friends") {
+    return audienceCount > 0 ? `${audienceCount} friends selected` : "Select friends";
+  }
   return "Private";
 }
 

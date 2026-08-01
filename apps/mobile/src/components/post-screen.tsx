@@ -7,6 +7,7 @@ import {
   fetchFriendsFeed,
   fetchMyPosts,
   toggleFeedProp,
+  toggleReflectionProp,
 } from "@/lib/friends-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { useRouter } from "expo-router";
@@ -104,7 +105,7 @@ export function PostScreen({
   }, [load]);
 
   const handleToggleProp = useCallback(async () => {
-    if (!entry || entry.kind !== "habit") return;
+    if (!entry || entry.kind === "goal_checkpoint") return;
 
     entry.props.hasPropped ? playSelectionHaptic() : playSuccessHaptic();
     const previous = entry;
@@ -119,7 +120,11 @@ export function PostScreen({
     });
 
     try {
-      await toggleFeedProp(entry.id);
+      if (entry.kind === "reflection") {
+        await toggleReflectionProp(entry.id);
+      } else {
+        await toggleFeedProp(entry.id);
+      }
     } catch (propError) {
       if (!isMountedRef.current) return;
       setEntry(previous);

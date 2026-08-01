@@ -851,7 +851,12 @@ function GoalCard({
       }}
       style={[
         styles.goalCard,
-        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
+        {
+          backgroundColor: theme.tabBar,
+          borderColor: `${theme.secondary}33`,
+          shadowColor:
+            theme.background === "#ffffff" ? theme.secondary : "#000",
+        },
         isDragging && styles.goalCardDragging,
       ]}
     >
@@ -2634,12 +2639,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "500" },
-  goalList: { gap: 9 },
+  goalList: { gap: 12 },
   goalCard: {
     gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: 16,
     padding: 11,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 9,
+    elevation: 2,
   },
   goalCardDragging: {
     opacity: 0.82,

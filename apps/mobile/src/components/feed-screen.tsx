@@ -3,7 +3,14 @@ import { Image, type ImageLoadEventData } from "expo-image";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -40,23 +47,40 @@ import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import { deleteCheckpointPhoto } from "@/lib/checkpoint-photos-client";
 import {
+  DAILY_REFLECTION_PROMPTS,
+  type DailyReflectionPrompt,
+  getDailyReflectionDateKey,
+  getDailyReflectionPrompt,
+} from "@/lib/daily-reflection-prompts";
+import {
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
   type FriendGroupRow,
   type FriendRow,
   addFeedComment,
+  addReflectionComment,
   archiveFriend,
+  createDailyReflection,
   deleteFeedComment,
+  deleteReflectionComment,
+  fetchDailyReflectionPromptStats,
   fetchFriendGroups,
   fetchFriends,
   fetchFriendsFeed,
   reportContent,
   sendFriendIncentive,
   toggleFeedProp,
+  toggleReflectionProp,
+  uploadDailyReflectionPhoto,
 } from "@/lib/friends-client";
-import { deleteGoalPhoto } from "@/lib/goal-photos-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import {
+  type GoalPhotoUpload,
+  deleteGoalPhoto,
+} from "@/lib/goal-photos-client";
 import { type Goal, fetchGoals } from "@/lib/goals-client";
+import { toDateKey } from "@/lib/habit-logs-client";
 import {
   playSelectionHaptic,
   playSuccessHaptic,
@@ -84,6 +108,8 @@ type ActiveFeedPhoto = {
 const HIDDEN_FEED_GOALS_KEY = "hidden-feed-goals";
 const HIDDEN_FEED_ADS_KEY = "hidden-feed-ads";
 const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
+const DAILY_REFLECTION_PROMPT_KEY = "daily-reflection-prompt";
+const DAILY_REFLECTION_FAVORITES_KEY = "daily-reflection-favorites";
 const FEED_AD_INTERVAL = 3;
 const POST_DOUBLE_TAP_DELAY_MS = 260;
 
@@ -113,6 +139,8 @@ function hasJoinedSharedGoal(
   entry: FriendFeedEntry,
   sharedGoals: SharedGoalSnapshot[],
 ) {
+  if (entry.kind !== "habit") return false;
+
   const entryGoalName = entry.goal.name.trim().toLowerCase();
   return sharedGoals.some((goal) => {
     if (goal.status !== "active") return false;
@@ -302,6 +330,78 @@ async function setStoredFeedFilters(filters: FeedFilters) {
   await SecureStore.setItemAsync(FEED_FILTER_PREFERENCES_KEY, value);
 }
 
+async function getStoredDailyReflectionPrompt(
+  dateKey: string,
+): Promise<DailyReflectionPrompt | null> {
+  const stored =
+    Platform.OS === "web"
+      ? globalThis.localStorage?.getItem(DAILY_REFLECTION_PROMPT_KEY)
+      : await SecureStore.getItemAsync(DAILY_REFLECTION_PROMPT_KEY);
+
+  if (!stored) return null;
+
+  try {
+    const parsed = JSON.parse(stored) as {
+      dateKey?: unknown;
+      promptId?: unknown;
+    };
+    if (parsed.dateKey !== dateKey || typeof parsed.promptId !== "string") {
+      return null;
+    }
+
+    return (
+      DAILY_REFLECTION_PROMPTS.find(
+        (prompt) => prompt.id === parsed.promptId,
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function setStoredDailyReflectionPrompt(
+  dateKey: string,
+  prompt: DailyReflectionPrompt,
+) {
+  const value = JSON.stringify({ dateKey, promptId: prompt.id });
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(DAILY_REFLECTION_PROMPT_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(DAILY_REFLECTION_PROMPT_KEY, value);
+}
+
+async function getStoredReflectionFavorites(): Promise<Set<string>> {
+  const stored =
+    Platform.OS === "web"
+      ? globalThis.localStorage?.getItem(DAILY_REFLECTION_FAVORITES_KEY)
+      : await SecureStore.getItemAsync(DAILY_REFLECTION_FAVORITES_KEY);
+
+  if (!stored) return new Set();
+
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+async function setStoredReflectionFavorites(ids: Set<string>) {
+  const value = JSON.stringify([...ids]);
+  if (Platform.OS === "web") {
+    globalThis.localStorage?.setItem(DAILY_REFLECTION_FAVORITES_KEY, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(DAILY_REFLECTION_FAVORITES_KEY, value);
+}
+
 function buildFeedRenderItems(
   entries: FriendFeedEntry[],
   hiddenAdKeys: Set<string>,
@@ -391,6 +491,31 @@ export function FeedScreen() {
     useState<FriendFeedEntry | null>(null);
   const [joinedGoalKeys, setJoinedGoalKeys] = useState<Set<string>>(new Set());
   const [isPreparingJoinGoal, setIsPreparingJoinGoal] = useState(false);
+  const [reflectionFavorites, setReflectionFavorites] = useState<Set<string>>(
+    new Set(),
+  );
+  const [reflectionPromptAnswerCounts, setReflectionPromptAnswerCounts] =
+    useState<Record<string, number>>({});
+  const [isReflectionPickerOpen, setIsReflectionPickerOpen] = useState(false);
+  const [selectedReflectionPrompt, setSelectedReflectionPrompt] =
+    useState<DailyReflectionPrompt | null>(null);
+  const [reflectionDraft, setReflectionDraft] = useState("");
+  const [reflectionVisibility, setReflectionVisibility] = useState<
+    "only_me" | "goal_friends" | "all_friends"
+  >("all_friends");
+  const [reflectionAudienceFriendIds, setReflectionAudienceFriendIds] =
+    useState<string[]>([]);
+  const [reflectionAudienceGroupIds, setReflectionAudienceGroupIds] = useState<
+    string[]
+  >([]);
+  const [isReflectionAudienceOpen, setIsReflectionAudienceOpen] =
+    useState(false);
+  const [reflectionPhotos, setReflectionPhotos] = useState<GoalPhotoUpload[]>(
+    [],
+  );
+  const [isSubmittingReflection, setIsSubmittingReflection] = useState(false);
+  const [dailyReflectionPrompt, setDailyReflectionPrompt] =
+    useState<DailyReflectionPrompt>(() => getDailyReflectionPrompt());
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const lightboxPagerRef = useRef<ScrollView>(null);
@@ -401,7 +526,6 @@ export function FeedScreen() {
         lightboxPhotos.findIndex((photo) => photo.id === activePhoto.photo.id),
       )
     : 0;
-
   useEffect(() => {
     if (!activePhoto || viewportWidth <= 0) return;
     requestAnimationFrame(() => {
@@ -494,6 +618,42 @@ export function FeedScreen() {
     });
   }, []);
 
+  useEffect(() => {
+    const dateKey = getDailyReflectionDateKey();
+    void getStoredDailyReflectionPrompt(dateKey).then((storedPrompt) => {
+      if (!isMountedRef.current) return;
+
+      const prompt = storedPrompt ?? getDailyReflectionPrompt();
+      setDailyReflectionPrompt(prompt);
+      if (!storedPrompt) {
+        void setStoredDailyReflectionPrompt(dateKey, prompt).catch(
+          () => undefined,
+        );
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    void getStoredReflectionFavorites().then((favorites) => {
+      if (isMountedRef.current) setReflectionFavorites(favorites);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isReflectionPickerOpen) return;
+
+    void fetchDailyReflectionPromptStats()
+      .then((stats) => {
+        if (!isMountedRef.current) return;
+        setReflectionPromptAnswerCounts(
+          Object.fromEntries(
+            stats.map((stat) => [stat.prompt, stat.answerCount]),
+          ),
+        );
+      })
+      .catch(() => undefined);
+  }, [isReflectionPickerOpen]);
+
   useEffect(
     () => () => {
       isMountedRef.current = false;
@@ -501,14 +661,35 @@ export function FeedScreen() {
     [],
   );
 
-  const handleToggleProp = useCallback(
-    async (entryId: string) => {
-      const entry = entries.find((item) => item.id === entryId);
-      if (!entry?.props.hasPropped) {
-        playSuccessHaptic();
+  const handleToggleProp = useCallback(async (entry: FriendFeedEntry) => {
+    const entryId = entry.id;
+    if (!entry?.props.hasPropped) {
+      playSuccessHaptic();
+    } else {
+      playSelectionHaptic();
+    }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id !== entryId
+          ? e
+          : {
+              ...e,
+              props: {
+                count: e.props.hasPropped
+                  ? Math.max(e.props.count - 1, 0)
+                  : e.props.count + 1,
+                hasPropped: !e.props.hasPropped,
+              },
+            },
+      ),
+    );
+    try {
+      if (entry.kind === "reflection") {
+        await toggleReflectionProp(entryId);
       } else {
-        playSelectionHaptic();
+        await toggleFeedProp(entryId);
       }
+    } catch (err) {
       setEntries((prev) =>
         prev.map((e) =>
           e.id !== entryId
@@ -524,32 +705,12 @@ export function FeedScreen() {
               },
         ),
       );
-      try {
-        await toggleFeedProp(entryId);
-      } catch (err) {
-        setEntries((prev) =>
-          prev.map((e) =>
-            e.id !== entryId
-              ? e
-              : {
-                  ...e,
-                  props: {
-                    count: e.props.hasPropped
-                      ? Math.max(e.props.count - 1, 0)
-                      : e.props.count + 1,
-                    hasPropped: !e.props.hasPropped,
-                  },
-                },
-          ),
-        );
-        Alert.alert(
-          "Could not update props",
-          err instanceof Error ? err.message : undefined,
-        );
-      }
-    },
-    [entries],
-  );
+      Alert.alert(
+        "Could not update props",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
 
   const handleAddComment = useCallback(
     async (entryId: string) => {
@@ -557,9 +718,14 @@ export function FeedScreen() {
       if (!body || submittingComment) return;
 
       const replyTarget = replyTargets[entryId] ?? null;
+      const entry = entries.find((item) => item.id === entryId);
       setSubmittingComment(entryId);
       try {
-        await addFeedComment(entryId, body, replyTarget?.id ?? null);
+        if (entry?.kind === "reflection") {
+          await addReflectionComment(entryId, body, replyTarget?.id ?? null);
+        } else {
+          await addFeedComment(entryId, body, replyTarget?.id ?? null);
+        }
         playSuccessHaptic();
         if (!isMountedRef.current) return;
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
@@ -577,13 +743,18 @@ export function FeedScreen() {
         if (isMountedRef.current) setSubmittingComment(null);
       }
     },
-    [commentDrafts, replyTargets, submittingComment],
+    [commentDrafts, entries, replyTargets, submittingComment],
   );
 
   const handleDeleteComment = useCallback(
     async (entryId: string, commentId: string) => {
       try {
-        await deleteFeedComment(entryId, commentId);
+        const entry = entries.find((item) => item.id === entryId);
+        if (entry?.kind === "reflection") {
+          await deleteReflectionComment(entryId, commentId);
+        } else {
+          await deleteFeedComment(entryId, commentId);
+        }
         playWarningHaptic();
         if (!isMountedRef.current) return;
         setEntries((prev) =>
@@ -607,8 +778,95 @@ export function FeedScreen() {
         );
       }
     },
+    [entries],
+  );
+
+  const openReflectionComposer = useCallback(
+    (prompt: DailyReflectionPrompt) => {
+      playSelectionHaptic();
+      setSelectedReflectionPrompt(prompt);
+      setReflectionDraft("");
+      setReflectionVisibility("all_friends");
+      setReflectionAudienceFriendIds([]);
+      setReflectionAudienceGroupIds([]);
+      setReflectionPhotos([]);
+      setIsReflectionPickerOpen(false);
+    },
     [],
   );
+
+  const addReflectionPhoto = useCallback(async (source: GoalPhotoSource) => {
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+      playSelectionHaptic();
+      setReflectionPhotos((current) => [...current, photo]);
+    } catch (err) {
+      Alert.alert(
+        "Could not add photo",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
+
+  const toggleReflectionFavorite = useCallback((promptId: string) => {
+    setReflectionFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      void setStoredReflectionFavorites(next).catch(() => undefined);
+      return next;
+    });
+    playSelectionHaptic();
+  }, []);
+
+  const submitReflection = useCallback(async () => {
+    const prompt = selectedReflectionPrompt;
+    const body = reflectionDraft.trim();
+    if (!prompt || !body || isSubmittingReflection) return;
+
+    setIsSubmittingReflection(true);
+    try {
+      await createDailyReflection({
+        audienceFriendIds: reflectionAudienceFriendIds,
+        audienceGroupIds: reflectionAudienceGroupIds,
+        prompt: prompt.text,
+        body,
+        date: toDateKey(new Date()),
+        visibility: reflectionVisibility,
+      }).then(async (post) => {
+        for (const photo of reflectionPhotos) {
+          await uploadDailyReflectionPhoto(post.id, photo);
+        }
+      });
+      playSuccessHaptic();
+      if (!isMountedRef.current) return;
+      setSelectedReflectionPrompt(null);
+      setReflectionDraft("");
+      setReflectionPhotos([]);
+      await load();
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not post reflection",
+        err instanceof Error ? err.message : undefined,
+      );
+    } finally {
+      if (isMountedRef.current) setIsSubmittingReflection(false);
+    }
+  }, [
+    isSubmittingReflection,
+    load,
+    reflectionAudienceFriendIds,
+    reflectionAudienceGroupIds,
+    reflectionDraft,
+    reflectionPhotos,
+    reflectionVisibility,
+    selectedReflectionPrompt,
+  ]);
 
   const handleDeletePhoto = useCallback(
     (active: ActiveFeedPhoto) => {
@@ -852,30 +1110,6 @@ export function FeedScreen() {
     [reportingFeedAdKey],
   );
 
-  const openPostSafetyActions = useCallback(
-    (entry: FriendFeedEntry) => {
-      const goalLabel = entry.kind === "habit" ? "habit" : "goal";
-      Alert.alert(entry.friend.name, "Choose an action.", [
-        {
-          text: `Unfollow ${entry.friend.name}`,
-          onPress: () => void unfollowFriend(entry),
-        },
-        {
-          text: `Unfollow this ${goalLabel}`,
-          onPress: () => void unfollowFeedGoal(entry),
-        },
-        { text: "Report Post", onPress: () => void reportPost(entry) },
-        {
-          text: "Block User",
-          style: "destructive",
-          onPress: () => void blockFriend(entry),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    },
-    [blockFriend, reportPost, unfollowFeedGoal, unfollowFriend],
-  );
-
   const openPostIncentive = useCallback((entry: FriendFeedEntry) => {
     if (entry.kind !== "habit") return;
     playSelectionHaptic();
@@ -1009,6 +1243,62 @@ export function FeedScreen() {
       setActiveJoinGoalEntry(null);
     },
     [activeJoinGoalEntry],
+  );
+
+  const openPostSafetyActions = useCallback(
+    (entry: FriendFeedEntry) => {
+      const goalLabel = entry.kind === "habit" ? "habit" : "goal";
+      const isCompletionOnly =
+        entry.postType === "completion" &&
+        entry.photos.length === 0 &&
+        !richTextToPlainText(entry.notes).trim();
+      const canUsePostGoalActions = entry.kind === "habit";
+      const goalActionButtons =
+        isCompletionOnly && canUsePostGoalActions
+          ? [
+              {
+                text: "Incentivize",
+                onPress: () => openPostIncentive(entry),
+              },
+              ...(joinedGoalKeys.has(feedGoalKey(entry))
+                ? [{ text: "Joined goal" }]
+                : [
+                    {
+                      text: "Join goal",
+                      onPress: () => void openJoinGoal(entry),
+                    },
+                  ]),
+            ]
+          : [];
+
+      Alert.alert(entry.friend.name, "Choose an action.", [
+        ...goalActionButtons,
+        {
+          text: `Unfollow ${entry.friend.name}`,
+          onPress: () => void unfollowFriend(entry),
+        },
+        {
+          text: `Unfollow this ${goalLabel}`,
+          onPress: () => void unfollowFeedGoal(entry),
+        },
+        { text: "Report Post", onPress: () => void reportPost(entry) },
+        {
+          text: "Block User",
+          style: "destructive",
+          onPress: () => void blockFriend(entry),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    },
+    [
+      blockFriend,
+      joinedGoalKeys,
+      openJoinGoal,
+      openPostIncentive,
+      reportPost,
+      unfollowFeedGoal,
+      unfollowFriend,
+    ],
   );
 
   const openFriendProfile = useCallback(
@@ -1203,6 +1493,15 @@ export function FeedScreen() {
               </Pressable>
             </View>
 
+            <DailyReflectionCard
+              prompt={dailyReflectionPrompt}
+              onChoosePrompt={() => {
+                playSelectionHaptic();
+                setIsReflectionPickerOpen(true);
+              }}
+              onUsePrompt={() => openReflectionComposer(dailyReflectionPrompt)}
+            />
+
             {error ? (
               <View style={styles.errorBanner}>
                 <SymbolView
@@ -1235,7 +1534,7 @@ export function FeedScreen() {
                     <FeedCard
                       key={item.entry.id}
                       entry={item.entry}
-                      onToggleProp={() => void handleToggleProp(item.entry.id)}
+                      onToggleProp={() => void handleToggleProp(item.entry)}
                       onPhotoPress={(photo) => {
                         playSelectionHaptic();
                         setActivePhoto({ entry: item.entry, photo });
@@ -1248,7 +1547,11 @@ export function FeedScreen() {
                       onOpenSafetyActions={() =>
                         openPostSafetyActions(item.entry)
                       }
-                      onOpenIncentive={() => openPostIncentive(item.entry)}
+                      onOpenIncentive={
+                        item.entry.kind === "reflection"
+                          ? undefined
+                          : () => openPostIncentive(item.entry)
+                      }
                       joinGoalStatus={
                         joinedGoalKeys.has(feedGoalKey(item.entry))
                           ? "joined"
@@ -1256,7 +1559,11 @@ export function FeedScreen() {
                             ? "loading"
                             : "idle"
                       }
-                      onOpenJoinGoal={() => void openJoinGoal(item.entry)}
+                      onOpenJoinGoal={
+                        item.entry.kind === "reflection"
+                          ? undefined
+                          : () => void openJoinGoal(item.entry)
+                      }
                     />
                   ) : (
                     <FeedAdCard
@@ -1505,7 +1812,888 @@ export function FeedScreen() {
           saveFeedFilters({ ...feedFilters, groupIds })
         }
       />
+      <ReflectionPromptPickerModal
+        dailyPrompt={dailyReflectionPrompt}
+        answerCounts={reflectionPromptAnswerCounts}
+        favoriteIds={reflectionFavorites}
+        visible={isReflectionPickerOpen}
+        onClose={() => setIsReflectionPickerOpen(false)}
+        onSelectPrompt={openReflectionComposer}
+        onToggleFavorite={toggleReflectionFavorite}
+      />
+      <ReflectionComposerModal
+        audienceCount={
+          reflectionAudienceFriendIds.length + reflectionAudienceGroupIds.length
+        }
+        body={reflectionDraft}
+        isSubmitting={isSubmittingReflection}
+        photos={reflectionPhotos}
+        prompt={selectedReflectionPrompt}
+        visibility={reflectionVisibility}
+        onAddPhoto={addReflectionPhoto}
+        onBodyChange={setReflectionDraft}
+        onClose={() => setSelectedReflectionPrompt(null)}
+        onOpenAudience={() => setIsReflectionAudienceOpen(true)}
+        onRemovePhoto={(index) =>
+          setReflectionPhotos((current) =>
+            current.filter((_, photoIndex) => photoIndex !== index),
+          )
+        }
+        onSubmit={() => void submitReflection()}
+        onVisibilityChange={setReflectionVisibility}
+      />
+      <ReflectionAudiencePickerModal
+        friends={friends.filter((friend) => friend.status === "accepted")}
+        groups={friendGroups}
+        selectedFriendIds={reflectionAudienceFriendIds}
+        selectedGroupIds={reflectionAudienceGroupIds}
+        visible={isReflectionAudienceOpen}
+        onClose={() => setIsReflectionAudienceOpen(false)}
+        onSave={({ friendIds, groupIds }) => {
+          setReflectionAudienceFriendIds(friendIds);
+          setReflectionAudienceGroupIds(groupIds);
+          setReflectionVisibility("goal_friends");
+          setIsReflectionAudienceOpen(false);
+        }}
+      />
     </View>
+  );
+}
+
+function DailyReflectionCard({
+  onChoosePrompt,
+  onUsePrompt,
+  prompt,
+}: {
+  onChoosePrompt: () => void;
+  onUsePrompt: () => void;
+  prompt: DailyReflectionPrompt;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.reflectionCard,
+        {
+          backgroundColor: `${theme.primary}10`,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.reflectionAccent,
+          { backgroundColor: `${theme.primary}B3` },
+        ]}
+      />
+      <View style={styles.reflectionCardCopy}>
+        <Text
+          style={[styles.reflectionEyebrow, { color: theme.textSecondary }]}
+        >
+          Daily reflection
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onUsePrompt}
+          style={({ pressed }) => [
+            styles.reflectionPromptPressable,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.reflectionPromptText, { color: theme.text }]}>
+            {prompt.text}
+          </Text>
+        </Pressable>
+        <View style={styles.reflectionActionRow}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onUsePrompt}
+            style={({ pressed }) => [
+              styles.reflectionTextAction,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.reflectionTextActionPrimary,
+                { color: theme.primary },
+              ]}
+            >
+              Answer
+            </Text>
+            <SymbolView
+              name={sym("arrow.right", "arrow_forward")}
+              size={14}
+              weight="bold"
+              tintColor={theme.primary}
+            />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onChoosePrompt}
+            style={({ pressed }) => [
+              styles.reflectionTextAction,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.reflectionTextActionSecondary,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Change prompt
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ReflectionPromptPickerModal({
+  answerCounts,
+  dailyPrompt,
+  favoriteIds,
+  onClose,
+  onSelectPrompt,
+  onToggleFavorite,
+  visible,
+}: {
+  answerCounts: Record<string, number>;
+  dailyPrompt: DailyReflectionPrompt;
+  favoriteIds: Set<string>;
+  onClose: () => void;
+  onSelectPrompt: (prompt: DailyReflectionPrompt) => void;
+  onToggleFavorite: (promptId: string) => void;
+  visible: boolean;
+}) {
+  const theme = useTheme();
+  const [query, setQuery] = useState("");
+  const promptOrder = useMemo(
+    () =>
+      new Map(
+        DAILY_REFLECTION_PROMPTS.map((prompt, index) => [prompt.id, index]),
+      ),
+    [],
+  );
+  const sortPrompts = useCallback(
+    (prompts: DailyReflectionPrompt[]) =>
+      [...prompts].sort((left, right) => {
+        const leftCount = answerCounts[left.text] ?? 0;
+        const rightCount = answerCounts[right.text] ?? 0;
+        if (leftCount !== rightCount) return rightCount - leftCount;
+        return (
+          (promptOrder.get(left.id) ?? 0) - (promptOrder.get(right.id) ?? 0)
+        );
+      }),
+    [answerCounts, promptOrder],
+  );
+  const favoritePrompts = sortPrompts(
+    DAILY_REFLECTION_PROMPTS.filter((prompt) => favoriteIds.has(prompt.id)),
+  );
+  const filteredPrompts = sortPrompts(
+    DAILY_REFLECTION_PROMPTS.filter((prompt) =>
+      prompt.text.toLowerCase().includes(query.trim().toLowerCase()),
+    ),
+  );
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={visible}
+    >
+      <View
+        style={[
+          styles.reflectionPickerScreen,
+          { backgroundColor: theme.background },
+        ]}
+      >
+        <SafeAreaView style={styles.reflectionPickerSafeArea}>
+          <View
+            style={[
+              styles.filterModalHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <Pressable hitSlop={12} onPress={onClose}>
+              <Text
+                style={[styles.filterModalAction, { color: theme.primary }]}
+              >
+                Done
+              </Text>
+            </Pressable>
+            <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+              Daily reflection
+            </Text>
+            <View style={styles.reflectionHeaderSpacer} />
+          </View>
+
+          <ScrollView
+            canCancelContentTouches
+            contentContainerStyle={styles.reflectionPickerContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <PromptSection
+              favoriteIds={favoriteIds}
+              prompts={[dailyPrompt]}
+              title="Today"
+              onSelectPrompt={onSelectPrompt}
+              onToggleFavorite={onToggleFavorite}
+            />
+            <PromptSection
+              emptyText="Star prompts you want to reuse."
+              favoriteIds={favoriteIds}
+              prompts={favoritePrompts}
+              title="Favorites"
+              onSelectPrompt={onSelectPrompt}
+              onToggleFavorite={onToggleFavorite}
+            />
+
+            <View style={styles.promptSection}>
+              <Text style={[styles.promptSectionTitle, { color: theme.text }]}>
+                Other
+              </Text>
+              <View
+                style={[
+                  styles.promptSearch,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <SymbolView
+                  name={sym("magnifyingglass", "search")}
+                  size={18}
+                  tintColor={theme.textSecondary}
+                />
+                <TextInput
+                  onChangeText={setQuery}
+                  placeholder="Search prompts"
+                  placeholderTextColor={theme.textSecondary}
+                  selectionColor={theme.primary}
+                  style={[styles.promptSearchInput, { color: theme.text }]}
+                  value={query}
+                />
+              </View>
+              <View style={styles.promptList}>
+                {filteredPrompts.map((prompt) => (
+                  <PromptRow
+                    key={prompt.id}
+                    favorite={favoriteIds.has(prompt.id)}
+                    prompt={prompt}
+                    onSelect={() => onSelectPrompt(prompt)}
+                    onToggleFavorite={() => onToggleFavorite(prompt.id)}
+                  />
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function PromptSection({
+  emptyText,
+  favoriteIds,
+  onSelectPrompt,
+  onToggleFavorite,
+  prompts,
+  title,
+}: {
+  emptyText?: string;
+  favoriteIds: Set<string>;
+  onSelectPrompt: (prompt: DailyReflectionPrompt) => void;
+  onToggleFavorite: (promptId: string) => void;
+  prompts: DailyReflectionPrompt[];
+  title: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.promptSection}>
+      <Text style={[styles.promptSectionTitle, { color: theme.text }]}>
+        {title}
+      </Text>
+      {prompts.length > 0 ? (
+        <View style={styles.promptList}>
+          {prompts.map((prompt) => (
+            <PromptRow
+              key={prompt.id}
+              favorite={favoriteIds.has(prompt.id)}
+              prompt={prompt}
+              onSelect={() => onSelectPrompt(prompt)}
+              onToggleFavorite={() => onToggleFavorite(prompt.id)}
+            />
+          ))}
+        </View>
+      ) : (
+        <Text style={[styles.promptEmptyText, { color: theme.textSecondary }]}>
+          {emptyText}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function PromptRow({
+  favorite,
+  onSelect,
+  onToggleFavorite,
+  prompt,
+}: {
+  favorite: boolean;
+  onSelect: () => void;
+  onToggleFavorite: () => void;
+  prompt: DailyReflectionPrompt;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onSelect}
+      style={({ pressed }) => [
+        styles.promptRow,
+        {
+          backgroundColor: theme.tabBar,
+          borderColor: `${theme.tabBorder}8C`,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.promptRowText, { color: theme.text }]}>
+        {prompt.text}
+      </Text>
+      <Pressable
+        accessibilityLabel={favorite ? "Unfavorite prompt" : "Favorite prompt"}
+        hitSlop={10}
+        onPress={(event) => {
+          event.stopPropagation();
+          onToggleFavorite();
+        }}
+        style={({ pressed }) => [
+          styles.promptStarButton,
+          pressed && styles.pressed,
+        ]}
+      >
+        <SymbolView
+          name={sym(favorite ? "star.fill" : "star", "star")}
+          size={18}
+          weight="semibold"
+          tintColor={favorite ? theme.primary : theme.textSecondary}
+        />
+      </Pressable>
+    </Pressable>
+  );
+}
+
+function ReflectionComposerModal({
+  audienceCount,
+  body,
+  isSubmitting,
+  onAddPhoto,
+  onBodyChange,
+  onClose,
+  onOpenAudience,
+  onRemovePhoto,
+  onSubmit,
+  onVisibilityChange,
+  photos,
+  prompt,
+  visibility,
+}: {
+  audienceCount: number;
+  body: string;
+  isSubmitting: boolean;
+  onAddPhoto: (source: GoalPhotoSource) => void;
+  onBodyChange: (value: string) => void;
+  onClose: () => void;
+  onOpenAudience: () => void;
+  onRemovePhoto: (index: number) => void;
+  onSubmit: () => void;
+  onVisibilityChange: (
+    value: "only_me" | "goal_friends" | "all_friends",
+  ) => void;
+  photos: GoalPhotoUpload[];
+  prompt: DailyReflectionPrompt | null;
+  visibility: "only_me" | "goal_friends" | "all_friends";
+}) {
+  const theme = useTheme();
+  const canPost =
+    body.trim().length > 0 &&
+    !isSubmitting &&
+    (visibility !== "goal_friends" || audienceCount > 0);
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={prompt !== null}
+    >
+      <View
+        style={[
+          styles.reflectionPickerScreen,
+          { backgroundColor: theme.background },
+        ]}
+      >
+        <SafeAreaView style={styles.reflectionPickerSafeArea}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.keyboardView}
+          >
+            <View
+              style={[
+                styles.filterModalHeader,
+                { borderBottomColor: theme.tabBorder },
+              ]}
+            >
+              <Pressable hitSlop={12} onPress={onClose}>
+                <Text
+                  style={[styles.filterModalAction, { color: theme.primary }]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+              <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+                Daily reflection
+              </Text>
+              <Pressable disabled={!canPost} hitSlop={12} onPress={onSubmit}>
+                <Text
+                  style={[
+                    styles.filterModalAction,
+                    { color: canPost ? theme.primary : theme.textSecondary },
+                  ]}
+                >
+                  Post
+                </Text>
+              </Pressable>
+            </View>
+
+            <ScrollView
+              canCancelContentTouches
+              contentContainerStyle={styles.reflectionComposerContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View
+                style={[
+                  styles.reflectionPromptBox,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderColor: `${theme.tabBorder}8C`,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.reflectionEyebrow, { color: theme.primary }]}
+                >
+                  Prompt
+                </Text>
+                <Text
+                  style={[styles.reflectionPromptText, { color: theme.text }]}
+                >
+                  {prompt?.text}
+                </Text>
+              </View>
+
+              <TextInput
+                autoFocus
+                multiline
+                onChangeText={onBodyChange}
+                placeholder="Write a real little piece of your day..."
+                placeholderTextColor={theme.textSecondary}
+                selectionColor={theme.primary}
+                style={[
+                  styles.reflectionInput,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderColor: `${theme.tabBorder}8C`,
+                    color: theme.text,
+                  },
+                ]}
+                textAlignVertical="top"
+                value={body}
+              />
+
+              {photos.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  contentContainerStyle={styles.reflectionPhotoList}
+                  showsHorizontalScrollIndicator={false}
+                >
+                  {photos.map((photo, index) => (
+                    <View
+                      key={`${photo.uri}-${index}`}
+                      style={styles.reflectionPhotoPreviewWrap}
+                    >
+                      <Image
+                        contentFit="cover"
+                        source={{ uri: photo.uri }}
+                        style={styles.reflectionPhotoPreview}
+                      />
+                      <Pressable
+                        accessibilityLabel="Remove photo"
+                        hitSlop={8}
+                        onPress={() => onRemovePhoto(index)}
+                        style={({ pressed }) => [
+                          styles.reflectionRemovePhoto,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <SymbolView
+                          name={sym("xmark", "close")}
+                          size={13}
+                          weight="bold"
+                          tintColor="#FFFFFF"
+                        />
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : null}
+
+              <View style={styles.reflectionPhotoActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onAddPhoto("camera")}
+                  style={({ pressed }) => [
+                    styles.reflectionPhotoButton,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: `${theme.tabBorder}8C`,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("camera.fill", "photo_camera")}
+                    size={17}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.reflectionPhotoButtonText,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Take photo
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onAddPhoto("library")}
+                  style={({ pressed }) => [
+                    styles.reflectionPhotoButton,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: `${theme.tabBorder}8C`,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("photo.fill", "image")}
+                    size={17}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.reflectionPhotoButtonText,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Add photo
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.reflectionVisibilityRow}>
+                <VisibilityChip
+                  active={visibility === "all_friends"}
+                  label="All friends"
+                  onPress={() => onVisibilityChange("all_friends")}
+                />
+                <VisibilityChip
+                  active={visibility === "goal_friends"}
+                  label={
+                    audienceCount > 0
+                      ? `Select friends (${audienceCount})`
+                      : "Select friends"
+                  }
+                  onPress={onOpenAudience}
+                />
+                <VisibilityChip
+                  active={visibility === "only_me"}
+                  label="Only me"
+                  onPress={() => onVisibilityChange("only_me")}
+                />
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function VisibilityChip({
+  active,
+  label,
+  onPress,
+}: {
+  active: boolean;
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.reflectionVisibilityChip,
+        {
+          backgroundColor: active ? theme.primary : theme.backgroundElement,
+          borderColor: active ? theme.primary : theme.tabBorder,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text
+        style={[
+          styles.reflectionVisibilityText,
+          { color: active ? theme.primaryForeground : theme.textSecondary },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ReflectionAudiencePickerModal({
+  friends,
+  groups,
+  onClose,
+  onSave,
+  selectedFriendIds,
+  selectedGroupIds,
+  visible,
+}: {
+  friends: FriendRow[];
+  groups: FriendGroupRow[];
+  onClose: () => void;
+  onSave: (selection: { friendIds: string[]; groupIds: string[] }) => void;
+  selectedFriendIds: string[];
+  selectedGroupIds: string[];
+  visible: boolean;
+}) {
+  const theme = useTheme();
+  const [friendIds, setFriendIds] = useState<string[]>(selectedFriendIds);
+  const [groupIds, setGroupIds] = useState<string[]>(selectedGroupIds);
+
+  useEffect(() => {
+    if (!visible) return;
+    setFriendIds(selectedFriendIds);
+    setGroupIds(selectedGroupIds);
+  }, [selectedFriendIds, selectedGroupIds, visible]);
+
+  const toggle = (ids: string[], id: string) =>
+    ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={visible}
+    >
+      <View
+        style={[
+          styles.reflectionPickerScreen,
+          { backgroundColor: theme.background },
+        ]}
+      >
+        <SafeAreaView style={styles.reflectionPickerSafeArea}>
+          <View
+            style={[
+              styles.filterModalHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <Pressable hitSlop={12} onPress={onClose}>
+              <Text
+                style={[styles.filterModalAction, { color: theme.primary }]}
+              >
+                Cancel
+              </Text>
+            </Pressable>
+            <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+              Select friends
+            </Text>
+            <Pressable
+              hitSlop={12}
+              onPress={() => onSave({ friendIds, groupIds })}
+            >
+              <Text
+                style={[styles.filterModalAction, { color: theme.primary }]}
+              >
+                Done
+              </Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.reflectionPickerContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <AudienceSection title="Groups">
+              {groups.length > 0 ? (
+                groups.map((group) => (
+                  <AudienceRow
+                    key={group.id}
+                    detail={`${group.members.length} friend${
+                      group.members.length === 1 ? "" : "s"
+                    }`}
+                    icon={sym("person.3", "groups")}
+                    selected={groupIds.includes(group.id)}
+                    title={group.name}
+                    onPress={() =>
+                      setGroupIds((current) => toggle(current, group.id))
+                    }
+                  />
+                ))
+              ) : (
+                <Text
+                  style={[
+                    styles.promptEmptyText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  No groups yet.
+                </Text>
+              )}
+            </AudienceSection>
+            <AudienceSection title="Friends">
+              {friends.length > 0 ? (
+                friends.map((friend) => (
+                  <AudienceRow
+                    key={friend.friendId}
+                    detail={friend.friendEmail || "Friend"}
+                    icon={sym("person", "person")}
+                    selected={friendIds.includes(friend.friendId)}
+                    title={friend.friendName}
+                    onPress={() =>
+                      setFriendIds((current) =>
+                        toggle(current, friend.friendId),
+                      )
+                    }
+                  />
+                ))
+              ) : (
+                <Text
+                  style={[
+                    styles.promptEmptyText,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Add friends before selecting an audience.
+                </Text>
+              )}
+            </AudienceSection>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function AudienceSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.promptSection}>
+      <Text style={[styles.promptSectionTitle, { color: theme.text }]}>
+        {title}
+      </Text>
+      <View style={styles.promptList}>{children}</View>
+    </View>
+  );
+}
+
+function AudienceRow({
+  detail,
+  icon,
+  onPress,
+  selected,
+  title,
+}: {
+  detail: string;
+  icon: SymbolName;
+  onPress: () => void;
+  selected: boolean;
+  title: string;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      onPress={() => {
+        playSelectionHaptic();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.audienceSelectRow,
+        {
+          backgroundColor: theme.tabBar,
+          borderColor: `${theme.tabBorder}8C`,
+        },
+        pressed && styles.pressed,
+      ]}
+    >
+      <SymbolView
+        name={icon}
+        size={18}
+        tintColor={selected ? theme.primary : theme.textSecondary}
+      />
+      <View style={styles.audienceSelectCopy}>
+        <Text
+          numberOfLines={1}
+          style={[styles.audienceSelectTitle, { color: theme.text }]}
+        >
+          {title}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.audienceSelectDetail, { color: theme.textSecondary }]}
+        >
+          {detail}
+        </Text>
+      </View>
+      {selected ? (
+        <SymbolView
+          name={sym("checkmark.circle.fill", "check_circle")}
+          size={20}
+          tintColor={theme.primary}
+        />
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -1983,6 +3171,11 @@ export function FeedCard({
     entry.postType === "completion" &&
     entry.photos.length === 0 &&
     !plainNotes.trim();
+  const hasPhotos = entry.photos.length > 0;
+  const propIsActive = entry.props.hasPropped || entry.props.count > 0;
+  const canUseSocialActions =
+    entry.kind === "habit" || entry.kind === "reflection";
+  const canUseGoalActions = entry.kind === "habit";
   const clearSingleTapTimer = useCallback(() => {
     if (!singleTapTimerRef.current) return;
     clearTimeout(singleTapTimerRef.current);
@@ -2020,11 +3213,21 @@ export function FeedCard({
     <View
       style={[
         styles.card,
-        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
+        isCompletionOnly && styles.completionCard,
+        hasPhotos && styles.photoCard,
+        {
+          backgroundColor: theme.tabBar,
+          borderColor: hasPhotos ? "transparent" : `${theme.tabBorder}8C`,
+        },
       ]}
     >
       {/* Header */}
-      <View style={styles.cardHeader}>
+      <View
+        style={[
+          styles.cardHeader,
+          isCompletionOnly && styles.completionCardHeader,
+        ]}
+      >
         <Pressable
           accessibilityLabel={`Open ${entry.friend.name}'s profile`}
           accessibilityRole="button"
@@ -2086,7 +3289,7 @@ export function FeedCard({
       </View>
 
       {/* Photos */}
-      {entry.photos.length > 0 ? (
+      {hasPhotos ? (
         <View style={styles.carouselWrap}>
           <View
             onLayout={(event) => {
@@ -2164,6 +3367,19 @@ export function FeedCard({
         </View>
       ) : null}
 
+      {entry.kind === "reflection" && entry.reflectionPrompt ? (
+        <View style={styles.reflectionPostPrompt}>
+          <Text style={[styles.reflectionEyebrow, { color: theme.primary }]}>
+            Prompt
+          </Text>
+          <Text
+            style={[styles.reflectionPostPromptText, { color: theme.text }]}
+          >
+            {entry.reflectionPrompt}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Notes */}
       {plainNotes ? (
         <Pressable
@@ -2187,17 +3403,21 @@ export function FeedCard({
         </Pressable>
       ) : null}
 
-      {/* Actions row — props/comments are habit-only for now */}
-      {entry.kind === "habit" ? (
+      {canUseSocialActions ? (
         <View
           style={[styles.actionsBlock, { borderTopColor: theme.tabBorder }]}
         >
-          <View style={styles.actionsRow}>
+          <View
+            style={[
+              styles.actionsRow,
+              isCompletionOnly && styles.completionActionsRow,
+            ]}
+          >
             <Pressable
               onPress={onToggleProp}
               style={({ pressed }) => [
                 styles.propButton,
-                entry.props.hasPropped && {
+                propIsActive && {
                   backgroundColor: `${theme.primary}14`,
                 },
                 pressed && styles.pressed,
@@ -2207,17 +3427,13 @@ export function FeedCard({
                 name={sym("hands.clap.fill", "volunteer_activism")}
                 size={18}
                 weight="semibold"
-                tintColor={
-                  entry.props.hasPropped ? theme.primary : theme.tabIcon
-                }
+                tintColor={propIsActive ? theme.primary : theme.tabIcon}
               />
               <Text
                 style={[
                   styles.propText,
                   {
-                    color: entry.props.hasPropped
-                      ? theme.primary
-                      : theme.tabIcon,
+                    color: propIsActive ? theme.primary : theme.tabIcon,
                   },
                 ]}
               >
@@ -2227,7 +3443,7 @@ export function FeedCard({
               </Text>
             </Pressable>
 
-            {onOpenIncentive ? (
+            {!isCompletionOnly && canUseGoalActions && onOpenIncentive ? (
               <Pressable
                 accessibilityLabel="Incentivize post"
                 onPress={onOpenIncentive}
@@ -2245,7 +3461,7 @@ export function FeedCard({
                 <Text
                   numberOfLines={1}
                   style={[
-                    styles.commentCountText,
+                    styles.feedActionText,
                     { color: theme.textSecondary },
                   ]}
                 >
@@ -2254,7 +3470,7 @@ export function FeedCard({
               </Pressable>
             ) : null}
 
-            {onOpenJoinGoal ? (
+            {!isCompletionOnly && canUseGoalActions && onOpenJoinGoal ? (
               <Pressable
                 accessibilityLabel={
                   joinGoalStatus === "joined"
@@ -2287,7 +3503,7 @@ export function FeedCard({
                 <Text
                   numberOfLines={1}
                   style={[
-                    styles.commentCountText,
+                    styles.feedActionText,
                     {
                       color:
                         joinGoalStatus === "joined"
@@ -2321,10 +3537,7 @@ export function FeedCard({
               />
               <Text
                 numberOfLines={1}
-                style={[
-                  styles.commentCountText,
-                  { color: theme.textSecondary },
-                ]}
+                style={[styles.feedActionText, { color: theme.textSecondary }]}
               >
                 {commentCount}
               </Text>
@@ -2374,51 +3587,35 @@ export function FeedCard({
 
 function CompletionPostBody({ entry }: { entry: FriendFeedEntry }) {
   const theme = useTheme();
+  const highlightText = entry.highlights.join(" · ");
 
   return (
     <View style={styles.completionBody}>
-      <View
-        style={[
-          styles.completionIcon,
-          { backgroundColor: `${theme.primary}18` },
-        ]}
-      >
-        <SymbolView
-          name={sym("checkmark", "check")}
-          size={16}
-          weight="bold"
-          tintColor={theme.primary}
-        />
-      </View>
       <View style={styles.completionTextStack}>
-        <Text
-          numberOfLines={2}
-          style={[styles.completionTitle, { color: theme.text }]}
-        >
-          Completed {entry.goal.name}
-        </Text>
-        {entry.highlights.length > 0 ? (
-          <View style={styles.completionHighlights}>
-            {entry.highlights.map((highlight) => (
-              <View
-                key={highlight}
-                style={[
-                  styles.completionHighlightChip,
-                  { backgroundColor: theme.backgroundElement },
-                ]}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.completionHighlightText,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  {highlight}
-                </Text>
-              </View>
-            ))}
-          </View>
+        <View style={styles.completionTitleRow}>
+          <SymbolView
+            name={sym("checkmark", "check")}
+            size={14}
+            weight="bold"
+            tintColor={theme.primary}
+          />
+          <Text
+            numberOfLines={2}
+            style={[styles.completionTitle, { color: theme.text }]}
+          >
+            Completed {entry.goal.name}
+          </Text>
+        </View>
+        {highlightText ? (
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.completionHighlightText,
+              { color: theme.textSecondary },
+            ]}
+          >
+            {highlightText}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -3151,9 +4348,9 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     alignSelf: "center",
     paddingHorizontal: 18,
-    paddingTop: 14,
+    paddingTop: 10,
     paddingBottom: 40,
-    gap: 14,
+    gap: 13,
   },
   pageHeader: {
     flexDirection: "row",
@@ -3170,11 +4367,11 @@ const styles = StyleSheet.create({
   },
   pageHeaderText: { flex: 1, gap: 1 },
   filterButton: {
-    width: 42,
-    height: 42,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 21,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     position: "relative",
   },
@@ -3288,7 +4485,238 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  feedList: { gap: 14 },
+  feedList: { gap: 12 },
+  reflectionCard: {
+    borderRadius: 16,
+    overflow: "hidden",
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+  },
+  reflectionAccent: {
+    position: "absolute",
+    top: 14,
+    bottom: 14,
+    left: 0,
+    width: 3,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+  },
+  reflectionCardCopy: {
+    gap: 8,
+  },
+  reflectionEyebrow: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+    letterSpacing: 0,
+  },
+  reflectionPromptPressable: {
+    alignSelf: "stretch",
+  },
+  reflectionPromptText: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
+  },
+  reflectionActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    paddingTop: 2,
+  },
+  reflectionTextAction: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 4,
+  },
+  reflectionTextActionPrimary: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  reflectionTextActionSecondary: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  reflectionPickerScreen: {
+    flex: 1,
+  },
+  reflectionPickerSafeArea: {
+    flex: 1,
+  },
+  reflectionHeaderSpacer: {
+    width: 48,
+  },
+  reflectionPickerContent: {
+    gap: 20,
+    padding: 18,
+    paddingBottom: 36,
+  },
+  promptSection: {
+    gap: 10,
+  },
+  promptSectionTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  promptList: {
+    gap: 8,
+  },
+  promptRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingLeft: 14,
+    paddingRight: 7,
+    paddingVertical: 11,
+  },
+  promptRowText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  promptStarButton: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+  },
+  promptEmptyText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  promptSearch: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  promptSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "700",
+  },
+  reflectionComposerContent: {
+    gap: 14,
+    padding: 18,
+    paddingBottom: 36,
+  },
+  reflectionPromptBox: {
+    gap: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 14,
+  },
+  reflectionInput: {
+    minHeight: 180,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 14,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "700",
+  },
+  reflectionPhotoList: {
+    gap: 9,
+    paddingVertical: 2,
+  },
+  reflectionPhotoPreviewWrap: {
+    position: "relative",
+  },
+  reflectionPhotoPreview: {
+    width: 84,
+    height: 84,
+    borderRadius: 14,
+  },
+  reflectionRemovePhoto: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  reflectionPhotoActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  reflectionPhotoButton: {
+    minHeight: 48,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+  },
+  reflectionPhotoButtonText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  reflectionVisibilityRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reflectionVisibilityChip: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  reflectionVisibilityText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+  audienceSelectRow: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  audienceSelectCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  audienceSelectTitle: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+  audienceSelectDetail: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
   adOuter: {
     gap: 9,
     paddingVertical: 4,
@@ -3434,12 +4862,22 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
+  photoCard: {
+    borderRadius: 17,
+  },
+  completionCard: {
+    borderRadius: 17,
+  },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
     paddingHorizontal: 13,
     paddingVertical: 12,
+  },
+  completionCardHeader: {
+    paddingVertical: 10,
+    paddingBottom: 4,
   },
   avatar: { flexShrink: 0 },
   avatarFallback: {
@@ -3493,7 +4931,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   carouselWrap: {
-    marginBottom: 10,
+    marginBottom: 8,
   },
   carouselFrame: {
     position: "relative",
@@ -3539,46 +4977,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingBottom: 10,
   },
-  completionBody: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  reflectionPostPrompt: {
+    gap: 3,
     paddingHorizontal: 13,
-    paddingBottom: 11,
+    paddingBottom: 8,
   },
-  completionIcon: {
-    width: 34,
-    height: 34,
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-  },
-  completionTextStack: {
-    flex: 1,
-    minWidth: 0,
-    gap: 6,
-  },
-  completionTitle: {
-    fontSize: 14,
+  reflectionPostPromptText: {
+    fontSize: 13,
     lineHeight: 18,
     fontWeight: "800",
   },
-  completionHighlights: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
+  completionBody: {
+    paddingHorizontal: 13,
+    paddingBottom: 7,
   },
-  completionHighlightChip: {
-    maxWidth: "100%",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  completionTextStack: {
+    gap: 3,
+  },
+  completionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  completionTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
   },
   completionHighlightText: {
+    paddingLeft: 21,
     fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
+    lineHeight: 15,
+    fontWeight: "700",
   },
   showMoreButton: {
     paddingTop: 2,
@@ -3588,28 +5018,33 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   actionsBlock: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 0,
   },
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingHorizontal: 11,
+    paddingTop: 7,
+    paddingBottom: 9,
+  },
+  completionActionsRow: {
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   propButton: {
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
     gap: 5,
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 6,
     borderRadius: 999,
   },
   propText: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "600",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   incentiveButton: {
     flexDirection: "row",
@@ -3617,7 +5052,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     gap: 5,
     minWidth: 0,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 6,
     borderRadius: 999,
   },
@@ -3627,7 +5062,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     gap: 5,
     minWidth: 0,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 6,
     borderRadius: 999,
   },
@@ -3636,12 +5071,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexShrink: 0,
     gap: 5,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 6,
   },
-  commentCountText: {
-    fontSize: 13,
-    lineHeight: 17,
+  feedActionText: {
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "600",
   },
   commentPreviewBlock: {
