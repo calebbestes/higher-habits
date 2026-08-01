@@ -12,19 +12,33 @@ export type LoadedNativeFeedAd = {
 let cachedAdsModule: GoogleMobileAdsModule | null | undefined;
 let initializePromise: Promise<boolean> | null = null;
 
-const GOOGLE_TEST_AD_PUBLISHER_ID = [
-  "ca-app-pub",
-  ["3940256", "099425544"].join(""),
-].join("-");
+const GOOGLE_TEST_AD_PUBLISHER_ID = "ca-app-pub-3940256099942544";
+const GOOGLE_TEST_NATIVE_AD_UNIT_IDS = {
+  android: `${GOOGLE_TEST_AD_PUBLISHER_ID}/2247696110`,
+  ios: `${GOOGLE_TEST_AD_PUBLISHER_ID}/3986624511`,
+} as const;
+
+function getGoogleTestNativeAdUnitId(): string | null {
+  if (Platform.OS !== "android" && Platform.OS !== "ios") return null;
+  return GOOGLE_TEST_NATIVE_AD_UNIT_IDS[Platform.OS];
+}
 
 function getNativeFeedAdUnitId(): string | null {
   const adUnitId = process.env.EXPO_PUBLIC_ADMOB_NATIVE_AD_UNIT_ID?.trim();
 
-  if (!adUnitId || adUnitId.includes(GOOGLE_TEST_AD_PUBLISHER_ID)) {
+  if (process.env.NODE_ENV !== "production") {
+    return getGoogleTestNativeAdUnitId();
+  }
+
+  if (adUnitId && !adUnitId.includes(GOOGLE_TEST_AD_PUBLISHER_ID)) {
+    return adUnitId;
+  }
+
+  if (adUnitId?.includes(GOOGLE_TEST_AD_PUBLISHER_ID)) {
     return null;
   }
 
-  return adUnitId;
+  return null;
 }
 
 export function isNativeFeedAdsEnabled() {

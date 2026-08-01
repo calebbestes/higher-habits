@@ -4,8 +4,9 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
+import { type CreateSection, setCreateSection } from "@/lib/tab-view-store";
 
-export type CreateSection = "habits" | "goals" | "tasks";
+export type { CreateSection };
 
 const MENU_ITEMS: {
   id: CreateSection;
@@ -66,7 +67,10 @@ export function CreateHeaderMenu({
         const selectedItem = MENU_ITEMS.find(
           (item) => item.id === nativeEvent.event,
         );
-        if (selectedItem) router.navigate(selectedItem.href);
+        if (selectedItem) {
+          setCreateSection(selectedItem.id);
+          router.navigate(selectedItem.href);
+        }
       }}
       style={StyleSheet.flatten([
         styles.menu,

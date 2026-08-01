@@ -1,11 +1,14 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { DashboardScreen } from "@/components/dashboard-screen";
 import { JournalScreen } from "@/components/journal-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
-
-type HistorySection = "dashboard" | "journal";
+import {
+  type HistorySection,
+  setHistorySection,
+  useHistorySection,
+} from "@/lib/tab-view-store";
 
 const HISTORY_ORDER: readonly HistorySection[] = ["dashboard", "journal"];
 const HISTORY_HREFS = {
@@ -16,15 +19,25 @@ const HISTORY_HREFS = {
 export default function HistoryRoute() {
   const router = useRouter();
   const { section } = useLocalSearchParams<{ section?: string }>();
+  const rememberedSection = useHistorySection();
   const activeSection: HistorySection =
-    section === "journal" ? "journal" : "dashboard";
+    section === "journal" || section === "dashboard"
+      ? section
+      : rememberedSection;
 
   const changeSection = useCallback(
     (nextSection: HistorySection) => {
+      setHistorySection(nextSection);
       router.replace(HISTORY_HREFS[nextSection] as Href);
     },
     [router],
   );
+
+  useEffect(() => {
+    if (section === "journal" || section === "dashboard") {
+      setHistorySection(section);
+    }
+  }, [section]);
 
   return (
     <SwipePageTransition

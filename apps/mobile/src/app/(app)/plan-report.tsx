@@ -12,8 +12,8 @@ import {
   isPlanReportView,
   setPlanReportDateKey,
   setPlanReportView,
-  useDefaultPlanReportView,
   usePlanReportDateKey,
+  usePlanReportView,
 } from "@/lib/tab-view-store";
 
 const PLAN_REPORT_ORDER: readonly PlanReportView[] = [
@@ -27,16 +27,13 @@ export default function PlanReportScreen() {
     view?: string;
     date?: string;
   }>();
-  const defaultView = useDefaultPlanReportView();
+  const rememberedView = usePlanReportView();
   const rememberedDateKey = usePlanReportDateKey();
   const activeView = isPlanReportView(view)
     ? view
-    : isPlanReportView(defaultView)
-      ? defaultView
+    : isPlanReportView(rememberedView)
+      ? rememberedView
       : "day-plan";
-  const defaultPlanView = isPlanReportView(defaultView)
-    ? defaultView
-    : "day-plan";
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
@@ -50,11 +47,8 @@ export default function PlanReportScreen() {
 
     if (isPlanReportView(view)) {
       setPlanReportView(view);
-      return;
     }
-
-    setPlanReportView(defaultPlanView);
-  }, [defaultPlanView, router, view]);
+  }, [router, view]);
 
   const changeView = useCallback(
     (nextView: PlanReportView) => {
