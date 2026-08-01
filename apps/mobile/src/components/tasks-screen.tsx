@@ -1,4 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -37,10 +38,9 @@ import {
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
-  TASK_URGENCIES,
   type Task,
   type TaskInput,
-  type TaskUrgency,
+  compareTasksByPriority,
   createTask,
   deleteTask,
   fetchTasks,
@@ -52,30 +52,37 @@ import {
 } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
-type TaskFilter = "all" | "today" | "soon" | "completed";
+type TaskFilter =
+  | "all"
+  | "today"
+  | "soon"
+  | "completed"
+  | "high"
+  | "medium"
+  | "low";
+type TaskPriorityGroupKey = "high" | "medium" | "low" | "completed";
 
-const URGENCY_LABELS: Record<TaskUrgency, string> = {
-  today: "Today",
+const TASK_FILTER_LABELS: Record<TaskFilter, string> = {
+  all: "All tasks",
+  today: "Due today",
   soon: "Soon",
-  later: "Later",
-};
-
-const URGENCY_SYMBOLS: Record<TaskUrgency, SymbolName> = {
-  today: symbol("sun.max.fill", "today"),
-  soon: symbol("calendar.badge.clock", "date_range"),
-  later: symbol("tray.full", "inbox"),
+  completed: "Completed",
+  high: "High priority",
+  medium: "Medium priority",
+  low: "Low priority",
 };
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
-function compareTasks(left: Task, right: Task) {
-  return (
-    getTaskPriorityLevel(right) - getTaskPriorityLevel(left) ||
-    (left.dueDate ?? "9999").localeCompare(right.dueDate ?? "9999") ||
-    left.name.localeCompare(right.name)
-  );
+function getPriorityGroup(
+  task: Task,
+): Exclude<TaskPriorityGroupKey, "completed"> {
+  const score = getTaskPriorityLevel(task);
+  if (score >= 2.5) return "high";
+  if (score >= 1.75) return "medium";
+  return "low";
 }
 
 function formatDueDate(dateKey: string | null) {
@@ -106,12 +113,20 @@ export function TasksScreen() {
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
   const [celebrate, setCelebrate] = useState(false);
+  const [recentlyCompletedTaskIds, setRecentlyCompletedTaskIds] = useState<
+    Set<string>
+  >(new Set());
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
+  const completionTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+    new Set(),
+  );
 
   useEffect(
     () => () => {
       isMountedRef.current = false;
+      for (const timer of completionTimersRef.current) clearTimeout(timer);
+      completionTimersRef.current.clear();
     },
     [],
   );
@@ -173,6 +188,11 @@ export function TasksScreen() {
 
     return tasks.filter((task) => {
       const urgency = getTaskUrgency(task);
+      const priorityGroup = getPriorityGroup(task);
+      const isRecentlyCompleted = recentlyCompletedTaskIds.has(task.id);
+      if (task.completedAt && filter !== "completed" && !isRecentlyCompleted) {
+        return false;
+      }
       if (filter === "completed" && !task.completedAt) return false;
       if (filter === "today" && (task.completedAt || urgency !== "today")) {
         return false;
@@ -180,36 +200,61 @@ export function TasksScreen() {
       if (filter === "soon" && (task.completedAt || urgency !== "soon")) {
         return false;
       }
+      if (filter === "high" && (task.completedAt || priorityGroup !== "high")) {
+        return false;
+      }
+      if (
+        filter === "medium" &&
+        (task.completedAt || priorityGroup !== "medium")
+      ) {
+        return false;
+      }
+      if (filter === "low" && (task.completedAt || priorityGroup !== "low")) {
+        return false;
+      }
       if (!normalizedQuery) return true;
       return `${task.name} ${task.importance} ${task.timeRequired}`
         .toLowerCase()
         .includes(normalizedQuery);
     });
-  }, [filter, query, tasks]);
+  }, [filter, query, recentlyCompletedTaskIds, tasks]);
 
   const groups = useMemo(() => {
-    const active = visibleTasks.filter((task) => !task.completedAt);
+    const today = todayDateKey();
+    const active = visibleTasks.filter(
+      (task) => !task.completedAt || recentlyCompletedTaskIds.has(task.id),
+    );
     const completed = visibleTasks.filter((task) => task.completedAt);
-    const urgencyGroups = TASK_URGENCIES.map((urgency) => ({
-      key: urgency,
-      label: URGENCY_LABELS[urgency],
-      icon: URGENCY_SYMBOLS[urgency],
-      tasks: active
-        .filter((task) => getTaskUrgency(task) === urgency)
-        .sort(compareTasks),
-    })).filter((group) => group.tasks.length);
-
-    if (completed.length) {
-      urgencyGroups.push({
-        key: "completed" as TaskUrgency,
-        label: "Completed Today",
-        icon: symbol("checkmark.circle.fill", "check_circle"),
-        tasks: completed.sort(compareTasks),
-      });
+    if (filter === "completed") {
+      return completed.length
+        ? [
+            {
+              key: "completed" as TaskPriorityGroupKey,
+              label: "Completed",
+              tasks: completed.sort((a, b) =>
+                compareTasksByPriority(a, b, today),
+              ),
+            },
+          ]
+        : [];
     }
 
-    return urgencyGroups;
-  }, [visibleTasks]);
+    return (
+      [
+        ["high", "High priority"],
+        ["medium", "Medium priority"],
+        ["low", "Low priority"],
+      ] as const
+    )
+      .map(([key, label]) => ({
+        key,
+        label,
+        tasks: active
+          .filter((task) => getPriorityGroup(task) === key)
+          .sort((a, b) => compareTasksByPriority(a, b, today)),
+      }))
+      .filter((group) => group.tasks.length);
+  }, [filter, recentlyCompletedTaskIds, visibleTasks]);
   const plannedEventsByTaskId = useMemo(() => {
     const map = new Map<string, PlannedEvent>();
     for (const event of plannedEvents) {
@@ -281,8 +326,30 @@ export function TasksScreen() {
       if (!task.completedAt && updated.completedAt) {
         playSuccessHaptic();
         setCelebrate(true);
+        setRecentlyCompletedTaskIds((current) => {
+          const next = new Set(current);
+          next.add(updated.id);
+          return next;
+        });
+        const timer = setTimeout(() => {
+          completionTimersRef.current.delete(timer);
+          if (!isMountedRef.current) return;
+          setRecentlyCompletedTaskIds((current) => {
+            if (!current.has(updated.id)) return current;
+            const next = new Set(current);
+            next.delete(updated.id);
+            return next;
+          });
+        }, 1600);
+        completionTimersRef.current.add(timer);
       } else {
         playSelectionHaptic();
+        setRecentlyCompletedTaskIds((current) => {
+          if (!current.has(updated.id)) return current;
+          const next = new Set(current);
+          next.delete(updated.id);
+          return next;
+        });
       }
       setTasks((current) =>
         [
@@ -397,7 +464,26 @@ export function TasksScreen() {
   const todayCount = tasks.filter(
     (task) => !task.completedAt && getTaskUrgency(task) === "today",
   ).length;
-  const completedCount = tasks.filter((task) => task.completedAt).length;
+  const todayKey = todayDateKey();
+  const completedCount = tasks.filter(
+    (task) => task.completedAt === todayKey,
+  ).length;
+  const activeFilterLabel = TASK_FILTER_LABELS[filter];
+  const filterActions: MenuAction[] = (
+    [
+      ["all", TASK_FILTER_LABELS.all],
+      ["today", TASK_FILTER_LABELS.today],
+      ["soon", TASK_FILTER_LABELS.soon],
+      ["completed", TASK_FILTER_LABELS.completed],
+      ["high", TASK_FILTER_LABELS.high],
+      ["medium", TASK_FILTER_LABELS.medium],
+      ["low", TASK_FILTER_LABELS.low],
+    ] as const
+  ).map(([id, title]) => ({
+    id,
+    title,
+    state: filter === id ? "on" : "off",
+  }));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -449,11 +535,10 @@ export function TasksScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.stats}>
-            <Stat label="Active" value={activeCount} />
-            <Stat label="Due today" value={todayCount} accent={theme.primary} />
-            <Stat label="Done today" value={completedCount} accent="#527B65" />
-          </View>
+          <Text style={[styles.summaryText, { color: theme.textSecondary }]}>
+            {activeCount} active · {todayCount} due today · {completedCount}{" "}
+            done today
+          </Text>
 
           <ProjectProgressCard
             projects={projects}
@@ -500,29 +585,28 @@ export function TasksScreen() {
                 />
               </Pressable>
             ) : null}
+            <MenuView
+              actions={filterActions}
+              onPressAction={({ nativeEvent }) => {
+                setFilter(nativeEvent.event as TaskFilter);
+              }}
+            >
+              <View
+                accessible
+                accessibilityLabel={`Filter tasks, currently ${activeFilterLabel}`}
+                accessibilityRole="button"
+                style={styles.filterButton}
+              >
+                <SymbolView
+                  name={symbol("line.3.horizontal.decrease.circle", "tune")}
+                  size={20}
+                  tintColor={
+                    filter === "all" ? theme.textSecondary : theme.primary
+                  }
+                />
+              </View>
+            </MenuView>
           </View>
-
-          <ScrollView
-            horizontal
-            contentContainerStyle={styles.filters}
-            showsHorizontalScrollIndicator={false}
-          >
-            {(
-              [
-                ["all", "All"],
-                ["today", "Today"],
-                ["soon", "Soon"],
-                ["completed", "Completed"],
-              ] as const
-            ).map(([value, label]) => (
-              <FilterChip
-                key={value}
-                label={label}
-                selected={filter === value}
-                onPress={() => setFilter(value)}
-              />
-            ))}
-          </ScrollView>
 
           {error ? (
             <View style={styles.errorBanner}>
@@ -547,11 +631,6 @@ export function TasksScreen() {
               {groups.map((group) => (
                 <View key={group.label} style={styles.group}>
                   <View style={styles.groupHeader}>
-                    <SymbolView
-                      name={group.icon}
-                      size={16}
-                      tintColor={theme.primary}
-                    />
                     <Text style={[styles.groupTitle, { color: theme.text }]}>
                       {group.label}
                     </Text>
@@ -572,7 +651,7 @@ export function TasksScreen() {
                         task={task}
                         onEdit={() => openEdit(task)}
                         onMore={() => setActionTask(task)}
-                        onToggle={() => void toggleComplete(task)}
+                        onToggle={() => setActionTask(task)}
                       />
                     ))}
                   </View>
@@ -626,72 +705,6 @@ export function TasksScreen() {
   );
 }
 
-function Stat({
-  accent,
-  label,
-  value,
-}: {
-  accent?: string;
-  label: string;
-  value: number;
-}) {
-  const theme = useTheme();
-  return (
-    <View
-      style={[
-        styles.stat,
-        {
-          backgroundColor: theme.backgroundElement,
-          borderColor: theme.tabBorder,
-        },
-      ]}
-    >
-      <Text style={[styles.statValue, { color: accent ?? theme.text }]}>
-        {value}
-      </Text>
-      <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function FilterChip({
-  label,
-  onPress,
-  selected,
-}: {
-  label: string;
-  onPress: () => void;
-  selected: boolean;
-}) {
-  const theme = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.filterChip,
-        {
-          backgroundColor: selected ? theme.primary : theme.backgroundElement,
-          borderColor: selected ? theme.primary : theme.tabBorder,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text
-        style={[
-          styles.filterLabel,
-          { color: selected ? theme.primaryForeground : theme.textSecondary },
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function TaskCard({
   isUpdating,
   onEdit,
@@ -708,6 +721,7 @@ function TaskCard({
   const theme = useTheme();
   const completed = Boolean(task.completedAt);
   const priority = getTaskPriorityLevel(task);
+  const priorityLabel = `${priority.toFixed(priority % 1 ? 1 : 0)} priority`;
   const priorityColor =
     task.importance === "High"
       ? theme.primary
@@ -779,7 +793,7 @@ function TaskCard({
             style={[styles.priorityDot, { backgroundColor: priorityColor }]}
           />
           <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-            {task.importance}
+            {formatDueDate(task.dueDate)}
           </Text>
           <Text
             style={[styles.metadataDivider, { color: theme.textSecondary }]}
@@ -795,19 +809,9 @@ function TaskCard({
             ·
           </Text>
           <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-            {formatDueDate(task.dueDate)}
+            {priorityLabel}
           </Text>
         </View>
-      </View>
-      <View
-        style={[
-          styles.priorityBadge,
-          { backgroundColor: theme.backgroundElement },
-        ]}
-      >
-        <Text style={[styles.priorityScore, { color: priorityColor }]}>
-          {priority.toFixed(priority % 1 ? 1 : 0)}
-        </Text>
       </View>
       <Pressable
         accessibilityLabel={`More actions for ${task.name}`}
@@ -903,7 +907,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 20,
     paddingBottom: 32,
-    gap: 18,
+    gap: 14,
   },
   header: {
     flexDirection: "row",
@@ -933,31 +937,20 @@ const styles = StyleSheet.create({
   },
   description: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   addButton: {
-    width: 44,
-    height: 44,
-    maxWidth: 44,
-    maxHeight: 44,
-    minWidth: 44,
-    minHeight: 44,
+    width: 38,
+    height: 38,
+    maxWidth: 38,
+    maxHeight: 38,
+    minWidth: 38,
+    minHeight: 38,
     flexGrow: 0,
     flexShrink: 0,
     alignSelf: "flex-start",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 15,
+    borderRadius: 13,
   },
-  stats: { flexDirection: "row", gap: 8 },
-  stat: {
-    flex: 1,
-    minWidth: 0,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    gap: 1,
-  },
-  statValue: { fontSize: 19, lineHeight: 23, fontWeight: "800" },
-  statLabel: { fontSize: 10, lineHeight: 14, fontWeight: "700" },
+  summaryText: { fontSize: 13, lineHeight: 18, fontWeight: "700" },
   search: {
     minHeight: 48,
     flexDirection: "row",
@@ -968,14 +961,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   searchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: "500" },
-  filters: { gap: 8, paddingRight: 18 },
-  filterChip: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  filterButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
   },
-  filterLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -993,7 +985,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   retryText: { color: "#9D474D", fontSize: 12, fontWeight: "800" },
-  groups: { gap: 22 },
+  groups: { gap: 18 },
   group: { gap: 9 },
   groupHeader: {
     flexDirection: "row",
@@ -1005,13 +997,14 @@ const styles = StyleSheet.create({
   groupCount: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   taskList: { gap: 8 },
   taskCard: {
-    minHeight: 76,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    gap: 10,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
-    padding: 11,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
   },
   checkButton: {
     width: 28,
@@ -1021,7 +1014,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 10,
   },
-  taskBody: { flex: 1, minWidth: 0, gap: 5 },
+  taskBody: { flex: 1, minWidth: 0, gap: 4 },
   taskName: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
   completedName: { textDecorationLine: "line-through" },
   taskMetadata: {
@@ -1033,17 +1026,9 @@ const styles = StyleSheet.create({
   priorityDot: { width: 6, height: 6, borderRadius: 3 },
   metadataText: { fontSize: 10, lineHeight: 14, fontWeight: "600" },
   metadataDivider: { fontSize: 11, lineHeight: 14, fontWeight: "700" },
-  priorityBadge: {
-    minWidth: 31,
-    height: 31,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 11,
-  },
-  priorityScore: { fontSize: 11, lineHeight: 14, fontWeight: "800" },
   moreButton: {
-    width: 32,
-    height: 38,
+    width: 30,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 13,
