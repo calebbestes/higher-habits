@@ -32,7 +32,9 @@ export type PlanReportView =
   | "goals"
   | "top-tasks";
 export type HabitsTab = "daily" | "monthly";
+export type CreateSection = "habits" | "goals" | "tasks";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
+export type HistorySection = "dashboard" | "journal";
 export type AppStartPage =
   | "add"
   | "plan-report"
@@ -67,7 +69,9 @@ const planReportStore = createSelectionStore<PlanReportView>(
 );
 const planReportDateStore = createSelectionStore<string | null>(null);
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
+const createStore = createSelectionStore<CreateSection>("habits");
 const collabStore = createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
+const historyStore = createSelectionStore<HistorySection>("dashboard");
 const defaultPlanReportStore = createSelectionStore<PlanReportView>(
   DEFAULT_PLAN_REPORT_VIEW,
 );
@@ -114,6 +118,18 @@ export function setHabitsTab(tab: HabitsTab): void {
   habitsTabStore.set(tab);
 }
 
+export function useCreateSection(): CreateSection {
+  return useSyncExternalStore(
+    createStore.subscribe,
+    createStore.get,
+    createStore.get,
+  );
+}
+
+export function setCreateSection(section: CreateSection): void {
+  createStore.set(section);
+}
+
 export function useCollabSection(): CollabSection {
   return useSyncExternalStore(
     collabStore.subscribe,
@@ -124,6 +140,18 @@ export function useCollabSection(): CollabSection {
 
 export function setCollabSection(section: CollabSection): void {
   collabStore.set(section);
+}
+
+export function useHistorySection(): HistorySection {
+  return useSyncExternalStore(
+    historyStore.subscribe,
+    historyStore.get,
+    historyStore.get,
+  );
+}
+
+export function setHistorySection(section: HistorySection): void {
+  historyStore.set(section);
 }
 
 export function useDefaultPlanReportView(): PlanReportView {

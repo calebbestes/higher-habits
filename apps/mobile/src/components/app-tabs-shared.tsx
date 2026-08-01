@@ -26,12 +26,18 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   COLLAB_SECTION_HREFS,
   type CollabSection,
+  type CreateSection,
+  type HistorySection,
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
+  setCreateSection,
   setCollabSection,
+  setHistorySection,
   setPlanReportView,
-  useDefaultCollabSection,
-  useDefaultPlanReportView,
+  useCreateSection,
+  useCollabSection,
+  useHistorySection,
+  usePlanReportView,
 } from "@/lib/tab-view-store";
 
 const HOLD_HAPTIC_DELAY_MS = 220;
@@ -236,8 +242,10 @@ export default function AppTabs() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const router = useRouter();
-  const defaultPlanReportView = useDefaultPlanReportView();
-  const defaultCollabSection = useDefaultCollabSection();
+  const createSection = useCreateSection();
+  const planReportView = usePlanReportView();
+  const collabSection = useCollabSection();
+  const historySection = useHistorySection();
   const [openMenuName, setOpenMenuName] = useState<string | null>(null);
   const usesNativeAppleMenus = Platform.OS === "ios";
   const usesAppleTabBar = Platform.OS === "ios";
@@ -265,8 +273,10 @@ export default function AppTabs() {
           >
             {TABS.map((tab) => {
               const href = getDefaultTabHref({
-                defaultCollabSection,
-                defaultPlanReportView,
+                collabSection,
+                createSection,
+                historySection,
+                planReportView,
                 tab,
               });
 
@@ -522,44 +532,73 @@ function rememberSubmenuSelection(href: Href) {
     "/plan-report?view=day-plan": "day-plan",
     "/plan-report?view=monthly-plan": "monthly-plan",
   };
+  const createSections: Record<string, CreateSection> = {
+    "/add?type=habits": "habits",
+    "/add?type=goals": "goals",
+    "/add?type=tasks": "tasks",
+  };
   const collabSections: Record<string, CollabSection> = {
     "/?section=incentives": "incentives",
     "/?section=shared-goals": "shared-goals",
     "/?section=feed": "feed",
     "/?section=friends": "friends",
   };
+  const historySections: Record<string, HistorySection> = {
+    "/history?section=dashboard": "dashboard",
+    "/history?section=journal": "journal",
+  };
 
   const planReportView = planReportViews[href];
   if (planReportView) setPlanReportView(planReportView);
 
+  const createSection = createSections[href];
+  if (createSection) setCreateSection(createSection);
+
   const collabSection = collabSections[href];
   if (collabSection) setCollabSection(collabSection);
+
+  const historySection = historySections[href];
+  if (historySection) setHistorySection(historySection);
 }
 
 function getDefaultTabHref({
-  defaultCollabSection,
-  defaultPlanReportView,
+  collabSection,
+  createSection,
+  historySection,
+  planReportView,
   tab,
 }: {
-  defaultCollabSection: CollabSection;
-  defaultPlanReportView: PlanReportView;
+  collabSection: CollabSection;
+  createSection: CreateSection;
+  historySection: HistorySection;
+  planReportView: PlanReportView;
   tab: TabItem;
 }): Href {
   if (tab.name === "add") {
-    return "/add?type=habits";
+    return (
+      createSection === "tasks"
+        ? "/add?type=tasks"
+        : createSection === "goals"
+          ? "/add?type=goals"
+          : "/add?type=habits"
+    ) as Href;
   }
   if (tab.name === "plan-report") {
     return (
-      defaultPlanReportView === "monthly-plan"
+      planReportView === "monthly-plan"
         ? PLAN_REPORT_VIEW_HREFS["monthly-plan"]
         : PLAN_REPORT_VIEW_HREFS["day-plan"]
     ) as Href;
   }
   if (tab.name === "collab") {
-    return COLLAB_SECTION_HREFS[defaultCollabSection] as Href;
+    return COLLAB_SECTION_HREFS[collabSection] as Href;
   }
   if (tab.name === "history") {
-    return "/history?section=dashboard";
+    return (
+      historySection === "journal"
+        ? "/history?section=journal"
+        : "/history?section=dashboard"
+    ) as Href;
   }
   return tab.href;
 }

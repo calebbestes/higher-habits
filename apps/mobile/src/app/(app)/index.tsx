@@ -11,7 +11,7 @@ import {
   COLLAB_SECTION_HREFS,
   type CollabSection,
   setCollabSection,
-  useDefaultCollabSection,
+  useCollabSection,
 } from "@/lib/tab-view-store";
 
 const COLLAB_ORDER: readonly CollabSection[] = [
@@ -24,18 +24,25 @@ const COLLAB_ORDER: readonly CollabSection[] = [
 export default function CollabScreen() {
   const router = useRouter();
   const { section } = useLocalSearchParams<{ section?: string }>();
-  const defaultSection = useDefaultCollabSection();
+  const rememberedSection = useCollabSection();
   const activeSection =
     section === "feed" ||
     section === "friends" ||
     section === "incentives" ||
     section === "shared-goals"
       ? section
-      : defaultSection;
+      : rememberedSection;
 
   useEffect(() => {
-    setCollabSection(activeSection);
-  }, [activeSection]);
+    if (
+      section === "feed" ||
+      section === "friends" ||
+      section === "incentives" ||
+      section === "shared-goals"
+    ) {
+      setCollabSection(section);
+    }
+  }, [section]);
 
   const changeSection = useCallback(
     (nextSection: CollabSection) => {

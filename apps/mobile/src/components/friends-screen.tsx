@@ -47,6 +47,25 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function normalizeSmsRecipient(value: string) {
+  return value.trim().replace(/[^\d+.-]/g, "");
+}
+
+function buildSmsUrl(recipients: string[]) {
+  const normalizedRecipients = recipients
+    .map(normalizeSmsRecipient)
+    .filter(Boolean);
+  const encodedRecipients = normalizedRecipients
+    .map((recipient) => encodeURIComponent(recipient))
+    .join(",");
+
+  if (Platform.OS === "ios" && normalizedRecipients.length > 1) {
+    return `sms://open?addresses=${encodedRecipients}`;
+  }
+
+  return `sms:${encodedRecipients}`;
+}
+
 export function FriendsScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -152,7 +171,7 @@ export function FriendsScreen() {
       );
       return;
     }
-    Linking.openURL(`sms:${encodeURIComponent(phone)}`).catch(() => {
+    Linking.openURL(buildSmsUrl([phone])).catch(() => {
       Alert.alert("Could not open", "No messaging app is available.");
     });
   };
@@ -591,11 +610,9 @@ function FriendGroupCard({ group }: { group: FriendGroupRow }) {
       return;
     }
 
-    Linking.openURL(`sms:${phones.map(encodeURIComponent).join(",")}`).catch(
-      () => {
-        Alert.alert("Could not open", "No messaging app is available.");
-      },
-    );
+    Linking.openURL(buildSmsUrl(phones)).catch(() => {
+      Alert.alert("Could not open", "No messaging app is available.");
+    });
   };
 
   return (
@@ -1394,7 +1411,7 @@ function AddFriendModal({
 
               <View style={[styles.addFriendSection, { marginTop: 18 }]}>
                 <Text style={[styles.addSectionTitle, { color: theme.text }]}>
-                  Invite someone
+                  Invite someone to join float
                 </Text>
                 <Text
                   style={[styles.modalHint, { color: theme.textSecondary }]}

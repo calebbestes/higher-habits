@@ -4,6 +4,10 @@ packages:
   - "tooling/*"
 overrides:
   kysely: 0.28.17
+packageExtensions:
+  "@sentry/react-native@*":
+    dependencies:
+      "@expo/config-plugins": ~56.0.14
 allowBuilds:
   '@biomejs/biome': true
   '@heroui-pro/react': true
