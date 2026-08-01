@@ -825,6 +825,7 @@ function GoalCard({
 }) {
   const theme = useTheme();
   const cardRef = useRef<View>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const completedCount = goal.checkpoints.filter(
     (checkpoint) => checkpoint.completed,
   ).length;
@@ -853,7 +854,7 @@ function GoalCard({
         styles.goalCard,
         {
           backgroundColor: theme.tabBar,
-          borderColor: `${theme.secondary}33`,
+          borderColor: `${theme.tabBorder}A6`,
           shadowColor:
             theme.background === "#ffffff" ? theme.secondary : "#000",
         },
@@ -958,17 +959,21 @@ function GoalCard({
 
       {goal.checkpoints.length ? (
         <>
-          <GoalTimeline
-            checkpoints={goal.checkpoints}
-            plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-            onPressCheckpoint={onPressCheckpoint}
-            onViewAll={onEdit}
-          />
           <NextCheckpointAction
             checkpoints={goal.checkpoints}
+            expanded={isExpanded}
             plannedEventsByCheckpointId={plannedEventsByCheckpointId}
             onPressCheckpoint={onPressCheckpoint}
+            onToggleExpanded={() => setIsExpanded((current) => !current)}
           />
+          {isExpanded ? (
+            <GoalTimeline
+              checkpoints={goal.checkpoints}
+              plannedEventsByCheckpointId={plannedEventsByCheckpointId}
+              onPressCheckpoint={onPressCheckpoint}
+              onViewAll={onEdit}
+            />
+          ) : null}
         </>
       ) : null}
     </View>
@@ -1172,12 +1177,16 @@ function GoalTimeline({
 
 function NextCheckpointAction({
   checkpoints,
+  expanded,
   plannedEventsByCheckpointId,
   onPressCheckpoint,
+  onToggleExpanded,
 }: {
   checkpoints: Goal["checkpoints"];
+  expanded: boolean;
   plannedEventsByCheckpointId: Map<string, PlannedEvent>;
   onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
+  onToggleExpanded: () => void;
 }) {
   const theme = useTheme();
   const checkpoint = getNextCheckpoint(
@@ -1188,27 +1197,65 @@ function NextCheckpointAction({
 
   const plannedEvent = plannedEventsByCheckpointId.get(checkpoint.id);
   const actionLabel = getCheckpointActionLabel(checkpoint, plannedEvent);
+  const dateLabel = getCheckpointDateLabel(checkpoint, plannedEvent);
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => onPressCheckpoint(checkpoint)}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.nextCheckpointAction,
         { backgroundColor: theme.backgroundElement },
-        pressed && styles.pressed,
       ]}
     >
-      <Text
-        numberOfLines={1}
-        style={[styles.nextCheckpointText, { color: theme.text }]}
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => onPressCheckpoint(checkpoint)}
+        style={({ pressed }) => [
+          styles.nextCheckpointPressable,
+          pressed && styles.pressed,
+        ]}
       >
-        Next: {checkpoint.title}
-      </Text>
-      <Text style={[styles.nextCheckpointMeta, { color: theme.textSecondary }]}>
-        {actionLabel}
-      </Text>
-    </Pressable>
+        <Text
+          numberOfLines={1}
+          style={[styles.nextCheckpointLabel, { color: theme.primary }]}
+        >
+          Next
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.nextCheckpointText, { color: theme.text }]}
+        >
+          {checkpoint.title}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.nextCheckpointMeta,
+            { color: dateLabel ? theme.primary : theme.textSecondary },
+          ]}
+        >
+          {dateLabel ?? actionLabel}
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel={expanded ? "Hide checkpoints" : "Show checkpoints"}
+        accessibilityRole="button"
+        onPress={onToggleExpanded}
+        style={({ pressed }) => [
+          styles.expandCheckpointsButton,
+          pressed && styles.pressed,
+        ]}
+      >
+        <SymbolView
+          name={symbol(
+            expanded ? "chevron.up" : "chevron.down",
+            expanded ? "keyboard_arrow_up" : "keyboard_arrow_down",
+          )}
+          size={16}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+      </Pressable>
+    </View>
   );
 }
 
@@ -2641,10 +2688,10 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "500" },
   goalList: { gap: 12 },
   goalCard: {
-    gap: 10,
+    gap: 9,
     borderWidth: 1,
     borderRadius: 16,
-    padding: 11,
+    padding: 10,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 9,
@@ -2691,6 +2738,7 @@ const styles = StyleSheet.create({
   },
   timelineBlock: {
     gap: 8,
+    paddingTop: 4,
   },
   timelinePreview: {
     flexDirection: "row",
@@ -2768,24 +2816,48 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   nextCheckpointAction: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderRadius: 13,
-    paddingHorizontal: 10,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  nextCheckpointPressable: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingLeft: 11,
+    paddingRight: 7,
+  },
+  nextCheckpointLabel: {
+    flexShrink: 0,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
   },
   nextCheckpointText: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "800",
   },
   nextCheckpointMeta: {
-    fontSize: 11,
-    lineHeight: 14,
+    maxWidth: 86,
+    flexShrink: 0,
+    textAlign: "right",
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: "700",
+  },
+  expandCheckpointsButton: {
+    width: 42,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   laterGoalsToggle: {
     minHeight: 46,
