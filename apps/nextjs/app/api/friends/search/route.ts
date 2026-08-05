@@ -89,10 +89,9 @@ export async function GET(request: Request) {
       })
       .from(users)
       .where(
-        and(
-          ne(users.id, user.id),
-          searchFilter,
-        ),
+        searchFilter
+          ? and(ne(users.id, user.id), searchFilter)
+          : ne(users.id, user.id),
       )
       .orderBy(asc(users.name))
       .limit(query.length >= 2 ? 50 : 100);
