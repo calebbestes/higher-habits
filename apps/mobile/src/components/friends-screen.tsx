@@ -31,6 +31,7 @@ import {
   type FriendSearchResult,
   acceptFriendRequest,
   addFriend,
+  archiveFriend,
   createFriendGroup,
   fetchFriendGroups,
   fetchFriends,
@@ -82,6 +83,9 @@ export function FriendsScreen() {
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
+    string | null
+  >(null);
+  const [unsendingFriendshipId, setUnsendingFriendshipId] = useState<
     string | null
   >(null);
   const [nudgingFriendshipId, setNudgingFriendshipId] = useState<string | null>(
@@ -209,6 +213,25 @@ export function FriendsScreen() {
       }
     } finally {
       if (isMountedRef.current) setAcceptingFriendshipId(null);
+    }
+  };
+
+  const unsendRequest = async (friend: FriendRow) => {
+    setUnsendingFriendshipId(friend.id);
+    try {
+      await archiveFriend(friend.id);
+      playSuccessHaptic();
+      if (!isMountedRef.current) return;
+      await load();
+    } catch (unsendError) {
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not unsend request",
+          unsendError instanceof Error ? unsendError.message : "Try again.",
+        );
+      }
+    } finally {
+      if (isMountedRef.current) setUnsendingFriendshipId(null);
     }
   };
 
@@ -407,7 +430,9 @@ export function FriendsScreen() {
                         key={friend.id}
                         friend={friend}
                         isAccepting={acceptingFriendshipId === friend.id}
+                        isUnsending={unsendingFriendshipId === friend.id}
                         onAccept={() => void acceptRequest(friend)}
+                        onUnsend={() => void unsendRequest(friend)}
                       />
                     ))}
                   </View>
@@ -709,11 +734,15 @@ function GroupMemberAvatar({
 function PendingFriendRow({
   friend,
   isAccepting,
+  isUnsending,
   onAccept,
+  onUnsend,
 }: {
   friend: FriendRow;
   isAccepting: boolean;
+  isUnsending: boolean;
   onAccept: () => void;
+  onUnsend: () => void;
 }) {
   const theme = useTheme();
 
@@ -767,18 +796,26 @@ function PendingFriendRow({
           )}
         </Pressable>
       ) : (
-        <View
-          style={[
+        <Pressable
+          accessibilityLabel={`Unsend friend request to ${friend.friendName}`}
+          disabled={isUnsending}
+          onPress={onUnsend}
+          style={({ pressed }) => [
             styles.pendingBadge,
             { backgroundColor: theme.backgroundSelected },
+            pressed && styles.pressed,
           ]}
         >
-          <Text
-            style={[styles.pendingBadgeText, { color: theme.textSecondary }]}
-          >
-            Sent
-          </Text>
-        </View>
+          {isUnsending ? (
+            <ActivityIndicator color={theme.textSecondary} size="small" />
+          ) : (
+            <Text
+              style={[styles.pendingBadgeText, { color: theme.textSecondary }]}
+            >
+              Unsend
+            </Text>
+          )}
+        </Pressable>
       )}
     </View>
   );
