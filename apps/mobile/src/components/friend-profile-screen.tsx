@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -25,14 +26,16 @@ import {
   type FriendFeedEntry,
   type FriendProfile,
   type FriendProfileHabit,
+  type FriendRow,
   fetchFriendProfile,
   fetchFriendProfileByFriendId,
+  fetchFriends,
   fetchFriendsFeed,
   fetchMyPosts,
   fetchMyProfile,
   sendFriendNudge,
 } from "@/lib/friends-client";
-import { playSuccessHaptic } from "@/lib/haptics";
+import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
@@ -68,6 +71,8 @@ export function FriendProfileScreen({
   const loadRequestIdRef = useRef(0);
   const [profile, setProfile] = useState<FriendProfile | null>(null);
   const [posts, setPosts] = useState<FriendFeedEntry[]>([]);
+  const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [isFriendsSheetOpen, setIsFriendsSheetOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [arePostsLoading, setArePostsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -105,12 +110,22 @@ export function FriendProfileScreen({
           setProfile(nextProfile);
           setIsLoading(false);
 
-          const myPosts = await fetchMyPosts().catch(() => []);
+          const [myPosts, nextFriends] = await Promise.all([
+            fetchMyPosts().catch(() => []),
+            fetchFriends().catch(() => []),
+          ]);
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
 
+          setFriends(
+            nextFriends
+              .filter((friend) => friend.status === "accepted")
+              .sort((left, right) =>
+                left.friendName.localeCompare(right.friendName),
+              ),
+          );
           setPosts(
             myPosts
               .filter(hasProfileGridContent)
@@ -127,6 +142,7 @@ export function FriendProfileScreen({
           }
 
           setProfile(nextProfile);
+          setFriends([]);
           setIsLoading(false);
 
           const feed = await fetchFriendsFeed().catch(() => []);
@@ -193,6 +209,27 @@ export function FriendProfileScreen({
       setIsNudging(false);
     }
   };
+
+  const openFriendsSheet = useCallback(() => {
+    if (!self || friends.length === 0) return;
+    playSelectionHaptic();
+    setIsFriendsSheetOpen(true);
+  }, [friends.length, self]);
+
+  const openFriendProfile = useCallback(
+    (friend: FriendRow) => {
+      playSelectionHaptic();
+      setIsFriendsSheetOpen(false);
+      router.push({
+        pathname: "/friend-profile",
+        params: {
+          friendId: friend.friendId,
+          initialName: friend.friendName,
+        },
+      });
+    },
+    [router],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -265,6 +302,7 @@ export function FriendProfileScreen({
                   <ProfileStat
                     label="friends"
                     value={profile.stats.friendCount}
+                    onPress={self ? openFriendsSheet : undefined}
                   />
                   <ProfileStat
                     label="habits done"
@@ -383,6 +421,12 @@ export function FriendProfileScreen({
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <FriendsListSheet
+        friends={friends}
+        isOpen={isFriendsSheetOpen}
+        onClose={() => setIsFriendsSheetOpen(false)}
+        onOpenFriend={openFriendProfile}
+      />
     </View>
   );
 }
@@ -430,18 +474,158 @@ function ProfileAvatar({
   );
 }
 
-function ProfileStat({ label, value }: { label: string; value: number }) {
+function ProfileStat({
+  label,
+  onPress,
+  value,
+}: {
+  label: string;
+  onPress?: () => void;
+  value: number;
+}) {
   const theme = useTheme();
+  const Container = onPress ? Pressable : View;
 
   return (
-    <View style={styles.stat}>
+    <Container
+      accessibilityLabel={`${value.toLocaleString()} ${label}`}
+      accessibilityRole={onPress ? "button" : undefined}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }: { pressed: boolean }) => [
+        styles.stat,
+        onPress && styles.pressableStat,
+        pressed && styles.pressed,
+      ]}
+    >
       <Text style={[styles.statValue, { color: theme.text }]}>
         {value.toLocaleString()}
       </Text>
       <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
         {label}
       </Text>
-    </View>
+    </Container>
+  );
+}
+
+function FriendsListSheet({
+  friends,
+  isOpen,
+  onClose,
+  onOpenFriend,
+}: {
+  friends: FriendRow[];
+  isOpen: boolean;
+  onClose: () => void;
+  onOpenFriend: (friend: FriendRow) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent
+      visible={isOpen}
+      onRequestClose={onClose}
+    >
+      <View style={styles.friendsSheetOverlay}>
+        <Pressable style={styles.friendsSheetBackdrop} onPress={onClose} />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[
+            styles.friendsSheet,
+            {
+              backgroundColor: theme.background,
+              borderColor: theme.tabBorder,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.friendsSheetHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <View>
+              <Text style={[styles.friendsSheetTitle, { color: theme.text }]}>
+                Friends
+              </Text>
+              <Text
+                style={[
+                  styles.friendsSheetSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {friends.length.toLocaleString()} friends
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close friends list"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.friendsSheetClose,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.friendsSheetList}
+            showsVerticalScrollIndicator={false}
+          >
+            {friends.map((friend) => (
+              <Pressable
+                key={friend.id}
+                accessibilityLabel={`Open ${friend.friendName}'s profile`}
+                accessibilityRole="button"
+                onPress={() => onOpenFriend(friend)}
+                style={({ pressed }) => [
+                  styles.friendRow,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <ProfileAvatar
+                  image={friend.friendImage}
+                  name={friend.friendName}
+                  size={42}
+                />
+                <View style={styles.friendRowText}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.friendRowName, { color: theme.text }]}
+                  >
+                    {friend.friendName}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.friendRowEmail,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {friend.friendEmail || "Friend"}
+                  </Text>
+                </View>
+                <SymbolView
+                  name={sym("chevron.right", "chevron_right")}
+                  size={14}
+                  weight="semibold"
+                  tintColor={theme.textSecondary}
+                />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -666,16 +850,26 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
+    justifyContent: "space-between",
     rowGap: 10,
   },
-  stat: { width: "50%", alignItems: "center" },
+  stat: { width: "48%", alignItems: "center" },
+  pressableStat: {
+    borderRadius: 12,
+  },
   statValue: {
     fontFamily: Fonts.rounded,
-    fontSize: 21,
-    lineHeight: 24,
+    fontSize: 20,
+    lineHeight: 23,
     fontWeight: "900",
   },
-  statLabel: { marginTop: 2, fontSize: 11, fontWeight: "700" },
+  statLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    textAlign: "center",
+  },
   profileName: {
     paddingHorizontal: 22,
     paddingTop: 12,
@@ -746,6 +940,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     textAlign: "center",
+  },
+  friendsSheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  friendsSheetBackdrop: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  friendsSheet: {
+    maxHeight: "72%",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
+  },
+  friendsSheetHeader: {
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  friendsSheetTitle: {
+    fontFamily: Fonts.rounded,
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: "900",
+  },
+  friendsSheetSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  friendsSheetClose: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+  },
+  friendsSheetList: {
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  friendRow: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  friendRowText: { minWidth: 0, flex: 1, gap: 2 },
+  friendRowName: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  friendRowEmail: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   pressed: { opacity: 0.72 },
 });

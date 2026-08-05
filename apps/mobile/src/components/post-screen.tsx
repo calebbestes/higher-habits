@@ -1,11 +1,17 @@
-import { FeedCard } from "@/components/feed-screen";
+import { CommentsModal, FeedCard } from "@/components/feed-screen";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type FriendFeedComment,
   type FriendFeedEntry,
+  addFeedComment,
+  addReflectionComment,
+  deleteFeedComment,
+  deleteReflectionComment,
   fetchFriendsFeed,
   fetchMyPosts,
+  reportContent,
   toggleFeedProp,
   toggleReflectionProp,
 } from "@/lib/friends-client";
@@ -44,6 +50,12 @@ export function PostScreen({
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const [entry, setEntry] = useState<FriendFeedEntry | null>(null);
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [replyTarget, setReplyTarget] = useState<FriendFeedComment | null>(
+    null,
+  );
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +147,89 @@ export function PostScreen({
     }
   }, [entry]);
 
+  const handleAddComment = useCallback(async () => {
+    if (!entry || isSubmittingComment) return;
+    const body = commentDraft.trim();
+    if (!body) return;
+
+    setIsSubmittingComment(true);
+    try {
+      if (entry.kind === "reflection") {
+        await addReflectionComment(entry.id, body, replyTarget?.id ?? null);
+      } else {
+        await addFeedComment(entry.id, body, replyTarget?.id ?? null);
+      }
+      playSuccessHaptic();
+      if (!isMountedRef.current) return;
+      setCommentDraft("");
+      setReplyTarget(null);
+      await load(true);
+    } catch (commentError) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not add comment",
+        commentError instanceof Error ? commentError.message : undefined,
+      );
+    } finally {
+      if (isMountedRef.current) setIsSubmittingComment(false);
+    }
+  }, [commentDraft, entry, isSubmittingComment, load, replyTarget]);
+
+  const handleDeleteComment = useCallback(
+    async (commentId: string) => {
+      if (!entry) return;
+
+      try {
+        if (entry.kind === "reflection") {
+          await deleteReflectionComment(entry.id, commentId);
+        } else {
+          await deleteFeedComment(entry.id, commentId);
+        }
+        if (!isMountedRef.current) return;
+        playSelectionHaptic();
+        setReplyTarget((current) =>
+          current?.id === commentId ? null : current,
+        );
+        await load(true);
+      } catch (commentError) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not delete comment",
+          commentError instanceof Error ? commentError.message : undefined,
+        );
+      }
+    },
+    [entry, load],
+  );
+
+  const handleReportComment = useCallback(
+    async (comment: FriendFeedComment) => {
+      if (!entry) return;
+
+      try {
+        await reportContent({
+          targetType: "feed_comment",
+          targetId: comment.id,
+          reason: "Reported from post comments.",
+          context: {
+            feedPostId: entry.id,
+            authorId: comment.userId,
+            parentCommentId: comment.parentCommentId,
+          },
+        });
+        if (!isMountedRef.current) return;
+        Alert.alert("Report sent", "Thanks. We'll review this comment.");
+      } catch (reportError) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not send report",
+          reportError instanceof Error ? reportError.message : undefined,
+        );
+      }
+    },
+    [entry],
+  );
+
   const openProfile = useCallback(() => {
     if (!entry) return;
     if (source === "self") {
@@ -211,15 +306,32 @@ export function PostScreen({
               entry={entry}
               onToggleProp={() => void handleToggleProp()}
               onPhotoPress={() => undefined}
-              onOpenComments={() =>
-                Alert.alert("Comments", "Open comments from the feed for now.")
-              }
+              onOpenComments={() => {
+                playSelectionHaptic();
+                setIsCommentsOpen(true);
+              }}
               onOpenProfile={openProfile}
               onOpenSafetyActions={() => undefined}
             />
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <CommentsModal
+        commentDraft={commentDraft}
+        entry={isCommentsOpen ? entry : null}
+        isSubmittingComment={isSubmittingComment}
+        replyTarget={replyTarget}
+        onAddComment={() => void handleAddComment()}
+        onCancelReply={() => setReplyTarget(null)}
+        onClose={() => setIsCommentsOpen(false)}
+        onCommentDraftChange={setCommentDraft}
+        onDeleteComment={(commentId) => void handleDeleteComment(commentId)}
+        onReportComment={(comment) => void handleReportComment(comment)}
+        onReplyToComment={(comment) => {
+          playSelectionHaptic();
+          setReplyTarget(comment);
+        }}
+      />
     </View>
   );
 }

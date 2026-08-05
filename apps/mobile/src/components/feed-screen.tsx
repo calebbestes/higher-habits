@@ -68,6 +68,7 @@ import {
   fetchFriendGroups,
   fetchFriends,
   fetchFriendsFeed,
+  fetchMyPosts,
   reportContent,
   sendFriendIncentive,
   toggleFeedProp,
@@ -444,6 +445,8 @@ export function FeedScreen() {
     [viewportHeight, viewportWidth],
   );
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
+  const [myDailyReflectionEntry, setMyDailyReflectionEntry] =
+    useState<FriendFeedEntry | null>(null);
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
@@ -561,18 +564,31 @@ export function FeedScreen() {
     refresh ? setIsRefreshing(true) : setIsLoading(true);
     setError(null);
     try {
-      const [data, groups, nextFriends, nextPersonalGoals, sharedGoals] =
-        await Promise.all([
-          fetchFriendsFeed(),
-          fetchFriendGroups().catch(() => []),
-          fetchFriends().catch(() => []),
-          fetchGoals().catch(() => []),
-          fetchSharedGoals().catch(() => []),
-        ]);
+      const [
+        data,
+        groups,
+        nextFriends,
+        nextPersonalGoals,
+        sharedGoals,
+        myPosts,
+      ] = await Promise.all([
+        fetchFriendsFeed(),
+        fetchFriendGroups().catch(() => []),
+        fetchFriends().catch(() => []),
+        fetchGoals().catch(() => []),
+        fetchSharedGoals().catch(() => []),
+        fetchMyPosts().catch(() => []),
+      ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
+      const todayKey = toDateKey(new Date());
       setEntries(data);
+      setMyDailyReflectionEntry(
+        myPosts.find(
+          (post) => post.kind === "reflection" && post.dateKey === todayKey,
+        ) ?? null,
+      );
       setFriendGroups(groups);
       setFriends(nextFriends);
       setPersonalGoals(nextPersonalGoals);
@@ -661,6 +677,21 @@ export function FeedScreen() {
     [],
   );
 
+  const updateFeedEntry = useCallback(
+    (
+      entryId: string,
+      updater: (entry: FriendFeedEntry) => FriendFeedEntry,
+    ) => {
+      setEntries((prev) =>
+        prev.map((entry) => (entry.id === entryId ? updater(entry) : entry)),
+      );
+      setMyDailyReflectionEntry((entry) =>
+        entry?.id === entryId ? updater(entry) : entry,
+      );
+    },
+    [],
+  );
+
   const handleToggleProp = useCallback(async (entry: FriendFeedEntry) => {
     const entryId = entry.id;
     if (!entry?.props.hasPropped) {
@@ -668,21 +699,15 @@ export function FeedScreen() {
     } else {
       playSelectionHaptic();
     }
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id !== entryId
-          ? e
-          : {
-              ...e,
-              props: {
-                count: e.props.hasPropped
-                  ? Math.max(e.props.count - 1, 0)
-                  : e.props.count + 1,
-                hasPropped: !e.props.hasPropped,
-              },
-            },
-      ),
-    );
+    updateFeedEntry(entryId, (e) => ({
+      ...e,
+      props: {
+        count: e.props.hasPropped
+          ? Math.max(e.props.count - 1, 0)
+          : e.props.count + 1,
+        hasPropped: !e.props.hasPropped,
+      },
+    }));
     try {
       if (entry.kind === "reflection") {
         await toggleReflectionProp(entryId);
@@ -690,27 +715,21 @@ export function FeedScreen() {
         await toggleFeedProp(entryId);
       }
     } catch (err) {
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id !== entryId
-            ? e
-            : {
-                ...e,
-                props: {
-                  count: e.props.hasPropped
-                    ? Math.max(e.props.count - 1, 0)
-                    : e.props.count + 1,
-                  hasPropped: !e.props.hasPropped,
-                },
-              },
-        ),
-      );
+      updateFeedEntry(entryId, (e) => ({
+        ...e,
+        props: {
+          count: e.props.hasPropped
+            ? Math.max(e.props.count - 1, 0)
+            : e.props.count + 1,
+          hasPropped: !e.props.hasPropped,
+        },
+      }));
       Alert.alert(
         "Could not update props",
         err instanceof Error ? err.message : undefined,
       );
     }
-  }, []);
+  }, [updateFeedEntry]);
 
   const handleAddComment = useCallback(
     async (entryId: string) => {
@@ -718,7 +737,11 @@ export function FeedScreen() {
       if (!body || submittingComment) return;
 
       const replyTarget = replyTargets[entryId] ?? null;
-      const entry = entries.find((item) => item.id === entryId);
+      const entry =
+        entries.find((item) => item.id === entryId) ??
+        (myDailyReflectionEntry?.id === entryId
+          ? myDailyReflectionEntry
+          : null);
       setSubmittingComment(entryId);
       try {
         if (entry?.kind === "reflection") {
@@ -730,9 +753,7 @@ export function FeedScreen() {
         if (!isMountedRef.current) return;
         setCommentDrafts((prev) => ({ ...prev, [entryId]: "" }));
         setReplyTargets((prev) => ({ ...prev, [entryId]: null }));
-        const data = await fetchFriendsFeed();
-        if (!isMountedRef.current) return;
-        setEntries(data);
+        await load(true);
       } catch (err) {
         if (!isMountedRef.current) return;
         Alert.alert(
@@ -743,13 +764,24 @@ export function FeedScreen() {
         if (isMountedRef.current) setSubmittingComment(null);
       }
     },
-    [commentDrafts, entries, replyTargets, submittingComment],
+    [
+      commentDrafts,
+      entries,
+      load,
+      myDailyReflectionEntry,
+      replyTargets,
+      submittingComment,
+    ],
   );
 
   const handleDeleteComment = useCallback(
     async (entryId: string, commentId: string) => {
       try {
-        const entry = entries.find((item) => item.id === entryId);
+        const entry =
+          entries.find((item) => item.id === entryId) ??
+          (myDailyReflectionEntry?.id === entryId
+            ? myDailyReflectionEntry
+            : null);
         if (entry?.kind === "reflection") {
           await deleteReflectionComment(entryId, commentId);
         } else {
@@ -757,16 +789,10 @@ export function FeedScreen() {
         }
         playWarningHaptic();
         if (!isMountedRef.current) return;
-        setEntries((prev) =>
-          prev.map((e) =>
-            e.id !== entryId
-              ? e
-              : {
-                  ...e,
-                  comments: removeCommentById(e.comments, commentId),
-                },
-          ),
-        );
+        updateFeedEntry(entryId, (e) => ({
+          ...e,
+          comments: removeCommentById(e.comments, commentId),
+        }));
         setReplyTargets((prev) =>
           prev[entryId]?.id === commentId ? { ...prev, [entryId]: null } : prev,
         );
@@ -778,7 +804,7 @@ export function FeedScreen() {
         );
       }
     },
-    [entries],
+    [entries, myDailyReflectionEntry, updateFeedEntry],
   );
 
   const openReflectionComposer = useCallback(
@@ -1315,7 +1341,10 @@ export function FeedScreen() {
   );
 
   const activeCommentsEntry = activeCommentsEntryId
-    ? (entries.find((entry) => entry.id === activeCommentsEntryId) ?? null)
+    ? (entries.find((entry) => entry.id === activeCommentsEntryId) ??
+      (myDailyReflectionEntry?.id === activeCommentsEntryId
+        ? myDailyReflectionEntry
+        : null))
     : null;
   const categoryOptions = useMemo(() => {
     const categoriesById = new Map<
@@ -1379,6 +1408,7 @@ export function FeedScreen() {
   const visibleEntries = useMemo(
     () =>
       entries.filter((entry) => {
+        if (entry.id === myDailyReflectionEntry?.id) return false;
         if (hiddenFeedGoalKeys.has(feedGoalKey(entry))) return false;
         if (
           activeGroupIds.length &&
@@ -1402,6 +1432,7 @@ export function FeedScreen() {
       activeGroupMemberIds,
       entries,
       hiddenFeedGoalKeys,
+      myDailyReflectionEntry?.id,
     ],
   );
   const saveFeedFilters = useCallback((filters: FeedFilters) => {
@@ -1493,14 +1524,44 @@ export function FeedScreen() {
               </Pressable>
             </View>
 
-            <DailyReflectionCard
-              prompt={dailyReflectionPrompt}
-              onChoosePrompt={() => {
-                playSelectionHaptic();
-                setIsReflectionPickerOpen(true);
-              }}
-              onUsePrompt={() => openReflectionComposer(dailyReflectionPrompt)}
-            />
+            {myDailyReflectionEntry ? null : (
+              <DailyReflectionCard
+                prompt={dailyReflectionPrompt}
+                onChoosePrompt={() => {
+                  playSelectionHaptic();
+                  setIsReflectionPickerOpen(true);
+                }}
+                onUsePrompt={() =>
+                  openReflectionComposer(dailyReflectionPrompt)
+                }
+              />
+            )}
+
+            {myDailyReflectionEntry ? (
+              <View style={styles.pinnedReflection}>
+                <FeedCard
+                  entry={myDailyReflectionEntry}
+                  onToggleProp={() =>
+                    void handleToggleProp(myDailyReflectionEntry)
+                  }
+                  onPhotoPress={(photo) => {
+                    playSelectionHaptic();
+                    setActivePhoto({ entry: myDailyReflectionEntry, photo });
+                  }}
+                  onOpenComments={() => {
+                    playSelectionHaptic();
+                    setActiveCommentsEntryId(myDailyReflectionEntry.id);
+                  }}
+                  onOpenProfile={() =>
+                    void openFriendProfile(myDailyReflectionEntry)
+                  }
+                  onOpenSafetyActions={() =>
+                    openPostSafetyActions(myDailyReflectionEntry)
+                  }
+                  joinGoalStatus="idle"
+                />
+              </View>
+            ) : null}
 
             {error ? (
               <View style={styles.errorBanner}>
@@ -3137,6 +3198,82 @@ function PostIncentiveModal({
   );
 }
 
+function PostHeaderContent({
+  entry,
+  iconColor,
+  nameColor,
+  onOpenProfile,
+  onOpenSafetyActions,
+  secondaryColor,
+}: {
+  entry: FriendFeedEntry;
+  iconColor: string;
+  nameColor: string;
+  onOpenProfile: () => void;
+  onOpenSafetyActions: () => void;
+  secondaryColor: string;
+}) {
+  return (
+    <>
+      <Pressable
+        accessibilityLabel={`Open ${entry.friend.name}'s profile`}
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onOpenProfile}
+        style={({ pressed }) => pressed && styles.pressed}
+      >
+        <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
+      </Pressable>
+      <View style={styles.headerMeta}>
+        <View style={styles.headerNameRow}>
+          <Pressable
+            accessibilityLabel={`Open ${entry.friend.name}'s profile`}
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={onOpenProfile}
+            style={({ pressed }) => [
+              styles.friendNamePressable,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.friendName, { color: nameColor }]}
+            >
+              {entry.friend.name}
+            </Text>
+          </Pressable>
+          <Text
+            numberOfLines={1}
+            style={[styles.dateText, { color: secondaryColor }]}
+          >
+            {formatFeedDate(entry.dateKey)}
+          </Text>
+        </View>
+        <Text
+          numberOfLines={1}
+          style={[styles.goalText, { color: secondaryColor }]}
+        >
+          {entry.goal.name}
+        </Text>
+      </View>
+      <Pressable
+        accessibilityLabel="Post safety actions"
+        hitSlop={8}
+        onPress={onOpenSafetyActions}
+        style={({ pressed }) => [styles.safetyButton, pressed && styles.pressed]}
+      >
+        <SymbolView
+          name={sym("ellipsis", "more_horiz")}
+          size={18}
+          weight="semibold"
+          tintColor={iconColor}
+        />
+      </Pressable>
+    </>
+  );
+}
+
 export function FeedCard({
   entry,
   joinGoalStatus = "idle",
@@ -3176,6 +3313,11 @@ export function FeedCard({
   const canUseSocialActions =
     entry.kind === "habit" || entry.kind === "reflection";
   const canUseGoalActions = entry.kind === "habit";
+  const headerTextColor = hasPhotos ? "#FFFFFF" : theme.text;
+  const headerSecondaryColor = hasPhotos
+    ? "rgba(255,255,255,0.72)"
+    : theme.textSecondary;
+  const headerIconColor = hasPhotos ? "#FFFFFF" : theme.textSecondary;
   const clearSingleTapTimer = useCallback(() => {
     if (!singleTapTimerRef.current) return;
     clearTimeout(singleTapTimerRef.current);
@@ -3221,73 +3363,6 @@ export function FeedCard({
         },
       ]}
     >
-      {/* Header */}
-      <View
-        style={[
-          styles.cardHeader,
-          isCompletionOnly && styles.completionCardHeader,
-        ]}
-      >
-        <Pressable
-          accessibilityLabel={`Open ${entry.friend.name}'s profile`}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={onOpenProfile}
-          style={({ pressed }) => pressed && styles.pressed}
-        >
-          <FriendAvatar image={entry.friend.image} name={entry.friend.name} />
-        </Pressable>
-        <View style={styles.headerMeta}>
-          <View style={styles.headerNameRow}>
-            <Pressable
-              accessibilityLabel={`Open ${entry.friend.name}'s profile`}
-              accessibilityRole="button"
-              hitSlop={6}
-              onPress={onOpenProfile}
-              style={({ pressed }) => [
-                styles.friendNamePressable,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text
-                numberOfLines={1}
-                style={[styles.friendName, { color: theme.text }]}
-              >
-                {entry.friend.name}
-              </Text>
-            </Pressable>
-            <Text
-              numberOfLines={1}
-              style={[styles.dateText, { color: theme.textSecondary }]}
-            >
-              {formatFeedDate(entry.dateKey)}
-            </Text>
-          </View>
-          <Text
-            numberOfLines={1}
-            style={[styles.goalText, { color: theme.textSecondary }]}
-          >
-            {entry.goal.name}
-          </Text>
-        </View>
-        <Pressable
-          accessibilityLabel="Post safety actions"
-          hitSlop={8}
-          onPress={onOpenSafetyActions}
-          style={({ pressed }) => [
-            styles.safetyButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("ellipsis", "more_horiz")}
-            size={18}
-            weight="semibold"
-            tintColor={theme.textSecondary}
-          />
-        </Pressable>
-      </View>
-
       {/* Photos */}
       {hasPhotos ? (
         <View style={styles.carouselWrap}>
@@ -3345,6 +3420,17 @@ export function FeedCard({
                 </Text>
               </View>
             ) : null}
+            <View style={styles.photoHeaderOverlay}>
+              <View style={styles.photoHeaderScrim} />
+              <PostHeaderContent
+                entry={entry}
+                iconColor={headerIconColor}
+                nameColor={headerTextColor}
+                onOpenProfile={onOpenProfile}
+                onOpenSafetyActions={onOpenSafetyActions}
+                secondaryColor={headerSecondaryColor}
+              />
+            </View>
           </View>
           {entry.photos.length > 1 ? (
             <View style={styles.carouselDots}>
@@ -3365,18 +3451,44 @@ export function FeedCard({
             </View>
           ) : null}
         </View>
-      ) : null}
+      ) : (
+        <View
+          style={[
+            styles.cardHeader,
+            isCompletionOnly && styles.completionCardHeader,
+          ]}
+        >
+          <PostHeaderContent
+            entry={entry}
+            iconColor={headerIconColor}
+            nameColor={headerTextColor}
+            onOpenProfile={onOpenProfile}
+            onOpenSafetyActions={onOpenSafetyActions}
+            secondaryColor={headerSecondaryColor}
+          />
+        </View>
+      )}
 
-      {entry.kind === "reflection" && entry.reflectionPrompt ? (
-        <View style={styles.reflectionPostPrompt}>
-          <Text style={[styles.reflectionEyebrow, { color: theme.primary }]}>
-            Prompt
-          </Text>
-          <Text
-            style={[styles.reflectionPostPromptText, { color: theme.text }]}
+      {entry.kind === "reflection" && plainNotes ? (
+        <View style={styles.reflectionTypeChipRow}>
+          <View
+            style={[
+              styles.reflectionTypeChip,
+              { backgroundColor: `${theme.primary}18` },
+            ]}
           >
-            {entry.reflectionPrompt}
-          </Text>
+            <SymbolView
+              name={sym("sparkles", "auto_awesome")}
+              size={12}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+            <Text
+              style={[styles.reflectionTypeChipText, { color: theme.primary }]}
+            >
+              Daily reflection
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -3392,6 +3504,24 @@ export function FeedCard({
             onToggleExpanded={() => setNotesExpanded((x) => !x)}
           />
         </Pressable>
+      ) : null}
+
+      {entry.kind === "reflection" && entry.reflectionPrompt ? (
+        <View
+          style={[
+            styles.reflectionPostPrompt,
+            { borderTopColor: theme.tabBorder },
+          ]}
+        >
+          <Text
+            style={[
+              styles.reflectionPostPromptText,
+              { color: theme.textSecondary },
+            ]}
+          >
+            {entry.reflectionPrompt}
+          </Text>
+        </View>
       ) : null}
 
       {isCompletionOnly ? (
@@ -3953,7 +4083,7 @@ function RichFeedNote({
   );
 }
 
-function CommentsModal({
+export function CommentsModal({
   commentDraft,
   entry,
   isSubmittingComment,
@@ -3980,6 +4110,8 @@ function CommentsModal({
 }) {
   const theme = useTheme();
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const commentsScrollRef = useRef<ScrollView>(null);
+  const commentCount = entry ? countComments(entry.comments) : 0;
 
   useEffect(() => {
     const showEvent =
@@ -3998,6 +4130,14 @@ function CommentsModal({
       hideSubscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!entry || commentCount === 0) return;
+
+    requestAnimationFrame(() => {
+      commentsScrollRef.current?.scrollToEnd({ animated: false });
+    });
+  }, [commentCount, entry]);
 
   return (
     <Modal
@@ -4065,9 +4205,15 @@ function CommentsModal({
           </View>
 
           <ScrollView
+            ref={commentsScrollRef}
             canCancelContentTouches
             contentContainerStyle={styles.modalCommentsContent}
             keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => {
+              if (commentCount > 0) {
+                commentsScrollRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             showsVerticalScrollIndicator={false}
             style={[
               styles.modalCommentsScroll,
@@ -4486,6 +4632,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   feedList: { gap: 12 },
+  pinnedReflection: {
+    marginTop: 12,
+  },
   reflectionCard: {
     borderRadius: 16,
     overflow: "hidden",
@@ -4859,21 +5008,21 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
+    borderRadius: 16,
     overflow: "hidden",
   },
   photoCard: {
-    borderRadius: 17,
+    borderRadius: 16,
   },
   completionCard: {
-    borderRadius: 17,
+    borderRadius: 16,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
-    paddingHorizontal: 13,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   completionCardHeader: {
     paddingVertical: 10,
@@ -4897,7 +5046,7 @@ const styles = StyleSheet.create({
   headerNameRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 8,
+    gap: 6,
   },
   friendNamePressable: {
     flex: 1,
@@ -4906,17 +5055,17 @@ const styles = StyleSheet.create({
   friendName: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
   },
   dateText: {
     maxWidth: 68,
     flexShrink: 0,
     textAlign: "right",
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "500",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   safetyButton: {
     width: 30,
@@ -4926,12 +5075,12 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   goalText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   carouselWrap: {
-    marginBottom: 8,
+    marginBottom: 0,
   },
   carouselFrame: {
     position: "relative",
@@ -4941,6 +5090,46 @@ const styles = StyleSheet.create({
   },
   carouselSlide: {
     aspectRatio: 1,
+  },
+  photoHeaderOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  photoHeaderScrim: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    height: 96,
+    backgroundColor: "rgba(0,0,0,0.34)",
+  },
+  reflectionTypeChipRow: {
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 2,
+  },
+  reflectionTypeChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  reflectionTypeChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
   },
   carouselCounter: {
     position: "absolute",
@@ -4974,18 +5163,20 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   richNote: {
-    paddingHorizontal: 13,
-    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingTop: 7,
+    paddingBottom: 11,
   },
   reflectionPostPrompt: {
-    gap: 3,
-    paddingHorizontal: 13,
-    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginHorizontal: 14,
+    paddingTop: 9,
+    paddingBottom: 2,
   },
   reflectionPostPromptText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
   },
   completionBody: {
     paddingHorizontal: 13,
@@ -5023,10 +5214,10 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 11,
-    paddingTop: 7,
-    paddingBottom: 9,
+    gap: 2,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 10,
   },
   completionActionsRow: {
     paddingTop: 4,
@@ -5036,48 +5227,48 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   propText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   incentiveButton: {
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 1,
-    gap: 5,
+    gap: 4,
     minWidth: 0,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   joinGoalButton: {
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 1,
-    gap: 5,
+    gap: 4,
     minWidth: 0,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   commentCountWrap: {
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
-    gap: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
   },
   feedActionText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   commentPreviewBlock: {
     gap: 4,

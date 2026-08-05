@@ -694,6 +694,7 @@ export type FriendSearchResult = {
   name: string;
   email: string;
   image: string | null;
+  mutualFriendCount: number;
 };
 
 function normalizeFriendSearchResult(
@@ -706,6 +707,7 @@ function normalizeFriendSearchResult(
     name: stringOrFallback(value.name, "float user"),
     email: stringOrFallback(value.email),
     image: nullableString(value.image),
+    mutualFriendCount: numberOrFallback(value.mutualFriendCount),
   };
 }
 

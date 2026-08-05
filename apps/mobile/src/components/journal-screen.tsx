@@ -3,6 +3,7 @@ import { GoalIcon } from "@/components/goal-icon";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { Image, type ImageLoadEventData } from "expo-image";
+import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -273,6 +274,7 @@ function buildGoalSections(snapshot: GoalLogsSnapshot | null): GoalSection[] {
 
 export function JournalScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -973,6 +975,13 @@ export function JournalScreen() {
                     <ReflectionJournalCard
                       key={`reflection_${item.entry.id}`}
                       entry={item.entry}
+                      onOpenComments={() => {
+                        playSelectionHaptic();
+                        router.push({
+                          pathname: "/post",
+                          params: { postId: item.entry.id, source: "self" },
+                        });
+                      }}
                     />
                   );
                 }
@@ -1021,6 +1030,17 @@ export function JournalScreen() {
                       playSelectionHaptic();
                       setActivePost(entry);
                     }}
+                    onOpenPost={
+                      goalLogId
+                        ? () => {
+                            playSelectionHaptic();
+                            router.push({
+                              pathname: "/post",
+                              params: { postId: goalLogId, source: "self" },
+                            });
+                          }
+                        : undefined
+                    }
                     onReplyToComment={(comment) => {
                       if (!goalLogId) return;
                       playSelectionHaptic();
@@ -1264,7 +1284,13 @@ function CheckpointJournalCard({
   );
 }
 
-function ReflectionJournalCard({ entry }: { entry: ReflectionJournalEntry }) {
+function ReflectionJournalCard({
+  entry,
+  onOpenComments,
+}: {
+  entry: ReflectionJournalEntry;
+  onOpenComments: () => void;
+}) {
   const theme = useTheme();
 
   return (
@@ -1331,6 +1357,29 @@ function ReflectionJournalCard({ entry }: { entry: ReflectionJournalEntry }) {
           </ScrollView>
         </View>
       ) : null}
+
+      <View style={[styles.journalOpenPostRow, { borderTopColor: theme.tabBorder }]}>
+        <Pressable
+          accessibilityLabel="Open reflection comments"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenComments}
+          style={({ pressed }) => [
+            styles.journalOpenPostButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("bubble.left", "chat_bubble_outline")}
+            size={15}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+          <Text style={[styles.journalOpenPostText, { color: theme.primary }]}>
+            Comments
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1346,6 +1395,7 @@ function JournalCard({
   onCommentDraftChange,
   onOpenPhoto,
   onOpenMenu,
+  onOpenPost,
   onReplyToComment,
   onSubmitReply,
 }: {
@@ -1359,6 +1409,7 @@ function JournalCard({
   onCommentDraftChange: (value: string) => void;
   onOpenPhoto: (photo: GoalPhoto) => void;
   onOpenMenu: (entry: JournalEntry) => void;
+  onOpenPost?: () => void;
   onReplyToComment: (comment: JournalSocialComment) => void;
   onSubmitReply: () => void;
 }) {
@@ -1447,6 +1498,7 @@ function JournalCard({
         social={entry.social}
         onCancelReply={onCancelReply}
         onCommentDraftChange={onCommentDraftChange}
+        onOpenPost={onOpenPost}
         onReplyToComment={onReplyToComment}
         onSubmitReply={onSubmitReply}
       />
@@ -1551,6 +1603,7 @@ function JournalSocialActivity({
   social,
   onCancelReply,
   onCommentDraftChange,
+  onOpenPost,
   onReplyToComment,
   onSubmitReply,
 }: {
@@ -1560,6 +1613,7 @@ function JournalSocialActivity({
   social: JournalSocialSummary | null;
   onCancelReply: () => void;
   onCommentDraftChange: (value: string) => void;
+  onOpenPost?: () => void;
   onReplyToComment: (comment: JournalSocialComment) => void;
   onSubmitReply: () => void;
 }) {
@@ -1571,7 +1625,7 @@ function JournalSocialActivity({
     [comments],
   );
 
-  if (propCount === 0 && commentCount === 0) {
+  if (propCount === 0 && commentCount === 0 && !onOpenPost) {
     return null;
   }
 
@@ -1615,6 +1669,29 @@ function JournalSocialActivity({
               {commentCount} {commentCount === 1 ? "comment" : "comments"}
             </Text>
           </View>
+        ) : null}
+        {onOpenPost ? (
+          <Pressable
+            accessibilityLabel="Open comments"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onOpenPost}
+            style={({ pressed }) => [
+              styles.socialPill,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("bubble.left", "chat_bubble_outline")}
+              size={14}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+            <Text style={[styles.socialPillText, { color: theme.primary }]}>
+              Open comments
+            </Text>
+          </Pressable>
         ) : null}
       </View>
 
@@ -2667,6 +2744,22 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 16,
+  },
+  journalOpenPostRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  journalOpenPostButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  journalOpenPostText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   postMenuButton: {
     width: 34,
