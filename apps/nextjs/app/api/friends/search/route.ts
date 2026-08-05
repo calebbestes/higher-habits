@@ -1,5 +1,5 @@
 import { friends, getDb, users } from "@habit/db";
-import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -91,7 +91,6 @@ export async function GET(request: Request) {
       .where(
         and(
           ne(users.id, user.id),
-          isNull(users.deletedAt),
           searchFilter,
         ),
       )
