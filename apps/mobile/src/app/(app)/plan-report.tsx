@@ -5,7 +5,6 @@ import { useCallback, useEffect } from "react";
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DayPlanScreen } from "@/components/day-plan-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
-import { SwipePageTransition } from "@/components/swipe-page-transition";
 import {
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
@@ -15,11 +14,6 @@ import {
   usePlanReportDateKey,
   usePlanReportView,
 } from "@/lib/tab-view-store";
-
-const PLAN_REPORT_ORDER: readonly PlanReportView[] = [
-  "day-plan",
-  "monthly-plan",
-];
 
 export default function PlanReportScreen() {
   const router = useRouter();
@@ -50,17 +44,6 @@ export default function PlanReportScreen() {
     }
   }, [router, view]);
 
-  const changeView = useCallback(
-    (nextView: PlanReportView) => {
-      setPlanReportView(nextView);
-      const href = PLAN_REPORT_VIEW_HREFS[nextView];
-      router.replace(
-        (activeDateKey ? `${href}&date=${activeDateKey}` : href) as Href,
-      );
-    },
-    [activeDateKey, router],
-  );
-
   let content: ReactNode;
 
   if (activeView === "monthly-plan") {
@@ -83,15 +66,7 @@ export default function PlanReportScreen() {
     );
   }
 
-  return (
-    <SwipePageTransition
-      activeKey={activeView}
-      orderedKeys={PLAN_REPORT_ORDER}
-      onChange={changeView}
-    >
-      {content}
-    </SwipePageTransition>
-  );
+  return content;
 }
 
 function getLegacyCreateHref(view: string | undefined): string | null {

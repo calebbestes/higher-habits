@@ -3469,29 +3469,6 @@ export function FeedCard({
         </View>
       )}
 
-      {entry.kind === "reflection" && plainNotes ? (
-        <View style={styles.reflectionTypeChipRow}>
-          <View
-            style={[
-              styles.reflectionTypeChip,
-              { backgroundColor: `${theme.primary}18` },
-            ]}
-          >
-            <SymbolView
-              name={sym("sparkles", "auto_awesome")}
-              size={12}
-              weight="semibold"
-              tintColor={theme.primary}
-            />
-            <Text
-              style={[styles.reflectionTypeChipText, { color: theme.primary }]}
-            >
-              Daily reflection
-            </Text>
-          </View>
-        </View>
-      ) : null}
-
       {/* Notes */}
       {plainNotes ? (
         <Pressable
@@ -3513,6 +3490,14 @@ export function FeedCard({
             { borderTopColor: theme.tabBorder },
           ]}
         >
+          <Text
+            style={[
+              styles.reflectionPromptLabel,
+              { color: theme.textSecondary },
+            ]}
+          >
+            Prompt
+          </Text>
           <Text
             style={[
               styles.reflectionPostPromptText,
@@ -5101,35 +5086,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 18,
+    paddingTop: 10,
+    paddingBottom: 8,
   },
   photoHeaderScrim: {
     position: "absolute",
     top: 0,
     right: 0,
     left: 0,
-    height: 96,
-    backgroundColor: "rgba(0,0,0,0.34)",
-  },
-  reflectionTypeChipRow: {
-    paddingHorizontal: 14,
-    paddingTop: 13,
-    paddingBottom: 2,
-  },
-  reflectionTypeChip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  reflectionTypeChipText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "900",
+    height: 56,
+    backgroundColor: "rgba(0,0,0,0.32)",
   },
   carouselCounter: {
     position: "absolute",
@@ -5164,18 +5130,25 @@ const styles = StyleSheet.create({
   },
   richNote: {
     paddingHorizontal: 14,
-    paddingTop: 7,
+    paddingTop: 10,
     paddingBottom: 11,
   },
   reflectionPostPrompt: {
     borderTopWidth: StyleSheet.hairlineWidth,
     marginHorizontal: 14,
-    paddingTop: 9,
-    paddingBottom: 2,
+    paddingTop: 10,
+    paddingBottom: 3,
+    gap: 3,
+  },
+  reflectionPromptLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   reflectionPostPromptText: {
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
     fontWeight: "600",
   },
   completionBody: {
