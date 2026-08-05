@@ -1,5 +1,6 @@
 import type { GoalVisibility } from "@/lib/goals-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
+import { recordReviewMilestone } from "@/lib/in-app-review";
 
 export type Goal = {
   id: string;
@@ -59,7 +60,12 @@ export const createPlanGoal = (input: GoalInput) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
     body: JSON.stringify({ type: "create", ...input }),
-  }).then((response) => parseResponse<Goal>(response));
+  })
+    .then((response) => parseResponse<Goal>(response))
+    .then((goal) => {
+      void recordReviewMilestone("goal");
+      return goal;
+    });
 
 export const updatePlanGoal = (id: string, input: GoalInput) =>
   mobileApiFetch("/api/plan-goals", {

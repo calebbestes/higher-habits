@@ -1,4 +1,5 @@
 import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
+import { recordReviewMilestone } from "@/lib/in-app-review";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type StreakGoalScope = "all" | "shared" | "single" | "high";
@@ -831,7 +832,12 @@ export const createDailyReflection = (payload: {
   mobileApiFetch("/api/daily-reflections", {
     method: "POST",
     body: JSON.stringify(payload),
-  }).then((r) => parseResponse<{ id: string }>(r));
+  })
+    .then((r) => parseResponse<{ id: string }>(r))
+    .then((post) => {
+      void recordReviewMilestone("post");
+      return post;
+    });
 
 function uriToBlob(uri: string): Promise<Blob> {
   return new Promise((resolve, reject) => {
