@@ -1,6 +1,8 @@
 import {
+  dailyReflectionComments,
   dailyReflectionPhotos,
   dailyReflectionPosts,
+  dailyReflectionProps,
   getDb,
   goalCheckpointPhotos,
   goalCheckpoints,
@@ -10,7 +12,7 @@ import {
   habits,
   users,
 } from "@habit/db";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -25,6 +27,79 @@ type Photo = {
   contentType: string;
   createdAt: string;
 };
+
+type ReflectionCommentRow = {
+  id: string;
+  reflectionPostId: string;
+  userId: string;
+  parentCommentId: string | null;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type SerializedFeedComment = {
+  id: string;
+  userId: string;
+  parentCommentId: string | null;
+  authorName: string;
+  authorImage: string | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canDelete: boolean;
+  replies: SerializedFeedComment[];
+};
+
+function groupNestedReflectionComments(
+  commentRows: ReflectionCommentRow[],
+  currentUserId: string,
+) {
+  const commentsById = new Map<string, SerializedFeedComment>();
+  const postIdByCommentId = new Map<string, string>();
+  const rootCommentsByPostId = new Map<string, SerializedFeedComment[]>();
+
+  for (const comment of commentRows) {
+    commentsById.set(comment.id, {
+      id: comment.id,
+      userId: comment.userId,
+      parentCommentId: comment.parentCommentId,
+      authorName: comment.authorName,
+      authorImage: comment.authorImage,
+      body: comment.body,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      canDelete: comment.userId === currentUserId,
+      replies: [],
+    });
+    postIdByCommentId.set(comment.id, comment.reflectionPostId);
+  }
+
+  for (const comment of commentRows) {
+    const serialized = commentsById.get(comment.id);
+    if (!serialized) continue;
+
+    const parent = comment.parentCommentId
+      ? commentsById.get(comment.parentCommentId)
+      : null;
+    const parentPostId = comment.parentCommentId
+      ? postIdByCommentId.get(comment.parentCommentId)
+      : null;
+
+    if (parent && parentPostId === comment.reflectionPostId) {
+      parent.replies.push(serialized);
+      continue;
+    }
+
+    const comments = rootCommentsByPostId.get(comment.reflectionPostId) ?? [];
+    comments.push(serialized);
+    rootCommentsByPostId.set(comment.reflectionPostId, comments);
+  }
+
+  return rootCommentsByPostId;
+}
 
 async function createSignedPhotoUrl(storagePath: string) {
   const storage = getSupabaseStorageAdmin();
@@ -246,8 +321,8 @@ export async function GET(request: Request) {
       postType: "completion" | "journal";
       highlights: string[];
       props: { count: number; hasPropped: boolean };
-      comments: [];
       photos: Photo[];
+      comments: SerializedFeedComment[];
     }> = [];
 
     for (const row of logRows) {
@@ -352,6 +427,58 @@ export async function GET(request: Request) {
       return photosByReflection;
     }, new Map());
 
+    const [reflectionPropRows, reflectionCommentRows] =
+      reflectionIds.length > 0
+        ? await Promise.all([
+            db
+              .select({
+                reflectionPostId: dailyReflectionProps.reflectionPostId,
+                userId: dailyReflectionProps.userId,
+              })
+              .from(dailyReflectionProps)
+              .where(
+                inArray(dailyReflectionProps.reflectionPostId, reflectionIds),
+              ),
+            db
+              .select({
+                id: dailyReflectionComments.id,
+                reflectionPostId: dailyReflectionComments.reflectionPostId,
+                userId: dailyReflectionComments.userId,
+                parentCommentId: dailyReflectionComments.parentCommentId,
+                authorName: users.name,
+                authorImage: users.image,
+                body: dailyReflectionComments.body,
+                createdAt: dailyReflectionComments.createdAt,
+                updatedAt: dailyReflectionComments.updatedAt,
+              })
+              .from(dailyReflectionComments)
+              .innerJoin(users, eq(dailyReflectionComments.userId, users.id))
+              .where(
+                inArray(
+                  dailyReflectionComments.reflectionPostId,
+                  reflectionIds,
+                ),
+              )
+              .orderBy(asc(dailyReflectionComments.createdAt)),
+          ])
+        : [[], []];
+    const reflectionPropsById = reflectionPropRows.reduce<
+      Map<string, { count: number; hasPropped: boolean }>
+    >((propsByReflection, row) => {
+      const props = propsByReflection.get(row.reflectionPostId) ?? {
+        count: 0,
+        hasPropped: false,
+      };
+      props.count += 1;
+      props.hasPropped = props.hasPropped || row.userId === user.id;
+      propsByReflection.set(row.reflectionPostId, props);
+      return propsByReflection;
+    }, new Map());
+    const reflectionCommentsById = groupNestedReflectionComments(
+      reflectionCommentRows,
+      user.id,
+    );
+
     for (const row of reflectionRows) {
       const photos = reflectionPhotosById.get(row.entryId) ?? [];
       entries.push({
@@ -370,8 +497,11 @@ export async function GET(request: Request) {
         canDeletePhotos: true,
         postType: "journal",
         highlights: ["Daily reflection"],
-        props: { count: 0, hasPropped: false },
-        comments: [],
+        props: reflectionPropsById.get(row.entryId) ?? {
+          count: 0,
+          hasPropped: false,
+        },
+        comments: reflectionCommentsById.get(row.entryId) ?? [],
         photos,
       });
     }

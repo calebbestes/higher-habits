@@ -1,5 +1,5 @@
 import { friends, getDb, users } from "@habit/db";
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -20,20 +20,66 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const query = (url.searchParams.get("q") ?? "").trim().toLowerCase();
-    if (query.length < 2) {
-      return NextResponse.json([]);
-    }
 
-    const friendRows = await db
+    const existingFriendRows = await db
       .select({ userId1: friends.userId1, userId2: friends.userId2 })
       .from(friends)
       .where(or(eq(friends.userId1, user.id), eq(friends.userId2, user.id)));
     const existingUserIds = new Set(
-      friendRows.map((row) =>
+      existingFriendRows.map((row) =>
         row.userId1 === user.id ? row.userId2 : row.userId1,
       ),
     );
+    const acceptedFriendRows = await db
+      .select({ userId1: friends.userId1, userId2: friends.userId2 })
+      .from(friends)
+      .where(
+        and(
+          eq(friends.status, "accepted"),
+          or(eq(friends.userId1, user.id), eq(friends.userId2, user.id)),
+        ),
+      );
+    const acceptedFriendIds = acceptedFriendRows.map((row) =>
+      row.userId1 === user.id ? row.userId2 : row.userId1,
+    );
+    const mutualCounts = new Map<string, number>();
+
+    if (acceptedFriendIds.length > 0) {
+      const mutualFriendRows = await db
+        .select({ userId1: friends.userId1, userId2: friends.userId2 })
+        .from(friends)
+        .where(
+          and(
+            eq(friends.status, "accepted"),
+            or(
+              inArray(friends.userId1, acceptedFriendIds),
+              inArray(friends.userId2, acceptedFriendIds),
+            ),
+          ),
+        );
+      const acceptedFriendIdSet = new Set(acceptedFriendIds);
+
+      for (const row of mutualFriendRows) {
+        const firstIsMutual = acceptedFriendIdSet.has(row.userId1);
+        const secondIsMutual = acceptedFriendIdSet.has(row.userId2);
+        if (firstIsMutual === secondIsMutual) continue;
+
+        const candidateId = firstIsMutual ? row.userId2 : row.userId1;
+        if (candidateId === user.id || existingUserIds.has(candidateId)) {
+          continue;
+        }
+        mutualCounts.set(candidateId, (mutualCounts.get(candidateId) ?? 0) + 1);
+      }
+    }
+
     const pattern = `%${query}%`;
+    const searchFilter =
+      query.length >= 2
+        ? or(
+            sql`lower(${users.name}) like ${pattern}`,
+            sql`lower(${users.email}) like ${pattern}`,
+          )
+        : undefined;
     const rows = await db
       .select({
         id: users.id,
@@ -45,24 +91,27 @@ export async function GET(request: Request) {
       .where(
         and(
           ne(users.id, user.id),
-          or(
-            sql`lower(${users.name}) like ${pattern}`,
-            sql`lower(${users.email}) like ${pattern}`,
-          ),
+          searchFilter,
         ),
       )
       .orderBy(asc(users.name))
-      .limit(20);
+      .limit(query.length >= 2 ? 50 : 100);
 
     return NextResponse.json(
       rows
         .filter((row) => !existingUserIds.has(row.id))
-        .slice(0, 12)
+        .sort(
+          (left, right) =>
+            (mutualCounts.get(right.id) ?? 0) -
+              (mutualCounts.get(left.id) ?? 0) ||
+            left.name.localeCompare(right.name),
+        )
         .map((row) => ({
           id: row.id,
           name: row.name,
           email: row.email,
           image: row.image,
+          mutualFriendCount: mutualCounts.get(row.id) ?? 0,
         })),
     );
   } catch (error) {

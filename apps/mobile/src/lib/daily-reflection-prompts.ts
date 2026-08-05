@@ -59,6 +59,15 @@ export const DAILY_REFLECTION_PROMPTS: DailyReflectionPrompt[] = [
         id: "top-skill",
         text: "Your life depends on beating a random stranger at one skill — what do you pick?",
     },
+    { id: "nicest-thing", text: "What's the nicest thing someone said to you today?" },
+    { id: "past-you", text: "What would 5-years-ago you be surprised to see you doing?" },
+    { id: "un-invent", text: "If you could un-invent one thing, what would it be?" },
+    { id: "made-you-old", text: "What made you feel old today?" },
+    { id: "first-thing", text: "What was the first thing you thpight of when you woke up?" },
+    { id: "grateful-weird", text: "What's something oddly specific you're grateful for?" },
+{ id: "spent-money", text: "What's the last thing you spent money on?" },
+{ id: "overheard-two", text: "What's a sentence you heard out of context today?" },
+
 ];
 
 export function getDailyReflectionDateKey(date = new Date()) {

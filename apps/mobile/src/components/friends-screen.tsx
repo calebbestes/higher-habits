@@ -1103,7 +1103,6 @@ function AddFriendModal({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
-  const [invite, setInvite] = useState("");
 
   useEffect(
     () => () => {
@@ -1120,23 +1119,23 @@ function AddFriendModal({
     setSearchError(null);
     setRequestedIds(new Set());
     setRequestingIds(new Set());
-    setInvite("");
   }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
 
     const query = searchQuery.trim();
-    if (query.length < 2) {
+    const shouldSearch = query.length === 0 || query.length >= 2;
+
+    let active = true;
+    setSearchError(null);
+    if (!shouldSearch) {
       setSearchResults([]);
-      setSearchState("idle");
-      setSearchError(null);
+      setSearchState("ready");
       return;
     }
 
-    let active = true;
     setSearchState("loading");
-    setSearchError(null);
 
     const timeout = setTimeout(() => {
       searchFriendUsers(query)
@@ -1189,26 +1188,29 @@ function AddFriendModal({
   };
 
   const inviteBy = (channel: "email" | "sms") => {
-    const value = invite.trim();
-    if (!value) {
-      Alert.alert("Add a contact", "Enter an email or phone number first.");
-      return;
-    }
-
     const body = `Join me on float so we can build habits together: ${INVITE_LINK}`;
     let url: string;
     if (channel === "email") {
       const query = `subject=${encodeURIComponent(
         "Join me on float",
       )}&body=${encodeURIComponent(body)}`;
-      url = `mailto:${encodeURIComponent(value)}?${query}`;
+      url = `mailto:?${query}`;
     } else {
       const separator = Platform.OS === "ios" ? "&" : "?";
-      url = `sms:${encodeURIComponent(value)}${separator}body=${encodeURIComponent(body)}`;
+      url = `sms:${separator}body=${encodeURIComponent(body)}`;
     }
     Linking.openURL(url).catch(() => {
       Alert.alert("Could not open", "No app available to send the invite.");
     });
+  };
+
+  const openInviteOptions = () => {
+    playSelectionHaptic();
+    Alert.alert("Invite to float", "Choose how you want to send the invite.", [
+      { text: "Email", onPress: () => inviteBy("email") },
+      { text: "Text", onPress: () => inviteBy("sms") },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   return (
@@ -1242,7 +1244,23 @@ function AddFriendModal({
               <Text style={[styles.modalTitle, { color: theme.text }]}>
                 Add Friend
               </Text>
-              <View style={styles.modalHeaderSpacer} />
+              <Pressable
+                accessibilityLabel="Share invite"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={openInviteOptions}
+                style={({ pressed }) => [
+                  styles.modalIconButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("square.and.arrow.up", "ios_share")}
+                  size={22}
+                  weight="semibold"
+                  tintColor={theme.primary}
+                />
+              </Pressable>
             </View>
 
             <ScrollView
@@ -1317,7 +1335,22 @@ function AddFriendModal({
                       { color: theme.textSecondary },
                     ]}
                   >
-                    No matching float users.
+                    {searchQuery.trim()
+                      ? "No matching float users."
+                      : "No other float users yet."}
+                  </Text>
+                ) : null}
+
+                {searchResults.length > 0 ? (
+                  <Text
+                    style={[
+                      styles.suggestedUsersLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {searchQuery.trim()
+                      ? "Search results"
+                      : "People on float"}
                   </Text>
                 ) : null}
 
@@ -1370,6 +1403,19 @@ function AddFriendModal({
                         >
                           {result.email}
                         </Text>
+                        {result.mutualFriendCount > 0 ? (
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              styles.mutualFriendText,
+                              { color: theme.primary },
+                            ]}
+                          >
+                            {result.mutualFriendCount === 1
+                              ? "1 mutual friend"
+                              : `${result.mutualFriendCount} mutual friends`}
+                          </Text>
+                        ) : null}
                       </View>
                       <Pressable
                         disabled={requested || requesting}
@@ -1409,81 +1455,6 @@ function AddFriendModal({
                 })}
               </View>
 
-              <View style={[styles.addFriendSection, { marginTop: 18 }]}>
-                <Text style={[styles.addSectionTitle, { color: theme.text }]}>
-                  Invite someone to join float
-                </Text>
-                <Text
-                  style={[styles.modalHint, { color: theme.textSecondary }]}
-                >
-                  Send an invite link by email or text.
-                </Text>
-                <TextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  onChangeText={setInvite}
-                  placeholder="Email or phone number"
-                  placeholderTextColor={theme.textSecondary}
-                  style={[
-                    styles.emailInput,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                      color: theme.text,
-                    },
-                  ]}
-                  value={invite}
-                />
-                <View style={styles.inviteButtonRow}>
-                  <Pressable
-                    onPress={() => inviteBy("email")}
-                    style={({ pressed }) => [
-                      styles.inviteButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("envelope.fill", "mail")}
-                      size={17}
-                      weight="semibold"
-                      tintColor={theme.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.inviteButtonText,
-                        { color: theme.primary },
-                      ]}
-                    >
-                      Email invite
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => inviteBy("sms")}
-                    style={({ pressed }) => [
-                      styles.inviteButton,
-                      { borderColor: theme.primary },
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("message.fill", "sms")}
-                      size={17}
-                      weight="semibold"
-                      tintColor={theme.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.inviteButtonText,
-                        { color: theme.primary },
-                      ]}
-                    >
-                      Text invite
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -1695,6 +1666,11 @@ const styles = StyleSheet.create({
   friendIdentity: { minWidth: 0, flex: 1, gap: 2 },
   friendName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
   friendEmail: { fontSize: 12, fontWeight: "500" },
+  mutualFriendText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
   friendActive: { fontSize: 13, fontWeight: "500" },
   avatar: {
     overflow: "hidden",
@@ -1757,7 +1733,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   modalHint: { paddingHorizontal: 4, fontSize: 12, lineHeight: 17 },
-  modalHeaderSpacer: { width: 52 },
+  modalIconButton: {
+    width: 52,
+    height: 40,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
   addFriendContent: {
     paddingHorizontal: 18,
     paddingTop: 20,
@@ -1791,6 +1772,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",
+  },
+  suggestedUsersLabel: {
+    paddingHorizontal: 4,
+    paddingTop: 4,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   selectionList: { gap: 8, paddingTop: 2 },
   selectionRow: {
@@ -1826,16 +1815,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   matchAddText: { fontSize: 14, fontWeight: "800" },
-  inviteButtonRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  inviteButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 1.5,
-  },
-  inviteButtonText: { fontSize: 15, fontWeight: "700" },
 });
