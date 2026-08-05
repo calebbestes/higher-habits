@@ -92,7 +92,7 @@ function GoalRowImpl({
           {statusIcon ? (
             <SymbolView
               name={statusIcon}
-              size={11}
+              size={10}
               weight="bold"
               tintColor={statusColor}
             />
@@ -104,7 +104,7 @@ function GoalRowImpl({
           <GoalIcon
             filled
             iconKey={goal.iconKey}
-            size={16}
+            size={15}
             color={theme.primary}
           />
         </View>

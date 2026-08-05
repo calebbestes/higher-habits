@@ -48,7 +48,7 @@ function CategoryAccordionRowImpl({
     <View
       style={[
         styles.catAccordion,
-        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}99` },
+        { backgroundColor: theme.tabBar, borderColor: `${theme.tabBorder}66` },
       ]}
     >
       <Pressable
@@ -60,12 +60,12 @@ function CategoryAccordionRowImpl({
         <View
           style={[
             styles.catIconWrap,
-            { backgroundColor: theme.backgroundElement },
+            { backgroundColor: `${theme.backgroundElement}B8` },
           ]}
         >
           <GoalIcon
             iconKey={category.icon}
-            size={18}
+            size={16}
             color={theme.primary}
             filled
           />

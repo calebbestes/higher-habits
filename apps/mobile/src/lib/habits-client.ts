@@ -1,4 +1,5 @@
 import { mobileApiFetch } from "@/lib/mobile-api";
+import { recordReviewMilestone } from "@/lib/in-app-review";
 
 export type HabitPeriod = "daily" | "weekly" | "monthly";
 export type HabitPriority = "high" | "low";
@@ -111,7 +112,12 @@ export const createHabit = (input: HabitInput) =>
   mobileApiFetch("/api/habits", {
     method: "POST",
     body: JSON.stringify({ type: "create", ...input }),
-  }).then((response) => parseResponse<Habit>(response));
+  })
+    .then((response) => parseResponse<Habit>(response))
+    .then((habit) => {
+      void recordReviewMilestone("habit");
+      return habit;
+    });
 
 export const updateHabit = (id: string, input: HabitInput) =>
   mobileApiFetch("/api/habits", {

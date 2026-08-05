@@ -1,4 +1,5 @@
 import { mobileApiFetch } from "@/lib/mobile-api";
+import { recordReviewMilestone } from "@/lib/in-app-review";
 
 export type Task = {
   id: string;
@@ -306,7 +307,12 @@ export const createTask = (input: TaskInput) =>
   mobileApiFetch("/api/tasks", {
     method: "POST",
     body: JSON.stringify({ type: "create", ...input }),
-  }).then((response) => parseResponse<Task>(response));
+  })
+    .then((response) => parseResponse<Task>(response))
+    .then((task) => {
+      void recordReviewMilestone("task");
+      return task;
+    });
 
 export const updateTask = (id: string, input: TaskInput) =>
   mobileApiFetch("/api/tasks", {
