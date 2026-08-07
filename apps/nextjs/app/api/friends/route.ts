@@ -453,6 +453,7 @@ async function getFriendProfile(
         name: string;
         iconKey: string;
         priority: "high" | "low";
+        visibility: "only_me" | "goal_friends" | "all_friends";
         defaultComplete: boolean;
       }>;
     }
@@ -471,6 +472,7 @@ async function getFriendProfile(
       name: habit.name,
       iconKey: habit.iconKey,
       priority: habit.priority,
+      visibility: habit.visibility,
       defaultComplete: habit.defaultComplete,
     });
     categoriesById.set(habit.categoryId, category);

@@ -6,8 +6,6 @@ import { GoalIcon } from "@/components/goal-icon";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import * as Clipboard from "expo-clipboard";
-import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -28,7 +26,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
-import { authClient } from "@/lib/auth-client";
 import { type FriendRow, fetchFriends } from "@/lib/friends-client";
 import {
   type CategoryWithGoals,
@@ -161,9 +158,6 @@ function buildHabitShareText({
 
 export function DashboardScreen() {
   const theme = useTheme();
-  const router = useRouter();
-  const { data: session } = authClient.useSession();
-  const profileImageUrl = session?.user.image;
   const tabBarHeight = useTabBarHeight();
   const today = useRef(new Date()).current;
   const currentMonthKey = useMemo(() => getMonthKey(today), [today]);
@@ -541,38 +535,6 @@ export function DashboardScreen() {
                 Track your habits and progress
               </Text>
             </View>
-            <Pressable
-              accessibilityLabel="View your profile"
-              hitSlop={8}
-              onPress={() => router.push("/profile")}
-              style={({ pressed }) => [
-                styles.profileButton,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.tabBorder,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              {profileImageUrl ? (
-                <Image
-                  source={{ uri: profileImageUrl }}
-                  style={styles.profileButtonImage}
-                  contentFit="cover"
-                />
-              ) : (
-                <Text
-                  style={[
-                    styles.profileButtonInitial,
-                    { color: theme.primary },
-                  ]}
-                >
-                  {(session?.user.name ?? session?.user.email ?? "?")
-                    .slice(0, 1)
-                    .toUpperCase()}
-                </Text>
-              )}
-            </Pressable>
           </View>
 
           {error ? (
@@ -1256,23 +1218,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
-  },
-  profileButton: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 21,
-    overflow: "hidden",
-  },
-  profileButtonImage: {
-    width: "100%",
-    height: "100%",
-  },
-  profileButtonInitial: {
-    fontSize: 18,
-    fontWeight: "900",
   },
   errorBanner: {
     flexDirection: "row",

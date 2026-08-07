@@ -1,4 +1,5 @@
 import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
+import { fetchGoalLogsSnapshot, getMonthKey } from "@/lib/goal-logs-client";
 import { recordReviewMilestone } from "@/lib/in-app-review";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
@@ -67,7 +68,14 @@ export type FriendProfileHabit = {
   name: string;
   iconKey: string;
   priority: "high" | "low";
+  visibility: "only_me" | "goal_friends" | "all_friends";
   defaultComplete: boolean;
+};
+
+export type FriendProfilePeriodicHabit = FriendProfileHabit & {
+  categoryId: string;
+  period: "weekly" | "monthly";
+  frequencyGoal: number | null;
 };
 
 export type FriendProfileCategory = {
@@ -94,6 +102,7 @@ export type FriendProfile = {
   };
   dateKeys: string[];
   categories: FriendProfileCategory[];
+  periodicHabits: FriendProfilePeriodicHabit[];
   logsByHabitDate: Record<string, "complete" | "incomplete" | "planned">;
 };
 
@@ -213,7 +222,30 @@ function normalizeProfileHabit(value: unknown): FriendProfileHabit | null {
     name: stringOrFallback(value.name, "Habit"),
     iconKey: stringOrFallback(value.iconKey, "mdi:target"),
     priority: value.priority === "high" ? "high" : "low",
+    visibility:
+      value.visibility === "goal_friends" || value.visibility === "all_friends"
+        ? value.visibility
+        : "only_me",
     defaultComplete: booleanOrFallback(value.defaultComplete),
+  };
+}
+
+function normalizeProfilePeriodicHabit(
+  value: unknown,
+): FriendProfilePeriodicHabit | null {
+  const habit = normalizeProfileHabit(value);
+  if (!habit || !isRecord(value)) return null;
+  const period = value.period === "monthly" ? "monthly" : "weekly";
+
+  return {
+    ...habit,
+    categoryId: stringOrFallback(value.categoryId),
+    period,
+    frequencyGoal:
+      typeof value.frequencyGoal === "number" &&
+      Number.isFinite(value.frequencyGoal)
+        ? value.frequencyGoal
+        : null,
   };
 }
 
@@ -282,6 +314,12 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
     categories: Array.isArray(value.categories)
       ? value.categories.flatMap((category) => {
           const normalized = normalizeProfileCategory(category);
+          return normalized ? [normalized] : [];
+        })
+      : [],
+    periodicHabits: Array.isArray(value.periodicHabits)
+      ? value.periodicHabits.flatMap((habit) => {
+          const normalized = normalizeProfilePeriodicHabit(habit);
           return normalized ? [normalized] : [];
         })
       : [],
@@ -542,6 +580,32 @@ export async function fetchMyProfile(): Promise<FriendProfile> {
   if (!normalized) {
     throw new Error("Profile data is unavailable.");
   }
+  if (normalized.periodicHabits.length === 0) {
+    try {
+      const snapshot = await fetchGoalLogsSnapshot(getMonthKey());
+      return {
+        ...normalized,
+        periodicHabits: snapshot.periodicGoals.map((habit) => ({
+          id: habit.id,
+          name: habit.name,
+          iconKey: habit.iconKey,
+          categoryId: habit.categoryId,
+          priority: habit.priority,
+          visibility: habit.visibility,
+          period: habit.period === "monthly" ? "monthly" : "weekly",
+          frequencyGoal: habit.frequencyGoal,
+          defaultComplete: habit.defaultComplete,
+        })),
+        logsByHabitDate: {
+          ...snapshot.logsByGoalDate,
+          ...normalized.logsByHabitDate,
+        },
+      };
+    } catch {
+      // Older profile APIs do not include periodic habits. Keep the profile usable
+      // if the goal-logs fallback is unavailable.
+    }
+  }
   return normalized;
 }
 
@@ -622,6 +686,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       name: option.name,
       iconKey: "mdi:target",
       priority: "low",
+      visibility: "all_friends",
       defaultComplete: false,
     });
   }
@@ -636,6 +701,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       name: entry.goal.name,
       iconKey: entry.goal.icon,
       priority: habitsById.get(entry.goal.id)?.priority ?? "low",
+      visibility: habitsById.get(entry.goal.id)?.visibility ?? "all_friends",
       defaultComplete: habitsById.get(entry.goal.id)?.defaultComplete ?? false,
     });
     logsByHabitDate[`${entry.goal.id}_${entry.dateKey}`] = "complete";
@@ -677,6 +743,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
             },
           ]
         : [],
+    periodicHabits: [],
     logsByHabitDate,
   };
 }
@@ -788,6 +855,30 @@ export const toggleReflectionProp = (postId: string) =>
     method: "POST",
     body: JSON.stringify({ type: "toggleProp" }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const setReflectionBody = (
+  postId: string,
+  body: string,
+): Promise<{ ok: true }> =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "setBody", body }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const setReflectionVisibility = (
+  postId: string,
+  visibility: "only_me" | "goal_friends" | "all_friends",
+): Promise<{ ok: true }> =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "setVisibility", visibility }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
+
+export const deleteReflectionPost = (postId: string): Promise<{ ok: true }> =>
+  mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "deletePost" }),
+  }).then((r) => parseResponse<{ ok: true }>(r));
 
 export const addFeedComment = (
   goalLogId: string,

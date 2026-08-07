@@ -2,6 +2,7 @@ import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect } from "react";
 
 import { DashboardScreen } from "@/components/dashboard-screen";
+import { FriendProfileScreen } from "@/components/friend-profile-screen";
 import { JournalScreen } from "@/components/journal-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
 import {
@@ -10,20 +11,24 @@ import {
   useHistorySection,
 } from "@/lib/tab-view-store";
 
-const HISTORY_ORDER: readonly HistorySection[] = ["dashboard", "journal"];
+const HISTORY_ORDER: readonly HistorySection[] = [
+  "dashboard",
+  "journal",
+  "profile",
+];
 const HISTORY_HREFS = {
   dashboard: "/history?section=dashboard",
   journal: "/history?section=journal",
+  profile: "/history?section=profile",
 } as const satisfies Record<HistorySection, string>;
 
 export default function HistoryRoute() {
   const router = useRouter();
   const { section } = useLocalSearchParams<{ section?: string }>();
   const rememberedSection = useHistorySection();
-  const activeSection: HistorySection =
-    section === "journal" || section === "dashboard"
-      ? section
-      : rememberedSection;
+  const activeSection: HistorySection = isHistorySection(section)
+    ? section
+    : rememberedSection;
 
   const changeSection = useCallback(
     (nextSection: HistorySection) => {
@@ -34,10 +39,17 @@ export default function HistoryRoute() {
   );
 
   useEffect(() => {
-    if (section === "journal" || section === "dashboard") {
+    if (isHistorySection(section)) {
       setHistorySection(section);
     }
   }, [section]);
+
+  let content = <DashboardScreen />;
+  if (activeSection === "journal") {
+    content = <JournalScreen />;
+  } else if (activeSection === "profile") {
+    content = <FriendProfileScreen self showHistoryHeader />;
+  }
 
   return (
     <SwipePageTransition
@@ -45,7 +57,15 @@ export default function HistoryRoute() {
       orderedKeys={HISTORY_ORDER}
       onChange={changeSection}
     >
-      {activeSection === "journal" ? <JournalScreen /> : <DashboardScreen />}
+      {content}
     </SwipePageTransition>
+  );
+}
+
+function isHistorySection(
+  section: string | undefined,
+): section is HistorySection {
+  return (
+    section === "dashboard" || section === "journal" || section === "profile"
   );
 }

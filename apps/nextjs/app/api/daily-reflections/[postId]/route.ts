@@ -20,6 +20,17 @@ const interactionSchema = z.discriminatedUnion("type", [
     type: z.literal("toggleProp"),
   }),
   z.object({
+    type: z.literal("setBody"),
+    body: z.string().trim().min(1).max(5_000),
+  }),
+  z.object({
+    type: z.literal("setVisibility"),
+    visibility: z.enum(["only_me", "goal_friends", "all_friends"]),
+  }),
+  z.object({
+    type: z.literal("deletePost"),
+  }),
+  z.object({
     type: z.literal("addComment"),
     body: z.string().trim().min(1).max(2_000),
     parentCommentId: z.string().uuid().nullable().optional(),
@@ -171,6 +182,44 @@ export async function POST(
       });
 
       return NextResponse.json({ hasPropped: true });
+    }
+
+    if (interaction.type === "setBody") {
+      if (post.ownerId !== user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      await db
+        .update(dailyReflectionPosts)
+        .set({ body: interaction.body, updatedAt: new Date() })
+        .where(eq(dailyReflectionPosts.id, postId));
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (interaction.type === "setVisibility") {
+      if (post.ownerId !== user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      await db
+        .update(dailyReflectionPosts)
+        .set({ visibility: interaction.visibility, updatedAt: new Date() })
+        .where(eq(dailyReflectionPosts.id, postId));
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (interaction.type === "deletePost") {
+      if (post.ownerId !== user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      await db
+        .delete(dailyReflectionPosts)
+        .where(eq(dailyReflectionPosts.id, postId));
+
+      return NextResponse.json({ ok: true });
     }
 
     if (interaction.type === "addComment") {

@@ -34,7 +34,7 @@ export type PlanReportView =
 export type HabitsTab = "daily" | "monthly";
 export type CreateSection = "habits" | "goals" | "tasks";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
-export type HistorySection = "dashboard" | "journal";
+export type HistorySection = "dashboard" | "journal" | "profile";
 export type AppStartPage =
   | "add"
   | "plan-report"

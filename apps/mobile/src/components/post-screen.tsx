@@ -1,5 +1,6 @@
 import { CommentsModal, FeedCard } from "@/components/feed-screen";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -7,14 +8,17 @@ import {
   type FriendFeedEntry,
   addFeedComment,
   addReflectionComment,
+  deleteReflectionPost,
   deleteFeedComment,
   deleteReflectionComment,
   fetchFriendsFeed,
   fetchMyPosts,
   reportContent,
+  setReflectionBody,
   toggleFeedProp,
   toggleReflectionProp,
 } from "@/lib/friends-client";
+import { deleteGoalLog, setGoalLogNote } from "@/lib/goal-logs-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -56,6 +60,8 @@ export function PostScreen({
     null,
   );
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isEditingNote, setIsEditingNote] = useState(false);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -245,6 +251,105 @@ export function PostScreen({
     });
   }, [entry, router, source]);
 
+  const canManagePost = source === "self" && entry !== null;
+
+  const handleEditPost = useCallback(() => {
+    if (!canManagePost) return;
+    setIsEditingNote(true);
+  }, [canManagePost]);
+
+  const handleSavePostNote = useCallback(
+    async (notes: string) => {
+      if (!entry) return;
+
+      if (entry.kind === "reflection") {
+        await setReflectionBody(entry.id, notes);
+      } else {
+        await setGoalLogNote(entry.goal.id, entry.dateKey, notes);
+      }
+
+      if (!isMountedRef.current) return;
+      setIsEditingNote(false);
+      await load(true);
+    },
+    [entry, load],
+  );
+
+  const confirmDeletePost = useCallback(() => {
+    if (!entry || !canManagePost || isDeletingPost) return;
+
+    Alert.alert(
+      entry.kind === "reflection" ? "Delete reflection?" : "Delete log?",
+      entry.kind === "reflection"
+        ? "This permanently deletes this reflection, its photos, comments, and props."
+        : "This permanently deletes the report, note, photos, and feed activity for this habit.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setIsDeletingPost(true);
+            try {
+              if (entry.kind === "reflection") {
+                await deleteReflectionPost(entry.id);
+              } else {
+                await deleteGoalLog(entry.goal.id, entry.dateKey);
+              }
+              if (!isMountedRef.current) return;
+              playSelectionHaptic();
+              onBack();
+            } catch (deleteError) {
+              if (!isMountedRef.current) return;
+              Alert.alert(
+                entry.kind === "reflection"
+                  ? "Could not delete reflection"
+                  : "Could not delete log",
+                deleteError instanceof Error ? deleteError.message : undefined,
+              );
+            } finally {
+              if (isMountedRef.current) setIsDeletingPost(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [canManagePost, entry, isDeletingPost, onBack]);
+
+  const openPostActions = useCallback(() => {
+    if (!entry) return;
+
+    if (!canManagePost) {
+      Alert.alert(entry.friend.name, "Choose an action.", [
+        {
+          text: "Report Post",
+          onPress: () =>
+            void reportContent({
+              targetType: "feed_post",
+              targetId: entry.id,
+              reason: "Reported from post detail.",
+              context: { feedPostId: entry.id },
+            }),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
+      return;
+    }
+
+    Alert.alert("Post options", "Choose an action.", [
+      {
+        text: entry.notes.trim() ? "Edit note" : "Add note",
+        onPress: handleEditPost,
+      },
+      {
+        text: entry.kind === "reflection" ? "Delete reflection" : "Delete log",
+        style: "destructive",
+        onPress: confirmDeletePost,
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [canManagePost, confirmDeletePost, entry, handleEditPost]);
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -311,7 +416,7 @@ export function PostScreen({
                 setIsCommentsOpen(true);
               }}
               onOpenProfile={openProfile}
-              onOpenSafetyActions={() => undefined}
+              onOpenSafetyActions={openPostActions}
             />
           ) : null}
         </ScrollView>
@@ -332,6 +437,15 @@ export function PostScreen({
           setReplyTarget(comment);
         }}
       />
+      {isEditingNote && entry ? (
+        <GoalNoteEditorModal
+          dateKey={entry.dateKey}
+          goalName={entry.goal.name}
+          initialValue={entry.notes.trim() ? entry.notes : null}
+          onClose={() => setIsEditingNote(false)}
+          onSave={handleSavePostNote}
+        />
+      ) : null}
     </View>
   );
 }
