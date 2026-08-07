@@ -25,9 +25,12 @@ import {
   CelebrationOverlay,
   confettiSource,
 } from "@/components/celebration-overlay";
-import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { modalStyles } from "@/components/daily-goals/shared";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
+import {
+  CreateSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -609,7 +612,8 @@ export function GoalsScreen() {
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
-                <CreateHeaderMenu currentSection="goals" />
+                <PageHeaderTitle title="Create" />
+                <CreateSectionHeaderTabs currentSection="goals" />
               </View>
             </View>
             <View style={styles.headerActions}>
@@ -2661,7 +2665,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 54,
   },
-  pageHeaderText: { gap: 1 },
+  pageHeaderText: { flex: 1, minWidth: 0, gap: 1 },
   headerActions: {
     position: "absolute",
     top: 0,

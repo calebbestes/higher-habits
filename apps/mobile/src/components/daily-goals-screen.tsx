@@ -18,9 +18,12 @@ import {
   confettiSource,
   fireSource,
 } from "@/components/celebration-overlay";
-import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { HabitFormModal } from "@/components/habits-manager-screen";
+import {
+  CreateSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -925,7 +928,8 @@ export function DailyGoalsScreen({
           {/* Page header */}
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderText}>
-              <CreateHeaderMenu currentSection="habits" />
+              <PageHeaderTitle title="Create" />
+              <CreateSectionHeaderTabs currentSection="habits" />
             </View>
             <Pressable
               accessibilityLabel="Add habit"

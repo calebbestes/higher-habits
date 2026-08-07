@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const getDatabase = () => getDb() ?? null;
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
@@ -112,6 +113,11 @@ export async function GET(request: Request) {
           image: row.image,
           mutualFriendCount: mutualCounts.get(row.id) ?? 0,
         })),
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);

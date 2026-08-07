@@ -63,17 +63,52 @@ function hasProfileGridContent(post: FriendFeedEntry) {
   );
 }
 
+function createPrivateProfilePreview({
+  friendId,
+  initialImage,
+  initialName,
+}: {
+  friendId?: string;
+  initialImage?: string;
+  initialName?: string;
+}): FriendProfile {
+  return {
+    friend: {
+      id: friendId ?? "private-profile",
+      friendshipId: null,
+      name: initialName ?? "float user",
+      email: "",
+      image: initialImage ?? null,
+      lastOpenedAt: null,
+    },
+    stats: {
+      friendCount: 0,
+      goalCompletions: 0,
+      habitCompletions: 0,
+      taskCompletions: 0,
+    },
+    dateKeys: [],
+    categories: [],
+    periodicHabits: [],
+    logsByHabitDate: {},
+  };
+}
+
 export function FriendProfileScreen({
   friendId,
   friendshipId,
+  initialImage,
   initialName,
+  privateProfile = false,
   self = false,
   showHistoryHeader = false,
   onBack,
 }: {
   friendId?: string;
   friendshipId?: string;
+  initialImage?: string;
   initialName?: string;
+  privateProfile?: boolean;
   self?: boolean;
   showHistoryHeader?: boolean;
   onBack?: () => void;
@@ -106,6 +141,19 @@ export function FriendProfileScreen({
 
   const load = useCallback(
     async (refresh = false) => {
+      if (privateProfile) {
+        setProfile(
+          createPrivateProfilePreview({ friendId, initialImage, initialName }),
+        );
+        setPosts([]);
+        setFriends([]);
+        setIsLoading(false);
+        setArePostsLoading(false);
+        setIsRefreshing(false);
+        setError(null);
+        return;
+      }
+
       if (!self && !friendshipId && !friendId) {
         setError("Profile data is unavailable.");
         setIsLoading(false);
@@ -196,7 +244,7 @@ export function FriendProfileScreen({
         }
       }
     },
-    [friendId, friendshipId, self],
+    [friendId, friendshipId, initialImage, initialName, privateProfile, self],
   );
 
   useEffect(
@@ -249,6 +297,11 @@ export function FriendProfileScreen({
     [router],
   );
 
+  const openSettings = useCallback(() => {
+    playSelectionHaptic();
+    router.push("/settings");
+  }, [router]);
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -289,7 +342,26 @@ export function FriendProfileScreen({
                 (self ? "You" : "Profile")}
             </Text>
           ) : null}
-          {!showHistoryHeader ? <View style={styles.headerSpacer} /> : null}
+          {showHistoryHeader && self ? (
+            <Pressable
+              accessibilityLabel="Open settings"
+              hitSlop={12}
+              onPress={openSettings}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("gearshape.fill", "settings")}
+                size={22}
+                weight="semibold"
+                tintColor={theme.text}
+              />
+            </Pressable>
+          ) : !showHistoryHeader ? (
+            <View style={styles.headerSpacer} />
+          ) : null}
         </View>
 
         <ScrollView
@@ -391,10 +463,13 @@ export function FriendProfileScreen({
 
               <ProfileBodyTabs
                 activeSection={activeBodySection}
+                locked={privateProfile}
                 onChange={setActiveBodySection}
               />
 
-              {activeBodySection === "posts" ? (
+              {privateProfile ? (
+                <PrivateProfileSection section={activeBodySection} />
+              ) : activeBodySection === "posts" ? (
                 <ProfilePostsGrid
                   arePostsLoading={arePostsLoading}
                   filter={postFilter}
@@ -442,9 +517,11 @@ export function FriendProfileScreen({
 
 function ProfileBodyTabs({
   activeSection,
+  locked = false,
   onChange,
 }: {
   activeSection: ProfileBodySection;
+  locked?: boolean;
   onChange: (section: ProfileBodySection) => void;
 }) {
   const theme = useTheme();
@@ -464,14 +541,24 @@ function ProfileBodyTabs({
               pressed && styles.pressed,
             ]}
           >
-            <Text
-              style={[
-                styles.profileBodyTabText,
-                { color: isActive ? theme.text : theme.textSecondary },
-              ]}
-            >
-              {section.label}
-            </Text>
+            <View style={styles.profileBodyTabLabel}>
+              {locked ? (
+                <SymbolView
+                  name={sym("lock.fill", "lock")}
+                  size={11}
+                  weight="bold"
+                  tintColor={isActive ? theme.text : theme.textSecondary}
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.profileBodyTabText,
+                  { color: isActive ? theme.text : theme.textSecondary },
+                ]}
+              >
+                {section.label}
+              </Text>
+            </View>
             <View
               style={[
                 styles.profileBodyTabIndicator,
@@ -481,6 +568,40 @@ function ProfileBodyTabs({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
+  const theme = useTheme();
+  const label =
+    section === "posts"
+      ? "Posts"
+      : section === "daily"
+        ? "Daily habits"
+        : "Periodic habits";
+
+  return (
+    <View style={styles.privateSection}>
+      <View
+        style={[
+          styles.privateLockCircle,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <SymbolView
+          name={sym("lock.fill", "lock")}
+          size={28}
+          weight="bold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+      <Text style={[styles.privateTitle, { color: theme.text }]}>
+        {label} are private
+      </Text>
+      <Text style={[styles.privateText, { color: theme.textSecondary }]}>
+        Add them as a friend to see shared activity.
+      </Text>
     </View>
   );
 }
@@ -1194,6 +1315,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerIconButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: {
     flex: 1,
     textAlign: "center",
@@ -1304,6 +1431,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 4,
   },
+  profileBodyTabLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   profileBodyTabText: {
     fontSize: 13,
     lineHeight: 16,
@@ -1324,6 +1456,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "900",
+  },
+  privateSection: {
+    minHeight: 260,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 32,
+    paddingTop: 28,
+  },
+  privateLockCircle: {
+    width: 72,
+    height: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 36,
+  },
+  privateTitle: {
+    marginTop: 4,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  privateText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+    textAlign: "center",
   },
   profileHabitGroup: {
     gap: 7,

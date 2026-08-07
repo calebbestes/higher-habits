@@ -151,7 +151,7 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "center",
-      width: 210,
+      width: 190,
       items: [
         {
           label: "Feed",
@@ -160,15 +160,6 @@ const TABS: TabItem[] = [
             ios: "rectangle.stack",
             android: "feed",
             web: "feed",
-          },
-        },
-        {
-          label: "Friends",
-          href: "/?section=friends",
-          icon: {
-            ios: "person.2.fill",
-            android: "group",
-            web: "group",
           },
         },
         {
@@ -193,6 +184,16 @@ const TABS: TabItem[] = [
     },
   },
   {
+    name: "friends",
+    href: "/friends",
+    label: "Friends",
+    icon: {
+      ios: "person.2.fill",
+      android: "group",
+      web: "group",
+    },
+  },
+  {
     name: "history",
     href: "/history",
     label: "Profile",
@@ -200,16 +201,6 @@ const TABS: TabItem[] = [
       ios: "person.crop.circle.fill",
       android: "account_circle",
       web: "account_circle",
-    },
-  },
-  {
-    name: "settings",
-    href: "/settings",
-    label: "Settings",
-    icon: {
-      ios: "gearshape.fill",
-      android: "settings",
-      web: "settings",
     },
   },
 ];
@@ -517,7 +508,6 @@ function rememberSubmenuSelection(href: Href) {
     "/?section=incentives": "incentives",
     "/?section=shared-goals": "shared-goals",
     "/?section=feed": "feed",
-    "/?section=friends": "friends",
   };
   const historySections: Record<string, HistorySection> = {
     "/history?section=profile": "profile",
@@ -566,7 +556,9 @@ function getDefaultTabHref({
     ) as Href;
   }
   if (tab.name === "collab") {
-    return COLLAB_SECTION_HREFS[collabSection] as Href;
+    return (collabSection === "friends"
+      ? COLLAB_SECTION_HREFS.feed
+      : COLLAB_SECTION_HREFS[collabSection]) as Href;
   }
   if (tab.name === "history") {
     return "/history" as Href;

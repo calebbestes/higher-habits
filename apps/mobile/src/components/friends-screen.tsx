@@ -3,7 +3,14 @@ import { Image } from "expo-image";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +28,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
-import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -41,8 +47,14 @@ import {
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
 type SymbolName = SymbolViewProps["name"];
+type FriendsSection = "suggested" | "friends" | "groups";
 
 const INVITE_LINK = "https://higher-habits.vercel.app";
+const FRIENDS_SECTIONS: Array<{ key: FriendsSection; label: string }> = [
+  { key: "suggested", label: "Suggested friends" },
+  { key: "friends", label: "My Friends" },
+  { key: "groups", label: "Groups" },
+];
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -76,12 +88,13 @@ export function FriendsScreen() {
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [search, setSearch] = useState("");
+  const [activeSection, setActiveSection] =
+    useState<FriendsSection>("suggested");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
@@ -180,6 +193,32 @@ export function FriendsScreen() {
     });
   };
 
+  const inviteBy = (channel: "email" | "sms") => {
+    const body = `Join me on float so we can build habits together: ${INVITE_LINK}`;
+    let url: string;
+    if (channel === "email") {
+      const query = `subject=${encodeURIComponent(
+        "Join me on float",
+      )}&body=${encodeURIComponent(body)}`;
+      url = `mailto:?${query}`;
+    } else {
+      const separator = Platform.OS === "ios" ? "&" : "?";
+      url = `sms:${separator}body=${encodeURIComponent(body)}`;
+    }
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Could not open", "No app available to send the invite.");
+    });
+  };
+
+  const openInviteOptions = () => {
+    playSelectionHaptic();
+    Alert.alert("Invite to float", "Choose how you want to send the invite.", [
+      { text: "Email", onPress: () => inviteBy("email") },
+      { text: "Text", onPress: () => inviteBy("sms") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
   const nudgeFriend = async (friend: FriendRow) => {
     if (nudgingFriendshipId) return;
     setNudgingFriendshipId(friend.id);
@@ -257,55 +296,64 @@ export function FriendsScreen() {
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
-                <CollabHeaderMenu currentSection="friends" />
+                <Text style={[styles.pageTitle, { color: theme.text }]}>
+                  Friends
+                </Text>
+                <FriendsSectionTabs
+                  activeSection={activeSection}
+                  onChange={(section) => {
+                    playSelectionHaptic();
+                    setActiveSection(section);
+                  }}
+                />
               </View>
             </View>
           </View>
 
-          <View style={styles.toolbar}>
-            <View
-              style={[
-                styles.searchBox,
-                {
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.tabBorder,
-                },
-              ]}
-            >
-              <SymbolView
-                name={sym("magnifyingglass", "search")}
-                size={17}
-                weight="semibold"
-                tintColor={theme.textSecondary}
-              />
-              <TextInput
-                accessibilityLabel="Search friends"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setSearch}
-                placeholder="Search friends"
-                placeholderTextColor={theme.textSecondary}
-                style={[styles.searchInput, { color: theme.text }]}
-                value={search}
-              />
-              {search ? (
-                <Pressable
-                  accessibilityLabel="Clear search"
-                  hitSlop={10}
-                  onPress={() => setSearch("")}
-                >
-                  <SymbolView
-                    name={sym("xmark.circle.fill", "cancel")}
-                    size={17}
-                    tintColor={theme.textSecondary}
-                  />
-                </Pressable>
-              ) : null}
-            </View>
-            <View style={styles.addMenuWrap}>
+          {activeSection === "friends" ? (
+            <View style={styles.toolbar}>
+              <View
+                style={[
+                  styles.searchBox,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <SymbolView
+                  name={sym("magnifyingglass", "search")}
+                  size={17}
+                  weight="semibold"
+                  tintColor={theme.textSecondary}
+                />
+                <TextInput
+                  accessibilityLabel="Search friends"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setSearch}
+                  placeholder="Search friends"
+                  placeholderTextColor={theme.textSecondary}
+                  style={[styles.searchInput, { color: theme.text }]}
+                  value={search}
+                />
+                {search ? (
+                  <Pressable
+                    accessibilityLabel="Clear search"
+                    hitSlop={10}
+                    onPress={() => setSearch("")}
+                  >
+                    <SymbolView
+                      name={sym("xmark.circle.fill", "cancel")}
+                      size={17}
+                      tintColor={theme.textSecondary}
+                    />
+                  </Pressable>
+                ) : null}
+              </View>
               <Pressable
-                accessibilityLabel="Add"
-                onPress={() => setIsAddMenuOpen((open) => !open)}
+                accessibilityLabel="Add friend"
+                onPress={() => setIsAddOpen(true)}
                 style={({ pressed }) => [
                   styles.addButton,
                   { backgroundColor: theme.primary },
@@ -326,71 +374,9 @@ export function FriendsScreen() {
                 >
                   Add
                 </Text>
-                <SymbolView
-                  name={sym("chevron.down", "keyboard_arrow_down")}
-                  size={12}
-                  weight="bold"
-                  tintColor={theme.primaryForeground}
-                />
               </Pressable>
-              {isAddMenuOpen ? (
-                <View
-                  style={[
-                    styles.addMenu,
-                    {
-                      backgroundColor: theme.tabBar,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setIsAddMenuOpen(false);
-                      setIsAddOpen(true);
-                    }}
-                    style={({ pressed }) => [
-                      styles.addMenuItem,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("person.badge.plus", "person_add")}
-                      size={17}
-                      weight="semibold"
-                      tintColor={theme.primary}
-                    />
-                    <Text style={[styles.addMenuText, { color: theme.text }]}>
-                      Friend
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={acceptedFriends.length === 0}
-                    onPress={() => {
-                      setIsAddMenuOpen(false);
-                      setIsCreateGroupOpen(true);
-                    }}
-                    style={({ pressed }) => [
-                      styles.addMenuItem,
-                      acceptedFriends.length === 0 && styles.disabled,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("person.3.fill", "groups")}
-                      size={17}
-                      weight="semibold"
-                      tintColor={theme.primary}
-                    />
-                    <Text style={[styles.addMenuText, { color: theme.text }]}>
-                      Group
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
             </View>
-          </View>
+          ) : null}
 
           {error ? (
             <View style={styles.errorBanner}>
@@ -405,19 +391,62 @@ export function FriendsScreen() {
             <View style={styles.centerState}>
               <FloatingLogoLoader />
             </View>
+          ) : activeSection === "suggested" ? (
+            <View style={styles.section}>
+              <FriendSearchInline
+                action={
+                  <SectionActionButton
+                    icon={sym("square.and.arrow.up", "ios_share")}
+                    label="Invite"
+                    onPress={openInviteOptions}
+                  />
+                }
+                onAdded={async () => {
+                  if (!isMountedRef.current) return;
+                  await load();
+                }}
+                onOpenProfile={(result) =>
+                  router.push({
+                    pathname: "/friend-profile",
+                    params: {
+                      friendId: result.id,
+                      initialName: result.name,
+                      ...(result.image ? { initialImage: result.image } : {}),
+                      privateProfile: "true",
+                    },
+                  })
+                }
+              />
+            </View>
+          ) : activeSection === "groups" ? (
+            <View style={styles.section}>
+              <SectionHeader
+                action={
+                  <SectionActionButton
+                    disabled={acceptedFriends.length === 0}
+                    icon={sym("person.3.fill", "groups")}
+                    label="Create Group"
+                    onPress={() => setIsCreateGroupOpen(true)}
+                  />
+                }
+                title="Groups"
+                count={friendGroups.length}
+              />
+              {friendGroups.length > 0 ? (
+                <View style={styles.groupList}>
+                  {friendGroups.map((group) => (
+                    <FriendGroupCard key={group.id} group={group} />
+                  ))}
+                </View>
+              ) : (
+                <EmptyGroupsState
+                  canCreate={acceptedFriends.length > 0}
+                  onCreate={() => setIsCreateGroupOpen(true)}
+                />
+              )}
+            </View>
           ) : (
             <>
-              {friendGroups.length > 0 ? (
-                <View style={styles.section}>
-                  <SectionHeader title="Groups" count={friendGroups.length} />
-                  <View style={styles.groupList}>
-                    {friendGroups.map((group) => (
-                      <FriendGroupCard key={group.id} group={group} />
-                    ))}
-                  </View>
-                </View>
-              ) : null}
-
               {pendingFriends.length > 0 ? (
                 <View style={styles.section}>
                   <SectionHeader
@@ -500,22 +529,129 @@ export function FriendsScreen() {
   );
 }
 
-function SectionHeader({ title, count }: { title: string; count: number }) {
+function SectionHeader({
+  action,
+  title,
+  count,
+}: {
+  action?: ReactNode;
+  title: string;
+  count: number;
+}) {
   const theme = useTheme();
 
   return (
     <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
-      <View
+      <View style={styles.sectionTitleRow}>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          {title}
+        </Text>
+        <View
+          style={[
+            styles.countBadge,
+            { backgroundColor: theme.backgroundSelected },
+          ]}
+        >
+          <Text style={[styles.countText, { color: theme.textSecondary }]}>
+            {count}
+          </Text>
+        </View>
+      </View>
+      {action}
+    </View>
+  );
+}
+
+function SectionActionButton({
+  disabled = false,
+  icon,
+  label,
+  onPress,
+}: {
+  disabled?: boolean;
+  icon: SymbolName;
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.sectionActionButton,
+        {
+          backgroundColor: disabled ? theme.tabBorder : theme.primary,
+        },
+        disabled && styles.disabled,
+        pressed && styles.pressed,
+      ]}
+    >
+      <SymbolView
+        name={icon}
+        size={15}
+        weight="bold"
+        tintColor={disabled ? theme.textSecondary : theme.primaryForeground}
+      />
+      <Text
         style={[
-          styles.countBadge,
-          { backgroundColor: theme.backgroundSelected },
+          styles.sectionActionButtonText,
+          {
+            color: disabled ? theme.textSecondary : theme.primaryForeground,
+          },
         ]}
       >
-        <Text style={[styles.countText, { color: theme.textSecondary }]}>
-          {count}
-        </Text>
-      </View>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function FriendsSectionTabs({
+  activeSection,
+  onChange,
+}: {
+  activeSection: FriendsSection;
+  onChange: (section: FriendsSection) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.sectionTabs}>
+      {FRIENDS_SECTIONS.map((section) => {
+        const isActive = section.key === activeSection;
+
+        return (
+          <Pressable
+            key={section.key}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            onPress={() => onChange(section.key)}
+            style={({ pressed }) => [
+              styles.sectionTab,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.sectionTabText,
+                { color: isActive ? theme.text : theme.textSecondary },
+              ]}
+            >
+              {section.label}
+            </Text>
+            <View
+              style={[
+                styles.sectionTabIndicator,
+                { backgroundColor: isActive ? theme.primary : "transparent" },
+              ]}
+            />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -847,6 +983,317 @@ function FriendAvatar({ friend, size }: { friend: FriendRow; size: number }) {
           {friend.friendName.slice(0, 1).toUpperCase()}
         </Text>
       )}
+    </View>
+  );
+}
+
+function FriendSearchInline({
+  action,
+  onAdded,
+  onOpenProfile,
+}: {
+  action?: ReactNode;
+  onAdded: () => Promise<void>;
+  onOpenProfile: (result: FriendSearchResult) => void;
+}) {
+  const theme = useTheme();
+  const isMountedRef = useRef(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<FriendSearchResult[]>([]);
+  const [searchState, setSearchState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
+  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    const shouldSearch = query.length === 0 || query.length >= 2;
+
+    let active = true;
+    setSearchError(null);
+    if (!shouldSearch) {
+      setSearchResults([]);
+      setSearchState("ready");
+      return;
+    }
+
+    setSearchState("loading");
+
+    const timeout = setTimeout(() => {
+      searchFriendUsers(query)
+        .then((results) => {
+          if (!active || !isMountedRef.current) return;
+          setSearchResults(results);
+          setSearchState("ready");
+        })
+        .catch((error) => {
+          if (!active || !isMountedRef.current) return;
+          setSearchResults([]);
+          setSearchError(
+            error instanceof Error ? error.message : "Could not search users.",
+          );
+          setSearchState("error");
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [searchQuery]);
+
+  const addSearchResult = async (result: FriendSearchResult) => {
+    if (requestingIds.has(result.id) || requestedIds.has(result.id)) return;
+    setRequestingIds((prev) => new Set(prev).add(result.id));
+    try {
+      await addFriend(result.email);
+      if (!isMountedRef.current) return;
+      playSuccessHaptic();
+      setRequestedIds((prev) => new Set(prev).add(result.id));
+      await onAdded();
+    } catch (addError) {
+      if (isMountedRef.current) {
+        Alert.alert(
+          "Could not add friend",
+          addError instanceof Error ? addError.message : "Try again.",
+        );
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRequestingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(result.id);
+          return next;
+        });
+      }
+    }
+  };
+
+  return (
+    <View style={styles.addFriendSection}>
+      <View style={styles.inlineSectionHeader}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.addSectionTitle,
+            styles.inlineTitle,
+            { color: theme.text },
+          ]}
+        >
+          Find someone on float
+        </Text>
+        {action}
+      </View>
+
+      <View
+        style={[
+          styles.friendSearchWrap,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <SymbolView
+          name={sym("magnifyingglass", "search")}
+          size={17}
+          weight="semibold"
+          tintColor={theme.textSecondary}
+        />
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
+          onChangeText={setSearchQuery}
+          placeholder="Search name or email"
+          placeholderTextColor={theme.textSecondary}
+          returnKeyType="search"
+          style={[styles.friendSearchInput, { color: theme.text }]}
+          value={searchQuery}
+        />
+        {searchState === "loading" ? (
+          <ActivityIndicator color={theme.primary} size="small" />
+        ) : null}
+      </View>
+
+      {searchQuery.trim().length > 0 && searchQuery.trim().length < 2 ? (
+        <Text style={[styles.inlineHelpText, { color: theme.textSecondary }]}>
+          Type at least 2 characters.
+        </Text>
+      ) : null}
+
+      {searchState === "error" ? (
+        <Text style={[styles.inlineHelpText, { color: "#C75055" }]}>
+          {searchError ?? "Could not search users."}
+        </Text>
+      ) : null}
+
+      {searchState === "ready" && searchResults.length === 0 ? (
+        <Text style={[styles.inlineHelpText, { color: theme.textSecondary }]}>
+          {searchQuery.trim()
+            ? "No matching float users."
+            : "No other float users yet."}
+        </Text>
+      ) : null}
+
+      {searchResults.length > 0 ? (
+        <Text
+          style={[styles.suggestedUsersLabel, { color: theme.textSecondary }]}
+        >
+          {searchQuery.trim() ? "Search results" : "People on float"}
+        </Text>
+      ) : null}
+
+      {searchResults.map((result) => {
+        const requested = requestedIds.has(result.id);
+        const requesting = requestingIds.has(result.id);
+        return (
+          <View key={result.id} style={styles.matchRow}>
+            <Pressable
+              accessibilityLabel={`Open ${result.name}'s profile`}
+              accessibilityRole="button"
+              onPress={() => onOpenProfile(result)}
+              style={({ pressed }) => [
+                styles.matchProfileButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={[
+                  styles.avatar,
+                  {
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: theme.backgroundSelected,
+                  },
+                ]}
+              >
+                {result.image ? (
+                  <Image
+                    contentFit="cover"
+                    source={{ uri: result.image }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                ) : (
+                  <Text style={[styles.avatarText, { color: theme.primary }]}>
+                    {result.name.slice(0, 1).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.matchInfo}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.friendName, { color: theme.text }]}
+                >
+                  {result.name}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.friendEmail, { color: theme.textSecondary }]}
+                >
+                  {formatMutualFriendCount(result.mutualFriendCount)}
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              disabled={requested || requesting}
+              onPress={() => void addSearchResult(result)}
+              style={({ pressed }) => [
+                styles.matchAddButton,
+                {
+                  backgroundColor: requested
+                    ? theme.backgroundElement
+                    : theme.primary,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              {requesting ? (
+                <ActivityIndicator
+                  color={theme.primaryForeground}
+                  size="small"
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.matchAddText,
+                    {
+                      color: requested
+                        ? theme.textSecondary
+                        : theme.primaryForeground,
+                    },
+                  ]}
+                >
+                  {requested ? "Requested" : "Add"}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function EmptyGroupsState({
+  canCreate,
+  onCreate,
+}: {
+  canCreate: boolean;
+  onCreate: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.emptyCard,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+      ]}
+    >
+      <BrandedEmptyState
+        compact
+        title="No groups yet"
+        description={
+          canCreate
+            ? "Create a group for the friends you check in with most."
+            : "Add friends before creating a group."
+        }
+      />
+      <Pressable
+        disabled={!canCreate}
+        onPress={onCreate}
+        style={({ pressed }) => [
+          styles.emptyButton,
+          { backgroundColor: canCreate ? theme.primary : theme.tabBorder },
+          !canCreate && styles.disabled,
+          pressed && styles.pressed,
+        ]}
+      >
+        <Text
+          style={[
+            styles.emptyButtonText,
+            {
+              color: canCreate ? theme.primaryForeground : theme.textSecondary,
+            },
+          ]}
+        >
+          Create Group
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -1311,11 +1758,7 @@ function AddFriendModal({
                 <Text style={[styles.addSectionTitle, { color: theme.text }]}>
                   Find someone on float
                 </Text>
-                <Text
-                  style={[styles.modalHint, { color: theme.textSecondary }]}
-                >
-                  Search by name or email, then send a friend request.
-                </Text>
+
                 <View
                   style={[
                     styles.friendSearchWrap,
@@ -1385,9 +1828,7 @@ function AddFriendModal({
                       { color: theme.textSecondary },
                     ]}
                   >
-                    {searchQuery.trim()
-                      ? "Search results"
-                      : "People on float"}
+                    {searchQuery.trim() ? "Search results" : "People on float"}
                   </Text>
                 ) : null}
 
@@ -1491,7 +1932,6 @@ function AddFriendModal({
                   );
                 })}
               </View>
-
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -1504,6 +1944,11 @@ function lastOpenedTime(friend: FriendRow): number {
   if (!friend.lastOpenedAt) return 0;
   const time = new Date(friend.lastOpenedAt).getTime();
   return Number.isNaN(time) ? 0 : time;
+}
+
+function formatMutualFriendCount(count: number): string {
+  if (count === 1) return "1 mutual friend";
+  return `${count} mutual friends`;
 }
 
 function formatLastOpened(friend: FriendRow): string {
@@ -1565,8 +2010,26 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   pageSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
+  sectionTabs: {
+    flexDirection: "row",
+    gap: 20,
+    paddingTop: 4,
+  },
+  sectionTab: {
+    gap: 7,
+    borderRadius: 8,
+    paddingVertical: 4,
+  },
+  sectionTabText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+  sectionTabIndicator: {
+    height: 3,
+    borderRadius: 999,
+  },
   toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
-  addMenuWrap: { position: "relative", zIndex: 20 },
   searchBox: {
     height: 44,
     flex: 1,
@@ -1588,31 +2051,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addButtonText: { fontSize: 14, fontWeight: "800" },
-  addMenu: {
-    position: "absolute",
-    top: 50,
-    right: 0,
-    zIndex: 30,
-    elevation: 30,
-    minWidth: 132,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    paddingVertical: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-  },
-  addMenuItem: {
-    minHeight: 42,
+  sectionActionButton: {
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 12,
     paddingHorizontal: 12,
   },
-  addMenuText: {
-    fontSize: 14,
-    fontWeight: "800",
+  sectionActionButtonText: {
+    fontSize: 13,
+    fontWeight: "900",
   },
   errorBanner: {
     flexDirection: "row",
@@ -1637,7 +2087,19 @@ const styles = StyleSheet.create({
     paddingVertical: 64,
   },
   section: { gap: 10 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionTitleRow: {
+    minWidth: 0,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   sectionTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
   countBadge: {
     minWidth: 24,
@@ -1783,12 +2245,19 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   addFriendSection: { gap: 10 },
+  inlineSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
   addSectionTitle: {
     paddingHorizontal: 4,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: -0.2,
   },
+  inlineTitle: { minWidth: 0, flex: 1 },
   friendSearchWrap: {
     minHeight: 50,
     flexDirection: "row",
@@ -1842,7 +2311,15 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 8,
   },
-  matchInfo: { flex: 1, gap: 2 },
+  matchProfileButton: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+  },
+  matchInfo: { flex: 1, minWidth: 0, gap: 2 },
   matchAddButton: {
     minWidth: 84,
     minHeight: 36,

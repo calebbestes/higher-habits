@@ -21,7 +21,10 @@ import {
 } from "@/components/celebration-overlay";
 import { HabitFormModal } from "@/components/habits-manager-screen";
 import { HabitsTabs } from "@/components/habits-tabs";
-import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
+import {
+  PageHeaderTitle,
+  PlanSectionHeaderTabs,
+} from "@/components/section-header-tabs";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -708,7 +711,8 @@ export function MonthlyGoalsScreen({
           {/* Page header */}
           <View style={styles.pageHeader}>
             <View style={[styles.pageHeaderText, { flex: 1 }]}>
-              <PlanReportHeaderMenu currentView="monthly-plan" />
+              <PageHeaderTitle title="Plan" />
+              <PlanSectionHeaderTabs currentView="monthly-plan" />
             </View>
             <Pressable
               accessibilityLabel="Add habit"
@@ -1423,7 +1427,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     position: "relative",
   },
-  pageHeaderText: { gap: 1, paddingRight: 54 },
+  pageHeaderText: { flex: 1, minWidth: 0, gap: 1, paddingRight: 54 },
   addButton: {
     width: 42,
     height: 42,

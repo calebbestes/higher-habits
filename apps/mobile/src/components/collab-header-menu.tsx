@@ -9,26 +9,16 @@ import { type CollabSection, setCollabSection } from "@/lib/tab-view-store";
 export type { CollabSection };
 
 const MENU_ITEMS: {
-  id: CollabSection;
+  id: Exclude<CollabSection, "friends">;
   title: string;
-  href:
-    | "/?section=incentives"
-    | "/?section=shared-goals"
-    | "/?section=feed"
-    | "/?section=friends";
-  image: "rectangle.stack" | "gift" | "person.3.fill" | "person.2.fill";
+  href: "/?section=incentives" | "/?section=shared-goals" | "/?section=feed";
+  image: "rectangle.stack" | "gift" | "person.3.fill";
 }[] = [
   {
     id: "feed",
     title: "Feed",
     href: "/?section=feed",
     image: "rectangle.stack",
-  },
-  {
-    id: "friends",
-    title: "Friends",
-    href: "/?section=friends",
-    image: "person.2.fill",
   },
   {
     id: "incentives",
@@ -55,7 +45,7 @@ export function CollabHeaderMenu({
   const selectedSection = isCollabSection(section) ? section : currentSection;
   const selectedItem =
     MENU_ITEMS.find((item) => item.id === selectedSection) ?? MENU_ITEMS[0];
-  const triggerWidth = getTriggerWidth(selectedSection);
+  const triggerWidth = getTriggerWidth(selectedItem.id);
   const actions: MenuAction[] = MENU_ITEMS.map((item) => ({
     id: item.id,
     title: item.title,
@@ -112,15 +102,13 @@ function isCollabSection(
   return (
     section === "feed" ||
     section === "incentives" ||
-    section === "shared-goals" ||
-    section === "friends"
+    section === "shared-goals"
   );
 }
 
-function getTriggerWidth(section: CollabSection): number {
+function getTriggerWidth(section: Exclude<CollabSection, "friends">): number {
   if (section === "shared-goals") return 190;
   if (section === "incentives") return 150;
-  if (section === "friends") return 115;
   return 85;
 }
 

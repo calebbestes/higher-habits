@@ -61,7 +61,7 @@ export const COLLAB_SECTION_HREFS = {
   feed: "/?section=feed",
   incentives: "/?section=incentives",
   "shared-goals": "/?section=shared-goals",
-  friends: "/?section=friends",
+  friends: "/friends",
 } as const satisfies Record<CollabSection, string>;
 
 const planReportStore = createSelectionStore<PlanReportView>(
@@ -228,7 +228,7 @@ export function getAppStartHref({
   if (defaultAppStartPage === "collab") {
     return COLLAB_SECTION_HREFS[defaultCollabSection];
   }
-  if (defaultAppStartPage === "friends") return "/?section=friends";
+  if (defaultAppStartPage === "friends") return "/friends";
   if (defaultAppStartPage === "history") return "/history";
   if (defaultAppStartPage === "journal") return "/journal";
   if (defaultAppStartPage === "dashboard") return "/dashboard";

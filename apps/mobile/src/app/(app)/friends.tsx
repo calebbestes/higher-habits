@@ -1,8 +1,5 @@
-import { Redirect, useLocalSearchParams } from "expo-router";
+import { FriendsScreen } from "@/components/friends-screen";
 
-export default function LegacyFriendsRoute() {
-  const { section } = useLocalSearchParams<{ section?: string }>();
-  const nextSection = section === "friends" ? "friends" : "feed";
-
-  return <Redirect href={`/?section=${nextSection}`} />;
+export default function FriendsRoute() {
+  return <FriendsScreen />;
 }

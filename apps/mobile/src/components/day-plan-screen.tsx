@@ -37,7 +37,10 @@ import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-contr
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { HabitFormModal } from "@/components/habits-manager-screen";
-import { PlanReportHeaderMenu } from "@/components/plan-report-header-menu";
+import {
+  PageHeaderTitle,
+  PlanSectionHeaderTabs,
+} from "@/components/section-header-tabs";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -2587,7 +2590,8 @@ export function DayPlanScreen({
             >
               <View style={styles.header}>
                 <View style={styles.headerTitle}>
-                  <PlanReportHeaderMenu compact currentView="day-plan" />
+                  <PageHeaderTitle title="Plan" />
+                  <PlanSectionHeaderTabs currentView="day-plan" />
                 </View>
                 <Pressable
                   accessibilityLabel="Choose date"

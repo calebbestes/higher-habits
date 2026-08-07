@@ -165,6 +165,7 @@ function AuthNavigator() {
         <Stack.Screen name="friend-profile" />
         <Stack.Screen name="post" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="settings" />
       </Stack.Protected>
     </Stack>
   );

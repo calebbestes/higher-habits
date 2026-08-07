@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
+import { GOOGLE_SIGN_IN_SCOPES } from "@/lib/google-auth-scopes";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
 type AuthFormScreenProps = {
@@ -96,6 +97,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       const response = await authClient.signIn.social({
         provider,
         callbackURL: "/",
+        ...(provider === "google" ? { scopes: GOOGLE_SIGN_IN_SCOPES } : {}),
       });
 
       if (response.error) {

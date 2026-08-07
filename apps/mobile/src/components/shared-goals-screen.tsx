@@ -19,7 +19,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
-import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import {
   type ActionGoal,
@@ -27,6 +26,10 @@ import {
 } from "@/components/daily-goals/shared";
 import { DatePartPicker } from "@/components/date-part-picker";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import {
+  CollabSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type FriendGroupRow,
@@ -2749,7 +2752,10 @@ export function SharedGoalsScreen() {
           },
         ]}
       >
-        <CollabHeaderMenu currentSection="shared-goals" />
+        <View style={styles.headerTitle}>
+          <PageHeaderTitle title="Collab" />
+          <CollabSectionHeaderTabs currentSection="shared-goals" />
+        </View>
         <View style={styles.headerActions}>
           <Pressable
             accessibilityLabel="New shared goal"
@@ -3136,9 +3142,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 18,
     paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerTitle: {
+    flex: 1,
+    minWidth: 0,
   },
   headerActions: {
     flexDirection: "row",
