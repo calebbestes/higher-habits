@@ -1,5 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import { HistoryHeaderMenu } from "@/components/history-header-menu";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -42,6 +42,7 @@ import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
 type ProfileBodySection = "posts" | "daily" | "periodic";
+type ProfilePostFilter = "all" | "reflections" | `goal:${string}`;
 
 const PROFILE_BODY_SECTIONS: Array<{
   key: ProfileBodySection;
@@ -94,6 +95,7 @@ export function FriendProfileScreen({
   const [isNudging, setIsNudging] = useState(false);
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
+  const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
 
   const tileSize = Math.floor((Math.min(width, MaxContentWidth) - 4) / 3);
   const nudgeFriendshipId = profile?.friend.friendshipId ?? friendshipId;
@@ -253,7 +255,9 @@ export function FriendProfileScreen({
         <View style={[styles.header, { borderBottomColor: theme.tabBorder }]}>
           {showHistoryHeader ? (
             <View style={styles.headerMenuWrap}>
-              <HistoryHeaderMenu currentSection="profile" />
+              <Text style={[styles.headerSectionTitle, { color: theme.text }]}>
+                Profile
+              </Text>
             </View>
           ) : onBack ? (
             <Pressable
@@ -393,9 +397,11 @@ export function FriendProfileScreen({
               {activeBodySection === "posts" ? (
                 <ProfilePostsGrid
                   arePostsLoading={arePostsLoading}
+                  filter={postFilter}
                   posts={posts}
                   self={self}
                   tileSize={tileSize}
+                  onChangeFilter={setPostFilter}
                   onOpenPost={(post) =>
                     router.push({
                       pathname: "/post",
@@ -481,30 +487,131 @@ function ProfileBodyTabs({
 
 function ProfilePostsGrid({
   arePostsLoading,
+  filter,
+  onChangeFilter,
   onOpenPost,
   posts,
   self,
   tileSize,
 }: {
   arePostsLoading: boolean;
+  filter: ProfilePostFilter;
+  onChangeFilter: (filter: ProfilePostFilter) => void;
   onOpenPost: (post: FriendFeedEntry) => void;
   posts: FriendFeedEntry[];
   self: boolean;
   tileSize: number;
 }) {
   const theme = useTheme();
+  const goalOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const post of posts) {
+      if (post.kind === "reflection") continue;
+      byId.set(post.goal.id, { id: post.goal.id, name: post.goal.name });
+    }
+    return [...byId.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }, [posts]);
+  const hasReflections = posts.some((post) => post.kind === "reflection");
+  const filterActions = useMemo<MenuAction[]>(() => {
+    const actions: MenuAction[] = [
+      {
+        id: "all",
+        image: "square.grid.2x2",
+        state: filter === "all" ? "on" : undefined,
+        title: "All posts",
+      },
+    ];
+
+    if (hasReflections) {
+      actions.push({
+        id: "reflections",
+        image: "sparkles",
+        state: filter === "reflections" ? "on" : undefined,
+        title: "Daily reflections",
+      });
+    }
+
+    if (goalOptions.length > 0) {
+      actions.push({
+        displayInline: true,
+        subactions: goalOptions.map((goal) => ({
+          id: `goal:${goal.id}`,
+          state: filter === `goal:${goal.id}` ? "on" : undefined,
+          title: goal.name,
+        })),
+        title: "Habits",
+      });
+    }
+
+    return actions;
+  }, [filter, goalOptions, hasReflections]);
+  const selectedFilterLabel =
+    filter === "all"
+      ? "All posts"
+      : filter === "reflections"
+        ? "Daily reflections"
+        : (goalOptions.find((goal) => filter === `goal:${goal.id}`)?.name ??
+          "All posts");
+  const filteredPosts = useMemo(() => {
+    if (filter === "all") return posts;
+    if (filter === "reflections") {
+      return posts.filter((post) => post.kind === "reflection");
+    }
+    const goalId = filter.slice("goal:".length);
+    return posts.filter(
+      (post) => post.kind !== "reflection" && post.goal.id === goalId,
+    );
+  }, [filter, posts]);
+
+  useEffect(() => {
+    if (
+      filter !== "all" &&
+      filter !== "reflections" &&
+      !goalOptions.some((goal) => filter === `goal:${goal.id}`)
+    ) {
+      onChangeFilter("all");
+    }
+    if (filter === "reflections" && !hasReflections) {
+      onChangeFilter("all");
+    }
+  }, [filter, goalOptions, hasReflections, onChangeFilter]);
 
   if (posts.length > 0) {
     return (
-      <View style={styles.postGrid}>
-        {posts.map((post) => (
-          <PostTile
-            key={post.id}
-            post={post}
-            size={tileSize}
-            onPress={() => onOpenPost(post)}
-          />
-        ))}
+      <View>
+        <ProfilePostFilterButton
+          actions={filterActions}
+          value={selectedFilterLabel}
+          onSelect={(event) => {
+            if (event === "all" || event === "reflections") {
+              onChangeFilter(event);
+            } else if (event.startsWith("goal:")) {
+              onChangeFilter(event as ProfilePostFilter);
+            }
+          }}
+        />
+        {filteredPosts.length > 0 ? (
+          <View style={styles.postGrid}>
+            {filteredPosts.map((post) => (
+              <PostTile
+                key={post.id}
+                post={post}
+                size={tileSize}
+                onPress={() => onOpenPost(post)}
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyPosts}>
+            <Text
+              style={[styles.loadingPostsText, { color: theme.textSecondary }]}
+            >
+              No posts for this filter.
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -531,6 +638,57 @@ function ProfilePostsGrid({
         }
       />
     </View>
+  );
+}
+
+function ProfilePostFilterButton({
+  actions,
+  onSelect,
+  value,
+}: {
+  actions: MenuAction[];
+  onSelect: (event: string) => void;
+  value: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.profilePostFilterMenu}
+      title="Filter posts"
+    >
+      <View
+        accessible
+        accessibilityLabel={`Filter posts. Currently ${value}`}
+        accessibilityRole="button"
+        style={[
+          styles.profilePostFilterButton,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <SymbolView
+          name={sym("line.3.horizontal.decrease", "filter_list")}
+          size={16}
+          tintColor={theme.primary}
+        />
+        <Text
+          numberOfLines={1}
+          style={[styles.profilePostFilterValue, { color: theme.text }]}
+        >
+          {value}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "expand_more")}
+          size={13}
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -1047,6 +1205,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "flex-start",
   },
+  headerSectionTitle: {
+    fontSize: 25,
+    lineHeight: 29,
+    fontWeight: "800",
+  },
   headerSpacer: { width: 42 },
   content: {
     maxWidth: MaxContentWidth,
@@ -1229,6 +1392,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 17,
     fontWeight: "900",
+  },
+  profilePostFilterMenu: {
+    alignSelf: "flex-start",
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 10,
+  },
+  profilePostFilterButton: {
+    minHeight: 36,
+    maxWidth: 260,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+  },
+  profilePostFilterValue: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   tooltip: {
     position: "absolute",
