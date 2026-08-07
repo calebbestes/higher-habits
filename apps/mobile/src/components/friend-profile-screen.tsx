@@ -1,4 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { HistoryHeaderMenu } from "@/components/history-header-menu";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -26,6 +27,7 @@ import {
   type FriendFeedEntry,
   type FriendProfile,
   type FriendProfileHabit,
+  type FriendProfilePeriodicHabit,
   type FriendRow,
   fetchFriendProfile,
   fetchFriendProfileByFriendId,
@@ -39,6 +41,16 @@ import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
+type ProfileBodySection = "posts" | "daily" | "periodic";
+
+const PROFILE_BODY_SECTIONS: Array<{
+  key: ProfileBodySection;
+  label: string;
+}> = [
+  { key: "posts", label: "Posts" },
+  { key: "daily", label: "Daily habits" },
+  { key: "periodic", label: "Periodic habits" },
+];
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -55,13 +67,15 @@ export function FriendProfileScreen({
   friendshipId,
   initialName,
   self = false,
+  showHistoryHeader = false,
   onBack,
 }: {
   friendId?: string;
   friendshipId?: string;
   initialName?: string;
   self?: boolean;
-  onBack: () => void;
+  showHistoryHeader?: boolean;
+  onBack?: () => void;
 }) {
   const theme = useTheme();
   const router = useRouter();
@@ -78,6 +92,8 @@ export function FriendProfileScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isNudging, setIsNudging] = useState(false);
+  const [activeBodySection, setActiveBodySection] =
+    useState<ProfileBodySection>("posts");
 
   const tileSize = Math.floor((Math.min(width, MaxContentWidth) - 4) / 3);
   const nudgeFriendshipId = profile?.friend.friendshipId ?? friendshipId;
@@ -235,29 +251,41 @@ export function FriendProfileScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: theme.tabBorder }]}>
-          <Pressable
-            accessibilityLabel="Go back"
-            hitSlop={12}
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("chevron.left", "arrow_back")}
-              size={22}
-              weight="semibold"
-              tintColor={theme.text}
-            />
-          </Pressable>
-          <Text
-            numberOfLines={1}
-            style={[styles.headerTitle, { color: theme.text }]}
-          >
-            {profile?.friend.name ?? initialName ?? (self ? "You" : "Profile")}
-          </Text>
-          <View style={styles.headerSpacer} />
+          {showHistoryHeader ? (
+            <View style={styles.headerMenuWrap}>
+              <HistoryHeaderMenu currentSection="profile" />
+            </View>
+          ) : onBack ? (
+            <Pressable
+              accessibilityLabel="Go back"
+              hitSlop={12}
+              onPress={onBack}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("chevron.left", "arrow_back")}
+                size={22}
+                weight="semibold"
+                tintColor={theme.text}
+              />
+            </Pressable>
+          ) : (
+            <View style={styles.headerSpacer} />
+          )}
+          {!showHistoryHeader ? (
+            <Text
+              numberOfLines={1}
+              style={[styles.headerTitle, { color: theme.text }]}
+            >
+              {profile?.friend.name ??
+                initialName ??
+                (self ? "You" : "Profile")}
+            </Text>
+          ) : null}
+          {!showHistoryHeader ? <View style={styles.headerSpacer} /> : null}
         </View>
 
         <ScrollView
@@ -292,12 +320,20 @@ export function FriendProfileScreen({
             </View>
           ) : profile ? (
             <>
-              <View style={styles.profileTop}>
-                <ProfileAvatar
-                  image={profile.friend.image}
-                  name={profile.friend.name}
-                  size={86}
-                />
+              <View style={styles.profileSummary}>
+                <View style={styles.profileIdentity}>
+                  <ProfileAvatar
+                    image={profile.friend.image}
+                    name={profile.friend.name}
+                    size={78}
+                  />
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.profileName, { color: theme.text }]}
+                  >
+                    {profile.friend.name}
+                  </Text>
+                </View>
                 <View style={styles.statsRow}>
                   <ProfileStat
                     label="friends"
@@ -305,15 +341,15 @@ export function FriendProfileScreen({
                     onPress={self ? openFriendsSheet : undefined}
                   />
                   <ProfileStat
-                    label="habits done"
+                    label="habits"
                     value={profile.stats.habitCompletions}
                   />
                   <ProfileStat
-                    label="goals done"
+                    label="goals"
                     value={profile.stats.goalCompletions}
                   />
                   <ProfileStat
-                    label="tasks done"
+                    label="tasks"
                     value={profile.stats.taskCompletions}
                   />
                 </View>
@@ -348,74 +384,41 @@ export function FriendProfileScreen({
                   </Pressable>
                 </View>
               ) : null}
-              <Text
-                numberOfLines={1}
-                style={[styles.profileName, { color: theme.text }]}
-              >
-                {profile.friend.name}
-              </Text>
 
-              <View style={styles.compactDashboard}>
-                {habits.length > 0 ? (
-                  habits.map((habit) => (
-                    <CompactHabitRow
-                      key={habit.id}
-                      days={profile.dateKeys}
-                      habit={habit}
-                      logsByHabitDate={profile.logsByHabitDate}
-                    />
-                  ))
-                ) : (
-                  <Text
-                    style={[styles.mutedText, { color: theme.textSecondary }]}
-                  >
-                    No visible habits yet.
-                  </Text>
-                )}
-              </View>
+              <ProfileBodyTabs
+                activeSection={activeBodySection}
+                onChange={setActiveBodySection}
+              />
 
-              {posts.length > 0 ? (
-                <View style={styles.postGrid}>
-                  {posts.map((post) => (
-                    <PostTile
-                      key={post.id}
-                      post={post}
-                      size={tileSize}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/post",
-                          params: {
-                            postId: post.id,
-                            source: self ? "self" : "feed",
-                          },
-                        })
-                      }
-                    />
-                  ))}
-                </View>
-              ) : arePostsLoading ? (
-                <View style={styles.emptyPosts}>
-                  <Text
-                    style={[
-                      styles.loadingPostsText,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    Loading posts...
-                  </Text>
-                </View>
+              {activeBodySection === "posts" ? (
+                <ProfilePostsGrid
+                  arePostsLoading={arePostsLoading}
+                  posts={posts}
+                  self={self}
+                  tileSize={tileSize}
+                  onOpenPost={(post) =>
+                    router.push({
+                      pathname: "/post",
+                      params: {
+                        postId: post.id,
+                        source: self ? "self" : "feed",
+                      },
+                    })
+                  }
+                />
+              ) : activeBodySection === "daily" ? (
+                <ProfileDailyHabits
+                  dateKeys={profile.dateKeys}
+                  habits={habits}
+                  logsByHabitDate={profile.logsByHabitDate}
+                  profile={profile}
+                />
               ) : (
-                <View style={styles.emptyPosts}>
-                  <BrandedEmptyState
-                    compact
-                    title={self ? "No posts yet" : "No visible posts yet"}
-                    description={
-                      self
-                        ? "Completed habits with a note or photo will show up here."
-                        : "Posts this friend shares with you will appear here."
-                    }
-                  />
-                </View>
+                <ProfilePeriodicHabits
+                  dateKeys={profile.dateKeys}
+                  habits={profile.periodicHabits}
+                  logsByHabitDate={profile.logsByHabitDate}
+                />
               )}
             </>
           ) : null}
@@ -427,6 +430,240 @@ export function FriendProfileScreen({
         onClose={() => setIsFriendsSheetOpen(false)}
         onOpenFriend={openFriendProfile}
       />
+    </View>
+  );
+}
+
+function ProfileBodyTabs({
+  activeSection,
+  onChange,
+}: {
+  activeSection: ProfileBodySection;
+  onChange: (section: ProfileBodySection) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.profileBodyTabs}>
+      {PROFILE_BODY_SECTIONS.map((section) => {
+        const isActive = section.key === activeSection;
+        return (
+          <Pressable
+            key={section.key}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            onPress={() => onChange(section.key)}
+            style={({ pressed }) => [
+              styles.profileBodyTab,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.profileBodyTabText,
+                { color: isActive ? theme.text : theme.textSecondary },
+              ]}
+            >
+              {section.label}
+            </Text>
+            <View
+              style={[
+                styles.profileBodyTabIndicator,
+                { backgroundColor: isActive ? theme.primary : "transparent" },
+              ]}
+            />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function ProfilePostsGrid({
+  arePostsLoading,
+  onOpenPost,
+  posts,
+  self,
+  tileSize,
+}: {
+  arePostsLoading: boolean;
+  onOpenPost: (post: FriendFeedEntry) => void;
+  posts: FriendFeedEntry[];
+  self: boolean;
+  tileSize: number;
+}) {
+  const theme = useTheme();
+
+  if (posts.length > 0) {
+    return (
+      <View style={styles.postGrid}>
+        {posts.map((post) => (
+          <PostTile
+            key={post.id}
+            post={post}
+            size={tileSize}
+            onPress={() => onOpenPost(post)}
+          />
+        ))}
+      </View>
+    );
+  }
+
+  if (arePostsLoading) {
+    return (
+      <View style={styles.emptyPosts}>
+        <Text style={[styles.loadingPostsText, { color: theme.textSecondary }]}>
+          Loading posts...
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.emptyPosts}>
+      <BrandedEmptyState
+        compact
+        title={self ? "No posts yet" : "No visible posts yet"}
+        description={
+          self
+            ? "Completed habits with a note or photo will show up here."
+            : "Posts this friend shares with you will appear here."
+        }
+      />
+    </View>
+  );
+}
+
+function ProfileDailyHabits({
+  dateKeys,
+  habits,
+  logsByHabitDate,
+  profile,
+}: {
+  dateKeys: string[];
+  habits: FriendProfileHabit[];
+  logsByHabitDate: FriendProfile["logsByHabitDate"];
+  profile: FriendProfile;
+}) {
+  const theme = useTheme();
+
+  if (habits.length === 0) {
+    return (
+      <View style={styles.compactDashboard}>
+        <Text style={[styles.mutedText, { color: theme.textSecondary }]}>
+          No visible habits yet.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.compactDashboard}>
+      <Text style={[styles.profileGridCaption, { color: theme.textSecondary }]}>
+        Last 7 Days
+      </Text>
+      {profile.categories.map((category) => {
+        const categoryHabits = category.habits.filter(
+          (habit) => habits.some((visibleHabit) => visibleHabit.id === habit.id),
+        );
+        if (categoryHabits.length === 0) return null;
+
+        return (
+          <View key={category.id} style={styles.profileHabitGroup}>
+            <Text
+              style={[
+                styles.profileHabitGroupTitle,
+                { color: theme.textSecondary },
+              ]}
+            >
+              {category.name.toUpperCase()}
+            </Text>
+            {categoryHabits.map((habit) => (
+              <CompactHabitRow
+                key={habit.id}
+                days={dateKeys}
+                habit={habit}
+                logsByHabitDate={logsByHabitDate}
+              />
+            ))}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function ProfilePeriodicHabits({
+  dateKeys,
+  habits,
+  logsByHabitDate,
+}: {
+  dateKeys: string[];
+  habits: FriendProfilePeriodicHabit[];
+  logsByHabitDate: FriendProfile["logsByHabitDate"];
+}) {
+  const theme = useTheme();
+
+  if (habits.length === 0) {
+    return (
+      <View style={styles.periodicList}>
+        <Text style={[styles.mutedText, { color: theme.textSecondary }]}>
+          No periodic habits yet.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.periodicList}>
+      {habits.map((habit) => (
+        <PeriodicHabitRow
+          key={habit.id}
+          dateKeys={dateKeys}
+          habit={habit}
+          logsByHabitDate={logsByHabitDate}
+        />
+      ))}
+    </View>
+  );
+}
+
+function PeriodicHabitRow({
+  dateKeys,
+  habit,
+  logsByHabitDate,
+}: {
+  dateKeys: string[];
+  habit: FriendProfilePeriodicHabit;
+  logsByHabitDate: FriendProfile["logsByHabitDate"];
+}) {
+  const theme = useTheme();
+  const completed = dateKeys.filter(
+    (dateKey) => logsByHabitDate[`${habit.id}_${dateKey}`] === "complete",
+  ).length;
+  const target = Math.max(1, habit.frequencyGoal ?? 1);
+  const progress = Math.min(1, completed / target);
+
+  return (
+    <View style={[styles.periodicRow, { borderBottomColor: theme.tabBorder }]}>
+      <View style={[styles.periodicIcon, { backgroundColor: theme.secondary }]}>
+        <GoalIcon
+          iconKey={habit.iconKey}
+          size={18}
+          color={theme.secondaryForeground}
+        />
+      </View>
+      <View style={styles.periodicProgressTrack}>
+        <View
+          style={[
+            styles.periodicProgressFill,
+            { width: `${progress * 100}%`, backgroundColor: theme.primary },
+          ]}
+        />
+      </View>
+      <Text style={[styles.periodicCount, { color: theme.textSecondary }]}>
+        {completed}/{target}
+      </Text>
     </View>
   );
 }
@@ -484,28 +721,36 @@ function ProfileStat({
   value: number;
 }) {
   const theme = useTheme();
-  const Container = onPress ? Pressable : View;
 
-  return (
-    <Container
-      accessibilityLabel={`${value.toLocaleString()} ${label}`}
-      accessibilityRole={onPress ? "button" : undefined}
-      disabled={!onPress}
-      onPress={onPress}
-      style={({ pressed }: { pressed: boolean }) => [
-        styles.stat,
-        onPress && styles.pressableStat,
-        pressed && styles.pressed,
-      ]}
-    >
+  const content = (
+    <>
       <Text style={[styles.statValue, { color: theme.text }]}>
         {value.toLocaleString()}
       </Text>
       <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
         {label}
       </Text>
-    </Container>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityLabel={`${value.toLocaleString()} ${label}`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.stat,
+          styles.pressableStat,
+          pressed && styles.pressed,
+        ]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.stat}>{content}</View>;
 }
 
 function FriendsListSheet({
@@ -798,6 +1043,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
+  headerMenuWrap: {
+    flex: 1,
+    alignItems: "flex-start",
+  },
   headerSpacer: { width: 42 },
   content: {
     maxWidth: MaxContentWidth,
@@ -819,12 +1068,17 @@ const styles = StyleSheet.create({
   },
   errorText: { color: "#9D474D", fontSize: 14, fontWeight: "700" },
   retryText: { fontSize: 14, fontWeight: "800" },
-  profileTop: {
+  profileSummary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 22,
+    justifyContent: "space-between",
+    gap: 14,
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 18,
+  },
+  profileIdentity: {
+    width: 118,
+    flexShrink: 0,
   },
   profileActions: {
     alignItems: "flex-start",
@@ -849,18 +1103,17 @@ const styles = StyleSheet.create({
   statsRow: {
     flex: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
     justifyContent: "space-between",
-    rowGap: 10,
+    gap: 5,
   },
-  stat: { width: "48%", alignItems: "center" },
+  stat: { flex: 1, minWidth: 0, alignItems: "center" },
   pressableStat: {
     borderRadius: 12,
   },
   statValue: {
     fontFamily: Fonts.rounded,
-    fontSize: 20,
-    lineHeight: 23,
+    fontSize: 18,
+    lineHeight: 21,
     fontWeight: "900",
   },
   statLabel: {
@@ -871,17 +1124,56 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   profileName: {
-    paddingHorizontal: 22,
-    paddingTop: 12,
+    marginTop: 10,
     fontFamily: Fonts.rounded,
     fontSize: 16,
+    lineHeight: 19,
     fontWeight: "900",
+  },
+  profileBodyTabs: {
+    flexDirection: "row",
+    gap: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  profileBodyTab: {
+    gap: 7,
+    borderRadius: 8,
+    paddingVertical: 4,
+  },
+  profileBodyTabText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+  },
+  profileBodyTabIndicator: {
+    height: 3,
+    borderRadius: 999,
   },
   compactDashboard: {
     gap: 7,
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 18,
+  },
+  profileGridCaption: {
+    alignSelf: "center",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "900",
+  },
+  profileHabitGroup: {
+    gap: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#2B3038",
+    paddingTop: 14,
+    marginTop: 8,
+  },
+  profileHabitGroupTitle: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "900",
+    letterSpacing: 2,
   },
   mutedText: { fontSize: 14, fontWeight: "700", textAlign: "center" },
   habitRow: {
@@ -900,6 +1192,44 @@ const styles = StyleSheet.create({
   },
   dayBlocks: { flex: 1, flexDirection: "row", gap: 4 },
   dayBlock: { flex: 1, height: 28, borderRadius: 7 },
+  periodicList: {
+    gap: 0,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  periodicRow: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  periodicIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  periodicProgressTrack: {
+    flex: 1,
+    height: 9,
+    overflow: "hidden",
+    borderRadius: 999,
+    backgroundColor: "#2B3038",
+  },
+  periodicProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  periodicCount: {
+    width: 42,
+    textAlign: "right",
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: "900",
+  },
   tooltip: {
     position: "absolute",
     left: 34,

@@ -223,6 +223,15 @@ const TABS: TabItem[] = [
             web: "menu_book",
           },
         },
+        {
+          label: "Profile",
+          href: "/history?section=profile",
+          icon: {
+            ios: "person.crop.circle",
+            android: "account_circle",
+            web: "account_circle",
+          },
+        },
       ],
     },
   },
@@ -546,6 +555,7 @@ function rememberSubmenuSelection(href: Href) {
   const historySections: Record<string, HistorySection> = {
     "/history?section=dashboard": "dashboard",
     "/history?section=journal": "journal",
+    "/history?section=profile": "profile",
   };
 
   const planReportView = planReportViews[href];

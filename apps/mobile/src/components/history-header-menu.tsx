@@ -5,13 +5,16 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 
-export type HistorySection = "dashboard" | "journal";
+export type HistorySection = "dashboard" | "journal" | "profile";
 
 const MENU_ITEMS: {
   id: HistorySection;
   title: string;
-  href: "/history?section=dashboard" | "/history?section=journal";
-  image: "gauge.with.dots.needle.50percent" | "book.fill";
+  href:
+    | "/history?section=dashboard"
+    | "/history?section=journal"
+    | "/history?section=profile";
+  image: "gauge.with.dots.needle.50percent" | "book.fill" | "person.crop.circle";
 }[] = [
   {
     id: "dashboard",
@@ -24,6 +27,12 @@ const MENU_ITEMS: {
     title: "Journal",
     href: "/history?section=journal",
     image: "book.fill",
+  },
+  {
+    id: "profile",
+    title: "Profile",
+    href: "/history?section=profile",
+    image: "person.crop.circle",
   },
 ];
 
@@ -91,7 +100,9 @@ export function HistoryHeaderMenu({
 function isHistorySection(
   section: string | undefined,
 ): section is HistorySection {
-  return section === "dashboard" || section === "journal";
+  return (
+    section === "dashboard" || section === "journal" || section === "profile"
+  );
 }
 
 const styles = StyleSheet.create({

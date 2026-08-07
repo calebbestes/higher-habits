@@ -8,7 +8,7 @@ import {
   tasks,
   users,
 } from "@habit/db";
-import { and, asc, eq, gte, inArray, isNotNull, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -125,6 +125,36 @@ export async function GET(
     const visibleHabits = dailyHabitRows.filter((habit) =>
       visibleHabitIds.has(habit.id),
     );
+    const periodicHabitRows = await db
+      .select({
+        id: habits.id,
+        name: habits.name,
+        iconKey: habits.iconKey,
+        categoryId: habits.categoryId,
+        priority: habits.priority,
+        visibility: habits.visibility,
+        period: habits.period,
+        frequencyGoal: habits.frequencyGoal,
+        defaultComplete: habits.defaultComplete,
+      })
+      .from(habits)
+      .where(
+        and(
+          eq(habits.userId, friendId),
+          ne(habits.period, "daily"),
+          eq(habits.hidden, false),
+        ),
+      )
+      .orderBy(asc(habits.priority), asc(habits.name));
+    const visiblePeriodicHabitIds = await getVisibleGoalIdsForFriend(
+      db,
+      user.id,
+      friendId,
+      periodicHabitRows,
+    );
+    const visiblePeriodicHabits = periodicHabitRows.filter((habit) =>
+      visiblePeriodicHabitIds.has(habit.id),
+    );
     const friendRows = await db
       .select({ id: friends.id })
       .from(friends)
@@ -136,7 +166,10 @@ export async function GET(
       );
     const dateKeys = getRecentDateKeys(7);
     const startDateKey = dateKeys[0] ?? mountainDateKey();
-    const visibleHabitIdList = visibleHabits.map((habit) => habit.id);
+    const visibleHabitIdList = [
+      ...visibleHabits.map((habit) => habit.id),
+      ...visiblePeriodicHabits.map((habit) => habit.id),
+    ];
     const completedHabitRows =
       visibleHabitIdList.length > 0
         ? await db
@@ -202,6 +235,7 @@ export async function GET(
           name: string;
           iconKey: string;
           priority: "high" | "low";
+          visibility: "only_me" | "goal_friends" | "all_friends";
           defaultComplete: boolean;
         }>;
       }
@@ -220,6 +254,7 @@ export async function GET(
         name: habit.name,
         iconKey: habit.iconKey,
         priority: habit.priority,
+        visibility: habit.visibility,
         defaultComplete: habit.defaultComplete,
       });
       categoriesById.set(habit.categoryId, category);
@@ -242,6 +277,17 @@ export async function GET(
       },
       dateKeys,
       categories: [...categoriesById.values()],
+      periodicHabits: visiblePeriodicHabits.map((habit) => ({
+        id: habit.id,
+        name: habit.name,
+        iconKey: habit.iconKey,
+        categoryId: habit.categoryId,
+        priority: habit.priority,
+        visibility: habit.visibility,
+        period: habit.period,
+        frequencyGoal: habit.frequencyGoal,
+        defaultComplete: habit.defaultComplete,
+      })),
       logsByHabitDate,
     });
   } catch (error) {
