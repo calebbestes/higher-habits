@@ -20,7 +20,10 @@ import {
   CelebrationOverlay,
   confettiSource,
 } from "@/components/celebration-overlay";
-import { CreateHeaderMenu } from "@/components/create-header-menu";
+import {
+  CreateSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { toInput } from "@/components/tasks/shared";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
@@ -508,12 +511,8 @@ export function TasksScreen() {
           <View style={styles.header}>
             <View style={styles.headerIdentity}>
               <View style={styles.headerText}>
-                <CreateHeaderMenu currentSection="tasks" />
-                <Text
-                  style={[styles.description, { color: theme.textSecondary }]}
-                >
-                  Plan what matters and clear it daily
-                </Text>
+                <PageHeaderTitle title="Create" />
+                <CreateSectionHeaderTabs currentSection="tasks" />
               </View>
             </View>
             <Pressable
@@ -921,7 +920,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 11,
   },
-  headerText: { flex: 1, minWidth: 0 },
+  headerText: { flex: 1, minWidth: 0, gap: 1 },
   headerIcon: {
     width: 42,
     height: 42,

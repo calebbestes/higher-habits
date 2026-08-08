@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect } from "react";
 
 import { FeedScreen } from "@/components/feed-screen";
-import { FriendsScreen } from "@/components/friends-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
 import { SwipePageTransition } from "@/components/swipe-page-transition";
@@ -16,7 +15,6 @@ import {
 
 const COLLAB_ORDER: readonly CollabSection[] = [
   "feed",
-  "friends",
   "incentives",
   "shared-goals",
 ];
@@ -27,16 +25,21 @@ export default function CollabScreen() {
   const rememberedSection = useCollabSection();
   const activeSection =
     section === "feed" ||
-    section === "friends" ||
     section === "incentives" ||
     section === "shared-goals"
       ? section
-      : rememberedSection;
+      : rememberedSection === "friends"
+        ? "feed"
+        : rememberedSection;
 
   useEffect(() => {
+    if (section === "friends") {
+      router.replace("/friends");
+      return;
+    }
+
     if (
       section === "feed" ||
-      section === "friends" ||
       section === "incentives" ||
       section === "shared-goals"
     ) {
@@ -56,8 +59,6 @@ export default function CollabScreen() {
 
   if (activeSection === "feed") {
     content = <FeedScreen />;
-  } else if (activeSection === "friends") {
-    content = <FriendsScreen />;
   } else if (activeSection === "shared-goals") {
     content = <SharedGoalsScreen />;
   } else {

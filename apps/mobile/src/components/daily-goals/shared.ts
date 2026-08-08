@@ -113,7 +113,7 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 14,
   },
-  pageHeaderText: { flex: 1, gap: 1, paddingRight: 54 },
+  pageHeaderText: { flex: 1, minWidth: 0, gap: 1, paddingRight: 54 },
   addButton: {
     width: 42,
     height: 42,

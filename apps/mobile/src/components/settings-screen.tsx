@@ -31,6 +31,7 @@ import {
   type GoogleCalendarStatus,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
+import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   playSelectionHaptic,
   playSuccessHaptic,
@@ -87,7 +88,6 @@ const PLAN_REPORT_DEFAULT_OPTIONS: {
 
 const COLLAB_DEFAULT_OPTIONS: { label: string; value: CollabSection }[] = [
   { label: "Feed", value: "feed" },
-  { label: "Friends", value: "friends" },
   { label: "Incentives", value: "incentives" },
   { label: "Shared Goals", value: "shared-goals" },
 ];
@@ -96,8 +96,8 @@ const APP_START_DEFAULT_OPTIONS: { label: string; value: AppStartPage }[] = [
   { label: "Create", value: "add" },
   { label: "Plan", value: "plan-report" },
   { label: "Collab", value: "collab" },
+  { label: "Friends", value: "friends" },
   { label: "Profile", value: "history" },
-  { label: "Settings", value: "settings" },
 ];
 
 function sym(ios: string, android: string): SymbolName {
@@ -358,12 +358,7 @@ export function SettingsScreen() {
       const response = await authClient.linkSocial({
         provider: "google",
         callbackURL: "/",
-        scopes: [
-          "openid",
-          "email",
-          "profile",
-          "https://www.googleapis.com/auth/calendar.events",
-        ],
+        scopes: GOOGLE_CALENDAR_SCOPES,
       });
 
       if (response.error) {
@@ -550,6 +545,21 @@ export function SettingsScreen() {
     setActiveSubmenu(submenu);
   };
 
+  const goBack = () => {
+    playSelectionHaptic();
+    if (activeSubmenu) {
+      setActiveSubmenu(null);
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace("/history");
+  };
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
@@ -562,28 +572,25 @@ export function SettingsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>
-            {activeSubmenu ? (
-              <Pressable
-                accessibilityLabel="Back to settings"
-                accessibilityRole="button"
-                hitSlop={10}
-                onPress={() => {
-                  playSelectionHaptic();
-                  setActiveSubmenu(null);
-                }}
-                style={({ pressed }) => [
-                  styles.backButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("chevron.left", "chevron_left")}
-                  size={22}
-                  weight="bold"
-                  tintColor={theme.primary}
-                />
-              </Pressable>
-            ) : null}
+            <Pressable
+              accessibilityLabel={
+                activeSubmenu ? "Back to settings" : "Back to profile"
+              }
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={goBack}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("chevron.left", "chevron_left")}
+                size={22}
+                weight="bold"
+                tintColor={theme.primary}
+              />
+            </Pressable>
             <View style={styles.pageHeaderText}>
               <Text style={[styles.pageTitle, { color: theme.text }]}>
                 {headerTitle}

@@ -22,7 +22,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CollabHeaderMenu } from "@/components/collab-header-menu";
+import {
+  CollabSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type FriendIncentiveRow,
@@ -970,7 +973,10 @@ export function IncentivesScreen() {
           },
         ]}
       >
-        <CollabHeaderMenu currentSection="incentives" />
+        <View style={styles.headerTitle}>
+          <PageHeaderTitle title="Collab" />
+          <CollabSectionHeaderTabs currentSection="incentives" />
+        </View>
         <View style={styles.headerActions}>
           <Pressable
             accessibilityLabel="New incentive"
@@ -1149,10 +1155,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 18,
     paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerTitle: { flex: 1, minWidth: 0 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   addButton: {
     width: 38,

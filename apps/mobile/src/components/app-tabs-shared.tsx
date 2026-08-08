@@ -151,7 +151,7 @@ const TABS: TabItem[] = [
     },
     menu: {
       alignment: "center",
-      width: 210,
+      width: 190,
       items: [
         {
           label: "Feed",
@@ -160,15 +160,6 @@ const TABS: TabItem[] = [
             ios: "rectangle.stack",
             android: "feed",
             web: "feed",
-          },
-        },
-        {
-          label: "Friends",
-          href: "/?section=friends",
-          icon: {
-            ios: "person.2.fill",
-            android: "group",
-            web: "group",
           },
         },
         {
@@ -193,6 +184,16 @@ const TABS: TabItem[] = [
     },
   },
   {
+    name: "friends",
+    href: "/friends",
+    label: "Friends",
+    icon: {
+      ios: "person.2.fill",
+      android: "group",
+      web: "group",
+    },
+  },
+  {
     name: "history",
     href: "/history",
     label: "Profile",
@@ -200,49 +201,6 @@ const TABS: TabItem[] = [
       ios: "person.crop.circle.fill",
       android: "account_circle",
       web: "account_circle",
-    },
-    menu: {
-      alignment: "right",
-      width: 190,
-      items: [
-        {
-          label: "Dashboard",
-          href: "/history?section=dashboard",
-          icon: {
-            ios: "gauge.with.dots.needle.50percent",
-            android: "speed",
-            web: "speed",
-          },
-        },
-        {
-          label: "Journal",
-          href: "/history?section=journal",
-          icon: {
-            ios: "book.fill",
-            android: "menu_book",
-            web: "menu_book",
-          },
-        },
-        {
-          label: "Profile",
-          href: "/history?section=profile",
-          icon: {
-            ios: "person.crop.circle",
-            android: "account_circle",
-            web: "account_circle",
-          },
-        },
-      ],
-    },
-  },
-  {
-    name: "settings",
-    href: "/settings",
-    label: "Settings",
-    icon: {
-      ios: "gearshape.fill",
-      android: "settings",
-      web: "settings",
     },
   },
 ];
@@ -550,11 +508,8 @@ function rememberSubmenuSelection(href: Href) {
     "/?section=incentives": "incentives",
     "/?section=shared-goals": "shared-goals",
     "/?section=feed": "feed",
-    "/?section=friends": "friends",
   };
   const historySections: Record<string, HistorySection> = {
-    "/history?section=dashboard": "dashboard",
-    "/history?section=journal": "journal",
     "/history?section=profile": "profile",
   };
 
@@ -601,14 +556,12 @@ function getDefaultTabHref({
     ) as Href;
   }
   if (tab.name === "collab") {
-    return COLLAB_SECTION_HREFS[collabSection] as Href;
+    return (collabSection === "friends"
+      ? COLLAB_SECTION_HREFS.feed
+      : COLLAB_SECTION_HREFS[collabSection]) as Href;
   }
   if (tab.name === "history") {
-    return (
-      historySection === "journal"
-        ? "/history?section=journal"
-        : "/history?section=dashboard"
-    ) as Href;
+    return "/history" as Href;
   }
   return tab.href;
 }

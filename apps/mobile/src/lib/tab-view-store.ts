@@ -34,7 +34,7 @@ export type PlanReportView =
 export type HabitsTab = "daily" | "monthly";
 export type CreateSection = "habits" | "goals" | "tasks";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
-export type HistorySection = "dashboard" | "journal" | "profile";
+export type HistorySection = "profile";
 export type AppStartPage =
   | "add"
   | "plan-report"
@@ -61,7 +61,7 @@ export const COLLAB_SECTION_HREFS = {
   feed: "/?section=feed",
   incentives: "/?section=incentives",
   "shared-goals": "/?section=shared-goals",
-  friends: "/?section=friends",
+  friends: "/friends",
 } as const satisfies Record<CollabSection, string>;
 
 const planReportStore = createSelectionStore<PlanReportView>(
@@ -71,7 +71,7 @@ const planReportDateStore = createSelectionStore<string | null>(null);
 const habitsTabStore = createSelectionStore<HabitsTab>("daily");
 const createStore = createSelectionStore<CreateSection>("habits");
 const collabStore = createSelectionStore<CollabSection>(DEFAULT_COLLAB_SECTION);
-const historyStore = createSelectionStore<HistorySection>("dashboard");
+const historyStore = createSelectionStore<HistorySection>("profile");
 const defaultPlanReportStore = createSelectionStore<PlanReportView>(
   DEFAULT_PLAN_REPORT_VIEW,
 );
@@ -228,8 +228,8 @@ export function getAppStartHref({
   if (defaultAppStartPage === "collab") {
     return COLLAB_SECTION_HREFS[defaultCollabSection];
   }
-  if (defaultAppStartPage === "friends") return "/?section=friends";
-  if (defaultAppStartPage === "history") return "/history?section=dashboard";
+  if (defaultAppStartPage === "friends") return "/friends";
+  if (defaultAppStartPage === "history") return "/history";
   if (defaultAppStartPage === "journal") return "/journal";
   if (defaultAppStartPage === "dashboard") return "/dashboard";
   return "/settings";

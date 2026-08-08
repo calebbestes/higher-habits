@@ -1,5 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import { HistoryHeaderMenu } from "@/components/history-header-menu";
+import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -42,6 +42,7 @@ import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
 type ProfileBodySection = "posts" | "daily" | "periodic";
+type ProfilePostFilter = "all" | "reflections" | `goal:${string}`;
 
 const PROFILE_BODY_SECTIONS: Array<{
   key: ProfileBodySection;
@@ -62,17 +63,52 @@ function hasProfileGridContent(post: FriendFeedEntry) {
   );
 }
 
+function createPrivateProfilePreview({
+  friendId,
+  initialImage,
+  initialName,
+}: {
+  friendId?: string;
+  initialImage?: string;
+  initialName?: string;
+}): FriendProfile {
+  return {
+    friend: {
+      id: friendId ?? "private-profile",
+      friendshipId: null,
+      name: initialName ?? "float user",
+      email: "",
+      image: initialImage ?? null,
+      lastOpenedAt: null,
+    },
+    stats: {
+      friendCount: 0,
+      goalCompletions: 0,
+      habitCompletions: 0,
+      taskCompletions: 0,
+    },
+    dateKeys: [],
+    categories: [],
+    periodicHabits: [],
+    logsByHabitDate: {},
+  };
+}
+
 export function FriendProfileScreen({
   friendId,
   friendshipId,
+  initialImage,
   initialName,
+  privateProfile = false,
   self = false,
   showHistoryHeader = false,
   onBack,
 }: {
   friendId?: string;
   friendshipId?: string;
+  initialImage?: string;
   initialName?: string;
+  privateProfile?: boolean;
   self?: boolean;
   showHistoryHeader?: boolean;
   onBack?: () => void;
@@ -94,6 +130,7 @@ export function FriendProfileScreen({
   const [isNudging, setIsNudging] = useState(false);
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
+  const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
 
   const tileSize = Math.floor((Math.min(width, MaxContentWidth) - 4) / 3);
   const nudgeFriendshipId = profile?.friend.friendshipId ?? friendshipId;
@@ -104,6 +141,19 @@ export function FriendProfileScreen({
 
   const load = useCallback(
     async (refresh = false) => {
+      if (privateProfile) {
+        setProfile(
+          createPrivateProfilePreview({ friendId, initialImage, initialName }),
+        );
+        setPosts([]);
+        setFriends([]);
+        setIsLoading(false);
+        setArePostsLoading(false);
+        setIsRefreshing(false);
+        setError(null);
+        return;
+      }
+
       if (!self && !friendshipId && !friendId) {
         setError("Profile data is unavailable.");
         setIsLoading(false);
@@ -194,7 +244,7 @@ export function FriendProfileScreen({
         }
       }
     },
-    [friendId, friendshipId, self],
+    [friendId, friendshipId, initialImage, initialName, privateProfile, self],
   );
 
   useEffect(
@@ -247,13 +297,20 @@ export function FriendProfileScreen({
     [router],
   );
 
+  const openSettings = useCallback(() => {
+    playSelectionHaptic();
+    router.push("/settings");
+  }, [router]);
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <View style={[styles.header, { borderBottomColor: theme.tabBorder }]}>
           {showHistoryHeader ? (
             <View style={styles.headerMenuWrap}>
-              <HistoryHeaderMenu currentSection="profile" />
+              <Text style={[styles.headerSectionTitle, { color: theme.text }]}>
+                Profile
+              </Text>
             </View>
           ) : onBack ? (
             <Pressable
@@ -285,7 +342,26 @@ export function FriendProfileScreen({
                 (self ? "You" : "Profile")}
             </Text>
           ) : null}
-          {!showHistoryHeader ? <View style={styles.headerSpacer} /> : null}
+          {showHistoryHeader && self ? (
+            <Pressable
+              accessibilityLabel="Open settings"
+              hitSlop={12}
+              onPress={openSettings}
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("gearshape.fill", "settings")}
+                size={22}
+                weight="semibold"
+                tintColor={theme.text}
+              />
+            </Pressable>
+          ) : !showHistoryHeader ? (
+            <View style={styles.headerSpacer} />
+          ) : null}
         </View>
 
         <ScrollView
@@ -387,15 +463,20 @@ export function FriendProfileScreen({
 
               <ProfileBodyTabs
                 activeSection={activeBodySection}
+                locked={privateProfile}
                 onChange={setActiveBodySection}
               />
 
-              {activeBodySection === "posts" ? (
+              {privateProfile ? (
+                <PrivateProfileSection section={activeBodySection} />
+              ) : activeBodySection === "posts" ? (
                 <ProfilePostsGrid
                   arePostsLoading={arePostsLoading}
+                  filter={postFilter}
                   posts={posts}
                   self={self}
                   tileSize={tileSize}
+                  onChangeFilter={setPostFilter}
                   onOpenPost={(post) =>
                     router.push({
                       pathname: "/post",
@@ -436,9 +517,11 @@ export function FriendProfileScreen({
 
 function ProfileBodyTabs({
   activeSection,
+  locked = false,
   onChange,
 }: {
   activeSection: ProfileBodySection;
+  locked?: boolean;
   onChange: (section: ProfileBodySection) => void;
 }) {
   const theme = useTheme();
@@ -458,14 +541,24 @@ function ProfileBodyTabs({
               pressed && styles.pressed,
             ]}
           >
-            <Text
-              style={[
-                styles.profileBodyTabText,
-                { color: isActive ? theme.text : theme.textSecondary },
-              ]}
-            >
-              {section.label}
-            </Text>
+            <View style={styles.profileBodyTabLabel}>
+              {locked ? (
+                <SymbolView
+                  name={sym("lock.fill", "lock")}
+                  size={11}
+                  weight="bold"
+                  tintColor={isActive ? theme.text : theme.textSecondary}
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.profileBodyTabText,
+                  { color: isActive ? theme.text : theme.textSecondary },
+                ]}
+              >
+                {section.label}
+              </Text>
+            </View>
             <View
               style={[
                 styles.profileBodyTabIndicator,
@@ -479,32 +572,167 @@ function ProfileBodyTabs({
   );
 }
 
+function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
+  const theme = useTheme();
+  const label =
+    section === "posts"
+      ? "Posts"
+      : section === "daily"
+        ? "Daily habits"
+        : "Periodic habits";
+
+  return (
+    <View style={styles.privateSection}>
+      <View
+        style={[
+          styles.privateLockCircle,
+          { backgroundColor: theme.backgroundElement },
+        ]}
+      >
+        <SymbolView
+          name={sym("lock.fill", "lock")}
+          size={28}
+          weight="bold"
+          tintColor={theme.textSecondary}
+        />
+      </View>
+      <Text style={[styles.privateTitle, { color: theme.text }]}>
+        {label} are private
+      </Text>
+      <Text style={[styles.privateText, { color: theme.textSecondary }]}>
+        Add them as a friend to see shared activity.
+      </Text>
+    </View>
+  );
+}
+
 function ProfilePostsGrid({
   arePostsLoading,
+  filter,
+  onChangeFilter,
   onOpenPost,
   posts,
   self,
   tileSize,
 }: {
   arePostsLoading: boolean;
+  filter: ProfilePostFilter;
+  onChangeFilter: (filter: ProfilePostFilter) => void;
   onOpenPost: (post: FriendFeedEntry) => void;
   posts: FriendFeedEntry[];
   self: boolean;
   tileSize: number;
 }) {
   const theme = useTheme();
+  const goalOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    for (const post of posts) {
+      if (post.kind === "reflection") continue;
+      byId.set(post.goal.id, { id: post.goal.id, name: post.goal.name });
+    }
+    return [...byId.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }, [posts]);
+  const hasReflections = posts.some((post) => post.kind === "reflection");
+  const filterActions = useMemo<MenuAction[]>(() => {
+    const actions: MenuAction[] = [
+      {
+        id: "all",
+        image: "square.grid.2x2",
+        state: filter === "all" ? "on" : undefined,
+        title: "All posts",
+      },
+    ];
+
+    if (hasReflections) {
+      actions.push({
+        id: "reflections",
+        image: "sparkles",
+        state: filter === "reflections" ? "on" : undefined,
+        title: "Daily reflections",
+      });
+    }
+
+    if (goalOptions.length > 0) {
+      actions.push({
+        displayInline: true,
+        subactions: goalOptions.map((goal) => ({
+          id: `goal:${goal.id}`,
+          state: filter === `goal:${goal.id}` ? "on" : undefined,
+          title: goal.name,
+        })),
+        title: "Habits",
+      });
+    }
+
+    return actions;
+  }, [filter, goalOptions, hasReflections]);
+  const selectedFilterLabel =
+    filter === "all"
+      ? "All posts"
+      : filter === "reflections"
+        ? "Daily reflections"
+        : (goalOptions.find((goal) => filter === `goal:${goal.id}`)?.name ??
+          "All posts");
+  const filteredPosts = useMemo(() => {
+    if (filter === "all") return posts;
+    if (filter === "reflections") {
+      return posts.filter((post) => post.kind === "reflection");
+    }
+    const goalId = filter.slice("goal:".length);
+    return posts.filter(
+      (post) => post.kind !== "reflection" && post.goal.id === goalId,
+    );
+  }, [filter, posts]);
+
+  useEffect(() => {
+    if (
+      filter !== "all" &&
+      filter !== "reflections" &&
+      !goalOptions.some((goal) => filter === `goal:${goal.id}`)
+    ) {
+      onChangeFilter("all");
+    }
+    if (filter === "reflections" && !hasReflections) {
+      onChangeFilter("all");
+    }
+  }, [filter, goalOptions, hasReflections, onChangeFilter]);
 
   if (posts.length > 0) {
     return (
-      <View style={styles.postGrid}>
-        {posts.map((post) => (
-          <PostTile
-            key={post.id}
-            post={post}
-            size={tileSize}
-            onPress={() => onOpenPost(post)}
-          />
-        ))}
+      <View>
+        <ProfilePostFilterButton
+          actions={filterActions}
+          value={selectedFilterLabel}
+          onSelect={(event) => {
+            if (event === "all" || event === "reflections") {
+              onChangeFilter(event);
+            } else if (event.startsWith("goal:")) {
+              onChangeFilter(event as ProfilePostFilter);
+            }
+          }}
+        />
+        {filteredPosts.length > 0 ? (
+          <View style={styles.postGrid}>
+            {filteredPosts.map((post) => (
+              <PostTile
+                key={post.id}
+                post={post}
+                size={tileSize}
+                onPress={() => onOpenPost(post)}
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptyPosts}>
+            <Text
+              style={[styles.loadingPostsText, { color: theme.textSecondary }]}
+            >
+              No posts for this filter.
+            </Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -531,6 +759,57 @@ function ProfilePostsGrid({
         }
       />
     </View>
+  );
+}
+
+function ProfilePostFilterButton({
+  actions,
+  onSelect,
+  value,
+}: {
+  actions: MenuAction[];
+  onSelect: (event: string) => void;
+  value: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.profilePostFilterMenu}
+      title="Filter posts"
+    >
+      <View
+        accessible
+        accessibilityLabel={`Filter posts. Currently ${value}`}
+        accessibilityRole="button"
+        style={[
+          styles.profilePostFilterButton,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <SymbolView
+          name={sym("line.3.horizontal.decrease", "filter_list")}
+          size={16}
+          tintColor={theme.primary}
+        />
+        <Text
+          numberOfLines={1}
+          style={[styles.profilePostFilterValue, { color: theme.text }]}
+        >
+          {value}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "expand_more")}
+          size={13}
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -1036,6 +1315,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerIconButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTitle: {
     flex: 1,
     textAlign: "center",
@@ -1046,6 +1331,11 @@ const styles = StyleSheet.create({
   headerMenuWrap: {
     flex: 1,
     alignItems: "flex-start",
+  },
+  headerSectionTitle: {
+    fontSize: 25,
+    lineHeight: 29,
+    fontWeight: "800",
   },
   headerSpacer: { width: 42 },
   content: {
@@ -1141,6 +1431,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 4,
   },
+  profileBodyTabLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   profileBodyTabText: {
     fontSize: 13,
     lineHeight: 16,
@@ -1161,6 +1456,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "900",
+  },
+  privateSection: {
+    minHeight: 260,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 32,
+    paddingTop: 28,
+  },
+  privateLockCircle: {
+    width: 72,
+    height: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 36,
+  },
+  privateTitle: {
+    marginTop: 4,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  privateText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+    textAlign: "center",
   },
   profileHabitGroup: {
     gap: 7,
@@ -1229,6 +1552,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 17,
     fontWeight: "900",
+  },
+  profilePostFilterMenu: {
+    alignSelf: "flex-start",
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 10,
+  },
+  profilePostFilterButton: {
+    minHeight: 36,
+    maxWidth: 260,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+  },
+  profilePostFilterValue: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   tooltip: {
     position: "absolute",

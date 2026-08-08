@@ -20,6 +20,9 @@ export async function mobileApiFetch(path: string, init?: RequestInit) {
     const timeZone = getDeviceTimeZone();
     if (timeZone) headers.set("X-Client-Time-Zone", timeZone);
   }
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", "no-cache");
+  }
 
   if (isNative) {
     const cookie = authClient.getCookie();

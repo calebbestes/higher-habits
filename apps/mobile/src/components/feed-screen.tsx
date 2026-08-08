@@ -32,12 +32,15 @@ import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
-import { CollabHeaderMenu } from "@/components/collab-header-menu";
 import {
   type ImageNaturalSize,
   PhotoBackdropHitTargets,
   getContainedImageFrame,
 } from "@/components/photo-backdrop-hit-targets";
+import {
+  CollabSectionHeaderTabs,
+  PageHeaderTitle,
+} from "@/components/section-header-tabs";
 import {
   CreateGoalModal,
   type CreateSharedGoalInitialValues,
@@ -1472,7 +1475,8 @@ export function FeedScreen() {
             {/* Page header */}
             <View style={styles.pageHeader}>
               <View style={styles.pageHeaderText}>
-                <CollabHeaderMenu currentSection="feed" />
+                <PageHeaderTitle title="Collab" />
+                <CollabSectionHeaderTabs currentSection="feed" />
               </View>
               <Pressable
                 accessibilityLabel="Filter feed"
@@ -4496,7 +4500,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 14,
   },
-  pageHeaderText: { flex: 1, gap: 1 },
+  pageHeaderText: { flex: 1, minWidth: 0, gap: 1 },
   filterButton: {
     width: 36,
     height: 36,

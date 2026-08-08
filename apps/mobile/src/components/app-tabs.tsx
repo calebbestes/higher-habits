@@ -41,6 +41,11 @@ export default function AppTabs() {
           <NativeTabs.Trigger.Label>Collab</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
+        <NativeTabs.Trigger name="friends">
+          <NativeTabs.Trigger.Icon md="group" sf="person.2.fill" />
+          <NativeTabs.Trigger.Label>Friends</NativeTabs.Trigger.Label>
+        </NativeTabs.Trigger>
+
         <NativeTabs.Trigger name="history">
           <NativeTabs.Trigger.Icon
             md="account_circle"
@@ -49,10 +54,6 @@ export default function AppTabs() {
           <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
-        <NativeTabs.Trigger name="settings">
-          <NativeTabs.Trigger.Icon md="settings" sf="gearshape.fill" />
-          <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
-        </NativeTabs.Trigger>
       </NativeTabs>
     </View>
   );
