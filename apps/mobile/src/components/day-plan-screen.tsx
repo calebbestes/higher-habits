@@ -4720,6 +4720,13 @@ function getEntryColors(
   }
 
   if (entry.kind === "task") {
+    if (entry.completed) {
+      return {
+        backgroundColor: "#5F6368",
+        color: "#FFFFFF",
+      };
+    }
+
     return {
       backgroundColor: "#EF767A",
       color: "#1A090A",
