@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { NotificationSettingsModal } from "@/components/notification-settings-screen";
+import { DatePartPicker } from "@/components/date-part-picker";
 import {
   ColorThemeOptions,
   ColorThemeOrder,
@@ -25,6 +26,10 @@ import {
 } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  fetchAccountProfile,
+  updateAccountProfile,
+} from "@/lib/account-client";
 import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
 import {
@@ -131,6 +136,9 @@ export function SettingsScreen() {
       defaultCollabSection: USER_SETTING_DEFAULTS.defaultCollabSection,
       defaultPlanReportView: USER_SETTING_DEFAULTS.defaultPlanReportView,
     });
+  const [birthday, setBirthday] = useState<string | null>(null);
+  const [isBirthdayLoading, setIsBirthdayLoading] = useState(false);
+  const [isBirthdaySaving, setIsBirthdaySaving] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<SettingsSubmenu | null>(
     null,
   );
@@ -152,6 +160,24 @@ export function SettingsScreen() {
   useEffect(() => {
     void loadGoogleCalendarStatus();
   }, [loadGoogleCalendarStatus]);
+
+  useEffect(() => {
+    let active = true;
+    setIsBirthdayLoading(true);
+
+    void fetchAccountProfile()
+      .then((profile) => {
+        if (active) setBirthday(profile.birthday);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setIsBirthdayLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -348,6 +374,34 @@ export function SettingsScreen() {
     } finally {
       setIsUploadingPhoto(false);
     }
+  };
+
+  const saveBirthday = (nextBirthday: string | null) => {
+    if (!nextBirthday || nextBirthday === birthday || isBirthdaySaving) {
+      playSelectionHaptic();
+      return;
+    }
+
+    const previousBirthday = birthday;
+    setBirthday(nextBirthday);
+    setIsBirthdaySaving(true);
+
+    updateAccountProfile({ birthday: nextBirthday })
+      .then((profile) => {
+        setBirthday(profile.birthday);
+        playSuccessHaptic();
+      })
+      .catch((birthdayError: unknown) => {
+        setBirthday(previousBirthday);
+        playWarningHaptic();
+        Alert.alert(
+          "Birthday",
+          birthdayError instanceof Error
+            ? birthdayError.message
+            : "Could not save your birthday.",
+        );
+      })
+      .finally(() => setIsBirthdaySaving(false));
   };
 
   const connectGoogleCalendar = async () => {
@@ -843,6 +897,12 @@ export function SettingsScreen() {
 
           {activeSubmenu === "account" ? (
             <SettingsGroup title="Account">
+              <BirthdaySettingsRow
+                isLoading={isBirthdayLoading}
+                isSaving={isBirthdaySaving}
+                onChange={saveBirthday}
+                value={birthday}
+              />
               <Pressable
                 accessibilityRole="button"
                 disabled={isSigningOut || isDeletingAccount}
@@ -985,6 +1045,48 @@ function ColorThemePickerRow({
             </Pressable>
           );
         })}
+      </View>
+    </View>
+  );
+}
+
+function BirthdaySettingsRow({
+  isLoading,
+  isSaving,
+  onChange,
+  value,
+}: {
+  isLoading: boolean;
+  isSaving: boolean;
+  onChange: (value: string | null) => void;
+  value: string | null;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.birthdayRow, { borderBottomColor: theme.tabBorder }]}>
+      <View style={styles.birthdayRowHeader}>
+        <SymbolView
+          name={sym("birthday.cake.fill", "cake")}
+          size={20}
+          weight="semibold"
+          tintColor={theme.primary}
+        />
+        <View style={styles.birthdayRowText}>
+          <Text style={[styles.rowTitle, { color: theme.text }]}>Birthday</Text>
+          <Text style={[styles.birthdayStatus, { color: theme.textSecondary }]}>
+            {isLoading ? "Loading" : isSaving ? "Saving" : "Shown to friends"}
+          </Text>
+        </View>
+      </View>
+      <View style={[isSaving && styles.disabled]}>
+        <DatePartPicker
+          compact
+          defaultValue="2000-01-01"
+          onChange={onChange}
+          value={value}
+          yearMode="past"
+        />
       </View>
     </View>
   );
@@ -1229,6 +1331,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  birthdayRow: {
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  birthdayRowHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  birthdayRowText: { flex: 1, gap: 2 },
+  birthdayStatus: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
   colorSwatchButton: {
     width: 34,
     height: 34,
@@ -1278,5 +1393,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.8,
   },
+  disabled: { opacity: 0.45 },
   pressed: { opacity: 0.6 },
 });

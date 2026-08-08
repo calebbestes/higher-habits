@@ -113,7 +113,7 @@ export function FriendsScreen() {
   const [search, setSearch] = useState("");
   const [activeSection, setActiveSection] = useState<FriendsSection>("friends");
   const [friendsSortMode, setFriendsSortMode] =
-    useState<FriendsSortMode>("recent");
+    useState<FriendsSortMode>("birthday");
   const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);

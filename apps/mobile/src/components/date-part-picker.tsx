@@ -59,8 +59,15 @@ function getTodayDateParts(): DateKeyParts {
   };
 }
 
-function getDatePartsForPicker(dateKey: string | null | undefined) {
-  return parseDateKeyParts(dateKey) ?? getTodayDateParts();
+function getDatePartsForPicker(
+  dateKey: string | null | undefined,
+  defaultValue?: string,
+) {
+  return (
+    parseDateKeyParts(dateKey) ??
+    parseDateKeyParts(defaultValue) ??
+    getTodayDateParts()
+  );
 }
 
 function getDaysInMonth(year: number, month: number) {
@@ -86,27 +93,39 @@ function updateDatePart(
   return formatDateKey({ ...next, day: Math.min(next.day, daysInMonth) });
 }
 
-function getYearOptions(selectedYear: number | undefined) {
+function getYearOptions(
+  selectedYear: number | undefined,
+  mode: "future" | "past" = "future",
+) {
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 26 }, (_, index) => currentYear + index);
+  const years =
+    mode === "past"
+      ? Array.from({ length: 101 }, (_, index) => currentYear - index)
+      : Array.from({ length: 26 }, (_, index) => currentYear + index);
 
-  // Keep an already-selected past year visible when editing an older item.
+  // Keep an already-selected year visible when editing an item outside range.
   if (selectedYear && !years.includes(selectedYear)) years.push(selectedYear);
 
-  return years.sort((left, right) => left - right);
+  return years.sort((left, right) =>
+    mode === "past" ? right - left : left - right,
+  );
 }
 
 export function DatePartPicker({
   compact,
+  defaultValue,
+  yearMode = "future",
   value,
   onChange,
 }: {
   compact?: boolean;
+  defaultValue?: string;
+  yearMode?: "future" | "past";
   value: string | null | undefined;
   onChange: (value: string | null) => void;
 }) {
   const selected = parseDateKeyParts(value);
-  const pickerParts = getDatePartsForPicker(value);
+  const pickerParts = getDatePartsForPicker(value, defaultValue);
   const daysInMonth = getDaysInMonth(pickerParts.year, pickerParts.month);
 
   const yearActions: MenuAction[] = [
@@ -115,7 +134,7 @@ export function DatePartPicker({
       title: "No date",
       state: menuSelectedState(!selected),
     },
-    ...getYearOptions(selected?.year).map((year) => ({
+    ...getYearOptions(selected?.year, yearMode).map((year) => ({
       id: String(year),
       title: String(year),
       state: menuSelectedState(selected?.year === year),
@@ -154,7 +173,7 @@ export function DatePartPicker({
       return;
     }
 
-    onChange(updateDatePart(value, part, Number(actionId)));
+    onChange(updateDatePart(value ?? defaultValue, part, Number(actionId)));
   };
 
   return (

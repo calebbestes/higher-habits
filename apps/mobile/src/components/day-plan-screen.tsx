@@ -4719,22 +4719,15 @@ function getEntryColors(
     };
   }
 
-  if (entry.kind === "task") {
+  if (entry.completed) {
     return {
-      backgroundColor: "#EF767A",
-      color: "#1A090A",
-    };
-  }
-
-  if (entry.kind === "goal") {
-    return {
-      backgroundColor: "#7BC1AD",
-      color: "#071713",
+      backgroundColor: "#5F6368",
+      color: "#FFFFFF",
     };
   }
 
   return {
-    backgroundColor: "#30BCED",
+    backgroundColor: theme.primary,
     color: "#07171D",
   };
 }

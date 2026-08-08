@@ -1994,8 +1994,11 @@ function DailyReflectionCard({
           ]}
         >
           <Text
-            numberOfLines={2}
-            style={[styles.reflectionCardPromptText, { color: theme.text }]}
+            numberOfLines={1}
+            style={[
+              styles.reflectionCardPromptText,
+              { color: theme.textSecondary },
+            ]}
           >
             {prompt.text}
           </Text>
@@ -2013,16 +2016,16 @@ function DailyReflectionCard({
             <Text
               style={[
                 styles.reflectionTextActionPrimary,
-                { color: theme.primary },
+                { color: theme.textSecondary },
               ]}
             >
               Answer
             </Text>
             <SymbolView
               name={sym("arrow.right", "arrow_forward")}
-              size={13}
-              weight="bold"
-              tintColor={theme.primary}
+              size={8}
+              weight="semibold"
+              tintColor={theme.textSecondary}
             />
           </Pressable>
           <Pressable
@@ -2038,8 +2041,8 @@ function DailyReflectionCard({
           >
             <SymbolView
               name={sym("arrow.triangle.2.circlepath", "refresh")}
-              size={15}
-              weight="semibold"
+              size={9}
+              weight="regular"
               tintColor={theme.textSecondary}
             />
           </Pressable>
@@ -4001,8 +4004,9 @@ function FeedAdCard({
                     styles.nativeAdCta,
                     styles.nativeAdCtaText,
                     {
-                      backgroundColor: theme.primary,
-                      color: theme.primaryForeground,
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: `${theme.primary}3D`,
+                      color: theme.primary,
                     },
                   ]}
                 >
@@ -4695,14 +4699,14 @@ const styles = StyleSheet.create({
   },
   feedList: { gap: 10 },
   pinnedReflection: {
-    marginTop: 12,
+    marginTop: 3,
   },
   reflectionCard: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
+    borderRadius: 7,
     overflow: "hidden",
-    paddingHorizontal: 13,
-    paddingVertical: 11,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   reflectionAccent: {
     position: "absolute",
@@ -4714,12 +4718,12 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 3,
   },
   reflectionCardCopy: {
-    gap: 5,
+    gap: 1,
   },
   reflectionCardEyebrow: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
   },
   reflectionEyebrow: {
     fontSize: 12,
@@ -4736,9 +4740,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   reflectionCardPromptText: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "700",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "500",
   },
   reflectionActionRow: {
     flexDirection: "row",
@@ -4747,26 +4751,26 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   reflectionTextAction: {
-    minHeight: 28,
+    minHeight: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingVertical: 2,
+    gap: 3,
+    paddingVertical: 0,
   },
   reflectionPrimaryAction: {
     alignSelf: "flex-start",
   },
   reflectionIconAction: {
-    width: 30,
-    height: 30,
+    width: 18,
+    height: 18,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 15,
+    borderRadius: 9,
   },
   reflectionTextActionPrimary: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "900",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "600",
   },
   reflectionTextActionSecondary: {
     fontSize: 13,
@@ -5077,16 +5081,20 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   nativeAdCta: {
-    minHeight: 42,
-    borderRadius: 13,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    alignSelf: "flex-start",
+    minHeight: 31,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15.5,
+    paddingHorizontal: 15,
+    paddingVertical: 6,
     textAlign: "center",
   },
   nativeAdCtaText: {
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: "900",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    textTransform: "capitalize",
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
