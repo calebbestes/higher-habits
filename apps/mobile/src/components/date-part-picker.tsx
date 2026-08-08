@@ -59,8 +59,15 @@ function getTodayDateParts(): DateKeyParts {
   };
 }
 
-function getDatePartsForPicker(dateKey: string | null | undefined) {
-  return parseDateKeyParts(dateKey) ?? getTodayDateParts();
+function getDatePartsForPicker(
+  dateKey: string | null | undefined,
+  defaultValue?: string,
+) {
+  return (
+    parseDateKeyParts(dateKey) ??
+    parseDateKeyParts(defaultValue) ??
+    getTodayDateParts()
+  );
 }
 
 function getDaysInMonth(year: number, month: number) {
@@ -106,17 +113,19 @@ function getYearOptions(
 
 export function DatePartPicker({
   compact,
+  defaultValue,
   yearMode = "future",
   value,
   onChange,
 }: {
   compact?: boolean;
+  defaultValue?: string;
   yearMode?: "future" | "past";
   value: string | null | undefined;
   onChange: (value: string | null) => void;
 }) {
   const selected = parseDateKeyParts(value);
-  const pickerParts = getDatePartsForPicker(value);
+  const pickerParts = getDatePartsForPicker(value, defaultValue);
   const daysInMonth = getDaysInMonth(pickerParts.year, pickerParts.month);
 
   const yearActions: MenuAction[] = [
@@ -164,7 +173,7 @@ export function DatePartPicker({
       return;
     }
 
-    onChange(updateDatePart(value, part, Number(actionId)));
+    onChange(updateDatePart(value ?? defaultValue, part, Number(actionId)));
   };
 
   return (

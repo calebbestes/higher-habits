@@ -16,8 +16,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DatePartPicker } from "@/components/date-part-picker";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { updateAccountProfile } from "@/lib/account-client";
 import { authClient } from "@/lib/auth-client";
 import { GOOGLE_SIGN_IN_SCOPES } from "@/lib/google-auth-scopes";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
@@ -55,6 +57,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [birthday, setBirthday] = useState<string | null>(null);
   const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
     null,
   );
@@ -84,11 +87,25 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       return;
     }
 
+    if (isSignUp) {
+      if (!birthday) {
+        setShouldEnterApp(false);
+        setError("Add your birthday before creating an account.");
+        return;
+      }
+
+      await updateAccountProfile({ birthday });
+    }
+
     setShouldEnterApp(true);
   };
 
   const continueWithSocial = async (provider: SocialProvider) => {
     if (isSubmitting) return;
+    if (isSignUp && !birthday) {
+      setError("Add your birthday before creating an account.");
+      return;
+    }
 
     setError(null);
     setSubmitting(provider);
@@ -164,10 +181,12 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         ? await authClient.signUp.email({
             name: name.trim(),
             phoneNumber: phoneNumber.trim(),
+            birthday,
             email: email.trim(),
             password,
             image: profilePhotoDataUrl ?? undefined,
           } as Parameters<typeof authClient.signUp.email>[0] & {
+            birthday?: string | null;
             phoneNumber?: string;
           })
         : await authClient.signIn.email({
@@ -198,7 +217,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const canSubmitEmail =
     email.trim().length > 0 &&
     password.length > 0 &&
-    (!isSignUp || name.trim().length > 0);
+    (!isSignUp || (name.trim().length > 0 && Boolean(birthday)));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -364,6 +383,12 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                       theme={theme}
                       value={phoneNumber}
                     />
+                    <BirthdayPicker
+                      disabled={isSubmitting}
+                      onChange={setBirthday}
+                      theme={theme}
+                      value={birthday}
+                    />
                   </>
                 ) : null}
 
@@ -450,6 +475,33 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
           </View>
         </ScrollView>
       </SafeAreaView>
+    </View>
+  );
+}
+
+function BirthdayPicker({
+  disabled,
+  onChange,
+  theme,
+  value,
+}: {
+  disabled: boolean;
+  onChange: (value: string | null) => void;
+  theme: ReturnType<typeof useTheme>;
+  value: string | null;
+}) {
+  return (
+    <View style={[styles.inputGroup, disabled && styles.disabled]}>
+      <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>
+        Birthday
+      </Text>
+      <DatePartPicker
+        compact
+        defaultValue="2000-01-01"
+        onChange={onChange}
+        value={value}
+        yearMode="past"
+      />
     </View>
   );
 }

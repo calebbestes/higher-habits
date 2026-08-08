@@ -62,6 +62,7 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
@@ -82,10 +83,12 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
       ? await authClient.signUp.email({
           name: name.trim(),
           phoneNumber: phoneNumber.trim(),
+          birthday,
           email: email.trim(),
           password,
           image: profilePicture ?? undefined,
         } as Parameters<typeof authClient.signUp.email>[0] & {
+          birthday?: string;
           phoneNumber?: string;
         })
       : await authClient.signIn.email({
@@ -180,6 +183,14 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
                 onValueChange={setPhoneNumber}
                 autoComplete="tel"
               />
+              <Input
+                label="Birthday"
+                type="date"
+                value={birthday}
+                onValueChange={setBirthday}
+                isRequired
+                max={new Date().toISOString().slice(0, 10)}
+              />
             </>
           ) : null}
           <Input
@@ -205,7 +216,9 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
             className="w-full"
             isLoading={isSubmitting}
             isDisabled={
-              !email.trim() || !password || (isSignUp && !name.trim())
+              !email.trim() ||
+              !password ||
+              (isSignUp && (!name.trim() || !birthday))
             }
           >
             {isSignUp ? "Create account" : "Sign in"}

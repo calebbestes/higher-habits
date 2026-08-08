@@ -16,6 +16,24 @@ import {
 
 // Every new user is automatically made friends with this account.
 const AUTO_FRIEND_EMAIL = "estes.caleb.b@gmail.com";
+const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeDateKey(value: unknown): string | null {
+  if (typeof value !== "string" || !DATE_KEY_REGEX.test(value)) return null;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() + 1 !== month ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return value;
+}
 
 export function createAuth() {
   const db = getDb();
@@ -101,6 +119,10 @@ export function createAuth() {
           type: "string",
           required: false,
         },
+        birthday: {
+          type: "string",
+          required: false,
+        },
       },
     },
     databaseHooks: {
@@ -108,6 +130,7 @@ export function createAuth() {
         create: {
           before: async (
             user: Record<string, unknown> & {
+              birthday?: unknown;
               image?: unknown;
               phoneNumber?: unknown;
             },
@@ -116,10 +139,12 @@ export function createAuth() {
               typeof user.phoneNumber === "string"
                 ? user.phoneNumber.trim()
                 : "";
+            const birthday = normalizeDateKey(user.birthday);
 
             return {
               data: {
                 ...user,
+                birthday,
                 phoneNumber: phoneNumber || null,
               },
             };

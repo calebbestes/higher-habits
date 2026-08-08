@@ -1349,7 +1349,8 @@ function compareEvents(left: WeekEvent, right: WeekEvent): number {
 }
 
 function EventChip({ event }: { event: WeekEvent }) {
-  const palette = eventPalette(event.sourceType);
+  const theme = useTheme();
+  const palette = eventPalette(event.sourceType, theme);
 
   return (
     <View style={[styles.eventChip, { backgroundColor: palette.bg }]}>
@@ -1373,7 +1374,8 @@ function EventBlock({
   laneCount: number;
   laneIndex: number;
 }) {
-  const palette = eventPalette(event.sourceType);
+  const theme = useTheme();
+  const palette = eventPalette(event.sourceType, theme);
   const { end, start } = getEventMinutes(event);
   const top =
     ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT +
@@ -1416,18 +1418,19 @@ function EventBlock({
   );
 }
 
-function eventPalette(sourceType: WeekEventSourceType) {
+function eventPalette(
+  sourceType: WeekEventSourceType,
+  theme: ReturnType<typeof useTheme>,
+) {
   if (sourceType === "google") {
     return { bg: "#5F6368", text: "#FFFFFF" };
   }
-  if (sourceType === "task") {
-    return { bg: "#EF767A", text: "#1A090A" };
-  }
-  if (sourceType === "goal_checkpoint") {
-    return { bg: "#7BC1AD", text: "#071713" };
-  }
-  if (sourceType === "habit_instance") {
-    return { bg: "#30BCED", text: "#07171D" };
+  if (
+    sourceType === "task" ||
+    sourceType === "goal_checkpoint" ||
+    sourceType === "habit_instance"
+  ) {
+    return { bg: theme.primary, text: "#07171D" };
   }
   return { bg: "#8E8E93", text: "#FFFFFF" };
 }
