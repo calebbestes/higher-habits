@@ -56,9 +56,10 @@ export function useTaskProjects() {
     const created = await createProjectApi(name);
     if (isMountedRef.current) {
       setProjects((current) => {
-        const next = [...current, created].sort((a, b) =>
-          a.name.localeCompare(b.name),
-        );
+        const next = [
+          ...current.filter((project) => project.id !== created.id),
+          created,
+        ].sort((a, b) => a.name.localeCompare(b.name));
         setCachedData(TASK_PROJECTS_CACHE_KEY, next);
         return next;
       });

@@ -699,15 +699,14 @@ export function GoalsScreen() {
                 onPress={openCreate}
                 style={({ pressed }) => [
                   styles.addButton,
-                  { backgroundColor: theme.primary },
                   pressed && styles.pressed,
                 ]}
               >
                 <SymbolView
                   name={symbol("plus", "add")}
-                  size={18}
+                  size={28}
                   weight="semibold"
-                  tintColor={theme.primaryForeground}
+                  tintColor={theme.primary}
                 />
               </Pressable>
             </View>

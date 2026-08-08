@@ -103,8 +103,6 @@ const MONTH_ABBRS = [
   "Dec",
 ];
 
-const TILE_SIZE = 16;
-const TILE_GAP = 2;
 const MAX_TILES = 3;
 const PLANNED_STRIPES = Array.from(
   { length: 24 },
@@ -721,15 +719,14 @@ export function MonthlyGoalsScreen({
               style={({ pressed }) => [
                 styles.addButton,
                 styles.headerAddButton,
-                { backgroundColor: theme.primary },
                 pressed && styles.pressed,
               ]}
             >
               <SymbolView
                 name={sym("plus", "add")}
-                size={18}
+                size={28}
                 weight="semibold"
-                tintColor={theme.primaryForeground}
+                tintColor={theme.primary}
               />
             </Pressable>
           </View>
@@ -1010,7 +1007,7 @@ const DayCell = memo(function DayCell({
           borderRightColor: theme.tabBorder,
           borderRightWidth: StyleSheet.hairlineWidth,
         },
-        isSelected && { backgroundColor: `${theme.primary}18` },
+        isSelected && { backgroundColor: `${theme.primary}0F` },
         isOutside && styles.cellOutside,
         pressed && styles.pressed,
       ]}
@@ -1035,7 +1032,9 @@ const DayCell = memo(function DayCell({
                 ? theme.primaryForeground
                 : isSelected
                   ? theme.primary
-                  : theme.text,
+                  : isOutside
+                    ? theme.textSecondary
+                    : theme.text,
             },
           ]}
         >
@@ -1056,31 +1055,28 @@ const DayCell = memo(function DayCell({
                 style={[
                   styles.iconTile,
                   {
-                    backgroundColor: isComplete
-                      ? theme.primary
-                      : isPlanned
-                        ? `${theme.primary}24`
-                        : theme.backgroundElement,
-                    borderColor: isPlanned ? theme.primary : "transparent",
-                    borderWidth: isPlanned ? StyleSheet.hairlineWidth : 0,
+                    opacity: isOutside ? 0.45 : 1,
                   },
                 ]}
               >
                 <GoalIcon
+                  filled={isComplete}
                   iconKey={goal.iconKey}
-                  size={9}
-                  color={isComplete ? theme.primaryForeground : theme.primary}
+                  size={12}
+                  color={
+                    isComplete
+                      ? theme.primary
+                      : isPlanned
+                        ? theme.primary
+                        : theme.textSecondary
+                  }
                 />
               </View>
             );
           })}
           {overflow > 0 ? (
             <View
-              style={[
-                styles.iconTile,
-                styles.overflowTile,
-                { backgroundColor: theme.backgroundElement },
-              ]}
+              style={[styles.overflowTile, { opacity: isOutside ? 0.45 : 1 }]}
             >
               <Text
                 style={[styles.overflowText, { color: theme.textSecondary }]}
@@ -1283,6 +1279,7 @@ function PlanningGoalRow({
   const isComplete = status === "complete";
   const plannedLabel = `${progress.planned}/${progress.target}`;
   const completedLabel = `${progress.completed}/${progress.target}`;
+  const metaLabel = `Planned ${plannedLabel} • Done ${completedLabel} • ${goal.period}`;
 
   return (
     <Pressable
@@ -1295,7 +1292,7 @@ function PlanningGoalRow({
       onPress={onToggle}
       style={({ pressed }) => [
         styles.goalRow,
-        isPlanned && { backgroundColor: `${theme.primary}10` },
+        isPlanned && { backgroundColor: `${theme.primary}0F` },
         pressed && !isComplete && styles.pressed,
       ]}
     >
@@ -1306,7 +1303,7 @@ function PlanningGoalRow({
             backgroundColor: isComplete
               ? theme.primary
               : isPlanned
-                ? `${theme.primary}18`
+                ? `${theme.primary}14`
                 : "transparent",
             borderColor: isPlanned ? theme.primary : theme.tabBorder,
           },
@@ -1333,10 +1330,10 @@ function PlanningGoalRow({
 
       <View style={styles.goalIcon}>
         <GoalIcon
-          filled
+          filled={isPlanned || isComplete}
           iconKey={goal.iconKey}
           size={17}
-          color={theme.primary}
+          color={isPlanned || isComplete ? theme.primary : theme.textSecondary}
         />
       </View>
 
@@ -1351,19 +1348,12 @@ function PlanningGoalRow({
         >
           {goal.name}
         </Text>
-        <View style={styles.progressChipRow}>
-          <ProgressChip
-            icon={sym("calendar", "calendar_today")}
-            label={plannedLabel}
-          />
-          <ProgressChip
-            icon={sym("checkmark.circle", "check_circle")}
-            label={completedLabel}
-          />
-          <Text style={[styles.periodPill, { color: theme.textSecondary }]}>
-            {goal.period}
-          </Text>
-        </View>
+        <Text
+          numberOfLines={1}
+          style={[styles.goalMeta, { color: theme.textSecondary }]}
+        >
+          {metaLabel}
+        </Text>
       </View>
 
       <Pressable
@@ -1387,24 +1377,6 @@ function PlanningGoalRow({
         />
       </Pressable>
     </Pressable>
-  );
-}
-
-function ProgressChip({ icon, label }: { icon: SymbolName; label: string }) {
-  const theme = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.progressChip,
-        { backgroundColor: theme.backgroundElement },
-      ]}
-    >
-      <SymbolView name={icon} size={11} tintColor={theme.primary} />
-      <Text style={[styles.progressChipText, { color: theme.textSecondary }]}>
-        {label}
-      </Text>
-    </View>
   );
 }
 
@@ -1464,8 +1436,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "800",
-    letterSpacing: -0.3,
+    fontWeight: "700",
   },
   monthNavRight: {
     flexDirection: "row",
@@ -1520,51 +1491,56 @@ const styles = StyleSheet.create({
   dayHeaderText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     textTransform: "uppercase",
   },
   weekRow: { flexDirection: "row" },
   cell: {
     flex: 1,
-    minHeight: 76,
-    paddingTop: 8,
+    minHeight: 72,
+    paddingTop: 7,
     paddingBottom: 6,
     alignItems: "center",
-    gap: 4,
+    gap: 5,
   },
   cellOutside: { opacity: 0.35 },
   dayNumCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
   },
   dayNum: {
     fontSize: 12,
     lineHeight: 14,
-    fontWeight: "700",
+    fontWeight: "600",
     textAlign: "center",
   },
   tilesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: TILE_GAP,
+    columnGap: 5,
+    rowGap: 3,
     justifyContent: "center",
-    maxWidth: TILE_SIZE * MAX_TILES + TILE_GAP * (MAX_TILES - 1) + 4,
+    maxWidth: 44,
   },
   iconTile: {
-    width: TILE_SIZE,
-    height: TILE_SIZE,
-    borderRadius: 5,
+    width: 16,
+    height: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  overflowTile: {},
+  overflowTile: {
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   overflowText: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "800",
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "700",
   },
   // Detail panel
   detailPanel: {
@@ -1582,7 +1558,7 @@ const styles = StyleSheet.create({
   detailDate: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   detailHint: {
     fontSize: 12,
@@ -1627,7 +1603,7 @@ const styles = StyleSheet.create({
   planningSectionTitle: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   planningSectionSubtitle: {
     fontSize: 11,
@@ -1673,47 +1649,27 @@ const styles = StyleSheet.create({
   goalRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 64,
+    paddingVertical: 12,
+    minHeight: 60,
   },
   goalIcon: {
-    width: 36,
-    height: 36,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 11,
   },
-  goalInfo: { flex: 1, gap: 2 },
+  goalInfo: { flex: 1, gap: 3 },
   goalName: {
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "600",
   },
-  progressChipRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  progressChip: {
-    minHeight: 22,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: 999,
-    paddingHorizontal: 7,
-  },
-  progressChipText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-  },
-  periodPill: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "700",
+  goalMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
     textTransform: "capitalize",
   },
   goalProgressTrack: {
@@ -1747,10 +1703,10 @@ const styles = StyleSheet.create({
   },
   completedText: { textDecorationLine: "line-through" },
   statusBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    borderWidth: 1.5,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    borderWidth: 1.25,
     alignItems: "center",
     justifyContent: "center",
   },

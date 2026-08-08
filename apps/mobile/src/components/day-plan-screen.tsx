@@ -2615,15 +2615,6 @@ export function DayPlanScreen({
                       {selectedDate.getDate()}
                     </Text>
                   </View>
-                  <View style={styles.headerDateTextBlock}>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.dateTitle, { color: theme.text }]}
-                    >
-                      {MONTH_NAMES[selectedDate.getMonth()]}{" "}
-                      {selectedDate.getFullYear()}
-                    </Text>
-                  </View>
                 </Pressable>
               </View>
 
@@ -4723,21 +4714,28 @@ function getEntryColors(
 ) {
   if (entry.kind === "google" || entry.kind === "other") {
     return {
-      backgroundColor: theme.backgroundSelected,
-      color: theme.text,
+      backgroundColor: "#5F6368",
+      color: "#FFFFFF",
     };
   }
 
-  if (!entry.completed) {
+  if (entry.kind === "task") {
     return {
-      backgroundColor: theme.primary,
-      color: theme.primaryForeground,
+      backgroundColor: "#EF767A",
+      color: "#1A090A",
+    };
+  }
+
+  if (entry.kind === "goal") {
+    return {
+      backgroundColor: "#7BC1AD",
+      color: "#071713",
     };
   }
 
   return {
-    backgroundColor: theme.secondary,
-    color: theme.secondaryForeground,
+    backgroundColor: "#30BCED",
+    color: "#07171D",
   };
 }
 
@@ -5926,18 +5924,11 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   headerDateButton: {
-    flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
-    gap: 8,
-    maxWidth: "52%",
+    justifyContent: "center",
     zIndex: 10,
     elevation: 10,
-  },
-  headerDateTextBlock: {
-    flexShrink: 1,
-    minWidth: 0,
-    alignItems: "flex-start",
   },
   dateControls: {
     flexDirection: "row",

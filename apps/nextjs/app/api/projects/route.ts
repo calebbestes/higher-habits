@@ -19,6 +19,17 @@ const bodySchema = z.discriminatedUnion("type", [createSchema, deleteSchema]);
 
 const getDatabase = () => getDb() ?? null;
 
+function projectSummarySelect() {
+  return {
+    id: projects.id,
+    name: projects.name,
+    color: projects.color,
+    createdAt: projects.createdAt,
+    totalTasks: count(tasks.id),
+    completedTasks: count(tasks.completedAt),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
@@ -32,14 +43,7 @@ export async function GET(request: Request) {
     }
 
     const rows = await db
-      .select({
-        id: projects.id,
-        name: projects.name,
-        color: projects.color,
-        createdAt: projects.createdAt,
-        totalTasks: count(tasks.id),
-        completedTasks: count(tasks.completedAt),
-      })
+      .select(projectSummarySelect())
       .from(projects)
       .leftJoin(tasks, eq(tasks.projectId, projects.id))
       .where(eq(projects.userId, user.id))
@@ -86,8 +90,19 @@ export async function POST(request: Request) {
         .returning();
 
       if (!row) {
+        const [existingProject] = await db
+          .select(projectSummarySelect())
+          .from(projects)
+          .leftJoin(tasks, eq(tasks.projectId, projects.id))
+          .where(
+            and(eq(projects.userId, user.id), eq(projects.name, data.name)),
+          )
+          .groupBy(projects.id);
+
+        if (existingProject) return NextResponse.json(existingProject);
+
         return NextResponse.json(
-          { error: "A project with that name already exists." },
+          { error: "Project already exists." },
           { status: 409 },
         );
       }

@@ -81,6 +81,12 @@ function mountainDateKey(date = new Date()): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function normalizeDateKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
+}
+
 function getRecentDateKeys(dayCount: number) {
   return Array.from({ length: dayCount }, (_, index) => {
     const date = new Date();
@@ -289,6 +295,25 @@ async function getFriendActivitySummary(
       name: goal.name,
     })),
   };
+}
+
+async function getAcceptedFriendIds(db: FriendsDb, userId: string) {
+  const rows = await db
+    .select({
+      userId1: friends.userId1,
+      userId2: friends.userId2,
+    })
+    .from(friends)
+    .where(
+      and(
+        eq(friends.status, "accepted"),
+        or(eq(friends.userId1, userId), eq(friends.userId2, userId)),
+      ),
+    );
+
+  return new Set(
+    rows.map((row) => (row.userId1 === userId ? row.userId2 : row.userId1)),
+  );
 }
 
 async function getFriendProfile(
@@ -539,6 +564,7 @@ export async function GET(request: Request) {
         friendEmail: users.email,
         friendImage: users.image,
         friendPhoneNumber: users.phoneNumber,
+        friendBirthday: users.birthday,
         lastOpenedAt: users.lastOpenedAt,
       })
       .from(friends)
@@ -553,6 +579,25 @@ export async function GET(request: Request) {
       .orderBy(asc(users.name), asc(users.email));
 
     const friendshipIds = rows.map((row) => row.id);
+    const acceptedRows = rows.filter((row) => row.status === "accepted");
+    const viewerAcceptedFriendIds = await getAcceptedFriendIds(db, user.id);
+    const mutualCountsByFriendId = new Map(
+      await Promise.all(
+        acceptedRows.map(async (row) => {
+          const friendAcceptedFriendIds = await getAcceptedFriendIds(
+            db,
+            row.friendId,
+          );
+          let mutualCount = 0;
+          for (const friendId of friendAcceptedFriendIds) {
+            if (friendId !== user.id && viewerAcceptedFriendIds.has(friendId)) {
+              mutualCount += 1;
+            }
+          }
+          return [row.friendId, mutualCount] as const;
+        }),
+      ),
+    );
     const friendMessageRows =
       friendshipIds.length > 0
         ? await db
@@ -636,6 +681,11 @@ export async function GET(request: Request) {
           row.status === "requested" && row.userId2 === user.id,
         friendPhoneNumber:
           row.status === "accepted" ? row.friendPhoneNumber : null,
+        friendBirthday:
+          row.status === "accepted"
+            ? normalizeDateKey(row.friendBirthday)
+            : null,
+        mutualFriendCount: mutualCountsByFriendId.get(row.friendId) ?? 0,
         lastOpenedAt: row.lastOpenedAt?.toISOString() ?? null,
         messages: messagesByFriendshipId.get(row.id) ?? [],
         incentives: incentivesByFriendshipId.get(row.id) ?? [],
@@ -766,6 +816,8 @@ export async function POST(request: Request) {
       friendEmail: friendUser.email,
       friendImage: friendUser.image,
       friendPhoneNumber: friendUser.phoneNumber,
+      friendBirthday: null,
+      mutualFriendCount: 0,
       isIncomingRequest: false,
       lastOpenedAt: null,
       performance7Day: null,

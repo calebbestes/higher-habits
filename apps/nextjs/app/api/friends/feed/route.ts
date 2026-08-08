@@ -205,6 +205,19 @@ function formatDayCount(days: number) {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+function mountainDateKey(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Denver",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 function isSameCalendarWeek(leftDateKey: string, rightDateKey: string) {
   const left = dateKeyToNoon(leftDateKey);
   const right = dateKeyToNoon(rightDateKey);
@@ -285,6 +298,8 @@ export async function GET(request: Request) {
         id: users.id,
         name: users.name,
         image: users.image,
+        phoneNumber: users.phoneNumber,
+        birthday: users.birthday,
       })
       .from(friends)
       .innerJoin(
@@ -434,8 +449,13 @@ export async function GET(request: Request) {
       string,
       {
         id: string;
-        kind: "habit" | "goal_checkpoint" | "reflection";
-        friend: { id: string; name: string; image: string | null };
+        kind: "habit" | "goal_checkpoint" | "reflection" | "birthday";
+        friend: {
+          id: string;
+          name: string;
+          image: string | null;
+          phoneNumber?: string | null;
+        };
         goal: { id: string; name: string; icon: string };
         category: { id: string; name: string; icon: string } | null;
         dateKey: string;
@@ -469,6 +489,45 @@ export async function GET(request: Request) {
         }>;
       }
     >();
+
+    const todayKey = mountainDateKey();
+    const todayMonthDay = todayKey.slice(5);
+    for (const friend of friendRows) {
+      if (!friend.birthday || friend.birthday.slice(5) !== todayMonthDay) {
+        continue;
+      }
+
+      entries.set(`birthday:${friend.id}:${todayKey}`, {
+        id: `birthday:${friend.id}:${todayKey}`,
+        kind: "birthday",
+        friend,
+        goal: {
+          id: `birthday:${friend.id}`,
+          name: "Birthday",
+          icon: "gift.fill",
+        },
+        category: null,
+        dateKey: todayKey,
+        notes: `It's ${friend.name}'s birthday today.`,
+        reflectionPrompt: null,
+        updatedAt: dateKeyToNoon(todayKey).toISOString(),
+        canDeletePhotos: false,
+        postType: "journal",
+        highlights: ["Birthday"],
+        props: { count: 0, hasPropped: false },
+        comments: [],
+        photos: friend.image
+          ? [
+              {
+                id: `birthday-photo:${friend.id}`,
+                url: friend.image,
+                contentType: "image/*",
+                createdAt: dateKeyToNoon(todayKey).toISOString(),
+              },
+            ]
+          : [],
+      });
+    }
 
     for (const row of visibleLogRows) {
       const friend = friendsById.get(row.friendId);

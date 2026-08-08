@@ -27,6 +27,7 @@ function createSelectionStore<T>(initial: T) {
 
 export type PlanReportView =
   | "day-plan"
+  | "weekly-plan"
   | "monthly-plan"
   | "habits"
   | "goals"
@@ -51,6 +52,7 @@ export const DEFAULT_APP_START_PAGE: AppStartPage = "collab";
 
 export const PLAN_REPORT_VIEW_HREFS = {
   "day-plan": "/plan-report?view=day-plan",
+  "weekly-plan": "/plan-report?view=weekly-plan",
   "monthly-plan": "/plan-report?view=monthly-plan",
   habits: "/add?type=habits",
   goals: "/add?type=goals",
@@ -221,9 +223,13 @@ export function getAppStartHref({
 }): string {
   if (defaultAppStartPage === "add") return "/add?type=habits";
   if (defaultAppStartPage === "plan-report") {
-    return defaultPlanReportView === "monthly-plan"
-      ? PLAN_REPORT_VIEW_HREFS["monthly-plan"]
-      : PLAN_REPORT_VIEW_HREFS["day-plan"];
+    if (
+      defaultPlanReportView === "weekly-plan" ||
+      defaultPlanReportView === "monthly-plan"
+    ) {
+      return PLAN_REPORT_VIEW_HREFS[defaultPlanReportView];
+    }
+    return PLAN_REPORT_VIEW_HREFS["day-plan"];
   }
   if (defaultAppStartPage === "collab") {
     return COLLAB_SECTION_HREFS[defaultCollabSection];
@@ -236,7 +242,11 @@ export function getAppStartHref({
 }
 
 export function isPlanReportView(value: unknown): value is PlanReportView {
-  return value === "day-plan" || value === "monthly-plan";
+  return (
+    value === "day-plan" ||
+    value === "weekly-plan" ||
+    value === "monthly-plan"
+  );
 }
 
 export function isCollabSection(value: unknown): value is CollabSection {
