@@ -1,6 +1,6 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import type { ReactNode } from "react";
 import { useCallback, useEffect } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DayPlanScreen } from "@/components/day-plan-screen";
@@ -44,29 +44,33 @@ export default function PlanReportScreen() {
     }
   }, [router, view]);
 
-  let content: ReactNode;
-
-  if (activeView === "monthly-plan") {
-    content = (
-      <ComponentErrorBoundary name="MonthlyGoalsScreen">
-        <MonthlyGoalsScreen
-          initialDateKey={activeDateKey}
-          onDateChange={setPlanReportDateKey}
-        />
-      </ComponentErrorBoundary>
-    );
-  } else {
-    content = (
-      <ComponentErrorBoundary name="DayPlanScreen">
-        <DayPlanScreen
-          initialDateKey={activeDateKey}
-          onDateChange={setPlanReportDateKey}
-        />
-      </ComponentErrorBoundary>
-    );
-  }
-
-  return content;
+  return (
+    <View style={styles.pageStack}>
+      <View
+        style={[styles.page, activeView !== "day-plan" && styles.inactivePage]}
+      >
+        <ComponentErrorBoundary name="DayPlanScreen">
+          <DayPlanScreen
+            initialDateKey={activeDateKey}
+            onDateChange={setPlanReportDateKey}
+          />
+        </ComponentErrorBoundary>
+      </View>
+      <View
+        style={[
+          styles.page,
+          activeView !== "monthly-plan" && styles.inactivePage,
+        ]}
+      >
+        <ComponentErrorBoundary name="MonthlyGoalsScreen">
+          <MonthlyGoalsScreen
+            initialDateKey={activeDateKey}
+            onDateChange={setPlanReportDateKey}
+          />
+        </ComponentErrorBoundary>
+      </View>
+    </View>
+  );
 }
 
 function getLegacyCreateHref(view: string | undefined): string | null {
@@ -80,3 +84,9 @@ function getLegacyCreateHref(view: string | undefined): string | null {
 function isDateKey(value: string | undefined): value is string {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
+
+const styles = StyleSheet.create({
+  inactivePage: { display: "none" },
+  page: { flex: 1 },
+  pageStack: { flex: 1 },
+});

@@ -527,7 +527,7 @@ function ProfileBodyTabs({
   const theme = useTheme();
 
   return (
-    <View style={styles.profileBodyTabs}>
+    <View style={[styles.profileBodyTabs, { borderColor: theme.tabBorder }]}>
       {PROFILE_BODY_SECTIONS.map((section) => {
         const isActive = section.key === activeSection;
         return (
@@ -787,7 +787,7 @@ function ProfilePostFilterButton({
         style={[
           styles.profilePostFilterButton,
           {
-            backgroundColor: theme.backgroundElement,
+            backgroundColor: theme.background,
             borderColor: theme.tabBorder,
           },
         ]}
@@ -842,8 +842,8 @@ function ProfileDailyHabits({
         Last 7 Days
       </Text>
       {profile.categories.map((category) => {
-        const categoryHabits = category.habits.filter(
-          (habit) => habits.some((visibleHabit) => visibleHabit.id === habit.id),
+        const categoryHabits = category.habits.filter((habit) =>
+          habits.some((visibleHabit) => visibleHabit.id === habit.id),
         );
         if (categoryHabits.length === 0) return null;
 
@@ -1324,18 +1324,17 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: "center",
-    fontFamily: Fonts.rounded,
     fontSize: 18,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   headerMenuWrap: {
     flex: 1,
     alignItems: "flex-start",
   },
   headerSectionTitle: {
-    fontSize: 25,
-    lineHeight: 29,
-    fontWeight: "800",
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: "700",
   },
   headerSpacer: { width: 42 },
   content: {
@@ -1362,74 +1361,78 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    gap: 18,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   profileIdentity: {
-    width: 118,
+    width: 104,
     flexShrink: 0,
   },
   profileActions: {
-    alignItems: "flex-start",
-    paddingHorizontal: 22,
-    paddingTop: 12,
+    alignItems: "stretch",
+    paddingHorizontal: 16,
+    paddingTop: 14,
   },
   nudgeButton: {
-    minHeight: 38,
+    minHeight: 34,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 7,
-    borderRadius: 999,
+    borderRadius: 8,
     paddingHorizontal: 14,
   },
-  nudgeButtonText: { fontSize: 14, fontWeight: "800" },
+  nudgeButtonText: { fontSize: 14, fontWeight: "600" },
   avatar: {
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  avatarText: { fontWeight: "900" },
+  avatarText: { fontWeight: "700" },
   statsRow: {
     flex: 1,
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 5,
+    gap: 4,
   },
   stat: { flex: 1, minWidth: 0, alignItems: "center" },
   pressableStat: {
     borderRadius: 12,
   },
   statValue: {
-    fontFamily: Fonts.rounded,
-    fontSize: 18,
+    fontSize: 17,
     lineHeight: 21,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   statLabel: {
     marginTop: 2,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "400",
     textAlign: "center",
   },
   profileName: {
     marginTop: 10,
-    fontFamily: Fonts.rounded,
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 19,
-    fontWeight: "900",
+    fontWeight: "600",
   },
   profileBodyTabs: {
     flexDirection: "row",
-    gap: 20,
-    paddingHorizontal: 20,
-    paddingTop: 18,
+    justifyContent: "space-around",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginTop: 18,
+    paddingHorizontal: 8,
   },
   profileBodyTab: {
-    gap: 7,
-    borderRadius: 8,
-    paddingVertical: 4,
+    minHeight: 43,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 0,
+    borderRadius: 0,
   },
   profileBodyTabLabel: {
     flexDirection: "row",
@@ -1437,13 +1440,16 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   profileBodyTabText: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "900",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
   },
   profileBodyTabIndicator: {
-    height: 3,
-    borderRadius: 999,
+    position: "absolute",
+    top: 0,
+    height: 1.5,
+    width: "100%",
+    borderRadius: 0,
   },
   compactDashboard: {
     gap: 7,
@@ -1555,25 +1561,25 @@ const styles = StyleSheet.create({
   },
   profilePostFilterMenu: {
     alignSelf: "flex-start",
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 8,
   },
   profilePostFilterButton: {
-    minHeight: 36,
+    minHeight: 32,
     maxWidth: 260,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingHorizontal: 11,
+    gap: 7,
+    borderWidth: 0,
+    borderRadius: 8,
+    paddingHorizontal: 8,
   },
   profilePostFilterValue: {
     flexShrink: 1,
     fontSize: 13,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   tooltip: {
     position: "absolute",
@@ -1592,8 +1598,8 @@ const styles = StyleSheet.create({
   postGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 2,
-    paddingTop: 2,
+    gap: 1,
+    paddingTop: 0,
   },
   postTile: { overflow: "hidden" },
   multiPhotoBadge: {
@@ -1607,9 +1613,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(0,0,0,0.45)",
   },
-  textTileContent: { flex: 1, justifyContent: "space-between", padding: 10 },
-  tileGoal: { fontSize: 12, fontWeight: "900" },
-  tileNote: { fontSize: 11, lineHeight: 14, fontWeight: "600" },
+  textTileContent: { flex: 1, justifyContent: "center", gap: 8, padding: 10 },
+  tileGoal: { fontSize: 12, fontWeight: "700" },
+  tileNote: { fontSize: 12, lineHeight: 15, fontWeight: "500" },
   emptyPosts: { paddingHorizontal: 20, paddingTop: 8 },
   loadingPostsText: {
     fontSize: 14,

@@ -37,7 +37,7 @@ export default function AppTabs() {
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="index">
-          <NativeTabs.Trigger.Icon md="groups" sf="person.2.fill" />
+          <NativeTabs.Trigger.Icon md="dynamic_feed" sf="rectangle.stack.fill" />
           <NativeTabs.Trigger.Label>Collab</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 

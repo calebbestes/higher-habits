@@ -32,6 +32,11 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
+import {
   type FriendGroupRow,
   type FriendRow,
   type FriendSearchResult,
@@ -48,7 +53,12 @@ import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
 type SymbolName = SymbolViewProps["name"];
 type FriendsSection = "suggested" | "friends" | "groups";
+type FriendsScreenCache = {
+  friendGroups: FriendGroupRow[];
+  friends: FriendRow[];
+};
 
+const FRIENDS_SCREEN_CACHE_KEY = "screen:friends";
 const INVITE_LINK = "https://higher-habits.vercel.app";
 const FRIENDS_SECTIONS: Array<{ key: FriendsSection; label: string }> = [
   { key: "suggested", label: "Suggested friends" },
@@ -85,12 +95,19 @@ export function FriendsScreen() {
   const tabBarHeight = useTabBarHeight();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
-  const [friends, setFriends] = useState<FriendRow[]>([]);
-  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
+  const cachedScreen = getCachedData<FriendsScreenCache>(
+    FRIENDS_SCREEN_CACHE_KEY,
+  );
+  const [friends, setFriends] = useState<FriendRow[]>(
+    cachedScreen?.data.friends ?? [],
+  );
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>(
+    cachedScreen?.data.friendGroups ?? [],
+  );
   const [search, setSearch] = useState("");
   const [activeSection, setActiveSection] =
     useState<FriendsSection>("suggested");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -107,7 +124,14 @@ export function FriendsScreen() {
 
   const load = useCallback(async (refresh = false) => {
     const requestId = ++loadRequestIdRef.current;
-    refresh ? setIsRefreshing(true) : setIsLoading(true);
+    const cached = getCachedData<FriendsScreenCache>(FRIENDS_SCREEN_CACHE_KEY);
+    if (!refresh && cached) {
+      setFriends(cached.data.friends);
+      setFriendGroups(cached.data.friendGroups);
+      setIsLoading(false);
+      if (isCacheFresh(cached)) return;
+    }
+    refresh ? setIsRefreshing(true) : setIsLoading(!cached);
     try {
       const [nextFriends, nextFriendGroups] = await Promise.all([
         fetchFriends(),
@@ -116,16 +140,22 @@ export function FriendsScreen() {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
+      setCachedData(FRIENDS_SCREEN_CACHE_KEY, {
+        friendGroups: nextFriendGroups,
+        friends: nextFriends,
+      });
       setFriends(nextFriends);
       setFriendGroups(nextFriendGroups);
       setError(null);
     } catch (loadError) {
       if (isMountedRef.current && requestId === loadRequestIdRef.current) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load friends.",
-        );
+        if (!cached) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load friends.",
+          );
+        }
       }
     } finally {
       if (isMountedRef.current && requestId === loadRequestIdRef.current) {
@@ -517,11 +547,16 @@ export function FriendsScreen() {
         visible={isCreateGroupOpen}
         onClose={() => setIsCreateGroupOpen(false)}
         onCreated={(group) => {
-          setFriendGroups((prev) =>
-            [...prev, group].sort((left, right) =>
+          setFriendGroups((prev) => {
+            const nextFriendGroups = [...prev, group].sort((left, right) =>
               left.name.localeCompare(right.name),
-            ),
-          );
+            );
+            setCachedData(FRIENDS_SCREEN_CACHE_KEY, {
+              friendGroups: nextFriendGroups,
+              friends,
+            });
+            return nextFriendGroups;
+          });
           setIsCreateGroupOpen(false);
         }}
       />
@@ -1977,10 +2012,10 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: MaxContentWidth,
     alignSelf: "center",
-    paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
     paddingBottom: 40,
-    gap: 18,
+    gap: 16,
   },
   pageHeader: {
     flexDirection: "row",
@@ -2004,29 +2039,28 @@ const styles = StyleSheet.create({
   },
   pageHeaderText: { minWidth: 0, flex: 1, gap: 1 },
   pageTitle: {
-    fontSize: 25,
-    lineHeight: 29,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: "700",
   },
   pageSubtitle: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   sectionTabs: {
     flexDirection: "row",
-    gap: 20,
-    paddingTop: 4,
+    gap: 22,
+    paddingTop: 2,
   },
   sectionTab: {
-    gap: 7,
+    gap: 6,
     borderRadius: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   sectionTabText: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "900",
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: "600",
   },
   sectionTabIndicator: {
-    height: 3,
+    height: 2.5,
     borderRadius: 999,
   },
   toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -2036,33 +2070,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
+    borderWidth: 0,
+    borderRadius: 12,
     paddingHorizontal: 12,
   },
-  searchInput: { flex: 1, paddingVertical: 0, fontSize: 15, fontWeight: "500" },
+  searchInput: { flex: 1, paddingVertical: 0, fontSize: 17, fontWeight: "400" },
   addButton: {
-    height: 44,
+    height: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    gap: 5,
+    borderRadius: 11,
+    paddingHorizontal: 12,
   },
-  addButtonText: { fontSize: 14, fontWeight: "800" },
+  addButtonText: { fontSize: 15, fontWeight: "600" },
   sectionActionButton: {
-    minHeight: 36,
+    minHeight: 34,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 12,
   },
   sectionActionButtonText: {
-    fontSize: 13,
-    fontWeight: "900",
+    fontSize: 15,
+    fontWeight: "600",
   },
   errorBanner: {
     flexDirection: "row",
@@ -2086,7 +2120,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 64,
   },
-  section: { gap: 10 },
+  section: { gap: 8 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2100,7 +2134,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  sectionTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
+  sectionTitle: { fontSize: 22, lineHeight: 27, fontWeight: "700" },
   countBadge: {
     minWidth: 24,
     height: 24,
@@ -2109,17 +2143,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 7,
   },
-  countText: { fontSize: 11, fontWeight: "800" },
-  pendingList: { gap: 8 },
-  groupList: { gap: 10 },
+  countText: { fontSize: 13, fontWeight: "500" },
+  pendingList: { gap: 0 },
+  groupList: { gap: 0 },
   groupCard: {
-    minHeight: 72,
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: 0,
     paddingVertical: 10,
   },
   groupAvatarStack: {
@@ -2135,64 +2168,63 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    padding: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: 0,
+    paddingVertical: 10,
   },
-  pendingName: { fontSize: 15, fontWeight: "700" },
-  pendingBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
-  pendingBadgeText: { fontSize: 11, fontWeight: "700" },
+  pendingName: { fontSize: 17, fontWeight: "600" },
+  pendingBadge: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  pendingBadgeText: { fontSize: 15, fontWeight: "500" },
   acceptButton: {
-    minWidth: 68,
+    minWidth: 64,
     minHeight: 34,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 10,
     paddingHorizontal: 12,
   },
-  acceptButtonText: { fontSize: 13, fontWeight: "700" },
-  friendGrid: { gap: 12 },
+  acceptButtonText: { fontSize: 15, fontWeight: "600" },
+  friendGrid: { gap: 0 },
   friendCard: {
-    minHeight: 74,
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: 0,
+    paddingVertical: 10,
   },
   friendIdentity: { minWidth: 0, flex: 1, gap: 2 },
-  friendName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
-  friendEmail: { fontSize: 12, fontWeight: "500" },
+  friendName: { fontSize: 17, fontWeight: "600" },
+  friendEmail: { fontSize: 13, fontWeight: "400" },
   mutualFriendText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "700",
+    fontWeight: "400",
   },
-  friendActive: { fontSize: 13, fontWeight: "500" },
+  friendActive: { fontSize: 13, fontWeight: "400" },
   avatar: {
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 18, fontWeight: "800" },
+  avatarText: { fontSize: 18, fontWeight: "600" },
   messageButton: {
-    width: 42,
-    height: 42,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 10,
   },
   emptyCard: {
     alignItems: "center",
     gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 20,
+    borderWidth: 0,
+    borderRadius: 12,
     paddingHorizontal: 24,
     paddingVertical: 36,
   },
-  emptyTitle: { fontSize: 18, fontWeight: "800" },
+  emptyTitle: { fontSize: 17, fontWeight: "600" },
   emptyText: {
     maxWidth: 280,
     textAlign: "center",
@@ -2201,11 +2233,11 @@ const styles = StyleSheet.create({
   },
   emptyButton: {
     marginTop: 6,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  emptyButtonText: { fontSize: 13, fontWeight: "800" },
+  emptyButtonText: { fontSize: 15, fontWeight: "600" },
   pressed: { opacity: 0.65 },
   disabled: { opacity: 0.45 },
   modalScreen: { flex: 1 },
@@ -2220,8 +2252,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   modalCancel: { fontSize: 16, fontWeight: "500" },
-  modalTitle: { fontSize: 17, fontWeight: "800" },
-  modalAdd: { fontSize: 16, fontWeight: "800" },
+  modalTitle: { fontSize: 17, fontWeight: "600" },
+  modalAdd: { fontSize: 16, fontWeight: "600" },
   modalContent: { gap: 8, paddingHorizontal: 18, paddingTop: 24 },
   modalLabel: { paddingHorizontal: 4, fontSize: 12, fontWeight: "700" },
   emailInput: {
@@ -2253,25 +2285,25 @@ const styles = StyleSheet.create({
   },
   addSectionTitle: {
     paddingHorizontal: 4,
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.2,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: "700",
   },
   inlineTitle: { minWidth: 0, flex: 1 },
   friendSearchWrap: {
-    minHeight: 50,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    borderWidth: 0,
+    borderRadius: 12,
+    paddingHorizontal: 12,
   },
   friendSearchInput: {
     flex: 1,
     paddingVertical: 0,
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "400",
   },
   inlineHelpText: {
     paddingHorizontal: 4,
@@ -2284,7 +2316,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "600",
     textTransform: "uppercase",
   },
   selectionList: { gap: 8, paddingTop: 2 },
@@ -2294,7 +2326,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -2309,7 +2341,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 9,
   },
   matchProfileButton: {
     flex: 1,
@@ -2321,12 +2353,12 @@ const styles = StyleSheet.create({
   },
   matchInfo: { flex: 1, minWidth: 0, gap: 2 },
   matchAddButton: {
-    minWidth: 84,
-    minHeight: 36,
-    paddingHorizontal: 14,
+    minWidth: 64,
+    minHeight: 34,
+    paddingHorizontal: 12,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  matchAddText: { fontSize: 14, fontWeight: "800" },
+  matchAddText: { fontSize: 15, fontWeight: "600" },
 });

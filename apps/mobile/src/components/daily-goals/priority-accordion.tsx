@@ -45,7 +45,7 @@ function PriorityAccordionImpl({
               isOpen ? "expand_more" : "chevron_right",
             )}
             size={13}
-            weight="bold"
+            weight="semibold"
             tintColor={theme.textSecondary}
           />
           <Text style={[styles.priorityLabel, { color: theme.textSecondary }]}>

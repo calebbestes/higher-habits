@@ -12,7 +12,6 @@ export function TaskActionsModal({
   onClose,
   onEdit,
   onDelete,
-  onToggle,
   onPlan,
   onClearPlan,
   plannedEvent,
@@ -21,7 +20,6 @@ export function TaskActionsModal({
   onClose: () => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
-  onToggle: (task: Task) => void;
   onPlan?: (task: Task) => void;
   onClearPlan?: (task: Task) => void;
   plannedEvent?: PlannedEvent | null;
@@ -53,14 +51,6 @@ export function TaskActionsModal({
           },
         ]
       : []),
-    {
-      label: task.completedAt ? "Mark as active" : "Mark as complete",
-      icon: sym(
-        task.completedAt ? "arrow.uturn.backward.circle" : "checkmark.circle",
-        task.completedAt ? "undo" : "check_circle",
-      ),
-      onPress: () => onToggle(task),
-    },
     {
       label: "Delete task",
       icon: sym("trash", "delete"),
