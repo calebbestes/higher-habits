@@ -35,6 +35,11 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
+import {
   fetchCheckpointPhotos,
   uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
@@ -82,9 +87,14 @@ type ActiveCheckpoint = {
 type DateKeyParts = { year: number; month: number; day: number };
 type TargetDatePart = "year" | "month" | "day";
 type GoalDragSlot = { id: string; y: number; height: number };
+type GoalsScreenCache = {
+  goals: Goal[];
+  plannedEvents: PlannedEvent[];
+};
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
+const GOALS_SCREEN_CACHE_KEY = "screen:goals";
 const MONTH_OPTIONS = [
   "January",
   "February",
@@ -194,9 +204,10 @@ function formatCheckpointDate(dateKey: string | null) {
 export function GoalsScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const cachedScreen = getCachedData<GoalsScreenCache>(GOALS_SCREEN_CACHE_KEY);
+  const [goals, setGoals] = useState<Goal[]>(cachedScreen?.data.goals ?? []);
   const [query, setQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -205,7 +216,9 @@ export function GoalsScreen() {
     useState<ActiveCheckpoint | null>(null);
   const [planningCheckpoint, setPlanningCheckpoint] =
     useState<ActiveCheckpoint | null>(null);
-  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
+    cachedScreen?.data.plannedEvents ?? [],
+  );
   const [celebrate, setCelebrate] = useState(false);
   const [showLaterGoals, setShowLaterGoals] = useState(false);
   const [draggingGoalId, setDraggingGoalId] = useState<string | null>(null);
@@ -235,7 +248,15 @@ export function GoalsScreen() {
   const load = useCallback(async (refresh = false) => {
     const requestId = loadRequestIdRef.current + 1;
     loadRequestIdRef.current = requestId;
-    refresh ? setIsRefreshing(true) : setIsLoading(true);
+    const cached = getCachedData<GoalsScreenCache>(GOALS_SCREEN_CACHE_KEY);
+    if (!refresh && cached) {
+      goalsRef.current = cached.data.goals;
+      setGoals(cached.data.goals);
+      setPlannedEvents(cached.data.plannedEvents);
+      setIsLoading(false);
+      if (isCacheFresh(cached)) return;
+    }
+    refresh ? setIsRefreshing(true) : setIsLoading(!cached);
     setError(null);
 
     try {
@@ -246,17 +267,24 @@ export function GoalsScreen() {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
+      setCachedData(GOALS_SCREEN_CACHE_KEY, {
+        goals: nextGoals,
+        plannedEvents: nextPlannedEvents,
+      });
+      goalsRef.current = nextGoals;
       setGoals(nextGoals);
       setPlannedEvents(nextPlannedEvents);
     } catch (loadError) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load goals.",
-      );
+      if (!cached) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load goals.",
+        );
+      }
     } finally {
       if (isMountedRef.current && requestId === loadRequestIdRef.current) {
         setIsLoading(false);
@@ -317,6 +345,16 @@ export function GoalsScreen() {
     return map;
   }, [plannedEvents]);
 
+  const writeGoalsCache = useCallback(
+    (nextGoals: Goal[], nextPlannedEvents = plannedEvents) => {
+      setCachedData(GOALS_SCREEN_CACHE_KEY, {
+        goals: nextGoals,
+        plannedEvents: nextPlannedEvents,
+      });
+    },
+    [plannedEvents],
+  );
+
   const openCreate = () => {
     setEditingGoal(null);
     setFormOpen(true);
@@ -337,10 +375,17 @@ export function GoalsScreen() {
         ? current.map((goal) => (goal.id === savedGoal.id ? savedGoal : goal))
         : [...current, savedGoal];
       goalsRef.current = next;
+      writeGoalsCache(next);
       return next;
     });
     fetchPlannedEvents({ sourceType: "goal_checkpoint" })
-      .then(setPlannedEvents)
+      .then((nextPlannedEvents) => {
+        setPlannedEvents(nextPlannedEvents);
+        setCachedData(GOALS_SCREEN_CACHE_KEY, {
+          goals: goalsRef.current,
+          plannedEvents: nextPlannedEvents,
+        });
+      })
       .catch(() => {});
     setFormOpen(false);
     setEditingGoal(null);
@@ -348,9 +393,14 @@ export function GoalsScreen() {
 
   const updateGoalInList = (updatedGoal: Goal | null) => {
     if (!updatedGoal) return;
-    setGoals((current) =>
-      current.map((goal) => (goal.id === updatedGoal.id ? updatedGoal : goal)),
-    );
+    setGoals((current) => {
+      const next = current.map((goal) =>
+        goal.id === updatedGoal.id ? updatedGoal : goal,
+      );
+      goalsRef.current = next;
+      writeGoalsCache(next);
+      return next;
+    });
   };
 
   const handleCheckpointSaved = (updatedGoal: Goal | null) => {
@@ -363,13 +413,18 @@ export function GoalsScreen() {
         .filter((checkpoint) => checkpoint.completed)
         .map((checkpoint) => checkpoint.id),
     );
-    setPlannedEvents((current) =>
-      current.filter(
+    setPlannedEvents((current) => {
+      const nextPlannedEvents = current.filter(
         (event) =>
           event.sourceType !== "goal_checkpoint" ||
           !completedIds.has(event.sourceId),
-      ),
-    );
+      );
+      setCachedData(GOALS_SCREEN_CACHE_KEY, {
+        goals: goalsRef.current,
+        plannedEvents: nextPlannedEvents,
+      });
+      return nextPlannedEvents;
+    });
   };
 
   const openCheckpointPlan = (active: ActiveCheckpoint) => {
@@ -406,7 +461,12 @@ export function GoalsScreen() {
           event.sourceType !== "goal_checkpoint" ||
           event.sourceId !== planningCheckpoint.checkpoint.id,
       );
-      return [...filtered, result.event];
+      const nextPlannedEvents = [...filtered, result.event];
+      setCachedData(GOALS_SCREEN_CACHE_KEY, {
+        goals: goalsRef.current,
+        plannedEvents: nextPlannedEvents,
+      });
+      return nextPlannedEvents;
     });
   };
 
@@ -419,13 +479,18 @@ export function GoalsScreen() {
         sourceId: active.checkpoint.id,
         sourceType: "goal_checkpoint",
       });
-      setPlannedEvents((current) =>
-        current.filter(
+      setPlannedEvents((current) => {
+        const nextPlannedEvents = current.filter(
           (event) =>
             event.sourceType !== "goal_checkpoint" ||
             event.sourceId !== active.checkpoint.id,
-        ),
-      );
+        );
+        setCachedData(GOALS_SCREEN_CACHE_KEY, {
+          goals: goalsRef.current,
+          plannedEvents: nextPlannedEvents,
+        });
+        return nextPlannedEvents;
+      });
     } catch (clearError) {
       setError(
         clearError instanceof Error
@@ -447,12 +512,22 @@ export function GoalsScreen() {
           onPress: async () => {
             try {
               await deletePlanGoal(goal.id);
-              setGoals((current) =>
-                current.filter((item) => item.id !== goal.id),
-              );
               const checkpointIds = new Set(
                 goal.checkpoints.map((checkpoint) => checkpoint.id),
               );
+              setGoals((current) => {
+                const next = current.filter((item) => item.id !== goal.id);
+                goalsRef.current = next;
+                setCachedData(GOALS_SCREEN_CACHE_KEY, {
+                  goals: next,
+                  plannedEvents: plannedEvents.filter(
+                    (event) =>
+                      event.sourceType !== "goal_checkpoint" ||
+                      !checkpointIds.has(event.sourceId),
+                  ),
+                });
+                return next;
+              });
               setPlannedEvents((current) =>
                 current.filter(
                   (event) =>
@@ -523,10 +598,11 @@ export function GoalsScreen() {
         return currentGoalsById.get(visibleGoalId) ?? goal;
       });
       goalsRef.current = next;
+      writeGoalsCache(next);
       setGoals(next);
       playReorderHaptic();
     },
-    [playReorderHaptic],
+    [playReorderHaptic, writeGoalsCache],
   );
 
   const beginGoalDrag = useCallback((goalId: string) => {
@@ -858,7 +934,7 @@ function GoalCard({
         styles.goalCard,
         {
           backgroundColor: theme.tabBar,
-          borderColor: `${theme.tabBorder}A6`,
+          borderColor: theme.tabBorder,
           shadowColor:
             theme.background === "#ffffff" ? theme.secondary : "#000",
         },
@@ -946,10 +1022,7 @@ function GoalCard({
             accessible
             accessibilityLabel={`More actions for ${goal.title}`}
             accessibilityRole="button"
-            style={[
-              styles.iconButton,
-              { backgroundColor: theme.backgroundElement },
-            ]}
+            style={styles.iconButton}
           >
             <SymbolView
               name={symbol("ellipsis", "more_horiz")}
@@ -1037,7 +1110,7 @@ function getCheckpointActionLabel(
   if (checkpoint.completed) return "Complete";
   if (planTime) return `Planned ${planTime}`;
   if (plannedEvent) return "Planned";
-  return "Tap to plan";
+  return null;
 }
 
 function GoalTimeline({
@@ -1205,10 +1278,7 @@ function NextCheckpointAction({
 
   return (
     <View
-      style={[
-        styles.nextCheckpointAction,
-        { backgroundColor: theme.backgroundElement },
-      ]}
+      style={[styles.nextCheckpointAction, { borderTopColor: theme.tabBorder }]}
     >
       <Pressable
         accessibilityRole="button"
@@ -1224,21 +1294,25 @@ function NextCheckpointAction({
         >
           Next
         </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.nextCheckpointText, { color: theme.text }]}
-        >
-          {checkpoint.title}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.nextCheckpointMeta,
-            { color: dateLabel ? theme.primary : theme.textSecondary },
-          ]}
-        >
-          {dateLabel ?? actionLabel}
-        </Text>
+        <View style={styles.nextCheckpointCopy}>
+          <Text
+            numberOfLines={1}
+            style={[styles.nextCheckpointText, { color: theme.text }]}
+          >
+            {checkpoint.title}
+          </Text>
+          {dateLabel || actionLabel ? (
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.nextCheckpointMeta,
+                { color: dateLabel ? theme.primary : theme.textSecondary },
+              ]}
+            >
+              {dateLabel ?? actionLabel}
+            </Text>
+          ) : null}
+        </View>
       </Pressable>
       <Pressable
         accessibilityLabel={expanded ? "Hide checkpoints" : "Show checkpoints"}
@@ -2648,9 +2722,9 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: MaxContentWidth,
     alignSelf: "center",
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    gap: 14,
   },
   pageHeader: {
     flexDirection: "row",
@@ -2674,32 +2748,33 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   addButton: {
-    width: 38,
-    height: 38,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    borderRadius: 18,
   },
   search: {
-    minHeight: 42,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
+    borderWidth: 0,
+    borderRadius: 12,
     paddingHorizontal: 12,
   },
-  searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "500" },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 17, fontWeight: "400" },
   goalList: { gap: 12 },
   goalCard: {
-    gap: 9,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 10,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 9,
-    elevation: 2,
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   goalCardDragging: {
     opacity: 0.82,
@@ -2708,17 +2783,17 @@ const styles = StyleSheet.create({
   goalCardTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   goalBody: { flex: 1, minWidth: 0, gap: 4 },
   goalTitleRow: {
     flexDirection: "row",
     alignItems: "flex-start",
   },
-  goalTitle: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "800" },
-  goalMeta: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  goalTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  goalMeta: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
   goalProgressTrack: {
-    height: 4,
+    height: 3,
     overflow: "hidden",
     borderRadius: 999,
   },
@@ -2734,11 +2809,11 @@ const styles = StyleSheet.create({
     borderRadius: 11,
   },
   iconButton: {
-    width: 34,
-    height: 34,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: 16,
   },
   timelineBlock: {
     gap: 8,
@@ -2774,7 +2849,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "600",
     textAlign: "center",
   },
   milestoneTrackRow: {
@@ -2799,7 +2874,7 @@ const styles = StyleSheet.create({
     maxWidth: 94,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "500",
     textAlign: "center",
   },
   completedTimelineTitle: { textDecorationLine: "line-through", opacity: 0.7 },
@@ -2810,52 +2885,48 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 4,
     alignSelf: "flex-end",
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 0,
     borderRadius: 999,
     paddingHorizontal: 10,
   },
   viewAllCheckpointsText: {
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   nextCheckpointAction: {
-    minHeight: 44,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 14,
-    overflow: "hidden",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
+    paddingTop: 2,
   },
   nextCheckpointPressable: {
     flex: 1,
     minWidth: 0,
-    minHeight: 44,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    paddingLeft: 11,
+    gap: 9,
     paddingRight: 7,
   },
   nextCheckpointLabel: {
     flexShrink: 0,
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "900",
+    fontWeight: "600",
   },
+  nextCheckpointCopy: { flex: 1, minWidth: 0, gap: 1 },
   nextCheckpointText: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "800",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   nextCheckpointMeta: {
-    maxWidth: 86,
-    flexShrink: 0,
-    textAlign: "right",
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "400",
   },
   expandCheckpointsButton: {
     width: 42,

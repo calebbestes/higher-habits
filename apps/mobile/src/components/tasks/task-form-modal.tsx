@@ -24,8 +24,6 @@ import {
   TASK_IMPORTANCES,
   TASK_MONTH_DAY_OPTIONS,
   TASK_RECURRENCES,
-  TASK_TIME_OPTIONS,
-  TASK_URGENCIES,
   TASK_WEEKDAY_OPTIONS,
   type Task,
   type TaskInput,
@@ -34,13 +32,11 @@ import {
   getNextWeekdayDateKey,
   getTaskDateMonthDay,
   getTaskDateWeekday,
-  getTaskDueDateForUrgency,
-  getTaskUrgency,
   isValidTaskDateKey,
   todayDateKey,
 } from "@/lib/tasks-client";
 
-import { EMPTY_TASK, capitalize, sym, toInput } from "./shared";
+import { EMPTY_TASK, sym, toInput } from "./shared";
 
 export function TaskFormModal({
   initialValues,
@@ -294,51 +290,18 @@ export function TaskFormModal({
                   />
                 ))}
               </View>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Urgency
-              </Text>
-              <View style={styles.choiceWrap}>
-                {TASK_URGENCIES.map((urgency) => (
-                  <Choice
-                    key={urgency}
-                    label={capitalize(urgency)}
-                    selected={getTaskUrgency(form) === urgency}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        dueDate: getTaskDueDateForUrgency(urgency),
-                      }))
-                    }
-                  />
-                ))}
-              </View>
             </FormSection>
 
             <FormSection title="Schedule">
               <View style={styles.inputField}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Exact due date
+                  Due date
                 </Text>
                 <DatePartPicker value={form.dueDate} onChange={setDueDate} />
               </View>
               {!dueDateValid ? (
                 <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
               ) : null}
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Time required
-              </Text>
-              <View style={styles.choiceWrap}>
-                {TASK_TIME_OPTIONS.map((timeRequired) => (
-                  <Choice
-                    key={timeRequired}
-                    label={timeRequired}
-                    selected={form.timeRequired === timeRequired}
-                    onPress={() =>
-                      setForm((current) => ({ ...current, timeRequired }))
-                    }
-                  />
-                ))}
-              </View>
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
                 Repeat
               </Text>
@@ -398,19 +361,21 @@ export function TaskFormModal({
                     setForm((current) => ({ ...current, projectId: null }))
                   }
                 />
-                {projects.map((project) => (
-                  <Choice
-                    key={project.id}
-                    label={project.name}
-                    selected={form.projectId === project.id}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        projectId: project.id,
-                      }))
-                    }
-                  />
-                ))}
+                {projects
+                  .filter((project) => project.totalTasks > 0)
+                  .map((project) => (
+                    <Choice
+                      key={project.id}
+                      label={project.name}
+                      selected={form.projectId === project.id}
+                      onPress={() =>
+                        setForm((current) => ({
+                          ...current,
+                          projectId: project.id,
+                        }))
+                      }
+                    />
+                  ))}
               </View>
               <View style={styles.newProjectRow}>
                 <TextInput
@@ -463,28 +428,6 @@ export function TaskFormModal({
                     />
                   )}
                 </Pressable>
-              </View>
-            </FormSection>
-
-            <FormSection title="Status">
-              <View style={styles.statusChoices}>
-                <Choice
-                  label="Active"
-                  selected={!form.completedAt}
-                  onPress={() =>
-                    setForm((current) => ({ ...current, completedAt: null }))
-                  }
-                />
-                <Choice
-                  label="Completed today"
-                  selected={Boolean(form.completedAt)}
-                  onPress={() =>
-                    setForm((current) => ({
-                      ...current,
-                      completedAt: todayDateKey(),
-                    }))
-                  }
-                />
               </View>
             </FormSection>
 
@@ -675,7 +618,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
-  statusChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   newProjectRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   newProjectInput: {
     flex: 1,

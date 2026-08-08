@@ -105,7 +105,7 @@ function GoalRowImpl({
             filled
             iconKey={goal.iconKey}
             size={15}
-            color={theme.primary}
+            color={theme.textSecondary}
           />
         </View>
 
@@ -262,7 +262,9 @@ function getDefaultVisibilityLabel(
 ) {
   if (visibility === "all_friends") return "Public";
   if (visibility === "goal_friends") {
-    return audienceCount > 0 ? `${audienceCount} friends selected` : "Select friends";
+    return audienceCount > 0
+      ? `${audienceCount} friends selected`
+      : "Select friends";
   }
   return "Private";
 }

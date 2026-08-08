@@ -1,5 +1,4 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
-import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -10,7 +9,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,6 +31,11 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
   type PlannedEvent,
@@ -43,36 +46,24 @@ import {
 import {
   type Task,
   type TaskInput,
-  compareTasksByPriority,
   createTask,
   deleteTask,
   fetchTasks,
-  getTaskPriorityLevel,
   getTaskUrgency,
+  getTaskUrgencyScore,
   todayDateKey,
   updateTask,
   updateTaskCompletion,
 } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
-type TaskFilter =
-  | "all"
-  | "today"
-  | "soon"
-  | "completed"
-  | "high"
-  | "medium"
-  | "low";
 type TaskPriorityGroupKey = "high" | "medium" | "low" | "completed";
 
-const TASK_FILTER_LABELS: Record<TaskFilter, string> = {
-  all: "All tasks",
-  today: "Due today",
-  soon: "Soon",
-  completed: "Completed",
-  high: "High priority",
-  medium: "Medium priority",
-  low: "Low priority",
+const TASKS_SCREEN_CACHE_KEY = "screen:tasks";
+
+type TasksScreenCache = {
+  plannedEvents: PlannedEvent[];
+  tasks: Task[];
 };
 
 function symbol(ios: string, android: string): SymbolName {
@@ -82,9 +73,8 @@ function symbol(ios: string, android: string): SymbolName {
 function getPriorityGroup(
   task: Task,
 ): Exclude<TaskPriorityGroupKey, "completed"> {
-  const score = getTaskPriorityLevel(task);
-  if (score >= 2.5) return "high";
-  if (score >= 1.75) return "medium";
+  if (task.importance === "High") return "high";
+  if (task.importance === "Medium") return "medium";
   return "low";
 }
 
@@ -100,13 +90,30 @@ function formatDueDate(dateKey: string | null) {
   }).format(new Date(year, month - 1, day));
 }
 
+function compareTasksByUrgency(a: Task, b: Task, today: string): number {
+  const urgencyCompare =
+    getTaskUrgencyScore(getTaskUrgency(b, today)) -
+    getTaskUrgencyScore(getTaskUrgency(a, today));
+  if (urgencyCompare !== 0) return urgencyCompare;
+
+  const aDueDate = a.dueDate ?? "9999-99-99";
+  const bDueDate = b.dueDate ?? "9999-99-99";
+  const dueDateCompare = aDueDate < bDueDate ? -1 : aDueDate > bDueDate ? 1 : 0;
+  if (dueDateCompare !== 0) return dueDateCompare;
+
+  const createdCompare = b.createdAt.localeCompare(a.createdAt);
+  return createdCompare !== 0 ? createdCompare : a.name.localeCompare(b.name);
+}
+
 export function TasksScreen() {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<TaskFilter>("all");
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedScreen = getCachedData<TasksScreenCache>(TASKS_SCREEN_CACHE_KEY);
+  const [tasks, setTasks] = useState<Task[]>(cachedScreen?.data.tasks ?? []);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
+  const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,30 +121,52 @@ export function TasksScreen() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [actionTask, setActionTask] = useState<Task | null>(null);
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
-  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
+  const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
+    cachedScreen?.data.plannedEvents ?? [],
+  );
   const [celebrate, setCelebrate] = useState(false);
-  const [recentlyCompletedTaskIds, setRecentlyCompletedTaskIds] = useState<
-    Set<string>
-  >(new Set());
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
-  const completionTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
-    new Set(),
+  const plannedEventsRef = useRef<PlannedEvent[]>(
+    cachedScreen?.data.plannedEvents ?? [],
   );
+  const tasksRef = useRef<Task[]>(cachedScreen?.data.tasks ?? []);
 
   useEffect(
     () => () => {
       isMountedRef.current = false;
-      for (const timer of completionTimersRef.current) clearTimeout(timer);
-      completionTimersRef.current.clear();
     },
     [],
   );
+
+  const writeTasksCache = useCallback(
+    (
+      nextTasks = tasksRef.current,
+      nextPlannedEvents = plannedEventsRef.current,
+    ) => {
+      tasksRef.current = nextTasks;
+      plannedEventsRef.current = nextPlannedEvents;
+      setCachedData(TASKS_SCREEN_CACHE_KEY, {
+        plannedEvents: nextPlannedEvents,
+        tasks: nextTasks,
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  useEffect(() => {
+    plannedEventsRef.current = plannedEvents;
+  }, [plannedEvents]);
 
   const { projects, reloadProjects, createProject, confirmDeleteProject } =
     useTaskProjects();
 
   const unlinkTasksFromProject = useCallback((projectId: string) => {
+    setSelectedProjectId((current) => (current === projectId ? null : current));
     setTasks((current) =>
       current.map((task) =>
         task.projectId === projectId ? { ...task, projectId: null } : task,
@@ -149,7 +178,19 @@ export function TasksScreen() {
     async (refresh = false) => {
       const requestId = loadRequestIdRef.current + 1;
       loadRequestIdRef.current = requestId;
-      refresh ? setIsRefreshing(true) : setIsLoading(true);
+      const cached = getCachedData<TasksScreenCache>(TASKS_SCREEN_CACHE_KEY);
+      if (!refresh && cached) {
+        tasksRef.current = cached.data.tasks;
+        plannedEventsRef.current = cached.data.plannedEvents;
+        setTasks(cached.data.tasks);
+        setPlannedEvents(cached.data.plannedEvents);
+        setIsLoading(false);
+        if (isCacheFresh(cached)) {
+          void reloadProjects();
+          return;
+        }
+      }
+      refresh ? setIsRefreshing(true) : setIsLoading(!cached);
       setError(null);
 
       try {
@@ -161,17 +202,20 @@ export function TasksScreen() {
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
         }
+        writeTasksCache(nextTasks, nextPlannedEvents);
         setTasks(nextTasks);
         setPlannedEvents(nextPlannedEvents);
       } catch (loadError) {
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
         }
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Could not load tasks.",
-        );
+        if (!cached) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load tasks.",
+          );
+        }
       } finally {
         if (isMountedRef.current && requestId === loadRequestIdRef.current) {
           setIsLoading(false);
@@ -179,7 +223,7 @@ export function TasksScreen() {
         }
       }
     },
-    [reloadProjects],
+    [reloadProjects, writeTasksCache],
   );
 
   useEffect(() => {
@@ -187,62 +231,30 @@ export function TasksScreen() {
   }, [load]);
 
   const visibleTasks = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
     return tasks.filter((task) => {
-      const urgency = getTaskUrgency(task);
-      const priorityGroup = getPriorityGroup(task);
-      const isRecentlyCompleted = recentlyCompletedTaskIds.has(task.id);
-      if (task.completedAt && filter !== "completed" && !isRecentlyCompleted) {
+      if (selectedProjectId && task.projectId !== selectedProjectId) {
         return false;
       }
-      if (filter === "completed" && !task.completedAt) return false;
-      if (filter === "today" && (task.completedAt || urgency !== "today")) {
-        return false;
-      }
-      if (filter === "soon" && (task.completedAt || urgency !== "soon")) {
-        return false;
-      }
-      if (filter === "high" && (task.completedAt || priorityGroup !== "high")) {
-        return false;
-      }
-      if (
-        filter === "medium" &&
-        (task.completedAt || priorityGroup !== "medium")
-      ) {
-        return false;
-      }
-      if (filter === "low" && (task.completedAt || priorityGroup !== "low")) {
-        return false;
-      }
-      if (!normalizedQuery) return true;
-      return `${task.name} ${task.importance} ${task.timeRequired}`
-        .toLowerCase()
-        .includes(normalizedQuery);
+      return true;
     });
-  }, [filter, query, recentlyCompletedTaskIds, tasks]);
+  }, [selectedProjectId, tasks]);
+
+  useEffect(() => {
+    if (
+      selectedProjectId &&
+      !projects.some((project) => project.id === selectedProjectId)
+    ) {
+      setSelectedProjectId(null);
+    }
+  }, [projects, selectedProjectId]);
 
   const groups = useMemo(() => {
     const today = todayDateKey();
-    const active = visibleTasks.filter(
-      (task) => !task.completedAt || recentlyCompletedTaskIds.has(task.id),
-    );
-    const completed = visibleTasks.filter((task) => task.completedAt);
-    if (filter === "completed") {
-      return completed.length
-        ? [
-            {
-              key: "completed" as TaskPriorityGroupKey,
-              label: "Completed",
-              tasks: completed.sort((a, b) =>
-                compareTasksByPriority(a, b, today),
-              ),
-            },
-          ]
-        : [];
-    }
-
-    return (
+    const active = visibleTasks.filter((task) => !task.completedAt);
+    const completed = visibleTasks
+      .filter((task) => task.completedAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const priorityGroups = (
       [
         ["high", "High priority"],
         ["medium", "Medium priority"],
@@ -254,10 +266,21 @@ export function TasksScreen() {
         label,
         tasks: active
           .filter((task) => getPriorityGroup(task) === key)
-          .sort((a, b) => compareTasksByPriority(a, b, today)),
+          .sort((a, b) => compareTasksByUrgency(a, b, today)),
       }))
       .filter((group) => group.tasks.length);
-  }, [filter, recentlyCompletedTaskIds, visibleTasks]);
+
+    return completed.length
+      ? [
+          ...priorityGroups,
+          {
+            key: "completed" as const,
+            label: "Completed",
+            tasks: completed,
+          },
+        ]
+      : priorityGroups;
+  }, [visibleTasks]);
   const plannedEventsByTaskId = useMemo(() => {
     const map = new Map<string, PlannedEvent>();
     for (const event of plannedEvents) {
@@ -287,11 +310,13 @@ export function TasksScreen() {
       : null;
     if (!isMountedRef.current) return;
 
-    setTasks((current) =>
-      targetTask
+    setTasks((current) => {
+      const nextTasks = targetTask
         ? current.map((task) => (task.id === saved.id ? saved : task))
-        : [...current, saved],
-    );
+        : [...current, saved];
+      writeTasksCache(nextTasks);
+      return nextTasks;
+    });
     if (existingPlan) {
       const result = await upsertPlannedEvent({
         dateKey: existingPlan.date,
@@ -303,11 +328,13 @@ export function TasksScreen() {
         title: saved.name,
       });
       if (!isMountedRef.current) return;
-      setPlannedEvents((current) =>
-        current.map((event) =>
+      setPlannedEvents((current) => {
+        const nextPlannedEvents = current.map((event) =>
           event.id === result.event.id ? result.event : event,
-        ),
-      );
+        );
+        writeTasksCache(undefined, nextPlannedEvents);
+        return nextPlannedEvents;
+      });
     }
     setFormOpen(false);
     setEditingTask(null);
@@ -329,37 +356,17 @@ export function TasksScreen() {
       if (!task.completedAt && updated.completedAt) {
         playSuccessHaptic();
         setCelebrate(true);
-        setRecentlyCompletedTaskIds((current) => {
-          const next = new Set(current);
-          next.add(updated.id);
-          return next;
-        });
-        const timer = setTimeout(() => {
-          completionTimersRef.current.delete(timer);
-          if (!isMountedRef.current) return;
-          setRecentlyCompletedTaskIds((current) => {
-            if (!current.has(updated.id)) return current;
-            const next = new Set(current);
-            next.delete(updated.id);
-            return next;
-          });
-        }, 1600);
-        completionTimersRef.current.add(timer);
       } else {
         playSelectionHaptic();
-        setRecentlyCompletedTaskIds((current) => {
-          if (!current.has(updated.id)) return current;
-          const next = new Set(current);
-          next.delete(updated.id);
-          return next;
-        });
       }
-      setTasks((current) =>
-        [
+      setTasks((current) => {
+        const nextTasks = [
           ...current.map((item) => (item.id === updated.id ? updated : item)),
           nextTask,
-        ].filter((item): item is Task => Boolean(item)),
-      );
+        ].filter((item): item is Task => Boolean(item));
+        writeTasksCache(nextTasks);
+        return nextTasks;
+      });
       void reloadProjects();
     } catch (updateError) {
       setError(
@@ -406,7 +413,9 @@ export function TasksScreen() {
       const filtered = current.filter(
         (event) => event.sourceType !== "task" || event.sourceId !== taskId,
       );
-      return [...filtered, result.event];
+      const nextPlannedEvents = [...filtered, result.event];
+      writeTasksCache(undefined, nextPlannedEvents);
+      return nextPlannedEvents;
     });
   };
 
@@ -416,11 +425,13 @@ export function TasksScreen() {
     try {
       await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
       if (!isMountedRef.current) return;
-      setPlannedEvents((current) =>
-        current.filter(
+      setPlannedEvents((current) => {
+        const nextPlannedEvents = current.filter(
           (event) => event.sourceType !== "task" || event.sourceId !== task.id,
-        ),
-      );
+        );
+        writeTasksCache(undefined, nextPlannedEvents);
+        return nextPlannedEvents;
+      });
     } catch (clearError) {
       setError(
         clearError instanceof Error
@@ -441,9 +452,15 @@ export function TasksScreen() {
           try {
             await deleteTask(task.id);
             if (!isMountedRef.current) return;
-            setTasks((current) =>
-              current.filter((item) => item.id !== task.id),
-            );
+            setTasks((current) => {
+              const nextTasks = current.filter((item) => item.id !== task.id);
+              const nextPlannedEvents = plannedEvents.filter(
+                (event) =>
+                  event.sourceType !== "task" || event.sourceId !== task.id,
+              );
+              writeTasksCache(nextTasks, nextPlannedEvents);
+              return nextTasks;
+            });
             setPlannedEvents((current) =>
               current.filter(
                 (event) =>
@@ -462,31 +479,6 @@ export function TasksScreen() {
       },
     ]);
   };
-
-  const activeCount = tasks.filter((task) => !task.completedAt).length;
-  const todayCount = tasks.filter(
-    (task) => !task.completedAt && getTaskUrgency(task) === "today",
-  ).length;
-  const todayKey = todayDateKey();
-  const completedCount = tasks.filter(
-    (task) => task.completedAt === todayKey,
-  ).length;
-  const activeFilterLabel = TASK_FILTER_LABELS[filter];
-  const filterActions: MenuAction[] = (
-    [
-      ["all", TASK_FILTER_LABELS.all],
-      ["today", TASK_FILTER_LABELS.today],
-      ["soon", TASK_FILTER_LABELS.soon],
-      ["completed", TASK_FILTER_LABELS.completed],
-      ["high", TASK_FILTER_LABELS.high],
-      ["medium", TASK_FILTER_LABELS.medium],
-      ["low", TASK_FILTER_LABELS.low],
-    ] as const
-  ).map(([id, title]) => ({
-    id,
-    title,
-    state: filter === id ? "on" : "off",
-  }));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -534,78 +526,18 @@ export function TasksScreen() {
             </Pressable>
           </View>
 
-          <Text style={[styles.summaryText, { color: theme.textSecondary }]}>
-            {activeCount} active · {todayCount} due today · {completedCount}{" "}
-            done today
-          </Text>
-
           <ProjectProgressCard
             projects={projects}
+            selectedProjectId={selectedProjectId}
             onDeleteProject={(project) =>
               confirmDeleteProject(project, unlinkTasksFromProject)
             }
+            onSelectProject={(project) =>
+              setSelectedProjectId((current) =>
+                project === null || current === project.id ? null : project.id,
+              )
+            }
           />
-
-          <View
-            style={[
-              styles.search,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.tabBorder,
-              },
-            ]}
-          >
-            <SymbolView
-              name={symbol("magnifyingglass", "search")}
-              size={18}
-              tintColor={theme.textSecondary}
-            />
-            <TextInput
-              accessibilityLabel="Search tasks"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setQuery}
-              placeholder="Search tasks"
-              placeholderTextColor={theme.textSecondary}
-              selectionColor={theme.primary}
-              style={[styles.searchInput, { color: theme.text }]}
-              value={query}
-            />
-            {query ? (
-              <Pressable
-                accessibilityLabel="Clear search"
-                hitSlop={10}
-                onPress={() => setQuery("")}
-              >
-                <SymbolView
-                  name={symbol("xmark.circle.fill", "cancel")}
-                  size={18}
-                  tintColor={theme.textSecondary}
-                />
-              </Pressable>
-            ) : null}
-            <MenuView
-              actions={filterActions}
-              onPressAction={({ nativeEvent }) => {
-                setFilter(nativeEvent.event as TaskFilter);
-              }}
-            >
-              <View
-                accessible
-                accessibilityLabel={`Filter tasks, currently ${activeFilterLabel}`}
-                accessibilityRole="button"
-                style={styles.filterButton}
-              >
-                <SymbolView
-                  name={symbol("line.3.horizontal.decrease.circle", "tune")}
-                  size={20}
-                  tintColor={
-                    filter === "all" ? theme.textSecondary : theme.primary
-                  }
-                />
-              </View>
-            </MenuView>
-          </View>
 
           {error ? (
             <View style={styles.errorBanner}>
@@ -642,15 +574,19 @@ export function TasksScreen() {
                       {group.tasks.length}
                     </Text>
                   </View>
-                  <View style={styles.taskList}>
+                  <View
+                    style={[
+                      styles.taskList,
+                      { borderTopColor: theme.tabBorder },
+                    ]}
+                  >
                     {group.tasks.map((task) => (
                       <TaskCard
                         key={task.id}
                         isUpdating={updatingId === task.id}
                         task={task}
-                        onEdit={() => openEdit(task)}
                         onMore={() => setActionTask(task)}
-                        onToggle={() => setActionTask(task)}
+                        onToggle={() => void toggleComplete(task)}
                       />
                     ))}
                   </View>
@@ -684,7 +620,6 @@ export function TasksScreen() {
         onDelete={confirmDelete}
         onEdit={openEdit}
         onPlan={openPlanTask}
-        onToggle={toggleComplete}
       />
       <TaskPlanModal
         existingPlan={
@@ -706,36 +641,29 @@ export function TasksScreen() {
 
 function TaskCard({
   isUpdating,
-  onEdit,
   onMore,
   onToggle,
   task,
 }: {
   isUpdating: boolean;
-  onEdit: () => void;
   onMore: () => void;
   onToggle: () => void;
   task: Task;
 }) {
   const theme = useTheme();
   const completed = Boolean(task.completedAt);
-  const priority = getTaskPriorityLevel(task);
-  const priorityLabel = `${priority.toFixed(priority % 1 ? 1 : 0)} priority`;
-  const priorityColor =
-    task.importance === "High"
-      ? theme.primary
-      : task.importance === "Medium"
-        ? theme.primary
-        : theme.textSecondary;
 
   return (
     <Pressable
+      accessibilityLabel={
+        completed ? `Reopen ${task.name}` : `Complete ${task.name}`
+      }
       accessibilityRole="button"
-      onPress={onEdit}
+      disabled={isUpdating}
+      onPress={onToggle}
       style={({ pressed }) => [
         styles.taskCard,
         {
-          backgroundColor: theme.tabBar,
           borderColor: theme.tabBorder,
           opacity: completed ? 0.66 : 1,
         },
@@ -758,7 +686,7 @@ function TaskCard({
           styles.checkButton,
           {
             backgroundColor: completed ? theme.primary : "transparent",
-            borderColor: completed ? theme.primary : theme.tabBorder,
+            borderColor: completed ? theme.primary : `${theme.textSecondary}4D`,
           },
         ]}
       >
@@ -787,30 +715,13 @@ function TaskCard({
         >
           {task.name}
         </Text>
-        <View style={styles.taskMetadata}>
-          <View
-            style={[styles.priorityDot, { backgroundColor: priorityColor }]}
-          />
-          <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-            {formatDueDate(task.dueDate)}
-          </Text>
-          <Text
-            style={[styles.metadataDivider, { color: theme.textSecondary }]}
-          >
-            ·
-          </Text>
-          <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-            {task.timeRequired}
-          </Text>
-          <Text
-            style={[styles.metadataDivider, { color: theme.textSecondary }]}
-          >
-            ·
-          </Text>
-          <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-            {priorityLabel}
-          </Text>
-        </View>
+        {task.dueDate ? (
+          <View style={styles.taskMetadata}>
+            <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
+              {formatDueDate(task.dueDate)}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <Pressable
         accessibilityLabel={`More actions for ${task.name}`}
@@ -853,7 +764,7 @@ function EmptyState({
             ]}
           >
             <SymbolView
-              name={symbol("magnifyingglass", "search")}
+              name={symbol("line.3.horizontal.decrease.circle", "tune")}
               size={28}
               tintColor={theme.primary}
             />
@@ -864,13 +775,13 @@ function EmptyState({
           <Text
             style={[styles.emptyDescription, { color: theme.textSecondary }]}
           >
-            Try a different search or filter.
+            Try a different project.
           </Text>
         </>
       ) : (
         <BrandedEmptyState
           title="Create your first task"
-          description="Choose what matters, set the urgency, and clear it."
+          description="Choose what matters and clear it."
         />
       )}
       {!hasTasks ? (
@@ -903,8 +814,8 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: MaxContentWidth,
     alignSelf: "center",
-    paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
     paddingBottom: 32,
     gap: 14,
   },
@@ -929,43 +840,24 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   title: {
-    fontSize: 25,
-    lineHeight: 29,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: "700",
   },
   description: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   addButton: {
-    width: 38,
-    height: 38,
-    maxWidth: 38,
-    maxHeight: 38,
-    minWidth: 38,
-    minHeight: 38,
+    width: 36,
+    height: 36,
+    maxWidth: 36,
+    maxHeight: 36,
+    minWidth: 36,
+    minHeight: 36,
     flexGrow: 0,
     flexShrink: 0,
     alignSelf: "flex-start",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
-  },
-  summaryText: { fontSize: 13, lineHeight: 18, fontWeight: "700" },
-  search: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-  },
-  searchInput: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: "500" },
-  filterButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: 18,
   },
   errorBanner: {
     flexDirection: "row",
@@ -985,36 +877,36 @@ const styles = StyleSheet.create({
   },
   retryText: { color: "#9D474D", fontSize: 12, fontWeight: "800" },
   groups: { gap: 18 },
-  group: { gap: 9 },
+  group: { gap: 6 },
   groupHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
     paddingHorizontal: 3,
   },
-  groupTitle: { fontSize: 15, lineHeight: 20, fontWeight: "800" },
-  groupCount: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
-  taskList: { gap: 8 },
+  groupTitle: { fontSize: 22, lineHeight: 27, fontWeight: "700" },
+  groupCount: { fontSize: 17, lineHeight: 22, fontWeight: "500" },
+  taskList: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   taskCard: {
-    minHeight: 64,
+    minHeight: 60,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 11,
   },
   checkButton: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1.5,
-    borderRadius: 10,
+    borderWidth: 1.25,
+    borderRadius: 13,
   },
   taskBody: { flex: 1, minWidth: 0, gap: 4 },
-  taskName: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
+  taskName: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
   completedName: { textDecorationLine: "line-through" },
   taskMetadata: {
     flexDirection: "row",
@@ -1022,15 +914,13 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 5,
   },
-  priorityDot: { width: 6, height: 6, borderRadius: 3 },
-  metadataText: { fontSize: 10, lineHeight: 14, fontWeight: "600" },
-  metadataDivider: { fontSize: 11, lineHeight: 14, fontWeight: "700" },
+  metadataText: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
   moreButton: {
-    width: 30,
-    height: 34,
+    width: 32,
+    height: 32,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    borderRadius: 16,
   },
   centerState: {
     alignItems: "center",

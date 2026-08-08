@@ -30,12 +30,12 @@ import {
   type HistorySection,
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
-  setCreateSection,
   setCollabSection,
+  setCreateSection,
   setHistorySection,
   setPlanReportView,
-  useCreateSection,
   useCollabSection,
+  useCreateSection,
   useHistorySection,
   usePlanReportView,
 } from "@/lib/tab-view-store";
@@ -120,7 +120,7 @@ const TABS: TabItem[] = [
       width: 190,
       items: [
         {
-          label: "Daily Plan",
+          label: "Daily",
           href: "/plan-report?view=day-plan",
           icon: {
             ios: "calendar.day.timeline.left",
@@ -129,7 +129,7 @@ const TABS: TabItem[] = [
           },
         },
         {
-          label: "Monthly Plan",
+          label: "Monthly",
           href: "/plan-report?view=monthly-plan",
           icon: {
             ios: "calendar",
@@ -145,9 +145,9 @@ const TABS: TabItem[] = [
     href: "/",
     label: "Collab",
     icon: {
-      ios: "person.2.fill",
-      android: "groups",
-      web: "groups",
+      ios: "rectangle.stack.fill",
+      android: "dynamic_feed",
+      web: "dynamic_feed",
     },
     menu: {
       alignment: "center",
@@ -556,9 +556,11 @@ function getDefaultTabHref({
     ) as Href;
   }
   if (tab.name === "collab") {
-    return (collabSection === "friends"
-      ? COLLAB_SECTION_HREFS.feed
-      : COLLAB_SECTION_HREFS[collabSection]) as Href;
+    return (
+      collabSection === "friends"
+        ? COLLAB_SECTION_HREFS.feed
+        : COLLAB_SECTION_HREFS[collabSection]
+    ) as Href;
   }
   if (tab.name === "history") {
     return "/history" as Href;

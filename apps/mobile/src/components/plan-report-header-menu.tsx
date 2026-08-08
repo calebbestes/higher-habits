@@ -14,13 +14,13 @@ const MENU_ITEMS: {
 }[] = [
   {
     id: "day-plan",
-    title: "Daily Plan",
+    title: "Daily",
     href: "/plan-report?view=day-plan",
     image: "calendar",
   },
   {
     id: "monthly-plan",
-    title: "Monthly Plan",
+    title: "Monthly",
     href: "/plan-report?view=monthly-plan",
     image: "calendar.badge.clock",
   },

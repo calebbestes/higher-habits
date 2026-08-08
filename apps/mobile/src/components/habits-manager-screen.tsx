@@ -27,6 +27,11 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
+import {
   type FriendGroupRow,
   type FriendRow,
   fetchFriendGroups,
@@ -58,7 +63,12 @@ import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
 type SymbolName = SymbolViewProps["name"];
 type HabitFilter = "all" | "high" | "hidden";
+type HabitsScreenCache = {
+  categories: Category[];
+  habits: Habit[];
+};
 
+const HABITS_SCREEN_CACHE_KEY = "screen:habits";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
 const CADENCES: HabitPeriod[] = ["weekly", "monthly"];
@@ -211,11 +221,18 @@ export function HabitsManagerScreen() {
   const router = useRouter();
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const cachedScreen = getCachedData<HabitsScreenCache>(
+    HABITS_SCREEN_CACHE_KEY,
+  );
+  const [habits, setHabits] = useState<Habit[]>(
+    cachedScreen?.data.habits ?? [],
+  );
+  const [categories, setCategories] = useState<Category[]>(
+    cachedScreen?.data.categories ?? [],
+  );
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<HabitFilter>("all");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -223,7 +240,14 @@ export function HabitsManagerScreen() {
   const [actionHabit, setActionHabit] = useState<Habit | null>(null);
 
   const load = useCallback(async (refresh = false) => {
-    refresh ? setIsRefreshing(true) : setIsLoading(true);
+    const cached = getCachedData<HabitsScreenCache>(HABITS_SCREEN_CACHE_KEY);
+    if (!refresh && cached) {
+      setHabits(cached.data.habits);
+      setCategories(cached.data.categories);
+      setIsLoading(false);
+      if (isCacheFresh(cached)) return;
+    }
+    refresh ? setIsRefreshing(true) : setIsLoading(!cached);
     setError(null);
 
     try {
@@ -231,14 +255,20 @@ export function HabitsManagerScreen() {
         fetchHabits(),
         fetchCategories(),
       ]);
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories: nextCategories,
+        habits: nextHabits,
+      });
       setHabits(nextHabits);
       setCategories(nextCategories);
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load habits.",
-      );
+      if (!cached) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load habits.",
+        );
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -307,34 +337,49 @@ export function HabitsManagerScreen() {
       );
     }
 
-    setHabits((current) =>
-      editingHabit
+    setHabits((current) => {
+      const nextHabits = editingHabit
         ? current.map((habit) => (habit.id === saved.id ? saved : habit))
-        : [...current, saved],
-    );
+        : [...current, saved];
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories,
+        habits: nextHabits,
+      });
+      return nextHabits;
+    });
     setFormOpen(false);
     setEditingHabit(null);
   };
 
   const addCategory = async (name: string, icon: string) => {
     const category = await createCategory({ name, icon });
-    setCategories((current) =>
-      [...current, category].sort((left, right) =>
+    setCategories((current) => {
+      const nextCategories = [...current, category].sort((left, right) =>
         left.name.localeCompare(right.name),
-      ),
-    );
+      );
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories: nextCategories,
+        habits,
+      });
+      return nextCategories;
+    });
     return category;
   };
 
   const editCategory = async (id: string, name: string, icon: string) => {
     const category = await updateCategory(id, { name, icon });
-    setCategories((current) =>
-      current
+    setCategories((current) => {
+      const nextCategories = current
         .map((item) => (item.id === category.id ? category : item))
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    );
-    setHabits((current) =>
-      current.map((habit) =>
+        .sort((left, right) => left.name.localeCompare(right.name));
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories: nextCategories,
+        habits,
+      });
+      return nextCategories;
+    });
+    setHabits((current) => {
+      const nextHabits = current.map((habit) =>
         habit.categoryId === category.id
           ? {
               ...habit,
@@ -342,14 +387,26 @@ export function HabitsManagerScreen() {
               categoryName: category.name,
             }
           : habit,
-      ),
-    );
+      );
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories,
+        habits: nextHabits,
+      });
+      return nextHabits;
+    });
     return category;
   };
 
   const removeCategory = async (id: string) => {
     await deleteCategory(id);
-    setCategories((current) => current.filter((item) => item.id !== id));
+    setCategories((current) => {
+      const nextCategories = current.filter((item) => item.id !== id);
+      setCachedData(HABITS_SCREEN_CACHE_KEY, {
+        categories: nextCategories,
+        habits,
+      });
+      return nextCategories;
+    });
   };
 
   const toggleHidden = async (habit: Habit) => {
@@ -364,9 +421,16 @@ export function HabitsManagerScreen() {
       } else {
         await scheduleHabitReminderAsync(updated);
       }
-      setHabits((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)),
-      );
+      setHabits((current) => {
+        const nextHabits = current.map((item) =>
+          item.id === updated.id ? updated : item,
+        );
+        setCachedData(HABITS_SCREEN_CACHE_KEY, {
+          categories,
+          habits: nextHabits,
+        });
+        return nextHabits;
+      });
     } catch (updateError) {
       setError(
         updateError instanceof Error
@@ -390,9 +454,16 @@ export function HabitsManagerScreen() {
             try {
               await deleteHabit(habit.id);
               await cancelHabitReminderAsync(habit.id);
-              setHabits((current) =>
-                current.filter((item) => item.id !== habit.id),
-              );
+              setHabits((current) => {
+                const nextHabits = current.filter(
+                  (item) => item.id !== habit.id,
+                );
+                setCachedData(HABITS_SCREEN_CACHE_KEY, {
+                  categories,
+                  habits: nextHabits,
+                });
+                return nextHabits;
+              });
               onDeleted?.();
             } catch (deleteError) {
               setError(

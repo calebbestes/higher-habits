@@ -1,6 +1,6 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import type { ReactNode } from "react";
 import { useCallback, useEffect } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { DailyGoalsScreen } from "@/components/daily-goals-screen";
 import { GoalsScreen } from "@/components/goals-screen";
@@ -42,22 +42,44 @@ export default function AddScreen() {
     }
   }, [type]);
 
-  let content: ReactNode;
-  if (activeSection === "goals") {
-    content = <GoalsScreen />;
-  } else if (activeSection === "tasks") {
-    content = <TasksScreen />;
-  } else {
-    content = <DailyGoalsScreen />;
-  }
-
   return (
     <SwipePageTransition
       activeKey={activeSection}
       orderedKeys={CREATE_ORDER}
       onChange={changeSection}
     >
-      {content}
+      <View style={styles.pageStack}>
+        <View
+          style={[
+            styles.page,
+            activeSection !== "habits" && styles.inactivePage,
+          ]}
+        >
+          <DailyGoalsScreen />
+        </View>
+        <View
+          style={[
+            styles.page,
+            activeSection !== "goals" && styles.inactivePage,
+          ]}
+        >
+          <GoalsScreen />
+        </View>
+        <View
+          style={[
+            styles.page,
+            activeSection !== "tasks" && styles.inactivePage,
+          ]}
+        >
+          <TasksScreen />
+        </View>
+      </View>
     </SwipePageTransition>
   );
 }
+
+const styles = StyleSheet.create({
+  inactivePage: { display: "none" },
+  page: { flex: 1 },
+  pageStack: { flex: 1 },
+});

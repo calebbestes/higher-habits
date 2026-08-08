@@ -681,10 +681,7 @@ export function FeedScreen() {
   );
 
   const updateFeedEntry = useCallback(
-    (
-      entryId: string,
-      updater: (entry: FriendFeedEntry) => FriendFeedEntry,
-    ) => {
+    (entryId: string, updater: (entry: FriendFeedEntry) => FriendFeedEntry) => {
       setEntries((prev) =>
         prev.map((entry) => (entry.id === entryId ? updater(entry) : entry)),
       );
@@ -695,29 +692,14 @@ export function FeedScreen() {
     [],
   );
 
-  const handleToggleProp = useCallback(async (entry: FriendFeedEntry) => {
-    const entryId = entry.id;
-    if (!entry?.props.hasPropped) {
-      playSuccessHaptic();
-    } else {
-      playSelectionHaptic();
-    }
-    updateFeedEntry(entryId, (e) => ({
-      ...e,
-      props: {
-        count: e.props.hasPropped
-          ? Math.max(e.props.count - 1, 0)
-          : e.props.count + 1,
-        hasPropped: !e.props.hasPropped,
-      },
-    }));
-    try {
-      if (entry.kind === "reflection") {
-        await toggleReflectionProp(entryId);
+  const handleToggleProp = useCallback(
+    async (entry: FriendFeedEntry) => {
+      const entryId = entry.id;
+      if (!entry?.props.hasPropped) {
+        playSuccessHaptic();
       } else {
-        await toggleFeedProp(entryId);
+        playSelectionHaptic();
       }
-    } catch (err) {
       updateFeedEntry(entryId, (e) => ({
         ...e,
         props: {
@@ -727,12 +709,30 @@ export function FeedScreen() {
           hasPropped: !e.props.hasPropped,
         },
       }));
-      Alert.alert(
-        "Could not update props",
-        err instanceof Error ? err.message : undefined,
-      );
-    }
-  }, [updateFeedEntry]);
+      try {
+        if (entry.kind === "reflection") {
+          await toggleReflectionProp(entryId);
+        } else {
+          await toggleFeedProp(entryId);
+        }
+      } catch (err) {
+        updateFeedEntry(entryId, (e) => ({
+          ...e,
+          props: {
+            count: e.props.hasPropped
+              ? Math.max(e.props.count - 1, 0)
+              : e.props.count + 1,
+            hasPropped: !e.props.hasPropped,
+          },
+        }));
+        Alert.alert(
+          "Could not update props",
+          err instanceof Error ? err.message : undefined,
+        );
+      }
+    },
+    [updateFeedEntry],
+  );
 
   const handleAddComment = useCallback(
     async (entryId: string) => {
@@ -1941,19 +1941,14 @@ function DailyReflectionCard({
       style={[
         styles.reflectionCard,
         {
-          backgroundColor: `${theme.primary}10`,
+          backgroundColor: theme.tabBar,
+          borderColor: `${theme.tabBorder}8C`,
         },
       ]}
     >
-      <View
-        style={[
-          styles.reflectionAccent,
-          { backgroundColor: `${theme.primary}B3` },
-        ]}
-      />
       <View style={styles.reflectionCardCopy}>
         <Text
-          style={[styles.reflectionEyebrow, { color: theme.textSecondary }]}
+          style={[styles.reflectionCardEyebrow, { color: theme.textSecondary }]}
         >
           Daily reflection
         </Text>
@@ -1965,7 +1960,10 @@ function DailyReflectionCard({
             pressed && styles.pressed,
           ]}
         >
-          <Text style={[styles.reflectionPromptText, { color: theme.text }]}>
+          <Text
+            numberOfLines={2}
+            style={[styles.reflectionCardPromptText, { color: theme.text }]}
+          >
             {prompt.text}
           </Text>
         </Pressable>
@@ -1975,6 +1973,7 @@ function DailyReflectionCard({
             onPress={onUsePrompt}
             style={({ pressed }) => [
               styles.reflectionTextAction,
+              styles.reflectionPrimaryAction,
               pressed && styles.pressed,
             ]}
           >
@@ -1988,28 +1987,28 @@ function DailyReflectionCard({
             </Text>
             <SymbolView
               name={sym("arrow.right", "arrow_forward")}
-              size={14}
+              size={13}
               weight="bold"
               tintColor={theme.primary}
             />
           </Pressable>
           <Pressable
+            accessibilityLabel="Change reflection prompt"
             accessibilityRole="button"
             hitSlop={8}
             onPress={onChoosePrompt}
             style={({ pressed }) => [
-              styles.reflectionTextAction,
+              styles.reflectionIconAction,
+              { backgroundColor: theme.backgroundElement },
               pressed && styles.pressed,
             ]}
           >
-            <Text
-              style={[
-                styles.reflectionTextActionSecondary,
-                { color: theme.textSecondary },
-              ]}
-            >
-              Change prompt
-            </Text>
+            <SymbolView
+              name={sym("arrow.triangle.2.circlepath", "refresh")}
+              size={15}
+              weight="semibold"
+              tintColor={theme.textSecondary}
+            />
           </Pressable>
         </View>
       </View>
@@ -3265,7 +3264,10 @@ function PostHeaderContent({
         accessibilityLabel="Post safety actions"
         hitSlop={8}
         onPress={onOpenSafetyActions}
-        style={({ pressed }) => [styles.safetyButton, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.safetyButton,
+          pressed && styles.pressed,
+        ]}
       >
         <SymbolView
           name={sym("ellipsis", "more_horiz")}
@@ -3317,11 +3319,16 @@ export function FeedCard({
   const canUseSocialActions =
     entry.kind === "habit" || entry.kind === "reflection";
   const canUseGoalActions = entry.kind === "habit";
-  const headerTextColor = hasPhotos ? "#FFFFFF" : theme.text;
-  const headerSecondaryColor = hasPhotos
-    ? "rgba(255,255,255,0.72)"
-    : theme.textSecondary;
-  const headerIconColor = hasPhotos ? "#FFFFFF" : theme.textSecondary;
+  const isDarkMode = theme.background === "#000000";
+  const cardBackground = isDarkMode ? "#1C1C1E" : theme.tabBar;
+  const cardBorder = isDarkMode ? "#38383A" : `${theme.tabBorder}8C`;
+  const selectedPropBackground = isDarkMode
+    ? `${theme.primary}24`
+    : `${theme.primary}12`;
+  const activePropColor = theme.primary;
+  const headerTextColor = theme.text;
+  const headerSecondaryColor = theme.textSecondary;
+  const headerIconColor = theme.textSecondary;
   const clearSingleTapTimer = useCallback(() => {
     if (!singleTapTimerRef.current) return;
     clearTimeout(singleTapTimerRef.current);
@@ -3362,11 +3369,27 @@ export function FeedCard({
         isCompletionOnly && styles.completionCard,
         hasPhotos && styles.photoCard,
         {
-          backgroundColor: theme.tabBar,
-          borderColor: hasPhotos ? "transparent" : `${theme.tabBorder}8C`,
+          backgroundColor: cardBackground,
+          borderColor: cardBorder,
         },
       ]}
     >
+      <View
+        style={[
+          styles.cardHeader,
+          isCompletionOnly && styles.completionCardHeader,
+        ]}
+      >
+        <PostHeaderContent
+          entry={entry}
+          iconColor={headerIconColor}
+          nameColor={headerTextColor}
+          onOpenProfile={onOpenProfile}
+          onOpenSafetyActions={onOpenSafetyActions}
+          secondaryColor={headerSecondaryColor}
+        />
+      </View>
+
       {/* Photos */}
       {hasPhotos ? (
         <View style={styles.carouselWrap}>
@@ -3424,17 +3447,6 @@ export function FeedCard({
                 </Text>
               </View>
             ) : null}
-            <View style={styles.photoHeaderOverlay}>
-              <View style={styles.photoHeaderScrim} />
-              <PostHeaderContent
-                entry={entry}
-                iconColor={headerIconColor}
-                nameColor={headerTextColor}
-                onOpenProfile={onOpenProfile}
-                onOpenSafetyActions={onOpenSafetyActions}
-                secondaryColor={headerSecondaryColor}
-              />
-            </View>
           </View>
           {entry.photos.length > 1 ? (
             <View style={styles.carouselDots}>
@@ -3455,23 +3467,7 @@ export function FeedCard({
             </View>
           ) : null}
         </View>
-      ) : (
-        <View
-          style={[
-            styles.cardHeader,
-            isCompletionOnly && styles.completionCardHeader,
-          ]}
-        >
-          <PostHeaderContent
-            entry={entry}
-            iconColor={headerIconColor}
-            nameColor={headerTextColor}
-            onOpenProfile={onOpenProfile}
-            onOpenSafetyActions={onOpenSafetyActions}
-            secondaryColor={headerSecondaryColor}
-          />
-        </View>
-      )}
+      ) : null}
 
       {/* Notes */}
       {plainNotes ? (
@@ -3537,22 +3533,22 @@ export function FeedCard({
               style={({ pressed }) => [
                 styles.propButton,
                 propIsActive && {
-                  backgroundColor: `${theme.primary}14`,
+                  backgroundColor: selectedPropBackground,
                 },
                 pressed && styles.pressed,
               ]}
             >
               <SymbolView
                 name={sym("hands.clap.fill", "volunteer_activism")}
-                size={18}
+                size={16}
                 weight="semibold"
-                tintColor={propIsActive ? theme.primary : theme.tabIcon}
+                tintColor={propIsActive ? activePropColor : theme.tabIcon}
               />
               <Text
                 style={[
                   styles.propText,
                   {
-                    color: propIsActive ? theme.primary : theme.tabIcon,
+                    color: propIsActive ? activePropColor : theme.tabIcon,
                   },
                 ]}
               >
@@ -3573,7 +3569,7 @@ export function FeedCard({
               >
                 <SymbolView
                   name={sym("gift.fill", "card_giftcard")}
-                  size={16}
+                  size={15}
                   weight="semibold"
                   tintColor={theme.textSecondary}
                 />
@@ -3613,7 +3609,7 @@ export function FeedCard({
                       : "person.badge.plus",
                     joinGoalStatus === "joined" ? "check_circle" : "group_add",
                   )}
-                  size={16}
+                  size={15}
                   weight="semibold"
                   tintColor={
                     joinGoalStatus === "joined" ? theme.primary : theme.tabIcon
@@ -3650,7 +3646,7 @@ export function FeedCard({
             >
               <SymbolView
                 name={sym("bubble.left", "chat_bubble_outline")}
-                size={16}
+                size={15}
                 weight="semibold"
                 tintColor={theme.textSecondary}
               />
@@ -3968,9 +3964,9 @@ function RichFeedNote({
   const baseStyle = useMemo(
     () => ({
       color: theme.text,
-      fontSize: 14,
-      fontWeight: "500" as const,
-      lineHeight: 21,
+      fontSize: 17,
+      fontWeight: "400" as const,
+      lineHeight: 24,
     }),
     [theme.text],
   );
@@ -3978,28 +3974,28 @@ function RichFeedNote({
     () => ({
       p: { marginTop: 0, marginBottom: 6 },
       h1: {
-        fontSize: 17,
-        lineHeight: 23,
-        fontWeight: "800",
+        fontSize: 20,
+        lineHeight: 26,
+        fontWeight: "600",
         marginTop: 0,
         marginBottom: 6,
       },
       h2: {
-        fontSize: 16,
-        lineHeight: 22,
-        fontWeight: "800",
+        fontSize: 19,
+        lineHeight: 25,
+        fontWeight: "600",
         marginTop: 0,
         marginBottom: 6,
       },
       h3: {
-        fontSize: 15,
-        lineHeight: 21,
-        fontWeight: "700",
+        fontSize: 17,
+        lineHeight: 23,
+        fontWeight: "600",
         marginTop: 0,
         marginBottom: 6,
       },
-      strong: { fontWeight: "800" },
-      b: { fontWeight: "800" },
+      strong: { fontWeight: "600" },
+      b: { fontWeight: "600" },
       em: { fontStyle: "italic" },
       i: { fontStyle: "italic" },
       u: { textDecorationLine: "underline" },
@@ -4620,15 +4616,16 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  feedList: { gap: 12 },
+  feedList: { gap: 10 },
   pinnedReflection: {
     marginTop: 12,
   },
   reflectionCard: {
-    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
     overflow: "hidden",
-    paddingHorizontal: 16,
-    paddingVertical: 15,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
   },
   reflectionAccent: {
     position: "absolute",
@@ -4640,7 +4637,12 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 3,
   },
   reflectionCardCopy: {
-    gap: 8,
+    gap: 5,
+  },
+  reflectionCardEyebrow: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
   },
   reflectionEyebrow: {
     fontSize: 12,
@@ -4656,23 +4658,37 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: "800",
   },
+  reflectionCardPromptText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
   reflectionActionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
-    paddingTop: 2,
+    gap: 10,
   },
   reflectionTextAction: {
-    minHeight: 32,
+    minHeight: 28,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingVertical: 4,
+    paddingVertical: 2,
+  },
+  reflectionPrimaryAction: {
+    alignSelf: "flex-start",
+  },
+  reflectionIconAction: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
   },
   reflectionTextActionPrimary: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "900",
   },
   reflectionTextActionSecondary: {
@@ -4977,7 +4993,7 @@ const styles = StyleSheet.create({
   nativeAdMediaFrame: {
     minHeight: 160,
     overflow: "hidden",
-    borderRadius: 16,
+    borderRadius: 8,
   },
   nativeAdMedia: {
     aspectRatio: 1.75,
@@ -4997,14 +5013,14 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
+    borderRadius: 8,
     overflow: "hidden",
   },
   photoCard: {
-    borderRadius: 16,
+    borderRadius: 8,
   },
   completionCard: {
-    borderRadius: 16,
+    borderRadius: 8,
   },
   cardHeader: {
     flexDirection: "row",
@@ -5025,12 +5041,12 @@ const styles = StyleSheet.create({
   },
   avatarInitial: {
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   headerMeta: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 0,
   },
   headerNameRow: {
     flexDirection: "row",
@@ -5044,17 +5060,17 @@ const styles = StyleSheet.create({
   friendName: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "800",
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "600",
   },
   dateText: {
     maxWidth: 68,
     flexShrink: 0,
     textAlign: "right",
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   safetyButton: {
     width: 30,
@@ -5064,9 +5080,9 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   goalText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   carouselWrap: {
     marginBottom: 0,
@@ -5080,27 +5096,6 @@ const styles = StyleSheet.create({
   carouselSlide: {
     aspectRatio: 1,
   },
-  photoHeaderOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    left: 0,
-    zIndex: 2,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 8,
-  },
-  photoHeaderScrim: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    left: 0,
-    height: 56,
-    backgroundColor: "rgba(0,0,0,0.32)",
-  },
   carouselCounter: {
     position: "absolute",
     top: 10,
@@ -5113,7 +5108,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   carouselDots: {
     minHeight: 18,
@@ -5134,8 +5129,8 @@ const styles = StyleSheet.create({
   },
   richNote: {
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 11,
+    paddingTop: 11,
+    paddingBottom: 10,
   },
   reflectionPostPrompt: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -5145,15 +5140,15 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   reflectionPromptLabel: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "800",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
     textTransform: "uppercase",
   },
   reflectionPostPromptText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "400",
   },
   completionBody: {
     paddingHorizontal: 13,
@@ -5168,15 +5163,15 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   completionTitle: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "800",
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "600",
   },
   completionHighlightText: {
     paddingLeft: 21,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "400",
   },
   showMoreButton: {
     paddingTop: 2,
@@ -5191,10 +5186,10 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 10,
+    gap: 10,
+    paddingHorizontal: 11,
+    paddingTop: 5,
+    paddingBottom: 9,
   },
   completionActionsRow: {
     paddingTop: 4,
@@ -5204,15 +5199,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
-    gap: 4,
-    paddingHorizontal: 8,
+    gap: 5,
+    paddingHorizontal: 7,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: 8,
   },
   propText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "500",
   },
   incentiveButton: {
     flexDirection: "row",
@@ -5220,9 +5215,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     gap: 4,
     minWidth: 0,
-    paddingHorizontal: 7,
+    paddingHorizontal: 4,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: 8,
   },
   joinGoalButton: {
     flexDirection: "row",
@@ -5230,22 +5225,22 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     gap: 4,
     minWidth: 0,
-    paddingHorizontal: 7,
+    paddingHorizontal: 4,
     paddingVertical: 5,
-    borderRadius: 999,
+    borderRadius: 8,
   },
   commentCountWrap: {
     flexDirection: "row",
     alignItems: "center",
     flexShrink: 0,
     gap: 4,
-    paddingHorizontal: 7,
+    paddingHorizontal: 4,
     paddingVertical: 5,
   },
   feedActionText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "500",
   },
   commentPreviewBlock: {
     gap: 4,
@@ -5253,18 +5248,18 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   commentPreviewText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "500",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "400",
   },
   commentPreviewAuthor: {
-    fontWeight: "800",
+    fontWeight: "600",
   },
   viewAllCommentsText: {
     paddingTop: 2,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "400",
   },
   incentiveModalOverlay: {
     flex: 1,

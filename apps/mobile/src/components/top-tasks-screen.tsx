@@ -49,7 +49,7 @@ import {
 } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
-type SortKey = "priority" | "dueDate" | "timeRequired" | "importance";
+type SortKey = "priority" | "dueDate" | "importance";
 
 const SORT_OPTIONS: { key: SortKey; label: string; icon: [string, string] }[] =
   [
@@ -60,25 +60,11 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: [string, string] }[] =
     },
     { key: "dueDate", label: "Due date", icon: ["calendar", "calendar_today"] },
     {
-      key: "timeRequired",
-      label: "Time to complete",
-      icon: ["clock", "schedule"],
-    },
-    {
       key: "importance",
       label: "Importance",
       icon: ["exclamationmark.circle", "priority_high"],
     },
   ];
-
-const TIME_ORDER = [
-  "~15 min",
-  "~30 min",
-  "~1 hr",
-  "~2 hrs",
-  "~4 hrs",
-  "~8 hrs",
-];
 
 function compareBySortKey(
   a: Task,
@@ -93,13 +79,6 @@ function compareBySortKey(
       const ad = a.dueDate ?? "9999-99-99";
       const bd = b.dueDate ?? "9999-99-99";
       return ad < bd ? -1 : ad > bd ? 1 : compareTasksByPriority(a, b, today);
-    }
-    case "timeRequired": {
-      const ai = TIME_ORDER.indexOf(a.timeRequired ?? "");
-      const bi = TIME_ORDER.indexOf(b.timeRequired ?? "");
-      const ai2 = ai === -1 ? 999 : ai;
-      const bi2 = bi === -1 ? 999 : bi;
-      return ai2 !== bi2 ? ai2 - bi2 : compareTasksByPriority(a, b, today);
     }
     case "importance":
       return (
@@ -592,7 +571,6 @@ export function TopTasksScreen() {
         onEdit={openEdit}
         onDelete={confirmDelete}
         onPlan={openPlanTask}
-        onToggle={(task) => void handleComplete(task)}
       />
       <TaskFormModal
         isOpen={formOpen}
@@ -783,17 +761,7 @@ function TaskRow({
               {formatDueDate(task.dueDate, today)}
             </Text>
           ) : null}
-          {task.dueDate && (task.timeRequired || task.importance !== "Low") ? (
-            <Text style={[styles.taskMetaDot, { color: theme.textSecondary }]}>
-              ·
-            </Text>
-          ) : null}
-          {task.timeRequired ? (
-            <Text style={[styles.taskMetaText, { color: theme.textSecondary }]}>
-              {task.timeRequired}
-            </Text>
-          ) : null}
-          {task.timeRequired && task.importance !== "Low" ? (
+          {task.dueDate && task.importance !== "Low" ? (
             <Text style={[styles.taskMetaDot, { color: theme.textSecondary }]}>
               ·
             </Text>

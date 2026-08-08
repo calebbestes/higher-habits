@@ -938,15 +938,14 @@ export function DailyGoalsScreen({
               style={({ pressed }) => [
                 styles.addButton,
                 styles.headerAddButton,
-                { backgroundColor: theme.primary },
                 pressed && styles.pressed,
               ]}
             >
               <SymbolView
                 name={sym("plus", "add")}
-                size={18}
+                size={24}
                 weight="semibold"
-                tintColor={theme.primaryForeground}
+                tintColor={theme.primary}
               />
             </Pressable>
           </View>

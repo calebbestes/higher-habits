@@ -1,11 +1,17 @@
-import { useRouter, type Href } from "expo-router";
-import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { type Href, useRouter } from "expo-router";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 import {
-  type CreateSection,
   COLLAB_SECTION_HREFS,
   type CollabSection,
+  type CreateSection,
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
   setCollabSection,
@@ -29,8 +35,8 @@ const PLAN_VIEWS: Array<{
   key: Extract<PlanReportView, "day-plan" | "monthly-plan">;
   label: string;
 }> = [
-  { key: "day-plan", label: "Daily Plan" },
-  { key: "monthly-plan", label: "Monthly Plan" },
+  { key: "day-plan", label: "Daily" },
+  { key: "monthly-plan", label: "Monthly" },
 ];
 
 const COLLAB_SECTIONS: Array<{
@@ -166,28 +172,27 @@ function SectionHeaderTabs<T extends string>({
 
 const styles = StyleSheet.create({
   pageTitle: {
-    fontSize: 25,
-    lineHeight: 29,
-    fontWeight: "800",
-    letterSpacing: -0.5,
+    fontSize: 34,
+    lineHeight: 39,
+    fontWeight: "700",
   },
   sectionTabs: {
     flexDirection: "row",
-    gap: 20,
-    paddingTop: 4,
+    gap: 22,
+    paddingTop: 2,
   },
   sectionTab: {
-    gap: 7,
+    gap: 6,
     borderRadius: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   sectionTabText: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "900",
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: "600",
   },
   sectionTabIndicator: {
-    height: 3,
+    height: 2.5,
     borderRadius: 999,
   },
   pressed: {
