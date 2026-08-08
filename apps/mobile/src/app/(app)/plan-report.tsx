@@ -5,6 +5,7 @@ import { StyleSheet, View } from "react-native";
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import { DayPlanScreen } from "@/components/day-plan-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
+import { WeeklyPlanScreen } from "@/components/weekly-plan-screen";
 import {
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
@@ -59,6 +60,19 @@ export default function PlanReportScreen() {
       <View
         style={[
           styles.page,
+          activeView !== "weekly-plan" && styles.inactivePage,
+        ]}
+      >
+        <ComponentErrorBoundary name="WeeklyPlanScreen">
+          <WeeklyPlanScreen
+            initialDateKey={activeDateKey}
+            onDateChange={setPlanReportDateKey}
+          />
+        </ComponentErrorBoundary>
+      </View>
+      <View
+        style={[
+          styles.page,
           activeView !== "monthly-plan" && styles.inactivePage,
         ]}
       >
@@ -77,6 +91,7 @@ function getLegacyCreateHref(view: string | undefined): string | null {
   if (view === "daily" || view === "habits") return "/add?type=habits";
   if (view === "goals") return "/add?type=goals";
   if (view === "top-tasks") return "/add?type=tasks";
+  if (view === "weekly") return "/plan-report?view=weekly-plan";
   if (view === "monthly") return "/plan-report?view=monthly-plan";
   return null;
 }

@@ -240,9 +240,13 @@ export function TasksScreen() {
   }, [selectedProjectId, tasks]);
 
   useEffect(() => {
+    const selectedProject = selectedProjectId
+      ? projects.find((project) => project.id === selectedProjectId)
+      : null;
     if (
       selectedProjectId &&
-      !projects.some((project) => project.id === selectedProjectId)
+      (!selectedProject ||
+        selectedProject.totalTasks <= selectedProject.completedTasks)
     ) {
       setSelectedProjectId(null);
     }
@@ -513,15 +517,14 @@ export function TasksScreen() {
               onPress={openCreate}
               style={({ pressed }) => [
                 styles.addButton,
-                { backgroundColor: theme.primary },
                 pressed && styles.pressed,
               ]}
             >
               <SymbolView
                 name={symbol("plus", "add")}
-                size={22}
+                size={28}
                 weight="semibold"
-                tintColor={theme.primaryForeground}
+                tintColor={theme.primary}
               />
             </Pressable>
           </View>

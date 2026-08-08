@@ -111,6 +111,7 @@ export const users = pgTable(
     name: text("name").notNull(),
     email: text("email").notNull(),
     phoneNumber: text("phone_number"),
+    birthday: date("birthday", { mode: "string" }),
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -482,6 +483,55 @@ export const plannedEvents = pgTable(
       table.sourceType,
       table.sourceParentId,
     ),
+  ],
+);
+
+export const weeklyPlanNotes = pgTable(
+  "weekly_plan_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    weekStartDate: date("week_start_date", { mode: "string" }).notNull(),
+    notes: text("notes").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("weekly_plan_notes_user_week_start_uidx").on(
+      table.userId,
+      table.weekStartDate,
+    ),
+    index("weekly_plan_notes_user_id_idx").on(table.userId),
+  ],
+);
+
+export const weeklyPlanNoteHeaders = pgTable(
+  "weekly_plan_note_headers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("weekly_plan_note_headers_user_text_uidx").on(
+      table.userId,
+      table.text,
+    ),
+    index("weekly_plan_note_headers_user_id_idx").on(table.userId),
   ],
 );
 
@@ -1025,6 +1075,11 @@ export type GoalCheckpoint = typeof goalCheckpoints.$inferSelect;
 export type NewGoalCheckpoint = typeof goalCheckpoints.$inferInsert;
 export type PlannedEvent = typeof plannedEvents.$inferSelect;
 export type NewPlannedEvent = typeof plannedEvents.$inferInsert;
+export type WeeklyPlanNote = typeof weeklyPlanNotes.$inferSelect;
+export type NewWeeklyPlanNote = typeof weeklyPlanNotes.$inferInsert;
+export type WeeklyPlanNoteHeader = typeof weeklyPlanNoteHeaders.$inferSelect;
+export type NewWeeklyPlanNoteHeader =
+  typeof weeklyPlanNoteHeaders.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;

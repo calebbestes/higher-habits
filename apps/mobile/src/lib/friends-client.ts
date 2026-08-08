@@ -1,5 +1,5 @@
-import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
 import { fetchGoalLogsSnapshot, getMonthKey } from "@/lib/goal-logs-client";
+import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
 import { recordReviewMilestone } from "@/lib/in-app-review";
 import { mobileApiFetch } from "@/lib/mobile-api";
 
@@ -37,6 +37,8 @@ export type FriendRow = {
   friendEmail: string;
   friendImage: string | null;
   friendPhoneNumber: string | null;
+  friendBirthday: string | null;
+  mutualFriendCount: number;
   isIncomingRequest: boolean;
   lastOpenedAt: string | null;
   performance7Day: {
@@ -118,6 +120,12 @@ function nullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function nullableDateKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] ?? null;
+}
+
 function numberOrFallback(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -146,6 +154,8 @@ function normalizeFriend(row: unknown): FriendRow | null {
     friendEmail: stringOrFallback(row.friendEmail),
     friendImage: nullableString(row.friendImage),
     friendPhoneNumber: nullableString(row.friendPhoneNumber),
+    friendBirthday: nullableDateKey(row.friendBirthday),
+    mutualFriendCount: numberOrFallback(row.mutualFriendCount),
     isIncomingRequest: booleanOrFallback(row.isIncomingRequest),
     lastOpenedAt: nullableString(row.lastOpenedAt),
     performance7Day: isRecord(row.performance7Day)
@@ -359,14 +369,17 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
         ? "goal_checkpoint"
         : value.kind === "reflection"
           ? "reflection"
-          : "habit",
+          : value.kind === "birthday"
+            ? "birthday"
+            : "habit",
     friend: isRecord(value.friend)
       ? {
           id: stringOrFallback(value.friend.id),
           name: stringOrFallback(value.friend.name, "Friend"),
           image: nullableString(value.friend.image),
+          phoneNumber: nullableString(value.friend.phoneNumber),
         }
-      : { id: "", name: "Friend", image: null },
+      : { id: "", name: "Friend", image: null, phoneNumber: null },
     goal: isRecord(value.goal)
       ? {
           id: stringOrFallback(value.goal.id),
@@ -467,11 +480,12 @@ export type FriendFeedComment = {
 
 export type FriendFeedEntry = {
   id: string;
-  kind: "habit" | "goal_checkpoint" | "reflection";
+  kind: "habit" | "goal_checkpoint" | "reflection" | "birthday";
   friend: {
     id: string;
     name: string;
     image: string | null;
+    phoneNumber: string | null;
   };
   goal: {
     id: string;

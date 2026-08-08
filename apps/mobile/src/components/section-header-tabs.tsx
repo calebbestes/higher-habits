@@ -32,10 +32,11 @@ const CREATE_SECTIONS: Array<{ key: CreateSection; label: string }> = [
 ];
 
 const PLAN_VIEWS: Array<{
-  key: Extract<PlanReportView, "day-plan" | "monthly-plan">;
+  key: Extract<PlanReportView, "day-plan" | "weekly-plan" | "monthly-plan">;
   label: string;
 }> = [
   { key: "day-plan", label: "Daily" },
+  { key: "weekly-plan", label: "Weekly" },
   { key: "monthly-plan", label: "Monthly" },
 ];
 
@@ -80,7 +81,10 @@ export function PlanSectionHeaderTabs({
   currentView,
   style,
 }: {
-  currentView: Extract<PlanReportView, "day-plan" | "monthly-plan">;
+  currentView: Extract<
+    PlanReportView,
+    "day-plan" | "weekly-plan" | "monthly-plan"
+  >;
   style?: ViewStyle;
 }) {
   const router = useRouter();

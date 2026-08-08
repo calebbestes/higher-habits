@@ -2763,15 +2763,14 @@ export function SharedGoalsScreen() {
             hitSlop={8}
             style={({ pressed }) => [
               styles.addButton,
-              { backgroundColor: theme.primary },
               pressed && styles.pressed,
             ]}
           >
             <SymbolView
               name={sym("plus", "add")}
-              size={20}
+              size={28}
               weight="semibold"
-              tintColor={theme.primaryForeground}
+              tintColor={theme.primary}
             />
           </Pressable>
         </View>

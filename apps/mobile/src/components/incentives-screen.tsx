@@ -276,7 +276,7 @@ function IncentiveCard({
         <View
           style={[
             styles.challengeTypePill,
-            { backgroundColor: theme.backgroundElement },
+            { backgroundColor: `${theme.primary}12` },
           ]}
         >
           <SymbolView
@@ -308,8 +308,8 @@ function IncentiveCard({
           style={[
             styles.acceptedStatus,
             {
-              backgroundColor: isAccepted ? `${accent}12` : theme.background,
-              borderColor: isAccepted ? `${accent}40` : theme.tabBorder,
+              backgroundColor: isAccepted ? `${accent}10` : "transparent",
+              borderColor: isAccepted ? `${accent}30` : theme.tabBorder,
             },
           ]}
         >
@@ -347,7 +347,7 @@ function IncentiveCard({
             <View
               style={[
                 styles.challengeMetric,
-                { backgroundColor: theme.backgroundElement },
+                { backgroundColor: `${theme.textSecondary}12` },
               ]}
             >
               <SymbolView
@@ -365,7 +365,7 @@ function IncentiveCard({
             <View
               style={[
                 styles.challengeMetric,
-                { backgroundColor: theme.backgroundElement },
+                { backgroundColor: `${theme.textSecondary}12` },
               ]}
             >
               <SymbolView
@@ -386,7 +386,7 @@ function IncentiveCard({
         <View
           style={[
             styles.progressBlock,
-            { backgroundColor: theme.backgroundElement },
+            { backgroundColor: `${theme.textSecondary}0D` },
           ]}
         >
           <View style={styles.progressHeader}>
@@ -986,15 +986,14 @@ export function IncentivesScreen() {
             hitSlop={8}
             style={({ pressed }) => [
               styles.addButton,
-              { backgroundColor: theme.primary },
               pressed && styles.pressed,
             ]}
           >
             <SymbolView
               name={sym("plus", "add")}
-              size={20}
+              size={28}
               weight="semibold"
-              tintColor={theme.primaryForeground}
+              tintColor={theme.primary}
             />
           </Pressable>
         </View>
@@ -1171,7 +1170,7 @@ const styles = StyleSheet.create({
   },
   tabSwitcher: {
     flexDirection: "row",
-    borderRadius: 9,
+    borderRadius: 8,
     padding: 2,
     gap: 2,
   },
@@ -1180,7 +1179,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 30,
+    minHeight: 32,
     borderRadius: 7,
     gap: 5,
   },
@@ -1218,13 +1217,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   emptyCreateBtnText: { fontSize: 15, fontWeight: "600" },
-  list: { paddingTop: 12, paddingHorizontal: 16, gap: 12 },
+  list: { paddingTop: 10, paddingHorizontal: 16, gap: 10 },
   // Card
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
-    padding: 16,
-    gap: 14,
+    borderRadius: 12,
+    padding: 14,
+    gap: 12,
   },
   cardTopRow: {
     flexDirection: "row",
@@ -1233,22 +1232,22 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   challengeTypePill: {
-    minHeight: 28,
+    minHeight: 26,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
   },
-  challengeTypeText: { fontSize: 12, fontWeight: "800" },
+  challengeTypeText: { fontSize: 12, fontWeight: "600" },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
   cardHeaderText: { flex: 1 },
-  cardHeaderName: { fontSize: 17, fontWeight: "800" },
-  cardHeaderDate: { fontSize: 13, fontWeight: "600", marginTop: 1 },
+  cardHeaderName: { fontSize: 17, fontWeight: "700" },
+  cardHeaderDate: { fontSize: 13, fontWeight: "500", marginTop: 1 },
   acceptedStatus: {
     flexDirection: "row",
     alignItems: "center",
@@ -1258,27 +1257,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  acceptedStatusText: { fontSize: 12, fontWeight: "700" },
+  acceptedStatusText: { fontSize: 12, fontWeight: "600" },
   challengeBody: { gap: 4 },
-  body: { fontSize: 19, lineHeight: 25, fontWeight: "800", letterSpacing: 0 },
-  goalLine: { fontSize: 13, fontWeight: "700" },
+  body: { fontSize: 18, lineHeight: 24, fontWeight: "700", letterSpacing: 0 },
+  goalLine: { fontSize: 13, fontWeight: "500" },
   challengeMetrics: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
   challengeMetric: {
-    minHeight: 34,
+    minHeight: 30,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 6,
     borderRadius: 999,
-    paddingHorizontal: 11,
+    paddingHorizontal: 10,
   },
-  challengeMetricText: { fontSize: 14, fontWeight: "800" },
+  challengeMetricText: { fontSize: 13, fontWeight: "600" },
   progressBlock: {
     gap: 8,
-    borderRadius: 14,
+    borderRadius: 10,
     padding: 12,
   },
   progressHeader: {
@@ -1287,7 +1286,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   progressTitle: { flexDirection: "row", alignItems: "center", gap: 6 },
-  progressLabel: { fontSize: 13, fontWeight: "700" },
+  progressLabel: { fontSize: 13, fontWeight: "600" },
   progressDays: { fontSize: 13, fontWeight: "500" },
   progressTrack: {
     height: 4,
@@ -1304,14 +1303,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   nudgeMetaButton: { flexDirection: "row", alignItems: "center", gap: 5 },
-  metadataText: { fontSize: 14, fontWeight: "800" },
+  metadataText: { fontSize: 14, fontWeight: "600" },
   acceptBtn: {
-    minHeight: 44,
-    borderRadius: 10,
+    minHeight: 42,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
   },
-  acceptBtnText: { fontSize: 16, fontWeight: "600" },
+  acceptBtnText: { fontSize: 15, fontWeight: "600" },
   pressed: { opacity: 0.6 },
   // Modal
   modalOverlay: {

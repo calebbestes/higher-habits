@@ -16,6 +16,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -133,6 +134,18 @@ type FeedRenderItem =
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
+}
+
+function normalizeSmsRecipient(value: string) {
+  return value.trim().replace(/[^\d+.-]/g, "");
+}
+
+function buildSmsUrl(recipient: string) {
+  const normalizedRecipient = normalizeSmsRecipient(recipient);
+  if (Platform.OS === "ios") {
+    return `sms:${encodeURIComponent(normalizedRecipient)}`;
+  }
+  return `sms:${encodeURIComponent(normalizedRecipient)}`;
 }
 
 function feedGoalKey(entry: Pick<FriendFeedEntry, "goal" | "kind">): string {
@@ -1342,6 +1355,21 @@ export function FeedScreen() {
     },
     [router],
   );
+  const messageBirthdayFriend = useCallback((entry: FriendFeedEntry) => {
+    const phone = entry.friend.phoneNumber?.trim();
+    if (!phone) {
+      Alert.alert(
+        "No phone number",
+        `${entry.friend.name} hasn't added a phone number yet.`,
+      );
+      return;
+    }
+
+    playSelectionHaptic();
+    Linking.openURL(buildSmsUrl(phone)).catch(() => {
+      Alert.alert("Could not open", "No messaging app is available.");
+    });
+  }, []);
 
   const activeCommentsEntry = activeCommentsEntryId
     ? (entries.find((entry) => entry.id === activeCommentsEntryId) ??
@@ -1612,8 +1640,13 @@ export function FeedScreen() {
                       onOpenSafetyActions={() =>
                         openPostSafetyActions(item.entry)
                       }
+                      onOpenBirthdayMessage={
+                        item.entry.kind === "birthday"
+                          ? () => messageBirthdayFriend(item.entry)
+                          : undefined
+                      }
                       onOpenIncentive={
-                        item.entry.kind === "reflection"
+                        item.entry.kind !== "habit"
                           ? undefined
                           : () => openPostIncentive(item.entry)
                       }
@@ -1625,7 +1658,7 @@ export function FeedScreen() {
                             : "idle"
                       }
                       onOpenJoinGoal={
-                        item.entry.kind === "reflection"
+                        item.entry.kind !== "habit"
                           ? undefined
                           : () => void openJoinGoal(item.entry)
                       }
@@ -3213,7 +3246,7 @@ function PostHeaderContent({
   iconColor: string;
   nameColor: string;
   onOpenProfile: () => void;
-  onOpenSafetyActions: () => void;
+  onOpenSafetyActions?: () => void;
   secondaryColor: string;
 }) {
   return (
@@ -3260,22 +3293,24 @@ function PostHeaderContent({
           {entry.goal.name}
         </Text>
       </View>
-      <Pressable
-        accessibilityLabel="Post safety actions"
-        hitSlop={8}
-        onPress={onOpenSafetyActions}
-        style={({ pressed }) => [
-          styles.safetyButton,
-          pressed && styles.pressed,
-        ]}
-      >
-        <SymbolView
-          name={sym("ellipsis", "more_horiz")}
-          size={18}
-          weight="semibold"
-          tintColor={iconColor}
-        />
-      </Pressable>
+      {onOpenSafetyActions ? (
+        <Pressable
+          accessibilityLabel="Post safety actions"
+          hitSlop={8}
+          onPress={onOpenSafetyActions}
+          style={({ pressed }) => [
+            styles.safetyButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("ellipsis", "more_horiz")}
+            size={18}
+            weight="semibold"
+            tintColor={iconColor}
+          />
+        </Pressable>
+      ) : null}
     </>
   );
 }
@@ -3288,6 +3323,7 @@ export function FeedCard({
   onToggleProp,
   onPhotoPress,
   onOpenComments,
+  onOpenBirthdayMessage,
   onOpenProfile,
   onOpenSafetyActions,
 }: {
@@ -3298,6 +3334,7 @@ export function FeedCard({
   onToggleProp: () => void;
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
+  onOpenBirthdayMessage?: () => void;
   onOpenProfile: () => void;
   onOpenSafetyActions: () => void;
 }) {
@@ -3319,6 +3356,7 @@ export function FeedCard({
   const canUseSocialActions =
     entry.kind === "habit" || entry.kind === "reflection";
   const canUseGoalActions = entry.kind === "habit";
+  const isBirthdayPost = entry.kind === "birthday";
   const isDarkMode = theme.background === "#000000";
   const cardBackground = isDarkMode ? "#1C1C1E" : theme.tabBar;
   const cardBorder = isDarkMode ? "#38383A" : `${theme.tabBorder}8C`;
@@ -3338,7 +3376,10 @@ export function FeedCard({
     (onSingleTap?: () => void) => {
       const now = Date.now();
 
-      if (now - lastContentTapAtRef.current <= POST_DOUBLE_TAP_DELAY_MS) {
+      if (
+        canUseSocialActions &&
+        now - lastContentTapAtRef.current <= POST_DOUBLE_TAP_DELAY_MS
+      ) {
         lastContentTapAtRef.current = 0;
         clearSingleTapTimer();
         if (!entry.props.hasPropped) {
@@ -3357,7 +3398,12 @@ export function FeedCard({
         onSingleTap?.();
       }, POST_DOUBLE_TAP_DELAY_MS);
     },
-    [clearSingleTapTimer, entry.props.hasPropped, onToggleProp],
+    [
+      canUseSocialActions,
+      clearSingleTapTimer,
+      entry.props.hasPropped,
+      onToggleProp,
+    ],
   );
 
   useEffect(() => clearSingleTapTimer, [clearSingleTapTimer]);
@@ -3385,7 +3431,7 @@ export function FeedCard({
           iconColor={headerIconColor}
           nameColor={headerTextColor}
           onOpenProfile={onOpenProfile}
-          onOpenSafetyActions={onOpenSafetyActions}
+          onOpenSafetyActions={isBirthdayPost ? undefined : onOpenSafetyActions}
           secondaryColor={headerSecondaryColor}
         />
       </View>
@@ -3516,6 +3562,37 @@ export function FeedCard({
         >
           <CompletionPostBody entry={entry} />
         </Pressable>
+      ) : null}
+
+      {isBirthdayPost ? (
+        <View style={styles.birthdayActionBlock}>
+          <Pressable
+            accessibilityLabel={`Message ${entry.friend.name}`}
+            disabled={!onOpenBirthdayMessage}
+            onPress={onOpenBirthdayMessage}
+            style={({ pressed }) => [
+              styles.birthdayMessageButton,
+              { backgroundColor: theme.primary },
+              !onOpenBirthdayMessage && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("message.fill", "message")}
+              size={17}
+              weight="semibold"
+              tintColor={theme.primaryForeground}
+            />
+            <Text
+              style={[
+                styles.birthdayMessageText,
+                { color: theme.primaryForeground },
+              ]}
+            >
+              Message {entry.friend.name.split(" ")[0] || "friend"}
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {canUseSocialActions ? (
@@ -5179,6 +5256,25 @@ const styles = StyleSheet.create({
   showMoreText: {
     fontSize: 13,
     fontWeight: "500",
+  },
+  birthdayActionBlock: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 12,
+  },
+  birthdayMessageButton: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  birthdayMessageText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "600",
   },
   actionsBlock: {
     borderTopWidth: 0,

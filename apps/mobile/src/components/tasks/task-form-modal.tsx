@@ -361,21 +361,19 @@ export function TaskFormModal({
                     setForm((current) => ({ ...current, projectId: null }))
                   }
                 />
-                {projects
-                  .filter((project) => project.totalTasks > 0)
-                  .map((project) => (
-                    <Choice
-                      key={project.id}
-                      label={project.name}
-                      selected={form.projectId === project.id}
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          projectId: project.id,
-                        }))
-                      }
-                    />
-                  ))}
+                {projects.map((project) => (
+                  <Choice
+                    key={project.id}
+                    label={project.name}
+                    selected={form.projectId === project.id}
+                    onPress={() =>
+                      setForm((current) => ({
+                        ...current,
+                        projectId: project.id,
+                      }))
+                    }
+                  />
+                ))}
               </View>
               <View style={styles.newProjectRow}>
                 <TextInput

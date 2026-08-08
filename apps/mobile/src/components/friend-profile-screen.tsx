@@ -19,7 +19,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import type { ActionGoal } from "@/components/daily-goals/shared";
 import { GoalIcon } from "@/components/goal-icon";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -37,12 +40,23 @@ import {
   fetchMyProfile,
   sendFriendNudge,
 } from "@/lib/friends-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import {
+  type HabitLogStatus,
+  setHabitLog,
+  setHabitLogNote,
+  setHabitLogVisibility,
+} from "@/lib/habit-logs-client";
+import type { HabitVisibility } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
 
 type SymbolName = SymbolViewProps["name"];
 type ProfileBodySection = "posts" | "daily" | "periodic";
 type ProfilePostFilter = "all" | "reflections" | `goal:${string}`;
+type ActiveHabitDay = { dateKey: string; habit: FriendProfileHabit };
 
 const PROFILE_BODY_SECTIONS: Array<{
   key: ProfileBodySection;
@@ -131,6 +145,15 @@ export function FriendProfileScreen({
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
+  const [activeHabitDay, setActiveHabitDay] = useState<ActiveHabitDay | null>(
+    null,
+  );
+  const [noteHabitDay, setNoteHabitDay] = useState<ActiveHabitDay | null>(null);
+  const [updatingHabitDayKey, setUpdatingHabitDayKey] = useState<string | null>(
+    null,
+  );
+  const [uploadingPhotoSource, setUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
 
   const tileSize = Math.floor((Math.min(width, MaxContentWidth) - 4) / 3);
   const nudgeFriendshipId = profile?.friend.friendshipId ?? friendshipId;
@@ -246,6 +269,124 @@ export function FriendProfileScreen({
     },
     [friendId, friendshipId, initialImage, initialName, privateProfile, self],
   );
+
+  const refreshOwnProfile = useCallback(async () => {
+    if (!self) return;
+    const nextProfile = await fetchMyProfile();
+    if (isMountedRef.current) setProfile(nextProfile);
+  }, [self]);
+
+  const activeHabitAction = activeHabitDay
+    ? toProfileActionGoal(activeHabitDay.habit)
+    : null;
+  const activeHabitDayKey = activeHabitDay
+    ? `${activeHabitDay.habit.id}_${activeHabitDay.dateKey}`
+    : null;
+  const activeHabitStatus = activeHabitDayKey
+    ? profile?.logsByHabitDate[activeHabitDayKey]
+    : undefined;
+  const activeHabitModalStatus =
+    activeHabitStatus ??
+    (activeHabitDay?.habit.defaultComplete ? "complete" : undefined);
+  const activeHabitDate = activeHabitDay
+    ? dateFromProfileKey(activeHabitDay.dateKey)
+    : null;
+
+  const setActiveHabitStatus = async (
+    status: HabitLogStatus,
+    options?: {
+      completedCount?: number;
+      endTime?: string | null;
+      repeatPlan?: boolean;
+      startTime?: string | null;
+      timeZone?: string | null;
+    },
+  ) => {
+    if (!activeHabitDay) return;
+
+    const key = `${activeHabitDay.habit.id}_${activeHabitDay.dateKey}`;
+    const wasComplete = activeHabitModalStatus === "complete";
+    setUpdatingHabitDayKey(key);
+    try {
+      await setHabitLog(
+        activeHabitDay.habit.id,
+        activeHabitDay.dateKey,
+        status,
+        options,
+      );
+      if (status === "complete" && !wasComplete) {
+        playSuccessHaptic();
+      } else {
+        playSelectionHaptic();
+      }
+      await refreshOwnProfile();
+    } catch (updateError) {
+      Alert.alert(
+        "Could not update habit",
+        updateError instanceof Error
+          ? updateError.message
+          : "The habit could not be updated.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingHabitDayKey(null);
+    }
+  };
+
+  const setActiveHabitVisibility = async (visibility: HabitVisibility) => {
+    if (!activeHabitDay) return;
+
+    const key = `${activeHabitDay.habit.id}_${activeHabitDay.dateKey}`;
+    setUpdatingHabitDayKey(key);
+    try {
+      await setHabitLogVisibility(
+        activeHabitDay.habit.id,
+        activeHabitDay.dateKey,
+        visibility,
+      );
+      await refreshOwnProfile();
+    } catch (updateError) {
+      Alert.alert(
+        "Could not update visibility",
+        updateError instanceof Error
+          ? updateError.message
+          : "The post visibility could not be changed.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingHabitDayKey(null);
+    }
+  };
+
+  const addActiveHabitPhoto = async (source: GoalPhotoSource) => {
+    if (!activeHabitDay || uploadingPhotoSource) return;
+
+    setUploadingPhotoSource(source);
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+
+      await uploadGoalPhoto(
+        activeHabitDay.habit.id,
+        activeHabitDay.dateKey,
+        photo,
+      );
+      await refreshOwnProfile();
+    } catch (photoError) {
+      Alert.alert(
+        "Could not add photo",
+        photoError instanceof Error
+          ? photoError.message
+          : "The photo could not be uploaded.",
+      );
+    } finally {
+      if (isMountedRef.current) setUploadingPhotoSource(null);
+    }
+  };
+
+  const saveHabitNote = async (target: ActiveHabitDay, notes: string) => {
+    await setHabitLogNote(target.habit.id, target.dateKey, notes);
+    await refreshOwnProfile();
+    setActiveHabitDay(target);
+  };
 
   useEffect(
     () => () => {
@@ -493,6 +634,14 @@ export function FriendProfileScreen({
                   habits={habits}
                   logsByHabitDate={profile.logsByHabitDate}
                   profile={profile}
+                  onPressHabitDay={
+                    self
+                      ? (habit, dateKey) => {
+                          playSelectionHaptic();
+                          setActiveHabitDay({ dateKey, habit });
+                        }
+                      : undefined
+                  }
                 />
               ) : (
                 <ProfilePeriodicHabits
@@ -504,6 +653,58 @@ export function FriendProfileScreen({
             </>
           ) : null}
         </ScrollView>
+        <GoalActionsModal
+          canPlan={Boolean(
+            activeHabitDate && isTodayOrFutureDate(activeHabitDate),
+          )}
+          completedCount={undefined}
+          goal={activeHabitAction}
+          hasNote={false}
+          hasPhoto={false}
+          isFutureDate={Boolean(
+            activeHabitDate && isFutureDate(activeHabitDate),
+          )}
+          isUpdating={Boolean(
+            activeHabitDayKey && updatingHabitDayKey === activeHabitDayKey,
+          )}
+          isUpdatingVisibility={Boolean(
+            activeHabitDayKey && updatingHabitDayKey === activeHabitDayKey,
+          )}
+          noteText={null}
+          plannedTime={undefined}
+          status={activeHabitModalStatus}
+          uploadingPhotoSource={uploadingPhotoSource}
+          visibility={activeHabitDay?.habit.visibility ?? "only_me"}
+          visible={Boolean(activeHabitDay)}
+          onAddPhoto={(source) => void addActiveHabitPhoto(source)}
+          onDismiss={() => setActiveHabitDay(null)}
+          onOpenNote={() => {
+            if (!activeHabitDay) return;
+            setNoteHabitDay(activeHabitDay);
+            setActiveHabitDay(null);
+          }}
+          onSetStatus={(status, options) =>
+            void setActiveHabitStatus(status, {
+              ...options,
+              timeZone: options?.timeZone ?? getLocalTimeZone(),
+            })
+          }
+          onSetVisibility={(visibility) =>
+            void setActiveHabitVisibility(visibility)
+          }
+          onShown={() => undefined}
+        />
+        {noteHabitDay ? (
+          <GoalNoteEditorModal
+            dateKey={noteHabitDay.dateKey}
+            goalName={noteHabitDay.habit.name}
+            initialValue={null}
+            onClose={() => setNoteHabitDay(null)}
+            onSave={async (notes) => {
+              await saveHabitNote(noteHabitDay, notes);
+            }}
+          />
+        ) : null}
       </SafeAreaView>
       <FriendsListSheet
         friends={friends}
@@ -817,11 +1018,13 @@ function ProfileDailyHabits({
   dateKeys,
   habits,
   logsByHabitDate,
+  onPressHabitDay,
   profile,
 }: {
   dateKeys: string[];
   habits: FriendProfileHabit[];
   logsByHabitDate: FriendProfile["logsByHabitDate"];
+  onPressHabitDay?: (habit: FriendProfileHabit, dateKey: string) => void;
   profile: FriendProfile;
 }) {
   const theme = useTheme();
@@ -863,6 +1066,7 @@ function ProfileDailyHabits({
                 days={dateKeys}
                 habit={habit}
                 logsByHabitDate={logsByHabitDate}
+                onPressDay={onPressHabitDay}
               />
             ))}
           </View>
@@ -1157,10 +1361,12 @@ function CompactHabitRow({
   days,
   habit,
   logsByHabitDate,
+  onPressDay,
 }: {
   days: string[];
   habit: FriendProfileHabit;
   logsByHabitDate: FriendProfile["logsByHabitDate"];
+  onPressDay?: (habit: FriendProfileHabit, dateKey: string) => void;
 }) {
   const theme = useTheme();
   const [showName, setShowName] = useState(false);
@@ -1182,22 +1388,32 @@ function CompactHabitRow({
       <View style={styles.dayBlocks}>
         {days.map((day) => {
           const status = getFriendHabitStatus(habit, day, logsByHabitDate);
-          return (
-            <View
-              key={day}
-              style={[
-                styles.dayBlock,
-                {
-                  backgroundColor:
-                    status === "complete"
-                      ? theme.primary
-                      : status === "planned"
-                        ? `${theme.primary}33`
-                        : theme.backgroundElement,
-                },
-              ]}
-            />
-          );
+          const blockStyle = [
+            styles.dayBlock,
+            {
+              backgroundColor:
+                status === "complete"
+                  ? theme.primary
+                  : status === "planned"
+                    ? `${theme.primary}33`
+                    : theme.backgroundElement,
+            },
+          ];
+          if (onPressDay) {
+            return (
+              <Pressable
+                key={day}
+                accessibilityLabel={`${habit.name} on ${day}`}
+                accessibilityRole="button"
+                onPress={() => onPressDay(habit, day)}
+                style={({ pressed }) => [
+                  ...blockStyle,
+                  pressed && styles.pressed,
+                ]}
+              />
+            );
+          }
+          return <View key={day} style={blockStyle} />;
         })}
       </View>
       {showName ? (
@@ -1294,6 +1510,48 @@ function getFriendHabitStatus(
   const explicitStatus = logsByHabitDate[`${habit.id}_${dateKey}`];
   if (explicitStatus) return explicitStatus;
   return habit.defaultComplete ? "complete" : undefined;
+}
+
+function toProfileActionGoal(habit: FriendProfileHabit): ActionGoal {
+  return {
+    ...habit,
+    audienceFriendIds: [],
+    audienceGroupIds: [],
+    categoryId: "",
+    frequencyGoal: null,
+    goalId: null,
+    goalTitle: null,
+    hidden: false,
+    period: "daily",
+    planOnCalendar: true,
+    reminderEnabled: false,
+    reminderTime: null,
+    repeatCadence: null,
+    repeatDays: null,
+    repeatInterval: null,
+    repeatMonthlyType: null,
+  };
+}
+
+function dateFromProfileKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
+}
+
+function startOfProfileDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isFutureDate(date: Date) {
+  return (
+    startOfProfileDay(date).getTime() > startOfProfileDay(new Date()).getTime()
+  );
+}
+
+function isTodayOrFutureDate(date: Date) {
+  return (
+    startOfProfileDay(date).getTime() >= startOfProfileDay(new Date()).getTime()
+  );
 }
 
 const styles = StyleSheet.create({

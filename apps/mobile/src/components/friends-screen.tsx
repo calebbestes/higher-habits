@@ -53,18 +53,24 @@ import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
 type SymbolName = SymbolViewProps["name"];
 type FriendsSection = "suggested" | "friends" | "groups";
+type FriendsSortMode = "recent" | "mutual" | "birthday";
 type FriendsScreenCache = {
   friendGroups: FriendGroupRow[];
   friends: FriendRow[];
 };
 
-const FRIENDS_SCREEN_CACHE_KEY = "screen:friends";
+const FRIENDS_SCREEN_CACHE_KEY = "screen:friends:v2";
 const INVITE_LINK = "https://higher-habits.vercel.app";
 const FRIENDS_SECTIONS: Array<{ key: FriendsSection; label: string }> = [
-  { key: "suggested", label: "Suggested friends" },
   { key: "friends", label: "My Friends" },
+  { key: "suggested", label: "Suggested friends" },
   { key: "groups", label: "Groups" },
 ];
+const FRIENDS_SORT_LABELS: Record<FriendsSortMode, string> = {
+  recent: "Recent activity",
+  mutual: "Mutual friends",
+  birthday: "Birthday",
+};
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -105,8 +111,9 @@ export function FriendsScreen() {
     cachedScreen?.data.friendGroups ?? [],
   );
   const [search, setSearch] = useState("");
-  const [activeSection, setActiveSection] =
-    useState<FriendsSection>("suggested");
+  const [activeSection, setActiveSection] = useState<FriendsSection>("friends");
+  const [friendsSortMode, setFriendsSortMode] =
+    useState<FriendsSortMode>("recent");
   const [isLoading, setIsLoading] = useState(!cachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -181,12 +188,8 @@ export function FriendsScreen() {
     () =>
       friends
         .filter((friend) => friend.status === "accepted")
-        .sort(
-          (left, right) =>
-            lastOpenedTime(right) - lastOpenedTime(left) ||
-            left.friendName.localeCompare(right.friendName),
-        ),
-    [friends],
+        .sort((left, right) => sortFriends(left, right, friendsSortMode)),
+    [friends, friendsSortMode],
   );
   const pendingFriends = useMemo(
     () =>
@@ -245,6 +248,24 @@ export function FriendsScreen() {
     Alert.alert("Invite to float", "Choose how you want to send the invite.", [
       { text: "Email", onPress: () => inviteBy("email") },
       { text: "Text", onPress: () => inviteBy("sms") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+  const openSortOptions = () => {
+    playSelectionHaptic();
+    Alert.alert("Sort friends", "Choose how to order your friends.", [
+      {
+        text: FRIENDS_SORT_LABELS.recent,
+        onPress: () => setFriendsSortMode("recent"),
+      },
+      {
+        text: FRIENDS_SORT_LABELS.mutual,
+        onPress: () => setFriendsSortMode("mutual"),
+      },
+      {
+        text: "Days until birthday",
+        onPress: () => setFriendsSortMode("birthday"),
+      },
       { text: "Cancel", style: "cancel" },
     ]);
   };
@@ -382,27 +403,22 @@ export function FriendsScreen() {
                 ) : null}
               </View>
               <Pressable
-                accessibilityLabel="Add friend"
-                onPress={() => setIsAddOpen(true)}
+                accessibilityLabel={`Sort friends by ${FRIENDS_SORT_LABELS[friendsSortMode]}`}
+                onPress={openSortOptions}
                 style={({ pressed }) => [
                   styles.addButton,
-                  { backgroundColor: theme.primary },
+                  { backgroundColor: theme.backgroundElement },
                   pressed && styles.pressed,
                 ]}
               >
                 <SymbolView
-                  name={sym("plus", "add")}
+                  name={sym("arrow.up.arrow.down", "sort")}
                   size={17}
-                  weight="bold"
-                  tintColor={theme.primaryForeground}
+                  weight="semibold"
+                  tintColor={theme.primary}
                 />
-                <Text
-                  style={[
-                    styles.addButtonText,
-                    { color: theme.primaryForeground },
-                  ]}
-                >
-                  Add
+                <Text style={[styles.addButtonText, { color: theme.primary }]}>
+                  Sort
                 </Text>
               </Pressable>
             </View>
@@ -510,6 +526,7 @@ export function FriendsScreen() {
                         key={friend.id}
                         friend={friend}
                         isNudging={nudgingFriendshipId === friend.id}
+                        sortMode={friendsSortMode}
                         onMessage={() => messageFriend(friend)}
                         onNudge={() => void nudgeFriend(friend)}
                         onOpenProfile={() =>
@@ -522,10 +539,7 @@ export function FriendsScreen() {
                     ))}
                   </View>
                 ) : (
-                  <EmptyFriendsState
-                    hasSearch={Boolean(search)}
-                    onAdd={() => setIsAddOpen(true)}
-                  />
+                  <EmptyFriendsState hasSearch={Boolean(search)} />
                 )}
               </View>
             </>
@@ -694,12 +708,14 @@ function FriendsSectionTabs({
 function FriendCard({
   friend,
   isNudging,
+  sortMode,
   onMessage,
   onNudge,
   onOpenProfile,
 }: {
   friend: FriendRow;
   isNudging: boolean;
+  sortMode: FriendsSortMode;
   onMessage: () => void;
   onNudge: () => void;
   onOpenProfile: () => void;
@@ -744,7 +760,7 @@ function FriendCard({
           numberOfLines={1}
           style={[styles.friendActive, { color: theme.textSecondary }]}
         >
-          Active: {formatLastOpened(friend)}
+          {formatFriendMeta(friend, sortMode)}
         </Text>
       </View>
       <Pressable
@@ -1124,7 +1140,7 @@ function FriendSearchInline({
             { color: theme.text },
           ]}
         >
-          Find someone on float
+          Find friends
         </Text>
         {action}
       </View>
@@ -1335,10 +1351,8 @@ function EmptyGroupsState({
 
 function EmptyFriendsState({
   hasSearch,
-  onAdd,
 }: {
   hasSearch: boolean;
-  onAdd: () => void;
 }) {
   const theme = useTheme();
 
@@ -1371,25 +1385,9 @@ function EmptyFriendsState({
         <BrandedEmptyState
           compact
           title="No friends yet"
-          description="Add someone by email to start encouraging each other."
+          description="Suggested friends will help you find people on float."
         />
       )}
-      {!hasSearch ? (
-        <Pressable
-          onPress={onAdd}
-          style={({ pressed }) => [
-            styles.emptyButton,
-            { backgroundColor: theme.primary },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text
-            style={[styles.emptyButtonText, { color: theme.primaryForeground }]}
-          >
-            Add Friend
-          </Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }
@@ -1791,7 +1789,7 @@ function AddFriendModal({
             >
               <View style={styles.addFriendSection}>
                 <Text style={[styles.addSectionTitle, { color: theme.text }]}>
-                  Find someone on float
+                  Find friends
                 </Text>
 
                 <View
@@ -1981,6 +1979,50 @@ function lastOpenedTime(friend: FriendRow): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function daysUntilBirthday(friend: FriendRow): number {
+  if (!friend.friendBirthday) return Number.POSITIVE_INFINITY;
+  const [, monthText, dayText] = friend.friendBirthday.split("-");
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!month || !day) return Number.POSITIVE_INFINITY;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const birthday = new Date(today.getFullYear(), month - 1, day);
+  birthday.setHours(0, 0, 0, 0);
+  if (birthday < today) {
+    birthday.setFullYear(today.getFullYear() + 1);
+  }
+
+  return Math.round((birthday.getTime() - today.getTime()) / 86_400_000);
+}
+
+function sortFriends(
+  left: FriendRow,
+  right: FriendRow,
+  sortMode: FriendsSortMode,
+) {
+  if (sortMode === "mutual") {
+    return (
+      right.mutualFriendCount - left.mutualFriendCount ||
+      lastOpenedTime(right) - lastOpenedTime(left) ||
+      left.friendName.localeCompare(right.friendName)
+    );
+  }
+
+  if (sortMode === "birthday") {
+    return (
+      daysUntilBirthday(left) - daysUntilBirthday(right) ||
+      left.friendName.localeCompare(right.friendName)
+    );
+  }
+
+  return (
+    lastOpenedTime(right) - lastOpenedTime(left) ||
+    left.friendName.localeCompare(right.friendName)
+  );
+}
+
 function formatMutualFriendCount(count: number): string {
   if (count === 1) return "1 mutual friend";
   return `${count} mutual friends`;
@@ -2003,6 +2045,24 @@ function formatLastOpened(friend: FriendRow): string {
   if (daysAgo <= 6) return `${daysAgo} ${daysAgo === 1 ? "day" : "days"} ago`;
   if (daysAgo <= 30) return "Over a week ago";
   return "Over one month ago";
+}
+
+function formatBirthdayDistance(friend: FriendRow): string {
+  const days = daysUntilBirthday(friend);
+  if (!Number.isFinite(days)) return "Birthday not set";
+  if (days === 0) return "Birthday today";
+  if (days === 1) return "Birthday tomorrow";
+  return `Birthday in ${days} days`;
+}
+
+function formatFriendMeta(friend: FriendRow, sortMode: FriendsSortMode) {
+  if (sortMode === "mutual") {
+    return formatMutualFriendCount(friend.mutualFriendCount);
+  }
+  if (sortMode === "birthday") {
+    return formatBirthdayDistance(friend);
+  }
+  return `Active: ${formatLastOpened(friend)}`;
 }
 
 const styles = StyleSheet.create({

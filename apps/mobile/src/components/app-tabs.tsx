@@ -3,6 +3,8 @@ import { View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 
+const COLLAB_ICON = require("../../assets/images/collab-balloon-tab.png");
+
 const TAB_LABEL_STYLE = {
   fontSize: 10,
   fontWeight: "600" as const,
@@ -37,7 +39,11 @@ export default function AppTabs() {
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="index">
-          <NativeTabs.Trigger.Icon md="dynamic_feed" sf="rectangle.stack.fill" />
+          <NativeTabs.Trigger.Icon
+            md="dynamic_feed"
+            renderingMode="template"
+            src={COLLAB_ICON}
+          />
           <NativeTabs.Trigger.Label>Collab</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
 
@@ -53,7 +59,6 @@ export default function AppTabs() {
           />
           <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
         </NativeTabs.Trigger>
-
       </NativeTabs>
     </View>
   );
