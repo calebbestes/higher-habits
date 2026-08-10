@@ -83,10 +83,8 @@ export function createAuth() {
       ...(googleClientId && googleClientSecret
         ? {
             google: {
-              accessType: "offline",
               clientId: googleClientId,
               clientSecret: googleClientSecret,
-              prompt: "consent",
             },
           }
         : {}),
