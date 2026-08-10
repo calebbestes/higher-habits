@@ -215,6 +215,7 @@ export function createAuth() {
     },
     trustedOrigins: [
       "mobile://",
+      "com.calebbestessteam.abi://",
       // Local Expo/dev-client builds can use the production auth server while
       // still returning through an exp:// callback URL.
       "exp://",
