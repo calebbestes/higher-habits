@@ -11,25 +11,21 @@ export type { CollabSection };
 const MENU_ITEMS: {
   id: Exclude<CollabSection, "friends">;
   title: string;
-  href: "/?section=incentives" | "/?section=shared-goals" | "/?section=feed";
   image: "rectangle.stack" | "gift" | "person.3.fill";
 }[] = [
   {
     id: "feed",
     title: "Feed",
-    href: "/?section=feed",
     image: "rectangle.stack",
   },
   {
     id: "incentives",
     title: "Incentives",
-    href: "/?section=incentives",
     image: "gift",
   },
   {
     id: "shared-goals",
     title: "Shared Goals",
-    href: "/?section=shared-goals",
     image: "person.3.fill",
   },
 ];
@@ -70,7 +66,7 @@ export function CollabHeaderMenu({
         );
         if (selectedItem) {
           setCollabSection(selectedItem.id);
-          router.navigate(selectedItem.href);
+          router.setParams({ section: selectedItem.id });
         }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}

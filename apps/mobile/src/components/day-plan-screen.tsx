@@ -2678,6 +2678,15 @@ export function DayPlanScreen({
                           ))}
                         </View>
                       </ScrollView>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.unscheduledHint,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        Click and drag boxes onto the calendar to schedule.
+                      </Text>
                     </View>
                   ) : null}
                 </View>
@@ -6113,6 +6122,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     paddingRight: 12,
+  },
+  unscheduledHint: {
+    marginTop: 4,
+    paddingHorizontal: 2,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "600",
   },
   floatingScheduleChip: {
     position: "absolute",

@@ -1483,8 +1483,8 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 22,
+    paddingHorizontal: 18,
+    paddingTop: 8,
   },
   dayColumn: {
     borderLeftWidth: StyleSheet.hairlineWidth,
@@ -1752,17 +1752,19 @@ const styles = StyleSheet.create({
     lineHeight: 29,
   },
   pageHeader: {
-    alignItems: "flex-start",
+    alignItems: "center",
     alignSelf: "center",
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
     maxWidth: MaxContentWidth,
+    minHeight: 42,
     width: "100%",
   },
   pageHeaderText: {
     flex: 1,
-    gap: 10,
+    minWidth: 0,
+    gap: 1,
   },
   pressed: {
     opacity: 0.72,

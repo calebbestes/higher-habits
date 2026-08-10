@@ -7,21 +7,23 @@ import { useTheme } from "@/hooks/use-theme";
 import { type PlanReportView, setPlanReportView } from "@/lib/tab-view-store";
 
 const MENU_ITEMS: {
-  id: PlanReportView;
+  id: Extract<PlanReportView, "day-plan" | "weekly-plan" | "monthly-plan">;
   title: string;
-  href: "/plan-report?view=day-plan" | "/plan-report?view=monthly-plan";
   image: "calendar" | "calendar.badge.clock";
 }[] = [
   {
     id: "day-plan",
     title: "Daily",
-    href: "/plan-report?view=day-plan",
     image: "calendar",
+  },
+  {
+    id: "weekly-plan",
+    title: "Weekly",
+    image: "calendar.badge.clock",
   },
   {
     id: "monthly-plan",
     title: "Monthly",
-    href: "/plan-report?view=monthly-plan",
     image: "calendar.badge.clock",
   },
 ];
@@ -73,7 +75,7 @@ export function PlanReportHeaderMenu({
         );
         if (selectedItem) {
           setPlanReportView(selectedItem.id);
-          router.navigate(selectedItem.href);
+          router.setParams({ view: selectedItem.id });
         }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}
@@ -105,7 +107,9 @@ export function PlanReportHeaderMenu({
 }
 
 function isPlanReportView(view: string | undefined): view is PlanReportView {
-  return view === "day-plan" || view === "monthly-plan";
+  return (
+    view === "day-plan" || view === "weekly-plan" || view === "monthly-plan"
+  );
 }
 
 const styles = StyleSheet.create({

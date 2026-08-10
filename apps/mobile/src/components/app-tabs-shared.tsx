@@ -2,7 +2,7 @@ import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import { BlurView } from "expo-blur";
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import * as Haptics from "expo-haptics";
-import { type Href, useRouter } from "expo-router";
+import { type Href, usePathname, useRouter } from "expo-router";
 import {
   TabList,
   TabSlot,
@@ -129,6 +129,15 @@ const TABS: TabItem[] = [
           },
         },
         {
+          label: "Weekly",
+          href: "/plan-report?view=weekly-plan",
+          icon: {
+            ios: "calendar.badge.clock",
+            android: "calendar_view_week",
+            web: "calendar_view_week",
+          },
+        },
+        {
           label: "Monthly",
           href: "/plan-report?view=monthly-plan",
           icon: {
@@ -195,7 +204,7 @@ const TABS: TabItem[] = [
   },
   {
     name: "history",
-    href: "/history",
+    href: "/history?section=profile",
     label: "Profile",
     icon: {
       ios: "person.crop.circle.fill",
@@ -208,6 +217,7 @@ const TABS: TabItem[] = [
 export default function AppTabs() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  const pathname = usePathname();
   const router = useRouter();
   const createSection = useCreateSection();
   const planReportView = usePlanReportView();
@@ -219,6 +229,33 @@ export default function AppTabs() {
   const usesLiquidGlass = usesAppleTabBar && isGlassEffectAPIAvailable();
   const bottomInset = Math.max(insets.bottom, 6);
   const openMenu = TABS.find((tab) => tab.name === openMenuName)?.menu;
+  const openHref = useCallback(
+    (href: Href) => {
+      rememberSubmenuSelection(href);
+      const createSection = getCreateSectionFromHref(href);
+      if (pathname === "/add" && createSection) {
+        router.setParams({ type: createSection });
+        return;
+      }
+      const planReportView = getPlanReportViewFromHref(href);
+      if (pathname === "/plan-report" && planReportView) {
+        router.setParams({ view: planReportView });
+        return;
+      }
+      const collabSection = getCollabSectionFromHref(href);
+      if (pathname === "/" && collabSection) {
+        router.setParams({ section: collabSection });
+        return;
+      }
+      const historySection = getHistorySectionFromHref(href);
+      if (pathname === "/history" && historySection) {
+        router.setParams({ section: historySection });
+        return;
+      }
+      router.navigate(href);
+    },
+    [pathname, router],
+  );
 
   return (
     <>
@@ -255,8 +292,7 @@ export default function AppTabs() {
                       !usesNativeAppleMenus && openMenuName === tab.name
                     }
                     onDefaultPress={() => {
-                      rememberSubmenuSelection(href);
-                      router.navigate(href);
+                      openHref(href);
                     }}
                     onOpenMenu={() => {
                       setOpenMenuName((current) =>
@@ -264,8 +300,7 @@ export default function AppTabs() {
                       );
                     }}
                     onSelectMenuItem={(href) => {
-                      rememberSubmenuSelection(href);
-                      router.navigate(href);
+                      openHref(href);
                     }}
                   />
                 </TabTrigger>
@@ -280,8 +315,7 @@ export default function AppTabs() {
             onClose={() => setOpenMenuName(null)}
             onSelect={(href) => {
               setOpenMenuName(null);
-              rememberSubmenuSelection(href);
-              router.navigate(href);
+              openHref(href);
             }}
           />
         ) : null}
@@ -495,35 +529,49 @@ function playMenuOpenHaptic() {
 function rememberSubmenuSelection(href: Href) {
   if (typeof href !== "string") return;
 
-  const planReportViews: Record<string, PlanReportView> = {
-    "/plan-report?view=day-plan": "day-plan",
-    "/plan-report?view=monthly-plan": "monthly-plan",
-  };
-  const createSections: Record<string, CreateSection> = {
-    "/add?type=habits": "habits",
-    "/add?type=goals": "goals",
-    "/add?type=tasks": "tasks",
-  };
-  const collabSections: Record<string, CollabSection> = {
-    "/?section=incentives": "incentives",
-    "/?section=shared-goals": "shared-goals",
-    "/?section=feed": "feed",
-  };
-  const historySections: Record<string, HistorySection> = {
-    "/history?section=profile": "profile",
-  };
-
-  const planReportView = planReportViews[href];
+  const planReportView = getPlanReportViewFromHref(href);
   if (planReportView) setPlanReportView(planReportView);
 
-  const createSection = createSections[href];
+  const createSection = getCreateSectionFromHref(href);
   if (createSection) setCreateSection(createSection);
 
-  const collabSection = collabSections[href];
+  const collabSection = getCollabSectionFromHref(href);
   if (collabSection) setCollabSection(collabSection);
 
-  const historySection = historySections[href];
+  const historySection = getHistorySectionFromHref(href);
   if (historySection) setHistorySection(historySection);
+}
+
+function getPlanReportViewFromHref(href: Href): PlanReportView | null {
+  if (typeof href !== "string") return null;
+  if (href === "/plan-report?view=day-plan") return "day-plan";
+  if (href === "/plan-report?view=weekly-plan") return "weekly-plan";
+  if (href === "/plan-report?view=monthly-plan") return "monthly-plan";
+  return null;
+}
+
+function getCreateSectionFromHref(href: Href): CreateSection | null {
+  if (typeof href !== "string") return null;
+  if (href === "/add?type=habits") return "habits";
+  if (href === "/add?type=goals") return "goals";
+  if (href === "/add?type=tasks") return "tasks";
+  return null;
+}
+
+function getCollabSectionFromHref(href: Href): CollabSection | null {
+  if (typeof href !== "string") return null;
+  if (href === "/?section=feed") return "feed";
+  if (href === "/?section=incentives") return "incentives";
+  if (href === "/?section=shared-goals") return "shared-goals";
+  return null;
+}
+
+function getHistorySectionFromHref(href: Href): HistorySection | null {
+  if (typeof href !== "string") return null;
+  if (href === "/history?section=dashboard") return "dashboard";
+  if (href === "/history?section=journal") return "journal";
+  if (href === "/history?section=profile") return "profile";
+  return null;
 }
 
 function getDefaultTabHref({
@@ -552,7 +600,9 @@ function getDefaultTabHref({
     return (
       planReportView === "monthly-plan"
         ? PLAN_REPORT_VIEW_HREFS["monthly-plan"]
-        : PLAN_REPORT_VIEW_HREFS["day-plan"]
+        : planReportView === "weekly-plan"
+          ? PLAN_REPORT_VIEW_HREFS["weekly-plan"]
+          : PLAN_REPORT_VIEW_HREFS["day-plan"]
     ) as Href;
   }
   if (tab.name === "collab") {
@@ -563,7 +613,13 @@ function getDefaultTabHref({
     ) as Href;
   }
   if (tab.name === "history") {
-    return "/history" as Href;
+    return (
+      historySection === "dashboard"
+        ? "/history?section=dashboard"
+        : historySection === "journal"
+          ? "/history?section=journal"
+          : "/history?section=profile"
+    ) as Href;
   }
   return tab.href;
 }

@@ -11,25 +11,21 @@ export type { CreateSection };
 const MENU_ITEMS: {
   id: CreateSection;
   title: string;
-  href: "/add?type=habits" | "/add?type=goals" | "/add?type=tasks";
   image: "repeat" | "target" | "checklist";
 }[] = [
   {
     id: "habits",
     title: "Habits",
-    href: "/add?type=habits",
     image: "repeat",
   },
   {
     id: "goals",
     title: "Goals",
-    href: "/add?type=goals",
     image: "target",
   },
   {
     id: "tasks",
     title: "Tasks",
-    href: "/add?type=tasks",
     image: "checklist",
   },
 ];
@@ -69,7 +65,7 @@ export function CreateHeaderMenu({
         );
         if (selectedItem) {
           setCreateSection(selectedItem.id);
-          router.navigate(selectedItem.href);
+          router.setParams({ type: selectedItem.id });
         }
       }}
       style={StyleSheet.flatten([

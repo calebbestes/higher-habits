@@ -4,8 +4,12 @@ import { SymbolView } from "expo-symbols";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
+import {
+  type HistorySection,
+  setHistorySection,
+} from "@/lib/tab-view-store";
 
-export type HistorySection = "dashboard" | "journal" | "profile";
+export type { HistorySection };
 
 const MENU_ITEMS: {
   id: HistorySection;
@@ -71,7 +75,8 @@ export function HistoryHeaderMenu({
           (item) => item.id === nativeEvent.event,
         );
         if (selectedItem) {
-          router.navigate(selectedItem.href);
+          setHistorySection(selectedItem.id);
+          router.setParams({ section: selectedItem.id });
         }
       }}
       style={StyleSheet.flatten([styles.menu, { width: triggerWidth }])}

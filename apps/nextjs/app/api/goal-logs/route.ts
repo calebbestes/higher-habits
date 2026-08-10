@@ -232,6 +232,7 @@ export async function GET(request: Request) {
             planOnCalendar: habits.planOnCalendar,
             reminderEnabled: habits.reminderEnabled,
             reminderTime: habits.reminderTime,
+            reminderTimes: habits.reminderTimes,
             createdAt: habits.createdAt,
         };
 
@@ -518,6 +519,7 @@ export async function GET(request: Request) {
                     planOnCalendar: g.planOnCalendar,
                     reminderEnabled: g.reminderEnabled,
                     reminderTime: g.reminderTime,
+                    reminderTimes: g.reminderTimes,
                     sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
                 }),
             );
@@ -554,6 +556,7 @@ export async function GET(request: Request) {
             planOnCalendar: g.planOnCalendar,
             reminderEnabled: g.reminderEnabled,
             reminderTime: g.reminderTime,
+            reminderTimes: g.reminderTimes,
             createdAt: g.createdAt.toISOString(),
             sharedGoals: sharedGoalsByPersonalGoalId[g.id] ?? [],
         });

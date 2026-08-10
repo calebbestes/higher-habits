@@ -31,6 +31,7 @@ export type GoalInCategory = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes?: string[] | null;
   sharedGoals?: LinkedSharedGoal[];
 };
 
@@ -93,6 +94,7 @@ export type PeriodicGoalInfo = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes?: string[] | null;
   createdAt: string;
   sharedGoals?: LinkedSharedGoal[];
 };

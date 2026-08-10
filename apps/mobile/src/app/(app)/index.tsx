@@ -1,23 +1,15 @@
-import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import type { ReactNode } from "react";
-import { useCallback, useEffect } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect } from "react";
+import { StyleSheet, View } from "react-native";
 
 import { FeedScreen } from "@/components/feed-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
-import { SwipePageTransition } from "@/components/swipe-page-transition";
 import {
-  COLLAB_SECTION_HREFS,
   type CollabSection,
   setCollabSection,
   useCollabSection,
 } from "@/lib/tab-view-store";
-
-const COLLAB_ORDER: readonly CollabSection[] = [
-  "feed",
-  "incentives",
-  "shared-goals",
-];
 
 export default function CollabScreen() {
   const router = useRouter();
@@ -47,31 +39,35 @@ export default function CollabScreen() {
     }
   }, [section]);
 
-  const changeSection = useCallback(
-    (nextSection: CollabSection) => {
-      setCollabSection(nextSection);
-      router.replace(COLLAB_SECTION_HREFS[nextSection] as Href);
-    },
-    [router],
-  );
-
-  let content: ReactNode;
-
-  if (activeSection === "feed") {
-    content = <FeedScreen />;
-  } else if (activeSection === "shared-goals") {
-    content = <SharedGoalsScreen />;
-  } else {
-    content = <IncentivesScreen />;
-  }
-
   return (
-    <SwipePageTransition
-      activeKey={activeSection}
-      orderedKeys={COLLAB_ORDER}
-      onChange={changeSection}
-    >
-      {content}
-    </SwipePageTransition>
+    <View style={styles.pageStack}>
+      <View
+        style={[styles.page, activeSection !== "feed" && styles.inactivePage]}
+      >
+        <FeedScreen />
+      </View>
+      <View
+        style={[
+          styles.page,
+          activeSection !== "incentives" && styles.inactivePage,
+        ]}
+      >
+        <IncentivesScreen />
+      </View>
+      <View
+        style={[
+          styles.page,
+          activeSection !== "shared-goals" && styles.inactivePage,
+        ]}
+      >
+        <SharedGoalsScreen />
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  inactivePage: { display: "none" },
+  page: { flex: 1 },
+  pageStack: { flex: 1 },
+});

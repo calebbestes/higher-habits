@@ -62,7 +62,7 @@ type SortDescriptor = {
 const COLUMNS = [
   { name: "Name", uid: "name", sortable: true },
   { name: "Priority", uid: "priority", sortable: true },
-  { name: "Importance", uid: "importance", sortable: true },
+  { name: "Priority", uid: "importance", sortable: true },
   { name: "Urgency", uid: "urgency", sortable: true },
   { name: "Due Date", uid: "dueDate", sortable: true },
   { name: "Time", uid: "timeRequired", sortable: true },
@@ -105,6 +105,8 @@ const EMPTY_FORM: TaskInput = {
   recurrence: "none",
   recurrenceWeekday: null,
   recurrenceMonthDay: null,
+  recurrenceWeekdays: [],
+  recurrenceMonthDays: [],
 };
 
 function formatCreatedAt(value: string): string {
@@ -300,8 +302,8 @@ function TaskFormModal({
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Select
-              label="Importance"
-              placeholder="Select importance"
+              label="Priority"
+              placeholder="Select priority"
               selectedKeys={
                 form.importance ? new Set([form.importance]) : new Set()
               }
@@ -703,13 +705,13 @@ export function TasksTable() {
                   </span>
                 ) : (
                   <span className="rounded-full px-2.5 py-0.5 text-xs text-foreground-300 hover:bg-default-100 hover:text-foreground-500">
-                    Set importance
+                    Set priority
                   </span>
                 )}
               </button>
             </DropdownTrigger>
             <DropdownMenu
-              aria-label="Importance"
+              aria-label="Priority"
               selectionMode="single"
               disallowEmptySelection={false}
               selectedKeys={

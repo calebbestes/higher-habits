@@ -17,6 +17,8 @@ export const EMPTY_TASK: TaskInput = {
   recurrence: "none",
   recurrenceWeekday: null,
   recurrenceMonthDay: null,
+  recurrenceWeekdays: [],
+  recurrenceMonthDays: [],
   projectId: null,
 };
 

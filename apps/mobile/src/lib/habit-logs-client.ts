@@ -31,6 +31,7 @@ export type HabitInCategory = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes?: string[] | null;
   sharedGoals?: LinkedSharedGoal[];
 };
 
@@ -92,6 +93,7 @@ export type PeriodicHabitInfo = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes?: string[] | null;
   createdAt: string;
   sharedGoals?: LinkedSharedGoal[];
 };

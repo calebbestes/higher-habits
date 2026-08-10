@@ -204,6 +204,9 @@ function GoalActionsModalImpl({
   const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
   const [planRepeatsDaily, setPlanRepeatsDaily] = useState(false);
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
+  const autoSavePlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const notePreview = richTextToPlainText(noteText);
   const nextPlanStartTime = normalizePlanTimeInput(
     planStartTime,
@@ -231,16 +234,12 @@ function GoalActionsModalImpl({
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
   const willSavePlan = showPlanAction && (!isPlanned || hasPlanChanges);
   const isPlanActionDisabled =
-    showPlanEditor &&
+    !showPlanEditor &&
     willSavePlan &&
     ((hasAnyPlanTimeInput && !hasPlanTimeRange) ||
       (!hasNote && !hasPlanTimeRange));
   const planActionLabel =
-    isPlanned && !hasPlanChanges
-      ? "Clear plan"
-      : showPlanEditor || isPlanned
-        ? "Save plan"
-        : "Add plan";
+    showPlanEditor && isPlanned ? "Clear plan" : "Add plan";
 
   useEffect(() => {
     if (!visible) return;
@@ -257,6 +256,50 @@ function GoalActionsModalImpl({
     plannedTime?.endTime,
     plannedTime?.repeatsDaily,
     plannedTime?.startTime,
+    visible,
+  ]);
+
+  useEffect(() => {
+    if (!visible || !showPlanEditor || !showPlanAction) return;
+    if (hasAnyPlanTimeInput && !hasPlanTimeRange) return;
+    if (!hasNote && !hasPlanTimeRange) return;
+    if (isUpdating) return;
+    if (isPlanned && !hasPlanChanges) return;
+
+    if (autoSavePlanTimerRef.current) {
+      clearTimeout(autoSavePlanTimerRef.current);
+    }
+
+    autoSavePlanTimerRef.current = setTimeout(() => {
+      autoSavePlanTimerRef.current = null;
+      onSetStatus("planned", {
+        startTime: nextPlanStartTime,
+        endTime: nextPlanEndTime,
+        repeatPlan: Boolean(canRepeatPlan && planRepeatsDaily),
+        timeZone: getLocalTimeZone(),
+      });
+    }, 450);
+
+    return () => {
+      if (autoSavePlanTimerRef.current) {
+        clearTimeout(autoSavePlanTimerRef.current);
+        autoSavePlanTimerRef.current = null;
+      }
+    };
+  }, [
+    canRepeatPlan,
+    hasAnyPlanTimeInput,
+    hasNote,
+    hasPlanChanges,
+    hasPlanTimeRange,
+    isPlanned,
+    isUpdating,
+    nextPlanEndTime,
+    nextPlanStartTime,
+    onSetStatus,
+    planRepeatsDaily,
+    showPlanAction,
+    showPlanEditor,
     visible,
   ]);
 
@@ -528,7 +571,7 @@ function GoalActionsModalImpl({
                     )
                   ) : null}
 
-                  {showCompleteAction && showPlanAction ? (
+                  {showCompleteAction && showPlanAction && !showPlanEditor ? (
                     <View
                       style={[
                         modalStyles.actionDivider,
@@ -537,31 +580,16 @@ function GoalActionsModalImpl({
                     />
                   ) : null}
 
-                  {showPlanAction ? (
+                  {showPlanAction && (!showPlanEditor || isPlanned) ? (
                     <ReliablePressable
                       disabled={isPlanActionDisabled}
                       onPress={() => {
-                        if (!showPlanEditor && !isPlanned) {
+                        if (!showPlanEditor) {
                           setIsPlanEditorOpen(true);
                           return;
                         }
 
-                        const nextStatus =
-                          isPlanned && !hasPlanChanges ? null : "planned";
-
-                        onSetStatus(
-                          nextStatus,
-                          nextStatus === "planned"
-                            ? {
-                                startTime: nextPlanStartTime,
-                                endTime: nextPlanEndTime,
-                                repeatPlan: Boolean(
-                                  canRepeatPlan && planRepeatsDaily,
-                                ),
-                                timeZone: getLocalTimeZone(),
-                              }
-                            : undefined,
-                        );
+                        onSetStatus(null);
                       }}
                       style={({ pressed }) => [
                         modalStyles.actionRow,
@@ -577,13 +605,13 @@ function GoalActionsModalImpl({
                       ) : (
                         <SymbolView
                           name={
-                            isPlanned && !hasPlanChanges
+                            showPlanEditor && isPlanned
                               ? sym("calendar.badge.minus", "event_busy")
                               : sym("calendar.badge.plus", "event_available")
                           }
                           size={21}
                           tintColor={
-                            isPlanned && !hasPlanChanges
+                            showPlanEditor && isPlanned
                               ? theme.textSecondary
                               : theme.tabIcon
                           }

@@ -3,6 +3,7 @@ import {
   friends,
   getDb,
   habits,
+  socialFeedPosts,
   sharedGoalParticipants,
   sharedGoals,
 } from "@habit/db";
@@ -250,6 +251,21 @@ export async function POST(request: Request) {
           status: "invited" as const,
         })),
       ]);
+
+      await tx
+        .insert(socialFeedPosts)
+        .values({
+          userId: user.id,
+          kind: "shared_goal",
+          sourceType: "shared_goal",
+          sourceId: created.id,
+          title: `Created "${data.name}"`,
+          body:
+            data.stakeType === "none" || !data.stakeDescription
+              ? "Started a shared goal."
+              : `Started a shared goal with ${data.stakeType === "carrot" ? "a reward" : "a consequence"}: ${data.stakeDescription}`,
+        })
+        .onConflictDoNothing();
 
       return created.id;
     });

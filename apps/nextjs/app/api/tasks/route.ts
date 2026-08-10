@@ -8,6 +8,8 @@ import { deletePlannedEventsForSources } from "@/lib/planned-events";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const recurrenceSchema = z.enum(["none", "daily", "weekly", "monthly"]);
+const recurrenceWeekdaySchema = z.number().int().min(0).max(6);
+const recurrenceMonthDaySchema = z.number().int().min(1).max(31);
 
 const taskFields = {
   name: z.string().trim().min(1),
@@ -16,8 +18,10 @@ const taskFields = {
   completedAt: dateKeySchema.nullable().default(null),
   timeRequired: z.string().default(""),
   recurrence: recurrenceSchema.default("none"),
-  recurrenceWeekday: z.number().int().min(0).max(6).nullable().default(null),
-  recurrenceMonthDay: z.number().int().min(1).max(31).nullable().default(null),
+  recurrenceWeekday: recurrenceWeekdaySchema.nullable().default(null),
+  recurrenceMonthDay: recurrenceMonthDaySchema.nullable().default(null),
+  recurrenceWeekdays: z.array(recurrenceWeekdaySchema).default([]),
+  recurrenceMonthDays: z.array(recurrenceMonthDaySchema).default([]),
   projectId: z.string().uuid().nullable().default(null),
 };
 
@@ -122,18 +126,39 @@ export async function POST(request: Request) {
     const data = parsed.data;
     const taskValues = (
       d: typeof createSchema._type | typeof updateSchema._type,
-    ) => ({
-      userId: user.id,
-      name: d.name,
-      importance: d.importance,
-      dueDate: d.dueDate,
-      completedAt: d.completedAt,
-      timeRequired: d.timeRequired,
-      recurrence: d.recurrence,
-      recurrenceWeekday: d.recurrenceWeekday,
-      recurrenceMonthDay: d.recurrenceMonthDay,
-      projectId: d.projectId,
-    });
+    ) => {
+      const recurrenceWeekdays =
+        d.recurrence === "weekly"
+          ? d.recurrenceWeekdays.length
+            ? d.recurrenceWeekdays
+            : d.recurrenceWeekday == null
+              ? []
+              : [d.recurrenceWeekday]
+          : [];
+      const recurrenceMonthDays =
+        d.recurrence === "monthly"
+          ? d.recurrenceMonthDays.length
+            ? d.recurrenceMonthDays
+            : d.recurrenceMonthDay == null
+              ? []
+              : [d.recurrenceMonthDay]
+          : [];
+
+      return {
+        userId: user.id,
+        name: d.name,
+        importance: d.importance,
+        dueDate: d.dueDate,
+        completedAt: d.completedAt,
+        timeRequired: d.timeRequired,
+        recurrence: d.recurrence,
+        recurrenceWeekday: recurrenceWeekdays[0] ?? null,
+        recurrenceMonthDay: recurrenceMonthDays[0] ?? null,
+        recurrenceWeekdays,
+        recurrenceMonthDays,
+        projectId: d.projectId,
+      };
+    };
 
     if (data.type === "create") {
       const [row] = await db.insert(tasks).values(taskValues(data)).returning();

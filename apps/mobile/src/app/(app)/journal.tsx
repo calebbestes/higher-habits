@@ -1,5 +1,5 @@
-import { JournalScreen } from "@/components/journal-screen";
+import { Redirect } from "expo-router";
 
 export default function JournalRoute() {
-  return <JournalScreen />;
+  return <Redirect href="/history?section=journal" />;
 }

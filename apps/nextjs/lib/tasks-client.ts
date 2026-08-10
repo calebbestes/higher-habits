@@ -10,6 +10,8 @@ export type Task = {
   recurrence: TaskRecurrence;
   recurrenceWeekday: number | null;
   recurrenceMonthDay: number | null;
+  recurrenceWeekdays: number[] | null;
+  recurrenceMonthDays: number[] | null;
   createdAt: string;
 };
 
@@ -22,6 +24,8 @@ export type TaskInput = {
   recurrence: TaskRecurrence;
   recurrenceWeekday: number | null;
   recurrenceMonthDay: number | null;
+  recurrenceWeekdays: number[];
+  recurrenceMonthDays: number[];
 };
 
 export type TaskRecurrence = "none" | "daily" | "weekly" | "monthly";
@@ -138,6 +142,68 @@ function getNextMonthDayDateKey(
   return localDateKey(candidate);
 }
 
+function uniqueSortedNumbers(values: number[]): number[] {
+  return Array.from(new Set(values)).sort((left, right) => left - right);
+}
+
+function getTaskRecurrenceWeekdays(
+  task: Pick<Task, "dueDate" | "recurrenceWeekday"> & {
+    recurrenceWeekdays?: number[] | null;
+  },
+): number[] {
+  const days = uniqueSortedNumbers(
+    (task.recurrenceWeekdays ?? []).filter(
+      (day) => Number.isInteger(day) && day >= 0 && day <= 6,
+    ),
+  );
+  if (days.length) return days;
+
+  const fallback = task.recurrenceWeekday ?? getTaskDateWeekday(task.dueDate);
+  return fallback == null ? [] : [fallback];
+}
+
+function getTaskRecurrenceMonthDays(
+  task: Pick<Task, "dueDate" | "recurrenceMonthDay"> & {
+    recurrenceMonthDays?: number[] | null;
+  },
+): number[] {
+  const days = uniqueSortedNumbers(
+    (task.recurrenceMonthDays ?? []).filter(
+      (day) => Number.isInteger(day) && day >= 1 && day <= 31,
+    ),
+  );
+  if (days.length) return days;
+
+  const fallback = task.recurrenceMonthDay ?? getTaskDateMonthDay(task.dueDate);
+  return fallback == null ? [] : [fallback];
+}
+
+function getNextWeekdaysDateKey(
+  weekdays: number[],
+  fromDateKey = todayDateKey(),
+  includeFromDate = true,
+): string {
+  const candidates = weekdays.length ? weekdays : [0];
+  return candidates
+    .map((weekday) =>
+      getNextWeekdayDateKey(weekday, fromDateKey, includeFromDate),
+    )
+    .sort(compareDateKeys)[0];
+}
+
+function getNextMonthDaysDateKey(
+  monthDays: number[],
+  fromDateKey = todayDateKey(),
+  includeFromDate = true,
+): string {
+  const candidates = monthDays.length ? monthDays : [1];
+  return candidates
+    .map((monthDay) =>
+      getNextMonthDayDateKey(monthDay, fromDateKey, includeFromDate),
+    )
+    .sort(compareDateKeys)[0];
+}
+
 export function taskToInput(task: Task): TaskInput {
   return {
     name: task.name,
@@ -148,6 +214,8 @@ export function taskToInput(task: Task): TaskInput {
     recurrence: task.recurrence,
     recurrenceWeekday: task.recurrenceWeekday,
     recurrenceMonthDay: task.recurrenceMonthDay,
+    recurrenceWeekdays: getTaskRecurrenceWeekdays(task),
+    recurrenceMonthDays: getTaskRecurrenceMonthDays(task),
   };
 }
 
@@ -165,13 +233,13 @@ export function nextRecurringTaskInput(
     task.recurrence === "daily"
       ? addDaysToDateKey(baseDate, 1)
       : task.recurrence === "weekly"
-        ? getNextWeekdayDateKey(
-            task.recurrenceWeekday ?? getTaskDateWeekday(task.dueDate) ?? 0,
+        ? getNextWeekdaysDateKey(
+            getTaskRecurrenceWeekdays(task),
             baseDate,
             false,
           )
-        : getNextMonthDayDateKey(
-            task.recurrenceMonthDay ?? getTaskDateMonthDay(task.dueDate) ?? 1,
+        : getNextMonthDaysDateKey(
+            getTaskRecurrenceMonthDays(task),
             baseDate,
             false,
           );

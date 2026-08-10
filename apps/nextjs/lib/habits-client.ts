@@ -30,6 +30,7 @@ export type Habit = {
   iconKey: string;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes: string[] | null;
   hidden: boolean;
   createdAt: string;
   updatedAt: string;
@@ -50,6 +51,7 @@ export type HabitInput = {
   iconKey: string;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes?: string[] | null;
   hidden: boolean;
 };
 

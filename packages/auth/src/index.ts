@@ -119,6 +119,14 @@ export function createAuth() {
           type: "string",
           required: false,
         },
+        firstName: {
+          type: "string",
+          required: false,
+        },
+        lastName: {
+          type: "string",
+          required: false,
+        },
         birthday: {
           type: "string",
           required: false,
@@ -131,10 +139,22 @@ export function createAuth() {
           before: async (
             user: Record<string, unknown> & {
               birthday?: unknown;
+              firstName?: unknown;
               image?: unknown;
+              lastName?: unknown;
               phoneNumber?: unknown;
             },
           ) => {
+            const firstName =
+              typeof user.firstName === "string" ? user.firstName.trim() : "";
+            const lastName =
+              typeof user.lastName === "string" ? user.lastName.trim() : "";
+            const name =
+              firstName && lastName
+                ? `${firstName} ${lastName}`
+                : typeof user.name === "string"
+                  ? user.name.trim()
+                  : "";
             const phoneNumber =
               typeof user.phoneNumber === "string"
                 ? user.phoneNumber.trim()
@@ -145,6 +165,9 @@ export function createAuth() {
               data: {
                 ...user,
                 birthday,
+                firstName,
+                lastName,
+                name,
                 phoneNumber: phoneNumber || null,
               },
             };
