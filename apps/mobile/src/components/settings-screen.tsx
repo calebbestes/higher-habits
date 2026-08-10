@@ -28,6 +28,7 @@ import {
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type AccountProfile,
   fetchAccountProfile,
   updateAccountProfile,
 } from "@/lib/account-client";
@@ -110,6 +111,34 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function getAccountNameParts(
+  profile: AccountProfile,
+  sessionName?: string | null,
+) {
+  const firstName =
+    typeof profile.firstName === "string" ? profile.firstName.trim() : "";
+  const lastName =
+    typeof profile.lastName === "string" ? profile.lastName.trim() : "";
+
+  if (firstName || lastName) {
+    return { firstName, lastName };
+  }
+
+  const fullName =
+    typeof profile.name === "string" && profile.name.trim().length > 0
+      ? profile.name.trim()
+      : typeof sessionName === "string"
+        ? sessionName.trim()
+        : "";
+  const [fallbackFirstName = "", ...fallbackLastNameParts] =
+    fullName.split(/\s+/);
+
+  return {
+    firstName: fallbackFirstName,
+    lastName: fallbackLastNameParts.join(" "),
+  };
+}
+
 export function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -174,11 +203,12 @@ export function SettingsScreen() {
     void fetchAccountProfile()
       .then((profile) => {
         if (!active) return;
+        const nextName = getAccountNameParts(profile, session?.user.name);
         setBirthday(profile.birthday);
-        setFirstName(profile.firstName);
-        setLastName(profile.lastName);
-        setSavedFirstName(profile.firstName);
-        setSavedLastName(profile.lastName);
+        setFirstName(nextName.firstName);
+        setLastName(nextName.lastName);
+        setSavedFirstName(nextName.firstName);
+        setSavedLastName(nextName.lastName);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -188,7 +218,7 @@ export function SettingsScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [session?.user.name]);
 
   useEffect(() => {
     let active = true;
@@ -443,10 +473,11 @@ export function SettingsScreen() {
 
     updateAccountProfile({ firstName: nextFirstName, lastName: nextLastName })
       .then((profile) => {
-        setFirstName(profile.firstName);
-        setLastName(profile.lastName);
-        setSavedFirstName(profile.firstName);
-        setSavedLastName(profile.lastName);
+        const nextName = getAccountNameParts(profile, session?.user.name);
+        setFirstName(nextName.firstName);
+        setLastName(nextName.lastName);
+        setSavedFirstName(nextName.firstName);
+        setSavedLastName(nextName.lastName);
         void refetch();
         playSuccessHaptic();
       })
@@ -1147,9 +1178,16 @@ function ProfileNameSettingsRow({
   savedLastName: string;
 }) {
   const theme = useTheme();
+  const currentFirstName = firstName ?? "";
+  const currentLastName = lastName ?? "";
+  const currentSavedFirstName = savedFirstName ?? "";
+  const currentSavedLastName = savedLastName ?? "";
   const hasChanges =
-    firstName.trim() !== savedFirstName || lastName.trim() !== savedLastName;
-  const canSave = firstName.trim().length > 0 && lastName.trim().length > 0;
+    currentFirstName.trim() !== currentSavedFirstName ||
+    currentLastName.trim() !== currentSavedLastName;
+  const canSave =
+    currentFirstName.trim().length > 0 &&
+    currentLastName.trim().length > 0;
 
   return (
     <View style={[styles.nameRowCard, { borderBottomColor: theme.tabBorder }]}>
@@ -1182,7 +1220,7 @@ function ProfileNameSettingsRow({
               color: theme.text,
             },
           ]}
-          value={firstName}
+          value={currentFirstName}
         />
         <TextInput
           autoComplete="family-name"
@@ -1198,7 +1236,7 @@ function ProfileNameSettingsRow({
               color: theme.text,
             },
           ]}
-          value={lastName}
+          value={currentLastName}
         />
       </View>
       {hasChanges ? (
