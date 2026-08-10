@@ -21,6 +21,7 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { updateAccountProfile } from "@/lib/account-client";
 import { authClient } from "@/lib/auth-client";
+import { getNativeAuthCallbackURL } from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
 type AuthFormScreenProps = {
@@ -136,7 +137,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     try {
       const response = await authClient.signIn.social({
         provider,
-        callbackURL: "/",
+        callbackURL: getNativeAuthCallbackURL(),
       });
 
       if (response.error) {
