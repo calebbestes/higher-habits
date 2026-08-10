@@ -1,4 +1,4 @@
-import { friendMessages, friends, getDb } from "@habit/db";
+import { friendMessages, friends, getDb, socialFeedPosts } from "@habit/db";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -103,6 +103,21 @@ export async function POST(
         data: { type: "friend_nudge", friendshipId },
       });
     } else if (parsed.data.type === "incentive") {
+      if (row) {
+        await db
+          .insert(socialFeedPosts)
+          .values({
+            userId: user.id,
+            targetUserId: recipientId,
+            kind: "incentive",
+            sourceType: "friend_message",
+            sourceId: row.id,
+            title: "Sent an incentive",
+            body: parsed.data.body,
+          })
+          .onConflictDoNothing();
+      }
+
       void sendPushToUser(recipientId, "notifySharedGoalInvites", {
         title: "New incentive",
         body: `${user.name} sent you an incentive challenge.`,

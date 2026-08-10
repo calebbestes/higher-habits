@@ -61,7 +61,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: [string, string] }[] =
     { key: "dueDate", label: "Due date", icon: ["calendar", "calendar_today"] },
     {
       key: "importance",
-      label: "Importance",
+      label: "Priority",
       icon: ["exclamationmark.circle", "priority_high"],
     },
   ];

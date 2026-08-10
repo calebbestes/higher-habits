@@ -48,6 +48,7 @@ import {
   fetchFriends,
   searchFriendUsers,
   sendFriendNudge,
+  updateFriendGroup,
 } from "@/lib/friends-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 
@@ -119,6 +120,7 @@ export function FriendsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [acceptingFriendshipId, setAcceptingFriendshipId] = useState<
     string | null
   >(null);
@@ -190,6 +192,13 @@ export function FriendsScreen() {
         .filter((friend) => friend.status === "accepted")
         .sort((left, right) => sortFriends(left, right, friendsSortMode)),
     [friends, friendsSortMode],
+  );
+  const editingGroup = useMemo(
+    () =>
+      editingGroupId
+        ? (friendGroups.find((group) => group.id === editingGroupId) ?? null)
+        : null,
+    [editingGroupId, friendGroups],
   );
   const pendingFriends = useMemo(
     () =>
@@ -472,7 +481,10 @@ export function FriendsScreen() {
                     disabled={acceptedFriends.length === 0}
                     icon={sym("person.3.fill", "groups")}
                     label="Create Group"
-                    onPress={() => setIsCreateGroupOpen(true)}
+                    onPress={() => {
+                      setEditingGroupId(null);
+                      setIsCreateGroupOpen(true);
+                    }}
                   />
                 }
                 title="Groups"
@@ -481,13 +493,23 @@ export function FriendsScreen() {
               {friendGroups.length > 0 ? (
                 <View style={styles.groupList}>
                   {friendGroups.map((group) => (
-                    <FriendGroupCard key={group.id} group={group} />
+                    <FriendGroupCard
+                      key={group.id}
+                      group={group}
+                      onEdit={() => {
+                        setEditingGroupId(group.id);
+                        setIsCreateGroupOpen(true);
+                      }}
+                    />
                   ))}
                 </View>
               ) : (
                 <EmptyGroupsState
                   canCreate={acceptedFriends.length > 0}
-                  onCreate={() => setIsCreateGroupOpen(true)}
+                  onCreate={() => {
+                    setEditingGroupId(null);
+                    setIsCreateGroupOpen(true);
+                  }}
                 />
               )}
             </View>
@@ -557,14 +579,22 @@ export function FriendsScreen() {
         }}
       />
       <CreateGroupModal
+        key={editingGroup?.id ?? "create-group"}
+        group={editingGroup}
         friends={acceptedFriends}
         visible={isCreateGroupOpen}
-        onClose={() => setIsCreateGroupOpen(false)}
-        onCreated={(group) => {
+        onClose={() => {
+          setIsCreateGroupOpen(false);
+          setEditingGroupId(null);
+        }}
+        onSaved={(group) => {
           setFriendGroups((prev) => {
-            const nextFriendGroups = [...prev, group].sort((left, right) =>
-              left.name.localeCompare(right.name),
-            );
+            const exists = prev.some((item) => item.id === group.id);
+            const nextFriendGroups = (
+              exists
+                ? prev.map((item) => (item.id === group.id ? group : item))
+                : [...prev, group]
+            ).sort((left, right) => left.name.localeCompare(right.name));
             setCachedData(FRIENDS_SCREEN_CACHE_KEY, {
               friendGroups: nextFriendGroups,
               friends,
@@ -572,6 +602,7 @@ export function FriendsScreen() {
             return nextFriendGroups;
           });
           setIsCreateGroupOpen(false);
+          setEditingGroupId(null);
         }}
       />
     </View>
@@ -633,7 +664,7 @@ function SectionActionButton({
       style={({ pressed }) => [
         styles.sectionActionButton,
         {
-          backgroundColor: disabled ? theme.tabBorder : theme.primary,
+          backgroundColor: theme.backgroundElement,
         },
         disabled && styles.disabled,
         pressed && styles.pressed,
@@ -643,13 +674,13 @@ function SectionActionButton({
         name={icon}
         size={15}
         weight="bold"
-        tintColor={disabled ? theme.textSecondary : theme.primaryForeground}
+        tintColor={disabled ? theme.textSecondary : theme.primary}
       />
       <Text
         style={[
           styles.sectionActionButtonText,
           {
-            color: disabled ? theme.textSecondary : theme.primaryForeground,
+            color: disabled ? theme.textSecondary : theme.primary,
           },
         ]}
       >
@@ -806,7 +837,13 @@ function FriendCard({
   );
 }
 
-function FriendGroupCard({ group }: { group: FriendGroupRow }) {
+function FriendGroupCard({
+  group,
+  onEdit,
+}: {
+  group: FriendGroupRow;
+  onEdit: () => void;
+}) {
   const theme = useTheme();
 
   const messageGroup = () => {
@@ -828,7 +865,10 @@ function FriendGroupCard({ group }: { group: FriendGroupRow }) {
   };
 
   return (
-    <View
+    <Pressable
+      accessibilityLabel={`Edit ${group.name}`}
+      accessibilityRole="button"
+      onPress={onEdit}
       style={[
         styles.groupCard,
         { backgroundColor: theme.background, borderColor: theme.tabBorder },
@@ -862,7 +902,10 @@ function FriendGroupCard({ group }: { group: FriendGroupRow }) {
       <Pressable
         accessibilityLabel={`Message ${group.name}`}
         hitSlop={8}
-        onPress={messageGroup}
+        onPress={(event) => {
+          event.stopPropagation();
+          messageGroup();
+        }}
         style={({ pressed }) => [
           styles.messageButton,
           { backgroundColor: theme.backgroundElement },
@@ -876,7 +919,7 @@ function FriendGroupCard({ group }: { group: FriendGroupRow }) {
           tintColor={theme.primary}
         />
       </Pressable>
-    </View>
+    </Pressable>
   );
 }
 
@@ -965,17 +1008,17 @@ function PendingFriendRow({
           onPress={onAccept}
           style={({ pressed }) => [
             styles.acceptButton,
-            { backgroundColor: theme.primary },
+            { backgroundColor: theme.backgroundElement },
             pressed && styles.pressed,
           ]}
         >
           {isAccepting ? (
-            <ActivityIndicator color={theme.primaryForeground} size="small" />
+            <ActivityIndicator color={theme.primary} size="small" />
           ) : (
             <Text
               style={[
                 styles.acceptButtonText,
-                { color: theme.primaryForeground },
+                { color: theme.primary },
               ]}
             >
               Accept
@@ -1262,26 +1305,19 @@ function FriendSearchInline({
               style={({ pressed }) => [
                 styles.matchAddButton,
                 {
-                  backgroundColor: requested
-                    ? theme.backgroundElement
-                    : theme.primary,
+                  backgroundColor: theme.backgroundElement,
                 },
                 pressed && styles.pressed,
               ]}
             >
               {requesting ? (
-                <ActivityIndicator
-                  color={theme.primaryForeground}
-                  size="small"
-                />
+                <ActivityIndicator color={theme.primary} size="small" />
               ) : (
                 <Text
                   style={[
                     styles.matchAddText,
                     {
-                      color: requested
-                        ? theme.textSecondary
-                        : theme.primaryForeground,
+                      color: requested ? theme.textSecondary : theme.primary,
                     },
                   ]}
                 >
@@ -1329,7 +1365,7 @@ function EmptyGroupsState({
         onPress={onCreate}
         style={({ pressed }) => [
           styles.emptyButton,
-          { backgroundColor: canCreate ? theme.primary : theme.tabBorder },
+          { backgroundColor: theme.backgroundElement },
           !canCreate && styles.disabled,
           pressed && styles.pressed,
         ]}
@@ -1338,7 +1374,7 @@ function EmptyGroupsState({
           style={[
             styles.emptyButtonText,
             {
-              color: canCreate ? theme.primaryForeground : theme.textSecondary,
+              color: canCreate ? theme.primary : theme.textSecondary,
             },
           ]}
         >
@@ -1394,28 +1430,38 @@ function EmptyFriendsState({
 
 function CreateGroupModal({
   friends,
+  group,
   visible,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   friends: FriendRow[];
+  group: FriendGroupRow | null;
   visible: boolean;
   onClose: () => void;
-  onCreated: (group: FriendGroupRow) => void;
+  onSaved: (group: FriendGroupRow) => void;
 }) {
   const theme = useTheme();
   const [name, setName] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  const isEditing = Boolean(group);
   const canSave = name.trim().length > 0 && selectedIds.size > 0 && !isSaving;
 
   useEffect(() => {
+    if (visible) {
+      setName(group?.name ?? "");
+      setSelectedIds(new Set(group?.members.map((member) => member.id) ?? []));
+      setIsSaving(false);
+      return;
+    }
+
     if (!visible) {
       setName("");
       setSelectedIds(new Set());
       setIsSaving(false);
     }
-  }, [visible]);
+  }, [group, visible]);
 
   const toggleFriend = (friendId: string) => {
     playSelectionHaptic();
@@ -1430,15 +1476,21 @@ function CreateGroupModal({
     if (!canSave) return;
     setIsSaving(true);
     try {
-      const group = await createFriendGroup({
-        name: name.trim(),
-        memberIds: [...selectedIds],
-      });
+      const savedGroup = group
+        ? await updateFriendGroup({
+            id: group.id,
+            name: name.trim(),
+            memberIds: [...selectedIds],
+          })
+        : await createFriendGroup({
+            name: name.trim(),
+            memberIds: [...selectedIds],
+          });
       playSuccessHaptic();
-      onCreated(group);
+      onSaved(savedGroup);
     } catch (saveError) {
       Alert.alert(
-        "Could not create group",
+        isEditing ? "Could not update group" : "Could not create group",
         saveError instanceof Error ? saveError.message : "Try again.",
       );
     } finally {
@@ -1475,10 +1527,10 @@ function CreateGroupModal({
                 </Text>
               </Pressable>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
-                Create Group
+                {isEditing ? `Edit ${group?.name ?? "Group"}` : "Create Group"}
               </Text>
               <Pressable
-                accessibilityLabel="Create group"
+                accessibilityLabel={isEditing ? "Save group" : "Create group"}
                 disabled={!canSave}
                 hitSlop={12}
                 onPress={() => void saveGroup()}
@@ -1489,7 +1541,7 @@ function CreateGroupModal({
                     { color: canSave ? theme.primary : theme.textSecondary },
                   ]}
                 >
-                  {isSaving ? "Saving" : "Create"}
+                  {isSaving ? "Saving" : isEditing ? "Save Changes" : "Create"}
                 </Text>
               </Pressable>
             </View>
@@ -1934,18 +1986,13 @@ function AddFriendModal({
                         style={({ pressed }) => [
                           styles.matchAddButton,
                           {
-                            backgroundColor: requested
-                              ? theme.backgroundElement
-                              : theme.primary,
+                            backgroundColor: theme.backgroundElement,
                           },
                           pressed && styles.pressed,
                         ]}
                       >
                         {requesting ? (
-                          <ActivityIndicator
-                            color={theme.primaryForeground}
-                            size="small"
-                          />
+                          <ActivityIndicator color={theme.primary} size="small" />
                         ) : (
                           <Text
                             style={[
@@ -1953,7 +2000,7 @@ function AddFriendModal({
                               {
                                 color: requested
                                   ? theme.textSecondary
-                                  : theme.primaryForeground,
+                                  : theme.primary,
                               },
                             ]}
                           >
@@ -2050,9 +2097,18 @@ function formatLastOpened(friend: FriendRow): string {
 function formatBirthdayDistance(friend: FriendRow): string {
   const days = daysUntilBirthday(friend);
   if (!Number.isFinite(days)) return "Birthday not set";
-  if (days === 0) return "Birthday today";
-  if (days === 1) return "Birthday tomorrow";
-  return `Birthday in ${days} days`;
+  const [, monthText, dayText] = friend.friendBirthday?.split("-") ?? [];
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!month || !day) return "Birthday not set";
+
+  const birthdayLabel = new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(2000, month - 1, day));
+  if (days === 0) return `Birthday ${birthdayLabel} (today)`;
+  if (days === 1) return `Birthday ${birthdayLabel} (tomorrow)`;
+  return `Birthday ${birthdayLabel} (in ${days} days)`;
 }
 
 function formatFriendMeta(friend: FriendRow, sortMode: FriendsSortMode) {

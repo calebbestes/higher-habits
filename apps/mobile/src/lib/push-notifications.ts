@@ -17,6 +17,7 @@ type HabitReminder = Pick<
     | "repeatCadence"
     | "reminderEnabled"
     | "reminderTime"
+    | "reminderTimes"
     | "repeatDays"
 >;
 
@@ -59,16 +60,6 @@ async function requestNotificationPermissionAsync(): Promise<boolean> {
 
 function habitReminderIdentifier(habitId: string, suffix: string) {
     return `${HABIT_REMINDER_PREFIX}:${habitId}:${suffix}`;
-}
-
-function possibleHabitReminderIdentifiers(habitId: string) {
-    return [
-        habitReminderIdentifier(habitId, "daily"),
-        habitReminderIdentifier(habitId, "monthly"),
-        ...Array.from({ length: 7 }, (_, day) =>
-            habitReminderIdentifier(habitId, `weekly-${day}`),
-        ),
-    ];
 }
 
 function parseReminderTime(reminderTime: string | null) {
@@ -189,10 +180,8 @@ export async function scheduleScheduleEventNotificationAsync({
 }
 
 export async function cancelHabitReminderAsync(habitId: string): Promise<void> {
-    await Promise.all(
-        possibleHabitReminderIdentifiers(habitId).map((identifier) =>
-            Notifications.cancelScheduledNotificationAsync(identifier),
-        ),
+    await cancelScheduledNotificationsByPrefix(
+        `${HABIT_REMINDER_PREFIX}:${habitId}:`,
     );
 }
 
@@ -203,8 +192,17 @@ export async function scheduleHabitReminderAsync(
 
     if (!habit.reminderEnabled || habit.hidden) return;
 
-    const reminderTime = parseReminderTime(habit.reminderTime);
-    if (!reminderTime) return;
+    const reminderTimes = (habit.reminderTimes?.length
+        ? habit.reminderTimes
+        : habit.reminderTime
+          ? [habit.reminderTime]
+          : []
+    )
+        .map(parseReminderTime)
+        .filter((time): time is { hour: number; minute: number } =>
+            Boolean(time),
+        );
+    if (reminderTimes.length === 0) return;
 
     await ensureDefaultAndroidNotificationChannelAsync();
     const hasPermission = await requestNotificationPermissionAsync();
@@ -225,20 +223,22 @@ export async function scheduleHabitReminderAsync(
         if (repeatDays.length === 0) return;
 
         await Promise.all(
-            repeatDays.map((day) =>
-                Notifications.scheduleNotificationAsync({
-                    identifier: habitReminderIdentifier(
-                        habit.id,
-                        `weekly-${day}`,
-                    ),
-                    content,
-                    trigger: {
-                        type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-                        weekday: day + 1,
-                        hour: reminderTime.hour,
-                        minute: reminderTime.minute,
-                    },
-                }),
+            repeatDays.flatMap((day) =>
+                reminderTimes.map((reminderTime, index) =>
+                    Notifications.scheduleNotificationAsync({
+                        identifier: habitReminderIdentifier(
+                            habit.id,
+                            `weekly-${day}-${index}`,
+                        ),
+                        content,
+                        trigger: {
+                            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+                            weekday: day + 1,
+                            hour: reminderTime.hour,
+                            minute: reminderTime.minute,
+                        },
+                    }),
+                ),
             ),
         );
         return;
@@ -250,28 +250,39 @@ export async function scheduleHabitReminderAsync(
             ? new Date().getDate()
             : createdAt.getDate();
 
-        await Notifications.scheduleNotificationAsync({
-            identifier: habitReminderIdentifier(habit.id, "monthly"),
-            content,
-            trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
-                day,
-                hour: reminderTime.hour,
-                minute: reminderTime.minute,
-            },
-        });
+        await Promise.all(
+            reminderTimes.map((reminderTime, index) =>
+                Notifications.scheduleNotificationAsync({
+                    identifier: habitReminderIdentifier(
+                        habit.id,
+                        `monthly-${index}`,
+                    ),
+                    content,
+                    trigger: {
+                        type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
+                        day,
+                        hour: reminderTime.hour,
+                        minute: reminderTime.minute,
+                    },
+                }),
+            ),
+        );
         return;
     }
 
-    await Notifications.scheduleNotificationAsync({
-        identifier: habitReminderIdentifier(habit.id, "daily"),
-        content,
-        trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.DAILY,
-            hour: reminderTime.hour,
-            minute: reminderTime.minute,
-        },
-    });
+    await Promise.all(
+        reminderTimes.map((reminderTime, index) =>
+            Notifications.scheduleNotificationAsync({
+                identifier: habitReminderIdentifier(habit.id, `daily-${index}`),
+                content,
+                trigger: {
+                    type: Notifications.SchedulableTriggerInputTypes.DAILY,
+                    hour: reminderTime.hour,
+                    minute: reminderTime.minute,
+                },
+            }),
+        ),
+    );
 }
 
 export async function syncHabitRemindersAsync(

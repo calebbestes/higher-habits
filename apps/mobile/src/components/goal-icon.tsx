@@ -121,12 +121,6 @@ function uniqueOptions(options: ExpoSymbolIconOption[]) {
 }
 
 const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
-  vectorOption("mdi", "target", "Target", [
-    "goal",
-    "bullseye",
-    "focus",
-    "shared",
-  ]),
   vectorOption("mdi", "heart-outline", "Heart", [
     "heart",
     "love",
@@ -151,6 +145,12 @@ const CURATED_ICON_OPTIONS: ExpoSymbolIconOption[] = [
     "job",
     "career",
     "business",
+  ]),
+  vectorOption("mdi", "target", "Target", [
+    "goal",
+    "bullseye",
+    "focus",
+    "shared",
   ]),
   vectorOption("mdi", "account-group-outline", "Social", [
     "friends",

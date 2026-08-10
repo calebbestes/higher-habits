@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -136,8 +137,13 @@ export function SettingsScreen() {
       defaultCollabSection: USER_SETTING_DEFAULTS.defaultCollabSection,
       defaultPlanReportView: USER_SETTING_DEFAULTS.defaultPlanReportView,
     });
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [savedFirstName, setSavedFirstName] = useState("");
+  const [savedLastName, setSavedLastName] = useState("");
+  const [isNameSaving, setIsNameSaving] = useState(false);
   const [birthday, setBirthday] = useState<string | null>(null);
-  const [isBirthdayLoading, setIsBirthdayLoading] = useState(false);
+  const [isAccountLoading, setIsAccountLoading] = useState(false);
   const [isBirthdaySaving, setIsBirthdaySaving] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<SettingsSubmenu | null>(
     null,
@@ -163,15 +169,20 @@ export function SettingsScreen() {
 
   useEffect(() => {
     let active = true;
-    setIsBirthdayLoading(true);
+    setIsAccountLoading(true);
 
     void fetchAccountProfile()
       .then((profile) => {
-        if (active) setBirthday(profile.birthday);
+        if (!active) return;
+        setBirthday(profile.birthday);
+        setFirstName(profile.firstName);
+        setLastName(profile.lastName);
+        setSavedFirstName(profile.firstName);
+        setSavedLastName(profile.lastName);
       })
       .catch(() => undefined)
       .finally(() => {
-        if (active) setIsBirthdayLoading(false);
+        if (active) setIsAccountLoading(false);
       });
 
     return () => {
@@ -404,6 +415,57 @@ export function SettingsScreen() {
       .finally(() => setIsBirthdaySaving(false));
   };
 
+  const saveName = () => {
+    const nextFirstName = firstName.trim();
+    const nextLastName = lastName.trim();
+    if (
+      isNameSaving ||
+      (nextFirstName === savedFirstName && nextLastName === savedLastName)
+    ) {
+      playSelectionHaptic();
+      return;
+    }
+    if (!nextFirstName || !nextLastName) {
+      playWarningHaptic();
+      Alert.alert("Name", "Enter your first and last name.");
+      return;
+    }
+
+    const previous = {
+      firstName: savedFirstName,
+      lastName: savedLastName,
+    };
+    setSavedFirstName(nextFirstName);
+    setSavedLastName(nextLastName);
+    setFirstName(nextFirstName);
+    setLastName(nextLastName);
+    setIsNameSaving(true);
+
+    updateAccountProfile({ firstName: nextFirstName, lastName: nextLastName })
+      .then((profile) => {
+        setFirstName(profile.firstName);
+        setLastName(profile.lastName);
+        setSavedFirstName(profile.firstName);
+        setSavedLastName(profile.lastName);
+        void refetch();
+        playSuccessHaptic();
+      })
+      .catch((nameError: unknown) => {
+        setFirstName(previous.firstName);
+        setLastName(previous.lastName);
+        setSavedFirstName(previous.firstName);
+        setSavedLastName(previous.lastName);
+        playWarningHaptic();
+        Alert.alert(
+          "Name",
+          nameError instanceof Error
+            ? nameError.message
+            : "Could not save your name.",
+        );
+      })
+      .finally(() => setIsNameSaving(false));
+  };
+
   const connectGoogleCalendar = async () => {
     if (isGoogleConnecting) return;
 
@@ -593,6 +655,10 @@ export function SettingsScreen() {
   const headerSubtitle = activeSubmenu
     ? submenuCopy[activeSubmenu].subtitle
     : "Account and app preferences";
+  const profileDisplayName =
+    savedFirstName && savedLastName
+      ? `${savedFirstName} ${savedLastName}`
+      : session?.user.name ?? "float account";
 
   const openSubmenu = (submenu: SettingsSubmenu) => {
     playSelectionHaptic();
@@ -697,9 +763,7 @@ export function SettingsScreen() {
                           { color: theme.primaryForeground },
                         ]}
                       >
-                        {initials(
-                          session?.user.name ?? session?.user.email ?? "HH",
-                        )}
+                        {initials(profileDisplayName)}
                       </Text>
                     </View>
                   )}
@@ -723,7 +787,7 @@ export function SettingsScreen() {
                 </Pressable>
                 <View style={styles.profileText}>
                   <Text style={[styles.profileName, { color: theme.text }]}>
-                    {session?.user.name ?? "float account"}
+                    {profileDisplayName}
                   </Text>
                   <Text
                     numberOfLines={1}
@@ -897,8 +961,19 @@ export function SettingsScreen() {
 
           {activeSubmenu === "account" ? (
             <SettingsGroup title="Account">
+              <ProfileNameSettingsRow
+                firstName={firstName}
+                isLoading={isAccountLoading}
+                isSaving={isNameSaving}
+                lastName={lastName}
+                onChangeFirstName={setFirstName}
+                onChangeLastName={setLastName}
+                onSave={saveName}
+                savedFirstName={savedFirstName}
+                savedLastName={savedLastName}
+              />
               <BirthdaySettingsRow
-                isLoading={isBirthdayLoading}
+                isLoading={isAccountLoading}
                 isSaving={isBirthdaySaving}
                 onChange={saveBirthday}
                 value={birthday}
@@ -1046,6 +1121,112 @@ function ColorThemePickerRow({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+function ProfileNameSettingsRow({
+  firstName,
+  isLoading,
+  isSaving,
+  lastName,
+  onChangeFirstName,
+  onChangeLastName,
+  onSave,
+  savedFirstName,
+  savedLastName,
+}: {
+  firstName: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  lastName: string;
+  onChangeFirstName: (value: string) => void;
+  onChangeLastName: (value: string) => void;
+  onSave: () => void;
+  savedFirstName: string;
+  savedLastName: string;
+}) {
+  const theme = useTheme();
+  const hasChanges =
+    firstName.trim() !== savedFirstName || lastName.trim() !== savedLastName;
+  const canSave = firstName.trim().length > 0 && lastName.trim().length > 0;
+
+  return (
+    <View style={[styles.nameRowCard, { borderBottomColor: theme.tabBorder }]}>
+      <View style={styles.birthdayRowHeader}>
+        <SymbolView
+          name={sym("person.fill", "person")}
+          size={20}
+          weight="semibold"
+          tintColor={theme.primary}
+        />
+        <View style={styles.birthdayRowText}>
+          <Text style={[styles.rowTitle, { color: theme.text }]}>Name</Text>
+          <Text style={[styles.birthdayStatus, { color: theme.textSecondary }]}>
+            {isLoading ? "Loading" : isSaving ? "Saving" : "First and last"}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.nameInputsRow}>
+        <TextInput
+          autoComplete="given-name"
+          editable={!isLoading && !isSaving}
+          onChangeText={onChangeFirstName}
+          placeholder="First"
+          placeholderTextColor={theme.textSecondary}
+          style={[
+            styles.nameSettingsInput,
+            {
+              backgroundColor: theme.backgroundElement,
+              borderColor: theme.tabBorder,
+              color: theme.text,
+            },
+          ]}
+          value={firstName}
+        />
+        <TextInput
+          autoComplete="family-name"
+          editable={!isLoading && !isSaving}
+          onChangeText={onChangeLastName}
+          placeholder="Last"
+          placeholderTextColor={theme.textSecondary}
+          style={[
+            styles.nameSettingsInput,
+            {
+              backgroundColor: theme.backgroundElement,
+              borderColor: theme.tabBorder,
+              color: theme.text,
+            },
+          ]}
+          value={lastName}
+        />
+      </View>
+      {hasChanges ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={!canSave || isSaving}
+          onPress={onSave}
+          style={({ pressed }) => [
+            styles.nameSaveButton,
+            { backgroundColor: theme.primary },
+            (!canSave || isSaving) && styles.disabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          {isSaving ? (
+            <ActivityIndicator color={theme.primaryForeground} size="small" />
+          ) : (
+            <Text
+              style={[
+                styles.nameSaveButtonText,
+                { color: theme.primaryForeground },
+              ]}
+            >
+              Save name
+            </Text>
+          )}
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -1353,6 +1534,35 @@ const styles = StyleSheet.create({
     borderRadius: 17,
   },
   colorSwatchHalf: { flex: 1 },
+  nameRowCard: {
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  nameInputsRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  nameSettingsInput: {
+    minHeight: 46,
+    flex: 1,
+    minWidth: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  nameSaveButton: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+  },
+  nameSaveButtonText: { fontSize: 14, lineHeight: 18, fontWeight: "900" },
   signOutRow: {
     minHeight: 54,
     flexDirection: "row",

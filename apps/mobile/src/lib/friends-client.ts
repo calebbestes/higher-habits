@@ -371,6 +371,10 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
           ? "reflection"
           : value.kind === "birthday"
             ? "birthday"
+            : value.kind === "shared_goal"
+              ? "shared_goal"
+              : value.kind === "incentive"
+                ? "incentive"
             : "habit",
     friend: isRecord(value.friend)
       ? {
@@ -480,7 +484,13 @@ export type FriendFeedComment = {
 
 export type FriendFeedEntry = {
   id: string;
-  kind: "habit" | "goal_checkpoint" | "reflection" | "birthday";
+  kind:
+    | "habit"
+    | "goal_checkpoint"
+    | "reflection"
+    | "birthday"
+    | "shared_goal"
+    | "incentive";
   friend: {
     id: string;
     name: string;
@@ -575,6 +585,22 @@ export const createFriendGroup = (payload: {
     .then((value) => {
       const normalized = normalizeFriendGroup(value);
       if (!normalized) throw new Error("Could not create group.");
+      return normalized;
+    });
+
+export const updateFriendGroup = (payload: {
+  id: string;
+  name: string;
+  memberIds: string[];
+}): Promise<FriendGroupRow> =>
+  mobileApiFetch("/api/friend-groups", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+    .then((r) => parseResponse<unknown>(r))
+    .then((value) => {
+      const normalized = normalizeFriendGroup(value);
+      if (!normalized) throw new Error("Could not update group.");
       return normalized;
     });
 

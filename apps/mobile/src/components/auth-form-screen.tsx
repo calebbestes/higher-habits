@@ -54,7 +54,8 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const { data: session, refetch: refetchSession } = authClient.useSession();
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [password, setPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [birthday, setBirthday] = useState<string | null>(null);
@@ -88,13 +89,27 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     }
 
     if (isSignUp) {
-      if (!birthday) {
+      if (
+        !firstName.trim() ||
+        !lastName.trim() ||
+        !birthday ||
+        !phoneNumber.trim() ||
+        !profilePhotoUri
+      ) {
         setShouldEnterApp(false);
-        setError("Add your birthday before creating an account.");
+        setError(
+          "Add your name, profile photo, phone number, and birthday first.",
+        );
         return;
       }
 
-      await updateAccountProfile({ birthday });
+      await updateAccountProfile({
+        birthday,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phoneNumber: phoneNumber.trim(),
+      });
+      await uploadProfilePicture(profilePhotoUri);
     }
 
     setShouldEnterApp(true);
@@ -102,8 +117,17 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
 
   const continueWithSocial = async (provider: SocialProvider) => {
     if (isSubmitting) return;
-    if (isSignUp && !birthday) {
-      setError("Add your birthday before creating an account.");
+    if (
+      isSignUp &&
+      (!firstName.trim() ||
+        !lastName.trim() ||
+        !birthday ||
+        !phoneNumber.trim() ||
+        !profilePhotoUri)
+    ) {
+      setError(
+        "Add your name, profile photo, phone number, and birthday first.",
+      );
       return;
     }
 
@@ -177,9 +201,12 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     setSubmitting("email");
 
     try {
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
       const response = isSignUp
         ? await authClient.signUp.email({
-            name: name.trim(),
+            name: fullName,
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
             phoneNumber: phoneNumber.trim(),
             birthday,
             email: email.trim(),
@@ -187,6 +214,8 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
             image: profilePhotoDataUrl ?? undefined,
           } as Parameters<typeof authClient.signUp.email>[0] & {
             birthday?: string | null;
+            firstName?: string;
+            lastName?: string;
             phoneNumber?: string;
           })
         : await authClient.signIn.email({
@@ -197,10 +226,6 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       if (response.error) {
         setError(response.error.message ?? "Unable to continue.");
         return;
-      }
-
-      if (isSignUp && profilePhotoUri) {
-        await uploadProfilePicture(profilePhotoUri).catch(() => undefined);
       }
 
       await enterApp();
@@ -217,7 +242,12 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const canSubmitEmail =
     email.trim().length > 0 &&
     password.length > 0 &&
-    (!isSignUp || (name.trim().length > 0 && Boolean(birthday)));
+    (!isSignUp ||
+      (firstName.trim().length > 0 &&
+        lastName.trim().length > 0 &&
+        phoneNumber.trim().length > 0 &&
+        Boolean(birthday) &&
+        Boolean(profilePhotoUri)));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -361,24 +391,38 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
                         >
                           {profilePhotoUri
                             ? "Choose a different photo"
-                            : "Optional"}
+                            : "Required"}
                         </Text>
                       </View>
                     </Pressable>
 
-                    <AuthInput
-                      autoComplete="name"
-                      editable={!isSubmitting}
-                      label="Name"
-                      onChangeText={setName}
-                      theme={theme}
-                      value={name}
-                    />
+                    <View style={styles.nameRow}>
+                      <View style={styles.nameInput}>
+                        <AuthInput
+                          autoComplete="given-name"
+                          editable={!isSubmitting}
+                          label="First name"
+                          onChangeText={setFirstName}
+                          theme={theme}
+                          value={firstName}
+                        />
+                      </View>
+                      <View style={styles.nameInput}>
+                        <AuthInput
+                          autoComplete="family-name"
+                          editable={!isSubmitting}
+                          label="Last name"
+                          onChangeText={setLastName}
+                          theme={theme}
+                          value={lastName}
+                        />
+                      </View>
+                    </View>
                     <AuthInput
                       autoComplete="tel"
                       editable={!isSubmitting}
                       keyboardType="phone-pad"
-                      label="Phone number (optional)"
+                      label="Phone number"
                       onChangeText={setPhoneNumber}
                       theme={theme}
                       value={phoneNumber}
@@ -745,6 +789,14 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     gap: 6,
+  },
+  nameRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  nameInput: {
+    flex: 1,
+    minWidth: 0,
   },
   inputLabel: {
     paddingHorizontal: 2,

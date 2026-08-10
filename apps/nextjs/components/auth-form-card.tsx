@@ -60,7 +60,8 @@ async function uploadProfilePicture(file: File) {
 
 export function AuthFormCard({ mode }: AuthFormCardProps) {
   const router = useRouter();
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
@@ -79,9 +80,12 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
     setError(null);
     setIsSubmitting(true);
 
+    const fullName = `${firstName.trim()} ${lastName.trim()}`;
     const response = isSignUp
       ? await authClient.signUp.email({
-          name: name.trim(),
+          name: fullName,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           phoneNumber: phoneNumber.trim(),
           birthday,
           email: email.trim(),
@@ -89,6 +93,8 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
           image: profilePicture ?? undefined,
         } as Parameters<typeof authClient.signUp.email>[0] & {
           birthday?: string;
+          firstName?: string;
+          lastName?: string;
           phoneNumber?: string;
         })
       : await authClient.signIn.email({
@@ -165,23 +171,33 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
                     Profile picture
                   </span>
                   <span className="block text-xs text-foreground-500">
-                    {profilePicture ? "Choose a different photo" : "Optional"}
+                    {profilePicture ? "Choose a different photo" : "Required"}
                   </span>
                 </span>
               </label>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="First name"
+                  value={firstName}
+                  onValueChange={setFirstName}
+                  isRequired
+                  autoComplete="given-name"
+                />
+                <Input
+                  label="Last name"
+                  value={lastName}
+                  onValueChange={setLastName}
+                  isRequired
+                  autoComplete="family-name"
+                />
+              </div>
               <Input
-                label="Name"
-                value={name}
-                onValueChange={setName}
-                isRequired
-                autoComplete="name"
-              />
-              <Input
-                label="Phone number (optional)"
+                label="Phone number"
                 type="tel"
                 value={phoneNumber}
                 onValueChange={setPhoneNumber}
                 autoComplete="tel"
+                isRequired
               />
               <Input
                 label="Birthday"
@@ -218,7 +234,12 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
             isDisabled={
               !email.trim() ||
               !password ||
-              (isSignUp && (!name.trim() || !birthday))
+              (isSignUp &&
+                (!firstName.trim() ||
+                  !lastName.trim() ||
+                  !phoneNumber.trim() ||
+                  !birthday ||
+                  !profilePictureFile))
             }
           >
             {isSignUp ? "Create account" : "Sign in"}

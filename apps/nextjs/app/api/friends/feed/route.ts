@@ -17,9 +17,19 @@ import {
   goalLogs,
   goals,
   habits,
+  socialFeedPosts,
   users,
 } from "@habit/db";
-import { and, asc, desc, eq, inArray, isNotNull, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
@@ -449,7 +459,13 @@ export async function GET(request: Request) {
       string,
       {
         id: string;
-        kind: "habit" | "goal_checkpoint" | "reflection" | "birthday";
+        kind:
+          | "habit"
+          | "goal_checkpoint"
+          | "reflection"
+          | "birthday"
+          | "shared_goal"
+          | "incentive";
         friend: {
           id: string;
           name: string;
@@ -860,6 +876,63 @@ export async function GET(request: Request) {
         props: { count: 0, hasPropped: false },
         comments: [],
         photos,
+      });
+    }
+
+    const socialRows = await db
+      .select({
+        entryId: socialFeedPosts.id,
+        friendId: socialFeedPosts.userId,
+        targetUserId: socialFeedPosts.targetUserId,
+        kind: socialFeedPosts.kind,
+        title: socialFeedPosts.title,
+        body: socialFeedPosts.body,
+        createdAt: socialFeedPosts.createdAt,
+      })
+      .from(socialFeedPosts)
+      .where(
+        and(
+          inArray(socialFeedPosts.userId, friendIds),
+          or(
+            eq(socialFeedPosts.userId, user.id),
+            eq(socialFeedPosts.targetUserId, user.id),
+            isNull(socialFeedPosts.targetUserId),
+          ),
+        ),
+      )
+      .orderBy(desc(socialFeedPosts.createdAt));
+
+    for (const row of socialRows) {
+      const friend = friendsById.get(row.friendId);
+      if (!friend) continue;
+      const kind = row.kind === "incentive" ? "incentive" : "shared_goal";
+      const createdAt = row.createdAt.toISOString();
+
+      entries.set(row.entryId, {
+        id: row.entryId,
+        kind,
+        friend,
+        goal: {
+          id: row.entryId,
+          name: row.title,
+          icon:
+            kind === "incentive"
+              ? "gift.fill"
+              : "person.2.badge.gearshape.fill",
+        },
+        category: null,
+        dateKey: createdAt.slice(0, 10),
+        notes: row.body,
+        reflectionPrompt: null,
+        updatedAt: createdAt,
+        canDeletePhotos: false,
+        postType: "journal",
+        highlights: [
+          kind === "incentive" ? "Incentive challenge" : "Shared goal",
+        ],
+        props: { count: 0, hasPropped: false },
+        comments: [],
+        photos: [],
       });
     }
 

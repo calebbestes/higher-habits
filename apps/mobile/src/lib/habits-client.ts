@@ -36,6 +36,7 @@ export type Habit = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes: string[] | null;
   hidden: boolean;
   createdAt: string;
   updatedAt: string;
@@ -60,6 +61,7 @@ export type HabitInput = {
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
+  reminderTimes: string[] | null;
   hidden: boolean;
 };
 

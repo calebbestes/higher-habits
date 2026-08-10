@@ -43,6 +43,7 @@ const habitFields = {
   planOnCalendar: z.boolean().default(true),
   reminderEnabled: z.boolean().default(false),
   reminderTime: z.string().regex(TIME_REGEX).nullable().default(null),
+  reminderTimes: z.array(z.string().regex(TIME_REGEX)).nullable().default(null),
   hidden: z.boolean().default(false),
 };
 
@@ -86,6 +87,7 @@ const selectHabitShape = {
   planOnCalendar: habits.planOnCalendar,
   reminderEnabled: habits.reminderEnabled,
   reminderTime: habits.reminderTime,
+  reminderTimes: habits.reminderTimes,
   hidden: habits.hidden,
   createdAt: habits.createdAt,
   updatedAt: habits.updatedAt,
@@ -409,7 +411,14 @@ export async function POST(request: Request) {
       defaultComplete: d.defaultComplete,
       planOnCalendar: d.planOnCalendar,
       reminderEnabled: d.reminderEnabled,
-      reminderTime: d.reminderEnabled ? (d.reminderTime ?? "09:00") : null,
+      reminderTime: d.reminderEnabled
+        ? (d.reminderTimes?.[0] ?? d.reminderTime ?? "09:00")
+        : null,
+      reminderTimes: d.reminderEnabled
+        ? (d.reminderTimes?.length
+            ? d.reminderTimes
+            : [d.reminderTime ?? "09:00"])
+        : null,
       hidden: d.hidden,
     });
 

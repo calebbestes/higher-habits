@@ -71,7 +71,6 @@ type HabitsScreenCache = {
 const HABITS_SCREEN_CACHE_KEY = "screen:habits";
 const PRIORITIES: HabitPriority[] = ["high", "low"];
 const PERIODS: HabitPeriod[] = ["daily", "weekly", "monthly"];
-const CADENCES: HabitPeriod[] = ["weekly", "monthly"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_DAY_LETTERS = ["S", "M", "T", "W", "Th", "F", "S"];
 const MONTH_DATES = Array.from({ length: 31 }, (_, index) => index + 1);
@@ -139,15 +138,16 @@ const EMPTY_HABIT: HabitInput = {
   repeatMonthlyType: "day_of_month",
   categoryId: "",
   goalId: null,
-  priority: "low",
-  visibility: "only_me",
+  priority: "high",
+  visibility: "all_friends",
   audienceFriendIds: [],
   audienceGroupIds: [],
-  iconKey: EXPO_SYMBOL_ICON_OPTIONS[0]?.key ?? "fa7-solid:bullseye",
+  iconKey: "mdi:heart-outline",
   defaultComplete: false,
   planOnCalendar: true,
   reminderEnabled: false,
   reminderTime: null,
+  reminderTimes: null,
   hidden: false,
 };
 
@@ -188,6 +188,20 @@ function normalizeReminderTime(value: string | null | undefined) {
   return `${hours.padStart(2, "0")}:${minutes}`;
 }
 
+function reminderCountForForm(form: HabitInput) {
+  return Math.max(form.frequencyGoal ?? 1, 1);
+}
+
+function normalizeReminderTimes(
+  values: string[] | null | undefined,
+  count: number,
+) {
+  const source = values?.length ? values : [DEFAULT_REMINDER_TIME];
+  return Array.from({ length: count }, (_, index) => {
+    return source[index] ?? source[source.length - 1] ?? DEFAULT_REMINDER_TIME;
+  });
+}
+
 function toInput(habit: Habit): HabitInput {
   const today = new Date();
   const cadence = habit.repeatCadence ?? habit.period;
@@ -213,6 +227,8 @@ function toInput(habit: Habit): HabitInput {
     planOnCalendar: habit.planOnCalendar !== false,
     reminderEnabled: habit.reminderEnabled ?? false,
     reminderTime: habit.reminderTime ?? null,
+    reminderTimes:
+      habit.reminderTimes ?? (habit.reminderTime ? [habit.reminderTime] : null),
     hidden: habit.hidden,
   };
 }
@@ -1220,19 +1236,21 @@ export function HabitFormModal({
       form.repeatDays?.filter((day) => day >= 1 && day <= 31) ?? [];
     const monthlyRepeatWeekdays =
       form.repeatDays?.filter((day) => day >= 0 && day <= 34) ?? [];
-    const repeatCadence =
-      form.period === "daily"
-        ? "daily"
-        : form.period === "weekly"
-          ? "weekly"
-          : (form.repeatCadence ?? "monthly");
-    const reminderTime = form.reminderEnabled
-      ? normalizeReminderTime(form.reminderTime)
+    const repeatCadence = form.period;
+    const reminderTimes = form.reminderEnabled
+      ? normalizeReminderTimes(
+          form.reminderTimes ??
+            (form.reminderTime ? [form.reminderTime] : null),
+          reminderCountForForm(form),
+        ).map(normalizeReminderTime)
       : null;
-    if (form.reminderEnabled && !reminderTime) {
+    if (form.reminderEnabled && reminderTimes?.some((time) => !time)) {
       setError("Enter a reminder time like 09:00.");
       return;
     }
+    const validReminderTimes = reminderTimes?.filter((time): time is string =>
+      Boolean(time),
+    );
 
     setIsSaving(true);
     setError(null);
@@ -1247,6 +1265,7 @@ export function HabitFormModal({
               : null
             : Math.max(form.frequencyGoal ?? 1, 1),
         repeatCadence,
+        repeatInterval: 1,
         repeatDays:
           repeatCadence === "weekly"
             ? weeklyRepeatDays.length
@@ -1263,7 +1282,8 @@ export function HabitFormModal({
               : null,
         repeatMonthlyType:
           repeatCadence === "monthly" ? form.repeatMonthlyType : null,
-        reminderTime,
+        reminderTime: validReminderTimes?.[0] ?? null,
+        reminderTimes: validReminderTimes ?? null,
       });
     } catch (saveError) {
       setError(
@@ -1459,7 +1479,7 @@ export function HabitFormModal({
                 value={form.name}
               />
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Icon
+                Choose an icon
               </Text>
               <IconSearchPicker
                 value={form.iconKey}
@@ -1469,7 +1489,7 @@ export function HabitFormModal({
               />
 
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Category
+                Group with
               </Text>
               {categories.length ? (
                 <View style={styles.choiceWrap}>
@@ -1492,7 +1512,7 @@ export function HabitFormModal({
                 <View style={styles.categoryActions}>
                   {onUpdateCategory ? (
                     <SmallButton
-                      label="Edit category"
+                      label="Rename group"
                       onPress={() => {
                         setAddingCategory(false);
                         setEditingCategory(selectedCategory);
@@ -1520,9 +1540,9 @@ export function HabitFormModal({
                   ]}
                 >
                   <LabeledInput
-                    label="Category name"
+                    label="Group name"
                     onChangeText={setCategoryName}
-                    placeholder="Category name"
+                    placeholder="e.g. Fitness, Spiritual, Work"
                     value={categoryName}
                   />
                   <IconSearchPicker
@@ -1540,7 +1560,7 @@ export function HabitFormModal({
                     <SmallButton
                       primary
                       disabled={!categoryName.trim() || isSaving}
-                      label="Save category"
+                      label="Save group"
                       onPress={() => void saveCategoryEdit()}
                     />
                   </View>
@@ -1556,9 +1576,9 @@ export function HabitFormModal({
                   ]}
                 >
                   <LabeledInput
-                    label="New category"
+                    label="New habit group"
                     onChangeText={setCategoryName}
-                    placeholder="Category name"
+                    placeholder="e.g. Fitness, Spiritual, Work"
                     value={categoryName}
                   />
                   <IconSearchPicker
@@ -1573,7 +1593,7 @@ export function HabitFormModal({
                     <SmallButton
                       primary
                       disabled={!categoryName.trim() || isSaving}
-                      label="Add category"
+                      label="Save group"
                       onPress={() => void saveCategory()}
                     />
                   </View>
@@ -1597,7 +1617,7 @@ export function HabitFormModal({
                   <Text
                     style={[styles.inlineAddLabel, { color: theme.primary }]}
                   >
-                    Create category
+                    Add a new habit group
                   </Text>
                 </Pressable>
               )}
@@ -1619,16 +1639,36 @@ export function HabitFormModal({
               </View>
             </FormSection>
 
-            <FormSection title="Target">
-              <View style={styles.inputField}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Frequency
+            <FormSection title="Schedule">
+              <View style={styles.scheduleSentence}>
+                <Text
+                  style={[styles.scheduleSentenceLabel, { color: theme.text }]}
+                >
+                  Do this
                 </Text>
-                <View style={styles.choiceWrap}>
+                <VerticalNumberStepper
+                  accessibilityLabel={`Times per ${form.period}`}
+                  value={form.frequencyGoal ?? 1}
+                  onChange={(frequencyGoal) =>
+                    setForm((current) => ({ ...current, frequencyGoal }))
+                  }
+                />
+                <Text
+                  style={[styles.scheduleSentenceText, { color: theme.text }]}
+                >
+                  {`time${(form.frequencyGoal ?? 1) !== 1 ? "s" : ""} per`}
+                </Text>
+                <View style={styles.periodChoiceWrap}>
                   {PERIODS.map((period) => (
                     <Choice
                       key={period}
-                      label={capitalize(period)}
+                      label={
+                        period === "daily"
+                          ? "day"
+                          : period === "weekly"
+                            ? "week"
+                            : "month"
+                      }
                       selected={form.period === period}
                       onPress={() =>
                         setForm((current) => {
@@ -1638,6 +1678,7 @@ export function HabitFormModal({
                             period,
                             frequencyGoal:
                               period === "daily" ? current.frequencyGoal : 1,
+                            repeatInterval: 1,
                             repeatCadence:
                               period === "daily"
                                 ? "daily"
@@ -1662,450 +1703,393 @@ export function HabitFormModal({
                 </View>
               </View>
 
-              <View style={styles.repeatIntervalRow}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Goal
-                </Text>
-                <VerticalNumberStepper
-                  accessibilityLabel={`Times per ${form.period}`}
-                  value={form.frequencyGoal ?? 1}
-                  onChange={(frequencyGoal) =>
-                    setForm((current) => ({ ...current, frequencyGoal }))
-                  }
-                />
-                <Text style={[styles.intervalUnit, { color: theme.text }]}>
-                  {`time${(form.frequencyGoal ?? 1) !== 1 ? "s" : ""} per ${
-                    form.period === "daily"
-                      ? "day"
-                      : form.period === "weekly"
-                        ? "week"
-                        : "month"
-                  }`}
-                </Text>
-              </View>
-            </FormSection>
-
-            <FormSection title="Plan">
-              <>
-                {form.period === "monthly" ? (
-                  <View style={styles.inputField}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Appears
-                    </Text>
-                    <View style={styles.choiceWrap}>
-                      {CADENCES.map((cadence) => (
-                        <Choice
-                          key={cadence}
-                          label={capitalize(cadence)}
-                          selected={
-                            (form.repeatCadence ?? "monthly") === cadence
-                          }
+              {/* Weekly: day-of-week chips */}
+              {form.period === "weekly" ? (
+                <View style={styles.inputField}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    On
+                  </Text>
+                  <View style={styles.dayChipRow}>
+                    {DAY_LETTERS.map((letter, idx) => {
+                      const sel = (form.repeatDays ?? []).includes(idx);
+                      return (
+                        <Pressable
+                          key={WEEKDAY_NAMES[idx]}
                           onPress={() =>
-                            setForm((current) => {
-                              const today = new Date();
+                            setForm((f) => {
+                              const days = f.repeatDays ?? [];
                               return {
-                                ...current,
-                                repeatCadence: cadence,
-                                repeatDays:
-                                  cadence === "weekly"
-                                    ? [today.getDay()]
-                                    : [today.getDate()],
-                                repeatMonthlyType:
-                                  cadence === "monthly"
-                                    ? "day_of_month"
-                                    : current.repeatMonthlyType,
+                                ...f,
+                                repeatDays: sel
+                                  ? days.filter((d) => d !== idx)
+                                  : [...days, idx].sort((a, b) => a - b),
                               };
                             })
                           }
-                        />
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                {(form.repeatCadence ?? form.period) !== "daily" ? (
-                  <View style={styles.repeatIntervalRow}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Every
-                    </Text>
-                    <VerticalNumberStepper
-                      value={form.repeatInterval ?? 1}
-                      onChange={(repeatInterval) =>
-                        setForm((current) => ({ ...current, repeatInterval }))
-                      }
-                    />
-                    <Text style={[styles.intervalUnit, { color: theme.text }]}>
-                      {(form.repeatCadence ?? form.period) === "weekly"
-                        ? "week"
-                        : "month"}
-                      {(form.repeatInterval ?? 1) !== 1 ? "s" : ""}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {/* Weekly: day-of-week chips */}
-                {(form.repeatCadence ?? form.period) === "weekly" ? (
-                  <View style={styles.inputField}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Suggested days
-                    </Text>
-                    <Text
-                      style={[styles.fieldHint, { color: theme.textSecondary }]}
-                    >
-                      These show up on your Daily Plan.
-                    </Text>
-                    <View style={styles.dayChipRow}>
-                      {DAY_LETTERS.map((letter, idx) => {
-                        const sel = (form.repeatDays ?? []).includes(idx);
-                        return (
-                          <Pressable
-                            key={WEEKDAY_NAMES[idx]}
-                            onPress={() =>
-                              setForm((f) => {
-                                const days = f.repeatDays ?? [];
-                                return {
-                                  ...f,
-                                  repeatDays: sel
-                                    ? days.filter((d) => d !== idx)
-                                    : [...days, idx].sort((a, b) => a - b),
-                                };
-                              })
-                            }
+                          style={[
+                            styles.dayChip,
+                            {
+                              backgroundColor: sel
+                                ? theme.primary
+                                : theme.backgroundElement,
+                              borderColor: sel
+                                ? theme.primary
+                                : theme.tabBorder,
+                            },
+                          ]}
+                        >
+                          <Text
                             style={[
-                              styles.dayChip,
-                              {
-                                backgroundColor: sel
-                                  ? theme.primary
-                                  : theme.backgroundElement,
-                                borderColor: sel
-                                  ? theme.primary
-                                  : theme.tabBorder,
-                              },
+                              styles.dayChipLabel,
+                              { color: sel ? "#fff" : theme.textSecondary },
                             ]}
                           >
-                            <Text
-                              style={[
-                                styles.dayChipLabel,
-                                { color: sel ? "#fff" : theme.textSecondary },
-                              ]}
-                            >
-                              {letter}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null}
-
-                {/* Monthly: day-of-month vs day-of-week */}
-                {(form.repeatCadence ?? form.period) === "monthly"
-                  ? (() => {
-                      const today = new Date();
-                      const monthlyFallbackDate = habit?.createdAt
-                        ? new Date(habit.createdAt)
-                        : today;
-                      const monthDates = (form.repeatDays ?? []).filter(
-                        (day) => day >= 1 && day <= 31,
-                      );
-                      const monthlyWeekdayCells = normalizeMonthlyWeekdayCells(
-                        form.repeatDays,
-                        monthlyFallbackDate,
-                      );
-                      const monthlyMode =
-                        form.repeatMonthlyType ?? "day_of_month";
-                      return (
-                        <View style={styles.inputField}>
-                          <Text
-                            style={[styles.fieldLabel, { color: theme.text }]}
-                          >
-                            Suggested dates
+                            {letter}
                           </Text>
-                          <View style={styles.choiceWrap}>
-                            <Choice
-                              label="Dates"
-                              selected={monthlyMode === "day_of_month"}
-                              onPress={() =>
-                                setForm((f) => ({
-                                  ...f,
-                                  repeatMonthlyType: "day_of_month",
-                                  repeatDays:
-                                    f.repeatMonthlyType === "day_of_month"
-                                      ? f.repeatDays
-                                      : [today.getDate()],
-                                }))
-                              }
-                            />
-                            <Choice
-                              label="Days"
-                              selected={monthlyMode === "day_of_week"}
-                              onPress={() =>
-                                setForm((f) => ({
-                                  ...f,
-                                  repeatMonthlyType: "day_of_week",
-                                  repeatDays:
-                                    f.repeatMonthlyType === "day_of_week"
-                                      ? f.repeatDays
-                                      : [
-                                          monthlyWeekdayCell(
-                                            getWeekOfMonth(today),
-                                            today.getDay(),
-                                          ),
-                                        ],
-                                }))
-                              }
-                            />
-                          </View>
-                          {monthlyMode === "day_of_month" ? (
-                            <View style={styles.monthDateGrid}>
-                              {MONTH_DATES.map((date) => {
-                                const selected = monthDates.length
-                                  ? monthDates.includes(date)
-                                  : date === today.getDate();
-                                return (
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    accessibilityState={{ selected }}
-                                    key={date}
-                                    onPress={() => {
-                                      playSelectionHaptic();
-                                      setForm((current) => {
-                                        const dates = (
-                                          current.repeatDays?.filter(
-                                            (day) => day >= 1 && day <= 31,
-                                          ).length
-                                            ? current.repeatDays
-                                            : [today.getDate()]
-                                        ) as number[];
-                                        const nextDates = selected
-                                          ? dates.filter((day) => day !== date)
-                                          : [...dates, date];
-                                        return {
-                                          ...current,
-                                          repeatDays: (nextDates.length
-                                            ? nextDates
-                                            : [today.getDate()]
-                                          ).sort((a, b) => a - b),
-                                        };
-                                      });
-                                    }}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Monthly: day-of-month vs day-of-week */}
+              {form.period === "monthly"
+                ? (() => {
+                    const today = new Date();
+                    const monthlyFallbackDate = habit?.createdAt
+                      ? new Date(habit.createdAt)
+                      : today;
+                    const monthDates = (form.repeatDays ?? []).filter(
+                      (day) => day >= 1 && day <= 31,
+                    );
+                    const monthlyWeekdayCells = normalizeMonthlyWeekdayCells(
+                      form.repeatDays,
+                      monthlyFallbackDate,
+                    );
+                    const monthlyMode =
+                      form.repeatMonthlyType ?? "day_of_month";
+                    return (
+                      <View style={styles.inputField}>
+                        <Text
+                          style={[styles.fieldLabel, { color: theme.text }]}
+                        >
+                          On
+                        </Text>
+                        <View style={styles.choiceWrap}>
+                          <Choice
+                            label="Dates"
+                            selected={monthlyMode === "day_of_month"}
+                            onPress={() =>
+                              setForm((f) => ({
+                                ...f,
+                                repeatMonthlyType: "day_of_month",
+                                repeatDays:
+                                  f.repeatMonthlyType === "day_of_month"
+                                    ? f.repeatDays
+                                    : [today.getDate()],
+                              }))
+                            }
+                          />
+                          <Choice
+                            label="Days"
+                            selected={monthlyMode === "day_of_week"}
+                            onPress={() =>
+                              setForm((f) => ({
+                                ...f,
+                                repeatMonthlyType: "day_of_week",
+                                repeatDays:
+                                  f.repeatMonthlyType === "day_of_week"
+                                    ? f.repeatDays
+                                    : [
+                                        monthlyWeekdayCell(
+                                          getWeekOfMonth(today),
+                                          today.getDay(),
+                                        ),
+                                      ],
+                              }))
+                            }
+                          />
+                        </View>
+                        {monthlyMode === "day_of_month" ? (
+                          <View style={styles.monthDateGrid}>
+                            {MONTH_DATES.map((date) => {
+                              const selected = monthDates.length
+                                ? monthDates.includes(date)
+                                : date === today.getDate();
+                              return (
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  key={date}
+                                  onPress={() => {
+                                    playSelectionHaptic();
+                                    setForm((current) => {
+                                      const dates = (
+                                        current.repeatDays?.filter(
+                                          (day) => day >= 1 && day <= 31,
+                                        ).length
+                                          ? current.repeatDays
+                                          : [today.getDate()]
+                                      ) as number[];
+                                      const nextDates = selected
+                                        ? dates.filter((day) => day !== date)
+                                        : [...dates, date];
+                                      return {
+                                        ...current,
+                                        repeatDays: (nextDates.length
+                                          ? nextDates
+                                          : [today.getDate()]
+                                        ).sort((a, b) => a - b),
+                                      };
+                                    });
+                                  }}
+                                  style={[
+                                    styles.monthDateChip,
+                                    {
+                                      backgroundColor: selected
+                                        ? theme.primary
+                                        : theme.backgroundElement,
+                                      borderColor: selected
+                                        ? theme.primary
+                                        : theme.tabBorder,
+                                    },
+                                  ]}
+                                >
+                                  <Text
                                     style={[
-                                      styles.monthDateChip,
+                                      styles.monthDateLabel,
                                       {
-                                        backgroundColor: selected
-                                          ? theme.primary
-                                          : theme.backgroundElement,
-                                        borderColor: selected
-                                          ? theme.primary
-                                          : theme.tabBorder,
+                                        color: selected
+                                          ? theme.primaryForeground
+                                          : theme.textSecondary,
                                       },
                                     ]}
                                   >
-                                    <Text
-                                      style={[
-                                        styles.monthDateLabel,
-                                        {
-                                          color: selected
-                                            ? theme.primaryForeground
-                                            : theme.textSecondary,
-                                        },
-                                      ]}
-                                    >
-                                      {date}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          ) : (
-                            <View style={styles.inputField}>
-                              <View style={styles.monthWeekdayGrid}>
-                                {MONTH_WEEK_ROWS.map((week) => (
-                                  <View
-                                    key={ORDINALS[week]}
-                                    style={styles.monthWeekdayRow}
-                                  >
-                                    {MONTH_DAY_LETTERS.map((letter, day) => {
-                                      const cell = monthlyWeekdayCell(
-                                        week,
-                                        day,
-                                      );
-                                      const selected =
-                                        monthlyWeekdayCells.includes(cell);
-                                      return (
-                                        <Pressable
-                                          accessibilityLabel={`${ORDINALS[week]} ${WEEKDAY_NAMES[day]}`}
-                                          accessibilityRole="button"
-                                          accessibilityState={{ selected }}
-                                          key={`${ORDINALS[week]}-${letter}`}
-                                          onPress={() => {
-                                            playSelectionHaptic();
-                                            setForm((current) => {
-                                              const cells =
-                                                normalizeMonthlyWeekdayCells(
-                                                  current.repeatDays,
-                                                  monthlyFallbackDate,
-                                                );
-                                              const nextCells = selected
-                                                ? cells.filter(
-                                                    (item) => item !== cell,
-                                                  )
-                                                : [...cells, cell];
-                                              return {
-                                                ...current,
-                                                repeatDays: (nextCells.length
-                                                  ? nextCells
-                                                  : [
-                                                      monthlyWeekdayCell(
-                                                        getWeekOfMonth(today),
-                                                        today.getDay(),
-                                                      ),
-                                                    ]
-                                                ).sort((a, b) => a - b),
-                                              };
-                                            });
-                                          }}
+                                    {date}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          <View style={styles.inputField}>
+                            <View style={styles.monthWeekdayGrid}>
+                              {MONTH_WEEK_ROWS.map((week) => (
+                                <View
+                                  key={ORDINALS[week]}
+                                  style={styles.monthWeekdayRow}
+                                >
+                                  {MONTH_DAY_LETTERS.map((letter, day) => {
+                                    const cell = monthlyWeekdayCell(week, day);
+                                    const selected =
+                                      monthlyWeekdayCells.includes(cell);
+                                    return (
+                                      <Pressable
+                                        accessibilityLabel={`${ORDINALS[week]} ${WEEKDAY_NAMES[day]}`}
+                                        accessibilityRole="button"
+                                        accessibilityState={{ selected }}
+                                        key={`${ORDINALS[week]}-${letter}`}
+                                        onPress={() => {
+                                          playSelectionHaptic();
+                                          setForm((current) => {
+                                            const cells =
+                                              normalizeMonthlyWeekdayCells(
+                                                current.repeatDays,
+                                                monthlyFallbackDate,
+                                              );
+                                            const nextCells = selected
+                                              ? cells.filter(
+                                                  (item) => item !== cell,
+                                                )
+                                              : [...cells, cell];
+                                            return {
+                                              ...current,
+                                              repeatDays: (nextCells.length
+                                                ? nextCells
+                                                : [
+                                                    monthlyWeekdayCell(
+                                                      getWeekOfMonth(today),
+                                                      today.getDay(),
+                                                    ),
+                                                  ]
+                                              ).sort((a, b) => a - b),
+                                            };
+                                          });
+                                        }}
+                                        style={[
+                                          styles.monthWeekdayChip,
+                                          {
+                                            backgroundColor: selected
+                                              ? theme.primary
+                                              : theme.backgroundElement,
+                                            borderColor: selected
+                                              ? theme.primary
+                                              : theme.tabBorder,
+                                          },
+                                        ]}
+                                      >
+                                        <Text
                                           style={[
-                                            styles.monthWeekdayChip,
+                                            styles.monthWeekdayChipLabel,
                                             {
-                                              backgroundColor: selected
-                                                ? theme.primary
-                                                : theme.backgroundElement,
-                                              borderColor: selected
-                                                ? theme.primary
-                                                : theme.tabBorder,
+                                              color: selected
+                                                ? theme.primaryForeground
+                                                : theme.textSecondary,
                                             },
                                           ]}
                                         >
-                                          <Text
-                                            style={[
-                                              styles.monthWeekdayChipLabel,
-                                              {
-                                                color: selected
-                                                  ? theme.primaryForeground
-                                                  : theme.textSecondary,
-                                              },
-                                            ]}
-                                          >
-                                            {letter}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-                                ))}
-                              </View>
+                                          {letter}
+                                        </Text>
+                                      </Pressable>
+                                    );
+                                  })}
+                                </View>
+                              ))}
                             </View>
-                          )}
-                        </View>
-                      );
-                    })()
-                  : null}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()
+                : null}
 
-                <View style={styles.reminderRow}>
-                  <Pressable
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: form.reminderEnabled }}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        reminderEnabled: !current.reminderEnabled,
-                        reminderTime: current.reminderEnabled
-                          ? null
-                          : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
-                      }))
-                    }
-                    style={({ pressed }) => [
-                      styles.reminderToggle,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.checkboxBox,
-                        {
-                          backgroundColor: form.reminderEnabled
-                            ? theme.primary
-                            : theme.backgroundElement,
-                          borderColor: form.reminderEnabled
-                            ? theme.primary
-                            : theme.tabBorder,
-                        },
-                      ]}
-                    >
-                      {form.reminderEnabled ? (
-                        <SymbolView
-                          name={symbol("checkmark", "check")}
-                          size={15}
-                          tintColor={theme.primaryForeground}
-                        />
-                      ) : null}
-                    </View>
-                    <Text style={[styles.reminderLabel, { color: theme.text }]}>
-                      Reminder
-                    </Text>
-                  </Pressable>
-                  <TextInput
-                    accessibilityLabel="Reminder time"
-                    editable={form.reminderEnabled}
-                    keyboardType="numbers-and-punctuation"
-                    maxLength={5}
-                    onChangeText={(reminderTime) =>
-                      setForm((current) => ({ ...current, reminderTime }))
-                    }
-                    placeholder={DEFAULT_REMINDER_TIME}
-                    placeholderTextColor={theme.textSecondary}
-                    selectionColor={theme.primary}
-                    style={[
-                      styles.reminderTimeInput,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.tabBorder,
-                        color: form.reminderEnabled
-                          ? theme.text
-                          : theme.textSecondary,
-                      },
-                      !form.reminderEnabled && styles.disabled,
-                    ]}
-                    value={form.reminderTime ?? DEFAULT_REMINDER_TIME}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.switchRow,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
+              <View style={styles.reminderRow}>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: form.reminderEnabled }}
+                  onPress={() =>
+                    setForm((current) => ({
+                      ...current,
+                      reminderEnabled: !current.reminderEnabled,
+                      reminderTime: current.reminderEnabled
+                        ? null
+                        : (current.reminderTime ?? DEFAULT_REMINDER_TIME),
+                      reminderTimes: current.reminderEnabled
+                        ? null
+                        : normalizeReminderTimes(
+                            current.reminderTimes ??
+                              (current.reminderTime
+                                ? [current.reminderTime]
+                                : null),
+                            reminderCountForForm(current),
+                          ),
+                    }))
+                  }
+                  style={({ pressed }) => [
+                    styles.reminderToggle,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  <View style={styles.switchCopy}>
-                    <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      Show in Daily Plan
-                    </Text>
-                    <Text
-                      style={[
-                        styles.switchDescription,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      Keep this habit available when planning your day.
-                    </Text>
+                  <View
+                    style={[
+                      styles.checkboxBox,
+                      {
+                        backgroundColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.backgroundElement,
+                        borderColor: form.reminderEnabled
+                          ? theme.primary
+                          : theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    {form.reminderEnabled ? (
+                      <SymbolView
+                        name={symbol("checkmark", "check")}
+                        size={15}
+                        tintColor={theme.primaryForeground}
+                      />
+                    ) : null}
                   </View>
-                  <Switch
-                    onValueChange={(planOnCalendar) => {
-                      playSelectionHaptic();
-                      setForm((current) => ({ ...current, planOnCalendar }));
-                    }}
-                    trackColor={{
-                      false: theme.backgroundSelected,
-                      true: theme.primary,
-                    }}
-                    value={form.planOnCalendar}
-                  />
+                  <Text style={[styles.reminderLabel, { color: theme.text }]}>
+                    Reminder
+                  </Text>
+                </Pressable>
+                <View style={styles.reminderTimeList}>
+                  {normalizeReminderTimes(
+                    form.reminderTimes ??
+                      (form.reminderTime ? [form.reminderTime] : null),
+                    form.reminderEnabled ? reminderCountForForm(form) : 1,
+                  ).map((time, index) => (
+                    <TextInput
+                      accessibilityLabel={`Reminder time ${index + 1}`}
+                      editable={form.reminderEnabled}
+                      key={index}
+                      keyboardType="numbers-and-punctuation"
+                      maxLength={5}
+                      onChangeText={(reminderTime) =>
+                        setForm((current) => {
+                          const reminderTimes = normalizeReminderTimes(
+                            current.reminderTimes ??
+                              (current.reminderTime
+                                ? [current.reminderTime]
+                                : null),
+                            reminderCountForForm(current),
+                          );
+                          reminderTimes[index] = reminderTime;
+                          return {
+                            ...current,
+                            reminderTime: reminderTimes[0] ?? null,
+                            reminderTimes,
+                          };
+                        })
+                      }
+                      placeholder={DEFAULT_REMINDER_TIME}
+                      placeholderTextColor={theme.textSecondary}
+                      selectionColor={theme.primary}
+                      style={[
+                        styles.reminderTimeInput,
+                        {
+                          backgroundColor: theme.backgroundElement,
+                          borderColor: theme.tabBorder,
+                          color: form.reminderEnabled
+                            ? theme.text
+                            : theme.textSecondary,
+                        },
+                        !form.reminderEnabled && styles.disabled,
+                      ]}
+                      value={time}
+                    />
+                  ))}
                 </View>
-              </>
+              </View>
+
+              <View
+                style={[
+                  styles.switchRow,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.switchCopy}>
+                  <Text style={[styles.switchTitle, { color: theme.text }]}>
+                    Add to calendar planner
+                  </Text>
+                  <Text
+                    style={[
+                      styles.switchDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Let this habit appear as a draggable item when you plan your
+                    schedule.
+                  </Text>
+                </View>
+                <Switch
+                  onValueChange={(planOnCalendar) => {
+                    playSelectionHaptic();
+                    setForm((current) => ({ ...current, planOnCalendar }));
+                  }}
+                  trackColor={{
+                    false: theme.backgroundSelected,
+                    true: theme.primary,
+                  }}
+                  value={form.planOnCalendar}
+                />
+              </View>
             </FormSection>
 
             <FormSection title="Options">
@@ -2185,7 +2169,7 @@ export function HabitFormModal({
               >
                 <View style={styles.switchCopy}>
                   <Text style={[styles.switchTitle, { color: theme.text }]}>
-                    Default complete
+                    Starts complete
                   </Text>
                   <Text
                     style={[
@@ -2193,7 +2177,7 @@ export function HabitFormModal({
                       { color: theme.textSecondary },
                     ]}
                   >
-                    Use for habits about not doing something.
+                    For habits where success means avoiding something.{" "}
                   </Text>
                 </View>
                 <Switch
@@ -2597,33 +2581,13 @@ function VerticalNumberStepper({
         if (nativeEvent.actionName === "decrement") setValue(value - 1);
       }}
       style={[
-        styles.verticalNumberStepper,
+        styles.numberStepper,
         {
           backgroundColor: theme.backgroundElement,
           borderColor: theme.tabBorder,
         },
       ]}
     >
-      <Pressable
-        accessibilityLabel="Increase repeat interval"
-        accessibilityRole="button"
-        disabled={value >= 99}
-        hitSlop={6}
-        onPress={() => setValue(value + 1)}
-        style={styles.stepperButton}
-      >
-        <Text
-          style={[
-            styles.stepperButtonLabel,
-            { color: value >= 99 ? theme.textSecondary : theme.text },
-          ]}
-        >
-          +
-        </Text>
-      </Pressable>
-      <Text style={[styles.verticalNumberStepperValue, { color: theme.text }]}>
-        {value}
-      </Text>
       <Pressable
         accessibilityLabel="Decrease repeat interval"
         accessibilityRole="button"
@@ -2639,6 +2603,26 @@ function VerticalNumberStepper({
           ]}
         >
           −
+        </Text>
+      </Pressable>
+      <Text style={[styles.numberStepperValue, { color: theme.text }]}>
+        {value}
+      </Text>
+      <Pressable
+        accessibilityLabel="Increase repeat interval"
+        accessibilityRole="button"
+        disabled={value >= 99}
+        hitSlop={6}
+        onPress={() => setValue(value + 1)}
+        style={styles.stepperButton}
+      >
+        <Text
+          style={[
+            styles.stepperButtonLabel,
+            { color: value >= 99 ? theme.textSecondary : theme.text },
+          ]}
+        >
+          +
         </Text>
       </Pressable>
     </View>
@@ -2665,7 +2649,7 @@ function IconSearchPicker({
         )
       : EXPO_SYMBOL_ICON_OPTIONS;
 
-    return matchingOptions.slice(0, 12);
+    return matchingOptions.slice(0, 10);
   }, [query]);
 
   return (
@@ -2687,7 +2671,7 @@ function IconSearchPicker({
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder="Search icons… e.g. dumbbell"
+          placeholder="Search symbols... e.g. run, book, prayer"
           placeholderTextColor={theme.textSecondary}
           selectionColor={theme.primary}
           style={[styles.iconSearchInput, { color: theme.text }]}
@@ -2695,7 +2679,10 @@ function IconSearchPicker({
           onChangeText={setQuery}
         />
         {value ? (
-          <View style={styles.iconSearchPreview}>
+          <View
+            accessibilityLabel="Selected icon"
+            style={styles.iconSearchPreview}
+          >
             <GoalIcon iconKey={value} size={20} color={theme.textSecondary} />
           </View>
         ) : null}
@@ -3080,37 +3067,55 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  repeatIntervalRow: {
+  scheduleSentence: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    flexWrap: "wrap",
+    gap: 8,
   },
-  verticalNumberStepper: {
-    width: 54,
+  scheduleSentenceLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  scheduleSentenceText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  periodChoiceWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  numberStepper: {
+    minWidth: 104,
+    height: 44,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
+    borderRadius: 16,
   },
   stepperButton: {
-    width: "100%",
+    width: 34,
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
   },
   stepperButtonLabel: {
-    fontSize: 22,
-    lineHeight: 24,
+    fontSize: 20,
+    lineHeight: 22,
     fontWeight: "600",
   },
-  verticalNumberStepperValue: {
-    fontSize: 24,
-    lineHeight: 30,
+  numberStepperValue: {
+    minWidth: 30,
+    textAlign: "center",
+    fontSize: 21,
+    lineHeight: 26,
     fontWeight: "600",
     fontVariant: ["tabular-nums"],
   },
-  intervalUnit: { fontSize: 13, fontWeight: "600" },
   dayChipRow: { flexDirection: "row", gap: 6 },
   dayChip: {
     width: 36,
@@ -3240,6 +3245,11 @@ const styles = StyleSheet.create({
     borderRadius: 7,
   },
   reminderLabel: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  reminderTimeList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   reminderTimeInput: {
     width: 92,
     minHeight: 44,

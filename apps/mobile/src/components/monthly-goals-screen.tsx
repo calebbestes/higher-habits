@@ -401,6 +401,8 @@ export function MonthlyGoalsScreen({
       repeatInterval: goal.repeatInterval ?? 1,
       repeatDays: goal.repeatDays,
       repeatMonthlyType,
+      reminderTimes:
+        goal.reminderTimes ?? (goal.reminderTime ? [goal.reminderTime] : null),
       createdAt: goal.createdAt,
       updatedAt: "",
       period: goal.period,
@@ -1387,7 +1389,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: MaxContentWidth,
     alignSelf: "center",
-    paddingTop: 20,
+    paddingTop: 8,
     paddingBottom: 40,
     gap: 18,
   },

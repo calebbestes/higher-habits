@@ -24,12 +24,15 @@ import {
   TASK_IMPORTANCES,
   TASK_MONTH_DAY_OPTIONS,
   TASK_RECURRENCES,
+  TASK_TIME_OPTIONS,
   TASK_WEEKDAY_OPTIONS,
   type Task,
   type TaskInput,
   type TaskRecurrence,
-  getNextMonthDayDateKey,
-  getNextWeekdayDateKey,
+  getNextMonthDaysDateKey,
+  getNextWeekdaysDateKey,
+  getTaskRecurrenceMonthDays,
+  getTaskRecurrenceWeekdays,
   getTaskDateMonthDay,
   getTaskDateWeekday,
   isValidTaskDateKey,
@@ -92,55 +95,68 @@ export function TaskFormModal({
   };
 
   const dueDateValid = !form.dueDate || isValidTaskDateKey(form.dueDate);
-  const selectedWeekday =
-    form.recurrenceWeekday ?? getTaskDateWeekday(form.dueDate) ?? 0;
-  const selectedMonthDay =
-    form.recurrenceMonthDay ?? getTaskDateMonthDay(form.dueDate) ?? 1;
+  const selectedWeekdays = getTaskRecurrenceWeekdays(form);
+  const selectedMonthDays = getTaskRecurrenceMonthDays(form);
+  const activeProjects = projects.filter(
+    (project) =>
+      project.totalTasks > project.completedTasks ||
+      project.id === form.projectId,
+  );
 
   const setDueDate = (dueDate: string | null) => {
+    const weekday = getTaskDateWeekday(dueDate);
+    const monthDay = getTaskDateMonthDay(dueDate);
     setForm((current) => ({
       ...current,
       dueDate,
       recurrenceWeekday:
-        current.recurrence === "weekly"
-          ? getTaskDateWeekday(dueDate)
-          : current.recurrenceWeekday,
+        current.recurrence === "weekly" ? weekday : current.recurrenceWeekday,
       recurrenceMonthDay:
         current.recurrence === "monthly"
-          ? getTaskDateMonthDay(dueDate)
+          ? monthDay
           : current.recurrenceMonthDay,
+      recurrenceWeekdays:
+        current.recurrence === "weekly" && weekday != null
+          ? [weekday]
+          : current.recurrenceWeekdays,
+      recurrenceMonthDays:
+        current.recurrence === "monthly" && monthDay != null
+          ? [monthDay]
+          : current.recurrenceMonthDays,
     }));
   };
 
   const setRecurrence = (recurrence: TaskRecurrence) => {
     setForm((current) => {
       if (recurrence === "weekly") {
-        const weekday =
-          current.recurrenceWeekday ??
-          getTaskDateWeekday(current.dueDate) ??
-          getTaskDateWeekday(todayDateKey()) ??
-          0;
+        const weekdays = getTaskRecurrenceWeekdays(current);
+        const nextWeekdays = weekdays.length
+          ? weekdays
+          : [getTaskDateWeekday(todayDateKey()) ?? 0];
         return {
           ...current,
-          dueDate: getNextWeekdayDateKey(weekday),
+          dueDate: getNextWeekdaysDateKey(nextWeekdays),
           recurrence,
-          recurrenceWeekday: weekday,
+          recurrenceWeekday: nextWeekdays[0] ?? null,
+          recurrenceWeekdays: nextWeekdays,
           recurrenceMonthDay: null,
+          recurrenceMonthDays: [],
         };
       }
 
       if (recurrence === "monthly") {
-        const monthDay =
-          current.recurrenceMonthDay ??
-          getTaskDateMonthDay(current.dueDate) ??
-          getTaskDateMonthDay(todayDateKey()) ??
-          1;
+        const monthDays = getTaskRecurrenceMonthDays(current);
+        const nextMonthDays = monthDays.length
+          ? monthDays
+          : [getTaskDateMonthDay(todayDateKey()) ?? 1];
         return {
           ...current,
-          dueDate: getNextMonthDayDateKey(monthDay),
+          dueDate: getNextMonthDaysDateKey(nextMonthDays),
           recurrence,
           recurrenceWeekday: null,
-          recurrenceMonthDay: monthDay,
+          recurrenceWeekdays: [],
+          recurrenceMonthDay: nextMonthDays[0] ?? null,
+          recurrenceMonthDays: nextMonthDays,
         };
       }
 
@@ -149,24 +165,44 @@ export function TaskFormModal({
         recurrence,
         recurrenceWeekday: null,
         recurrenceMonthDay: null,
+        recurrenceWeekdays: [],
+        recurrenceMonthDays: [],
       };
     });
   };
 
   const setWeeklyRecurrence = (weekday: number) => {
-    setForm((current) => ({
-      ...current,
-      dueDate: getNextWeekdayDateKey(weekday),
-      recurrenceWeekday: weekday,
-    }));
+    setForm((current) => {
+      const currentWeekdays = getTaskRecurrenceWeekdays(current);
+      const nextWeekdays = currentWeekdays.includes(weekday)
+        ? currentWeekdays.filter((value) => value !== weekday)
+        : [...currentWeekdays, weekday].sort((left, right) => left - right);
+      const safeWeekdays = nextWeekdays.length ? nextWeekdays : [weekday];
+
+      return {
+        ...current,
+        dueDate: getNextWeekdaysDateKey(safeWeekdays),
+        recurrenceWeekday: safeWeekdays[0] ?? null,
+        recurrenceWeekdays: safeWeekdays,
+      };
+    });
   };
 
   const setMonthlyRecurrence = (monthDay: number) => {
-    setForm((current) => ({
-      ...current,
-      dueDate: getNextMonthDayDateKey(monthDay),
-      recurrenceMonthDay: monthDay,
-    }));
+    setForm((current) => {
+      const currentMonthDays = getTaskRecurrenceMonthDays(current);
+      const nextMonthDays = currentMonthDays.includes(monthDay)
+        ? currentMonthDays.filter((value) => value !== monthDay)
+        : [...currentMonthDays, monthDay].sort((left, right) => left - right);
+      const safeMonthDays = nextMonthDays.length ? nextMonthDays : [monthDay];
+
+      return {
+        ...current,
+        dueDate: getNextMonthDaysDateKey(safeMonthDays),
+        recurrenceMonthDay: safeMonthDays[0] ?? null,
+        recurrenceMonthDays: safeMonthDays,
+      };
+    });
   };
 
   const save = async () => {
@@ -276,7 +312,7 @@ export function TaskFormModal({
 
             <FormSection title="Priority">
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Importance
+                Priority
               </Text>
               <View style={styles.choiceWrap}>
                 {TASK_IMPORTANCES.map((importance) => (
@@ -302,14 +338,24 @@ export function TaskFormModal({
               {!dueDateValid ? (
                 <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
               ) : null}
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Repeat
-              </Text>
-              <View style={styles.choiceWrap}>
+              <View style={styles.scheduleSentence}>
+                <Text
+                  style={[styles.scheduleSentenceLabel, { color: theme.text }]}
+                >
+                  Do this
+                </Text>
                 {TASK_RECURRENCES.map((recurrence) => (
                   <Choice
                     key={recurrence.value}
-                    label={recurrence.label}
+                    label={
+                      recurrence.value === "none"
+                        ? "once"
+                        : recurrence.value === "daily"
+                          ? "day"
+                          : recurrence.value === "weekly"
+                            ? "week"
+                            : "month"
+                    }
                     selected={form.recurrence === recurrence.value}
                     onPress={() => setRecurrence(recurrence.value)}
                   />
@@ -318,14 +364,14 @@ export function TaskFormModal({
               {form.recurrence === "weekly" ? (
                 <View style={styles.inputField}>
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                    Day
+                    On
                   </Text>
                   <View style={styles.choiceWrap}>
                     {TASK_WEEKDAY_OPTIONS.map((weekday) => (
                       <Choice
                         key={weekday.value}
                         label={weekday.label}
-                        selected={selectedWeekday === weekday.value}
+                        selected={selectedWeekdays.includes(weekday.value)}
                         onPress={() => setWeeklyRecurrence(weekday.value)}
                       />
                     ))}
@@ -335,14 +381,14 @@ export function TaskFormModal({
               {form.recurrence === "monthly" ? (
                 <View style={styles.inputField}>
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                    Day
+                    On
                   </Text>
                   <View style={styles.monthDayGrid}>
                     {TASK_MONTH_DAY_OPTIONS.map((monthDay) => (
                       <Choice
                         key={monthDay}
                         label={String(monthDay)}
-                        selected={selectedMonthDay === monthDay}
+                        selected={selectedMonthDays.includes(monthDay)}
                         onPress={() => setMonthlyRecurrence(monthDay)}
                         style={styles.monthDayChoice}
                       />
@@ -350,6 +396,23 @@ export function TaskFormModal({
                   </View>
                 </View>
               ) : null}
+              <View style={styles.inputField}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Time needed
+                </Text>
+                <View style={styles.choiceWrap}>
+                  {TASK_TIME_OPTIONS.map((timeRequired) => (
+                    <Choice
+                      key={timeRequired}
+                      label={timeRequired}
+                      selected={form.timeRequired === timeRequired}
+                      onPress={() =>
+                        setForm((current) => ({ ...current, timeRequired }))
+                      }
+                    />
+                  ))}
+                </View>
+              </View>
             </FormSection>
 
             <FormSection title="Project">
@@ -361,7 +424,7 @@ export function TaskFormModal({
                     setForm((current) => ({ ...current, projectId: null }))
                   }
                 />
-                {projects.map((project) => (
+                {activeProjects.map((project) => (
                   <Choice
                     key={project.id}
                     label={project.name}
@@ -603,6 +666,17 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   choiceWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  scheduleSentence: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  scheduleSentenceLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
   monthDayGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   choice: {
     borderWidth: StyleSheet.hairlineWidth,

@@ -411,6 +411,9 @@ export function DailyGoalsScreen({
       repeatInterval: editableGoal.repeatInterval ?? 1,
       repeatDays: editableGoal.repeatDays ?? null,
       repeatMonthlyType: editableGoal.repeatMonthlyType ?? null,
+      reminderTimes:
+        editableGoal.reminderTimes ??
+        (editableGoal.reminderTime ? [editableGoal.reminderTime] : null),
       createdAt: editableGoal.createdAt ?? new Date().toISOString(),
       updatedAt: editableGoal.updatedAt ?? editableGoal.createdAt ?? "",
     });

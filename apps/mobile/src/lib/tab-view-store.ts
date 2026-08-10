@@ -35,7 +35,7 @@ export type PlanReportView =
 export type HabitsTab = "daily" | "monthly";
 export type CreateSection = "habits" | "goals" | "tasks";
 export type CollabSection = "feed" | "incentives" | "shared-goals" | "friends";
-export type HistorySection = "profile";
+export type HistorySection = "dashboard" | "journal" | "profile";
 export type AppStartPage =
   | "add"
   | "plan-report"
@@ -235,9 +235,9 @@ export function getAppStartHref({
     return COLLAB_SECTION_HREFS[defaultCollabSection];
   }
   if (defaultAppStartPage === "friends") return "/friends";
-  if (defaultAppStartPage === "history") return "/history";
-  if (defaultAppStartPage === "journal") return "/journal";
-  if (defaultAppStartPage === "dashboard") return "/dashboard";
+  if (defaultAppStartPage === "history") return "/history?section=profile";
+  if (defaultAppStartPage === "journal") return "/history?section=journal";
+  if (defaultAppStartPage === "dashboard") return "/history?section=dashboard";
   return "/settings";
 }
 

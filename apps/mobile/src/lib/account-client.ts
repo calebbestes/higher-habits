@@ -2,6 +2,10 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type AccountProfile = {
   birthday: string | null;
+  firstName: string;
+  lastName: string;
+  name: string;
+  phoneNumber: string | null;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

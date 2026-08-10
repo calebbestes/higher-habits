@@ -1,4 +1,4 @@
-import { type Href, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   Pressable,
   StyleSheet,
@@ -9,21 +9,13 @@ import {
 
 import { useTheme } from "@/hooks/use-theme";
 import {
-  COLLAB_SECTION_HREFS,
   type CollabSection,
   type CreateSection,
-  PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
   setCollabSection,
   setCreateSection,
   setPlanReportView,
 } from "@/lib/tab-view-store";
-
-const CREATE_HREFS = {
-  habits: "/add?type=habits",
-  goals: "/add?type=goals",
-  tasks: "/add?type=tasks",
-} as const satisfies Record<CreateSection, string>;
 
 const CREATE_SECTIONS: Array<{ key: CreateSection; label: string }> = [
   { key: "habits", label: "Habits" },
@@ -70,7 +62,7 @@ export function CreateSectionHeaderTabs({
       options={CREATE_SECTIONS}
       onChange={(section) => {
         setCreateSection(section);
-        router.replace(CREATE_HREFS[section] as Href);
+        router.setParams({ type: section });
       }}
       style={style}
     />
@@ -95,7 +87,7 @@ export function PlanSectionHeaderTabs({
       options={PLAN_VIEWS}
       onChange={(view) => {
         setPlanReportView(view);
-        router.replace(PLAN_REPORT_VIEW_HREFS[view] as Href);
+        router.setParams({ view });
       }}
       style={style}
     />
@@ -117,7 +109,7 @@ export function CollabSectionHeaderTabs({
       options={COLLAB_SECTIONS}
       onChange={(section) => {
         setCollabSection(section);
-        router.replace(COLLAB_SECTION_HREFS[section] as Href);
+        router.setParams({ section });
       }}
       style={style}
     />

@@ -109,6 +109,8 @@ export const users = pgTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
+    firstName: text("first_name").default("").notNull(),
+    lastName: text("last_name").default("").notNull(),
     email: text("email").notNull(),
     phoneNumber: text("phone_number"),
     birthday: date("birthday", { mode: "string" }),
@@ -359,6 +361,8 @@ export const tasks = pgTable(
     recurrence: text("recurrence").default("none").notNull(),
     recurrenceWeekday: integer("recurrence_weekday"),
     recurrenceMonthDay: integer("recurrence_month_day"),
+    recurrenceWeekdays: integer("recurrence_weekdays").array(),
+    recurrenceMonthDays: integer("recurrence_month_days").array(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -562,6 +566,7 @@ export const habits = pgTable(
     planOnCalendar: boolean("plan_on_calendar").default(true).notNull(),
     reminderEnabled: boolean("reminder_enabled").default(false).notNull(),
     reminderTime: text("reminder_time"),
+    reminderTimes: text("reminder_times").array(),
     hidden: boolean("hidden").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -940,6 +945,37 @@ export const dailyReflectionComments = pgTable(
   ],
 );
 
+export const socialFeedPosts = pgTable(
+  "social_feed_posts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetUserId: text("target_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    title: text("title").notNull(),
+    body: text("body").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("social_feed_posts_source_uidx").on(
+      table.sourceType,
+      table.sourceId,
+      table.kind,
+    ),
+    index("social_feed_posts_user_id_idx").on(table.userId),
+    index("social_feed_posts_target_user_id_idx").on(table.targetUserId),
+    index("social_feed_posts_created_at_idx").on(table.createdAt),
+  ],
+);
+
 export const moderationReports = pgTable(
   "moderation_reports",
   {
@@ -1092,6 +1128,8 @@ export type FeedProp = typeof feedProps.$inferSelect;
 export type NewFeedProp = typeof feedProps.$inferInsert;
 export type FeedComment = typeof feedComments.$inferSelect;
 export type NewFeedComment = typeof feedComments.$inferInsert;
+export type SocialFeedPost = typeof socialFeedPosts.$inferSelect;
+export type NewSocialFeedPost = typeof socialFeedPosts.$inferInsert;
 export type SharedGoal = typeof sharedGoals.$inferSelect;
 export type NewSharedGoal = typeof sharedGoals.$inferInsert;
 export type SharedGoalParticipant = typeof sharedGoalParticipants.$inferSelect;

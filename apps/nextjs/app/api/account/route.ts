@@ -110,7 +110,13 @@ export async function GET(request: Request) {
     }
 
     const [account] = await db
-      .select({ birthday: users.birthday })
+      .select({
+        birthday: users.birthday,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        name: users.name,
+        phoneNumber: users.phoneNumber,
+      })
       .from(users)
       .where(eq(users.id, user.id))
       .limit(1);
@@ -121,6 +127,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       birthday: normalizeDateKey(account.birthday),
+      firstName: account.firstName,
+      lastName: account.lastName,
+      name: account.name,
+      phoneNumber: account.phoneNumber,
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
@@ -147,21 +157,76 @@ export async function PATCH(request: Request) {
 
     const body = (await request.json().catch(() => null)) as {
       birthday?: unknown;
+      firstName?: unknown;
+      lastName?: unknown;
+      phoneNumber?: unknown;
     } | null;
-    const birthday = normalizeDateKey(body?.birthday);
+    const patch: {
+      birthday?: string;
+      firstName?: string;
+      lastName?: string;
+      name?: string;
+      phoneNumber?: string;
+      updatedAt: Date;
+    } = { updatedAt: new Date() };
 
-    if (!birthday) {
+    if (body && "birthday" in body) {
+      const birthday = normalizeDateKey(body.birthday);
+      if (!birthday) {
+        return NextResponse.json(
+          { error: "Enter a valid birthday." },
+          { status: 400 },
+        );
+      }
+      patch.birthday = birthday;
+    }
+
+    if (body && "phoneNumber" in body) {
+      if (typeof body.phoneNumber !== "string" || !body.phoneNumber.trim()) {
+        return NextResponse.json(
+          { error: "Enter a valid phone number." },
+          { status: 400 },
+        );
+      }
+      patch.phoneNumber = body.phoneNumber.trim();
+    }
+
+    if (body && ("firstName" in body || "lastName" in body)) {
+      if (
+        typeof body.firstName !== "string" ||
+        !body.firstName.trim() ||
+        typeof body.lastName !== "string" ||
+        !body.lastName.trim()
+      ) {
+        return NextResponse.json(
+          { error: "Enter your first and last name." },
+          { status: 400 },
+        );
+      }
+
+      patch.firstName = body.firstName.trim();
+      patch.lastName = body.lastName.trim();
+      patch.name = `${patch.firstName} ${patch.lastName}`;
+    }
+
+    if (!patch.birthday && !patch.phoneNumber && !patch.name) {
       return NextResponse.json(
-        { error: "Enter a valid birthday." },
+        { error: "Nothing to update." },
         { status: 400 },
       );
     }
 
     const [account] = await db
       .update(users)
-      .set({ birthday, updatedAt: new Date() })
+      .set(patch)
       .where(eq(users.id, user.id))
-      .returning({ birthday: users.birthday });
+      .returning({
+        birthday: users.birthday,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        name: users.name,
+        phoneNumber: users.phoneNumber,
+      });
 
     if (!account) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
@@ -169,6 +234,10 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({
       birthday: normalizeDateKey(account.birthday),
+      firstName: account.firstName,
+      lastName: account.lastName,
+      name: account.name,
+      phoneNumber: account.phoneNumber,
     });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
