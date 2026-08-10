@@ -215,7 +215,10 @@ export function createAuth() {
     },
     trustedOrigins: [
       "mobile://",
-      ...(process.env.NODE_ENV === "production" ? [] : ["exp://", "exp://**"]),
+      // Local Expo/dev-client builds can use the production auth server while
+      // still returning through an exp:// callback URL.
+      "exp://",
+      "exp://**",
     ],
     plugins: [expo(), nextCookies()],
   } as never);
