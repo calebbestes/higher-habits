@@ -4,7 +4,11 @@ import { StyleSheet, View } from "react-native";
 
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { useTheme } from "@/hooks/use-theme";
-import { authClient, persistAuthCallbackCookie } from "@/lib/auth-client";
+import {
+  fetchMobileSession,
+  persistAuthCallbackCookie,
+  useMobileSession,
+} from "@/lib/auth-client";
 
 const MAX_SESSION_REFRESH_ATTEMPTS = 8;
 const SESSION_REFRESH_DELAY_MS = 300;
@@ -35,7 +39,7 @@ export default function AuthCallbackScreen() {
     cookie?: string | string[];
     next?: string | string[];
   }>();
-  const { refetch } = authClient.useSession();
+  const { refetch } = useMobileSession();
   const callbackCookie = useMemo(
     () => getFirstParam(params.cookie),
     [params.cookie],
@@ -53,7 +57,7 @@ export default function AuthCallbackScreen() {
         }
 
         await refetch();
-        const sessionResponse = await authClient.getSession();
+        const sessionResponse = await fetchMobileSession();
         if (!active) return;
 
         if (sessionResponse.data) {

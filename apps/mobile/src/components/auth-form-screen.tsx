@@ -20,7 +20,11 @@ import { DatePartPicker } from "@/components/date-part-picker";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { updateAccountProfile } from "@/lib/account-client";
-import { authClient } from "@/lib/auth-client";
+import {
+  authClient,
+  fetchMobileSession,
+  useMobileSession,
+} from "@/lib/auth-client";
 import { getNativeAuthCallbackURL } from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
@@ -51,7 +55,7 @@ async function imageToDataUrl(uri: string) {
 export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const router = useRouter();
   const theme = useTheme();
-  const { data: session, refetch: refetchSession } = authClient.useSession();
+  const { data: session, refetch: refetchSession } = useMobileSession();
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -79,7 +83,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
 
   const enterApp = async () => {
     await refetchSession();
-    const sessionResponse = await authClient.getSession();
+    const sessionResponse = await fetchMobileSession();
     if (!sessionResponse.data) {
       setShouldEnterApp(false);
       setError(

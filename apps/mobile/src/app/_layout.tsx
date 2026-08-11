@@ -13,7 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { useTheme } from "@/hooks/use-theme";
-import { authClient } from "@/lib/auth-client";
+import { useMobileSession } from "@/lib/auth-client";
 import {
   setCrashReportingUser,
   wrapWithCrashReporting,
@@ -75,7 +75,7 @@ function RootLayout() {
 function AuthNavigator() {
   const router = useRouter();
   const theme = useTheme();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useMobileSession();
   const sessionUserId = session?.user.id;
   const [authStartupResolved, setAuthStartupResolved] = useState(false);
   const [navigationDefaults, setNavigationDefaults] =

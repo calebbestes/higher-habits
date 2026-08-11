@@ -32,7 +32,7 @@ import {
   fetchAccountProfile,
   updateAccountProfile,
 } from "@/lib/account-client";
-import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
+import { AUTH_BASE_URL, authClient, useMobileSession } from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
 import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
@@ -144,7 +144,7 @@ export function SettingsScreen() {
   const router = useRouter();
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
-  const { data: session, refetch } = authClient.useSession();
+  const { data: session, refetch } = useMobileSession();
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
