@@ -32,7 +32,12 @@ import {
   fetchAccountProfile,
   updateAccountProfile,
 } from "@/lib/account-client";
-import { AUTH_BASE_URL, authClient, useMobileSession } from "@/lib/auth-client";
+import {
+  AUTH_BASE_URL,
+  authClient,
+  fetchMobileSession,
+  useMobileSession,
+} from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
 import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
@@ -261,6 +266,21 @@ export function SettingsScreen() {
   const deleteAccount = async () => {
     setIsDeletingAccount(true);
     try {
+      const sessionResponse = await fetchMobileSession({
+        force: true,
+        refresh: true,
+      });
+
+      if (!sessionResponse.data) {
+        await authClient.signOut().catch(() => undefined);
+        Alert.alert(
+          "Session expired",
+          "Please sign in again before deleting your account.",
+          [{ text: "OK", onPress: () => router.replace("/login") }],
+        );
+        return;
+      }
+
       const response = await mobileApiFetch("/api/account", {
         method: "DELETE",
       });

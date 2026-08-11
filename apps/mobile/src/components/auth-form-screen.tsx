@@ -30,6 +30,7 @@ import {
   getNativeAuthErrorCallbackURL,
 } from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
+import { updateUserSettings } from "@/lib/user-settings-client";
 
 type AuthFormScreenProps = {
   mode: "login" | "sign-up";
@@ -116,6 +117,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         phoneNumber: phoneNumber.trim(),
       });
       await uploadProfilePicture(profilePhotoUri);
+      await updateUserSettings({ onboardingCompleted: true });
     }
 
     setShouldEnterApp(true);

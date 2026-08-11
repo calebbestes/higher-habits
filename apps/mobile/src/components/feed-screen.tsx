@@ -4023,7 +4023,6 @@ function FeedAdCard({
   return null;
 }
 
-const FEED_NOTE_COLLAPSE_HEIGHT = 112;
 const HTML_IGNORED_TAGS = ["script", "style", "iframe", "img", "video"];
 const HTML_DEFAULT_TEXT_PROPS = { selectable: true };
 
@@ -4040,6 +4039,7 @@ function RichFeedNote({
   const { width } = useWindowDimensions();
   const contentWidth = Math.max(0, Math.min(width - 36, MaxContentWidth) - 28);
   const plainText = richTextToPlainText(html);
+  const previewText = plainText.replace(/^- /gm, "• ");
   const isLong = plainText.length > 320 || plainText.split("\n").length > 5;
   const source = useMemo(() => ({ html }), [html]);
   const baseStyle = useMemo(
@@ -4121,13 +4121,16 @@ function RichFeedNote({
 
   return (
     <View style={styles.richNote}>
-      <View
-        style={
-          isLong && !expanded
-            ? { maxHeight: FEED_NOTE_COLLAPSE_HEIGHT, overflow: "hidden" }
-            : undefined
-        }
-      >
+      {isLong && !expanded ? (
+        <Text
+          ellipsizeMode="tail"
+          numberOfLines={4}
+          selectable
+          style={[styles.richNotePreviewText, { color: theme.text }]}
+        >
+          {previewText}
+        </Text>
+      ) : (
         <RenderHTML
           baseStyle={baseStyle}
           contentWidth={contentWidth}
@@ -4137,7 +4140,7 @@ function RichFeedNote({
           source={source}
           tagsStyles={tagsStyles}
         />
-      </View>
+      )}
       {isLong ? (
         <Pressable onPress={onToggleExpanded} style={styles.showMoreButton}>
           <Text style={[styles.showMoreText, { color: theme.primary }]}>
@@ -5216,6 +5219,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 11,
     paddingBottom: 10,
+  },
+  richNotePreviewText: {
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "400",
   },
   reflectionPostPrompt: {
     borderTopWidth: StyleSheet.hairlineWidth,

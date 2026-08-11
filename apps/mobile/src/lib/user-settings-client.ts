@@ -40,6 +40,7 @@ export type NotificationSettings = {
 };
 
 export type UserSettings = NotificationSettings & {
+  onboardingCompleted?: boolean;
   defaultAppStartPage: AppStartPage;
   defaultCollabSection: CollabSection;
   defaultPlanReportView: PlanReportView;

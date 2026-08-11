@@ -78,6 +78,9 @@ function AuthNavigator() {
   const { data: session, isPending } = useMobileSession();
   const sessionUserId = session?.user.id;
   const [authStartupResolved, setAuthStartupResolved] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState<
+    boolean | null
+  >(null);
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
@@ -107,12 +110,14 @@ function AuthNavigator() {
     let cancelled = false;
 
     if (!sessionUserId) {
+      setOnboardingCompleted(null);
       setNavigationDefaults(null);
       appliedStartPageUserRef.current = null;
       return;
     }
 
     setNavigationDefaults(null);
+    setOnboardingCompleted(null);
     appliedStartPageUserRef.current = null;
     const fallbackTimeout = setTimeout(() => {
       if (!cancelled) {
@@ -129,12 +134,14 @@ function AuthNavigator() {
             defaultCollabSection: settings.defaultCollabSection,
             defaultPlanReportView: settings.defaultPlanReportView,
           };
+          setOnboardingCompleted(settings.onboardingCompleted ?? true);
           applyNavigationDefaults(nextNavigationDefaults);
           setNavigationDefaults(nextNavigationDefaults);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          setOnboardingCompleted(true);
           applyNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
           setNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
         }
@@ -166,8 +173,18 @@ function AuthNavigator() {
   }, [sessionUserId]);
 
   useEffect(() => {
+    if (!sessionUserId || onboardingCompleted === null) {
+      return;
+    }
+
+    if (!onboardingCompleted) {
+      if (appliedStartPageUserRef.current === sessionUserId) return;
+      appliedStartPageUserRef.current = sessionUserId;
+      router.replace("/onboarding");
+      return;
+    }
+
     if (
-      !sessionUserId ||
       !navigationDefaults ||
       appliedStartPageUserRef.current === sessionUserId
     ) {
@@ -176,11 +193,11 @@ function AuthNavigator() {
 
     appliedStartPageUserRef.current = sessionUserId;
     router.replace(getAppStartHref(navigationDefaults) as Href);
-  }, [navigationDefaults, router, sessionUserId]);
+  }, [navigationDefaults, onboardingCompleted, router, sessionUserId]);
 
   if (
     (isPending && !authStartupResolved) ||
-    (session && navigationDefaults === null)
+    (session && (navigationDefaults === null || onboardingCompleted === null))
   ) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.background }]}>
@@ -197,6 +214,7 @@ function AuthNavigator() {
         <Stack.Screen name="sign-up" />
       </Stack.Protected>
       <Stack.Protected guard={Boolean(session)}>
+        <Stack.Screen name="onboarding" />
         <Stack.Screen name="(app)" />
         <Stack.Screen name="friend-profile" />
         <Stack.Screen name="post" />

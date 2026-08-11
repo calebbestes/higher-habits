@@ -47,17 +47,23 @@ let currentMobileSession: MobileSession | null = null;
 let hasResolvedMobileSession = false;
 const mobileSessionListeners = new Set<() => void>();
 
+type FetchMobileSessionOptions = {
+  force?: boolean;
+  refresh?: boolean;
+};
+
 function notifyMobileSessionListeners() {
   for (const listener of mobileSessionListeners) listener();
 }
 
-export function fetchMobileSession(options?: { force?: boolean }) {
+export function fetchMobileSession(options?: FetchMobileSessionOptions) {
   if (!inFlightSessionRequest || options?.force) {
     const sessionRequest = authClient
       .getSession({
-        query: {
-          disableRefresh: true,
-        },
+        // Normal startup reads are intentionally read-only to avoid the
+        // native session refresh loop. Sensitive actions can opt into one
+        // server-side refresh so a cached session cannot be used past expiry.
+        query: options?.refresh ? {} : { disableRefresh: true },
         fetchOptions: {
           timeout: 10_000,
         },

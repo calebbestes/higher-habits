@@ -87,6 +87,7 @@ const daySchemaShape = {
 
 const bodySchema = z
   .object({
+    onboardingCompleted: z.boolean(),
     defaultAppStartPage: z.enum([
       "add",
       "plan-report",
@@ -129,6 +130,7 @@ export async function GET(request: Request) {
       .limit(1);
 
     const response = {
+      onboardingCompleted: row?.onboardingCompleted ?? true,
       defaultAppStartPage:
         row?.defaultAppStartPage ?? USER_SETTING_DEFAULTS.defaultAppStartPage,
       defaultCollabSection:
