@@ -55,7 +55,7 @@ async function imageToDataUrl(uri: string) {
 export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const router = useRouter();
   const theme = useTheme();
-  const { data: session, refetch: refetchSession } = useMobileSession();
+  const { data: session } = useMobileSession();
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -82,8 +82,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   }, [router, session, shouldEnterApp]);
 
   const enterApp = async () => {
-    await refetchSession();
-    const sessionResponse = await fetchMobileSession();
+    const sessionResponse = await fetchMobileSession({ force: true });
     if (!sessionResponse.data) {
       setShouldEnterApp(false);
       setError(

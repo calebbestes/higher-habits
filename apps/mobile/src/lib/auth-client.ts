@@ -51,29 +51,40 @@ function notifyMobileSessionListeners() {
   for (const listener of mobileSessionListeners) listener();
 }
 
-export function fetchMobileSession() {
-  if (!inFlightSessionRequest) {
-    inFlightSessionRequest = authClient
+export function fetchMobileSession(options?: { force?: boolean }) {
+  if (!inFlightSessionRequest || options?.force) {
+    const sessionRequest = authClient
       .getSession({
         query: {
           disableRefresh: true,
         },
+        fetchOptions: {
+          timeout: 10_000,
+        },
       })
       .then((response) => {
-        currentMobileSession = response.data ?? null;
-        hasResolvedMobileSession = true;
-        notifyMobileSessionListeners();
+        if (inFlightSessionRequest === sessionRequest) {
+          currentMobileSession = response.data ?? null;
+          hasResolvedMobileSession = true;
+          notifyMobileSessionListeners();
+        }
         return response;
       })
       .catch((error) => {
-        currentMobileSession = null;
-        hasResolvedMobileSession = true;
-        notifyMobileSessionListeners();
+        if (inFlightSessionRequest === sessionRequest) {
+          currentMobileSession = null;
+          hasResolvedMobileSession = true;
+          notifyMobileSessionListeners();
+        }
         throw error;
       })
       .finally(() => {
-        inFlightSessionRequest = null;
+        if (inFlightSessionRequest === sessionRequest) {
+          inFlightSessionRequest = null;
+        }
       });
+
+    inFlightSessionRequest = sessionRequest;
   }
 
   return inFlightSessionRequest;

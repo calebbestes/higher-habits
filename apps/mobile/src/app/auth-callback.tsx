@@ -7,7 +7,6 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   fetchMobileSession,
   persistAuthCallbackCookie,
-  useMobileSession,
 } from "@/lib/auth-client";
 
 const MAX_SESSION_REFRESH_ATTEMPTS = 8;
@@ -39,7 +38,6 @@ export default function AuthCallbackScreen() {
     cookie?: string | string[];
     next?: string | string[];
   }>();
-  const { refetch } = useMobileSession();
   const callbackCookie = useMemo(
     () => getFirstParam(params.cookie),
     [params.cookie],
@@ -56,8 +54,7 @@ export default function AuthCallbackScreen() {
           await persistAuthCallbackCookie(callbackCookie);
         }
 
-        await refetch();
-        const sessionResponse = await fetchMobileSession();
+        const sessionResponse = await fetchMobileSession({ force: true });
         if (!active) return;
 
         if (sessionResponse.data) {
@@ -85,7 +82,7 @@ export default function AuthCallbackScreen() {
       active = false;
       if (timeout) clearTimeout(timeout);
     };
-  }, [callbackCookie, nextPath, refetch, router]);
+  }, [callbackCookie, nextPath, router]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
