@@ -45,7 +45,7 @@ type NavigationDefaults = {
   defaultPlanReportView: PlanReportView;
 };
 
-const STARTUP_REQUEST_TIMEOUT_MS = 8_000;
+const STARTUP_REQUEST_TIMEOUT_MS = 10_000;
 
 const FALLBACK_NAVIGATION_DEFAULTS: NavigationDefaults = {
   defaultAppStartPage: DEFAULT_APP_START_PAGE,

@@ -13,9 +13,11 @@ import { Platform } from "react-native";
 
 const localAuthURL =
   Platform.OS === "android" ? "http://10.0.2.2:3000" : "http://localhost:3000";
+const deployedAuthURL = "https://higher-habits.vercel.app";
+const defaultAuthURL = __DEV__ ? localAuthURL : deployedAuthURL;
 
 export const AUTH_BASE_URL = (
-  process.env.EXPO_PUBLIC_AUTH_URL ?? localAuthURL
+  process.env.EXPO_PUBLIC_AUTH_URL ?? defaultAuthURL
 ).replace(/\/$/, "");
 
 const storagePrefix = "higher-habits";
