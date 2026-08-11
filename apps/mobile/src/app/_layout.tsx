@@ -156,6 +156,7 @@ function AuthNavigator() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="auth-callback" />
       <Stack.Protected guard={!session}>
         <Stack.Screen name="login" />
         <Stack.Screen name="sign-up" />

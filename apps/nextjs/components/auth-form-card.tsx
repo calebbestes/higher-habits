@@ -72,8 +72,31 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const isSignUp = mode === "sign-up";
+
+  const handleGoogleSignIn = async () => {
+    if (isSignUp || isSubmitting || isGoogleSubmitting) return;
+
+    setError(null);
+    setIsGoogleSubmitting(true);
+
+    try {
+      const response = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/calendar",
+      });
+
+      if (response.error) {
+        setError(response.error.message ?? "Unable to continue with Google.");
+        setIsGoogleSubmitting(false);
+      }
+    } catch {
+      setError("Unable to continue with Google.");
+      setIsGoogleSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -244,6 +267,18 @@ export function AuthFormCard({ mode }: AuthFormCardProps) {
           >
             {isSignUp ? "Create account" : "Sign in"}
           </Button>
+          {!isSignUp ? (
+            <Button
+              type="button"
+              variant="bordered"
+              className="w-full"
+              isLoading={isGoogleSubmitting}
+              isDisabled={isSubmitting || isGoogleSubmitting}
+              onPress={() => void handleGoogleSignIn()}
+            >
+              Continue with Google
+            </Button>
+          ) : null}
         </form>
         <p className="mt-4 text-sm text-foreground-500">
           {isSignUp ? "Already have an account?" : "Need an account?"}{" "}
