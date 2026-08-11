@@ -1,5 +1,3 @@
-import * as Linking from "expo-linking";
-
 const AUTH_CALLBACK_PATH = "/auth-callback";
 const DEFAULT_RETURN_PATH = "/";
 
@@ -16,7 +14,7 @@ export function getNativeAuthCallbackURL() {
     next: DEFAULT_RETURN_PATH,
   });
 
-  return Linking.createURL(`${AUTH_CALLBACK_PATH}?${params.toString()}`);
+  return `${AUTH_CALLBACK_PATH}?${params.toString()}`;
 }
 
 export function getNativeAuthCallbackURLForPath(path: string) {
@@ -24,5 +22,5 @@ export function getNativeAuthCallbackURLForPath(path: string) {
     next: getSafeReturnPath(path),
   });
 
-  return Linking.createURL(`${AUTH_CALLBACK_PATH}?${params.toString()}`);
+  return `${AUTH_CALLBACK_PATH}?${params.toString()}`;
 }
