@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -188,6 +189,7 @@ function GoalActionsModalImpl({
   const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
   const isDefaultComplete = Boolean(goal?.defaultComplete);
+  const requiresEvidence = Boolean(goal?.requireEvidence);
   const instanceTarget = Math.max(goal?.frequencyGoal ?? 1, 1);
   const supportsPartialCredit =
     !isDefaultComplete && goal?.period === "daily" && instanceTarget > 1;
@@ -475,6 +477,18 @@ function GoalActionsModalImpl({
                                 currentCompletedCount + 1,
                                 instanceTarget,
                               );
+                              if (
+                                nextCount >= instanceTarget &&
+                                requiresEvidence &&
+                                !hasPhoto &&
+                                !hasNote
+                              ) {
+                                Alert.alert(
+                                  "Evidence required",
+                                  "Add a photo or note before marking this habit complete.",
+                                );
+                                return;
+                              }
                               onSetStatus(
                                 nextCount >= instanceTarget
                                   ? "complete"
@@ -504,17 +518,28 @@ function GoalActionsModalImpl({
                       </View>
                     ) : (
                       <ReliablePressable
-                        onPress={() =>
-                          onSetStatus(
-                            isDefaultComplete
-                              ? hasSlip
-                                ? null
-                                : "incomplete"
-                              : isComplete
-                                ? null
-                                : "complete",
-                          )
-                        }
+                        onPress={() => {
+                          const nextStatus = isDefaultComplete
+                            ? hasSlip
+                              ? null
+                              : "incomplete"
+                            : isComplete
+                              ? null
+                              : "complete";
+                          if (
+                            nextStatus === "complete" &&
+                            requiresEvidence &&
+                            !hasPhoto &&
+                            !hasNote
+                          ) {
+                            Alert.alert(
+                              "Evidence required",
+                              "Add a photo or note before marking this habit complete.",
+                            );
+                            return;
+                          }
+                          onSetStatus(nextStatus);
+                        }}
                         style={({ pressed }) => [
                           modalStyles.actionRow,
                           pressed && styles.pressed,
@@ -634,6 +659,22 @@ function GoalActionsModalImpl({
                     ]}
                   >
                     Add a note or a time range to plan this habit.
+                  </Text>
+                ) : null}
+
+                {showCompleteAction &&
+                requiresEvidence &&
+                !hasPhoto &&
+                !hasNote &&
+                !isComplete &&
+                !isDefaultComplete ? (
+                  <Text
+                    style={[
+                      modalStyles.planHint,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Add a photo or note before marking this habit complete.
                   </Text>
                 ) : null}
 

@@ -1,5 +1,6 @@
 import {
   categories,
+  friendMessages,
   friends,
   getDb,
   goalCheckpoints,
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
         priority: habits.priority,
         visibility: habits.visibility,
         defaultComplete: habits.defaultComplete,
+        requireEvidence: habits.requireEvidence,
       })
       .from(habits)
       .innerJoin(categories, eq(habits.categoryId, categories.id))
@@ -98,6 +100,7 @@ export async function GET(request: Request) {
         period: habits.period,
         frequencyGoal: habits.frequencyGoal,
         defaultComplete: habits.defaultComplete,
+        requireEvidence: habits.requireEvidence,
       })
       .from(habits)
       .where(
@@ -148,6 +151,17 @@ export async function GET(request: Request) {
       .from(tasks)
       .where(and(eq(tasks.userId, user.id), isNotNull(tasks.completedAt)));
 
+    const earnedIncentiveRows = await db
+      .select({ id: friendMessages.id })
+      .from(friendMessages)
+      .where(
+        and(
+          eq(friendMessages.recipientId, user.id),
+          eq(friendMessages.type, "incentive"),
+          eq(friendMessages.accepted, true),
+        ),
+      );
+
     const logRows =
       visibleHabitIdList.length > 0
         ? await db
@@ -190,6 +204,7 @@ export async function GET(request: Request) {
           priority: "high" | "low";
           visibility: "only_me" | "goal_friends" | "all_friends";
           defaultComplete: boolean;
+          requireEvidence: boolean;
         }>;
       }
     >();
@@ -209,6 +224,7 @@ export async function GET(request: Request) {
         priority: habit.priority,
         visibility: habit.visibility,
         defaultComplete: habit.defaultComplete,
+        requireEvidence: habit.requireEvidence,
       });
       categoriesById.set(habit.categoryId, category);
     }
@@ -225,6 +241,7 @@ export async function GET(request: Request) {
         friendCount: friendRows.length,
         goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
+        incentivesEarned: earnedIncentiveRows.length,
         taskCompletions: completedTaskRows.length,
       },
       dateKeys,
@@ -239,6 +256,7 @@ export async function GET(request: Request) {
         period: habit.period,
         frequencyGoal: habit.frequencyGoal,
         defaultComplete: habit.defaultComplete,
+        requireEvidence: habit.requireEvidence,
       })),
       logsByHabitDate,
     });

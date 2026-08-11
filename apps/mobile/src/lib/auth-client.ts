@@ -96,6 +96,20 @@ export function fetchMobileSession(options?: FetchMobileSessionOptions) {
   return inFlightSessionRequest;
 }
 
+export async function signOutMobile() {
+  // Prevent an in-flight session read from restoring the session after the
+  // user has explicitly signed out.
+  inFlightSessionRequest = null;
+
+  try {
+    await authClient.signOut();
+  } finally {
+    currentMobileSession = null;
+    hasResolvedMobileSession = true;
+    notifyMobileSessionListeners();
+  }
+}
+
 export function useMobileSession() {
   const [state, setState] = useState({
     data: currentMobileSession,

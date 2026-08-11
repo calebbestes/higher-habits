@@ -1,6 +1,8 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -17,7 +19,10 @@ import {
   RichToolbar,
   actions,
 } from "react-native-pell-rich-editor";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import {
   PageHeaderTitle,
@@ -26,9 +31,12 @@ import {
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import { authClient } from "@/lib/auth-client";
+import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
   fetchGoogleCalendarEvents,
+  fetchGoogleCalendarStatus,
   getLocalTimeZone,
 } from "@/lib/google-calendar-client";
 import {
@@ -38,14 +46,18 @@ import {
   toDateKey,
 } from "@/lib/habit-logs-client";
 import {
+  getNativeAuthCallbackURLForPath,
+  getNativeAuthErrorCallbackURLForPath,
+} from "@/lib/native-auth-callback";
+import {
   type PlannedEvent,
   type PlannedEventSourceType,
   fetchPlannedEvents,
 } from "@/lib/planned-events-client";
 import {
   type WeeklyPlanNoteHeader,
-  fetchWeeklyPlanNoteHeaders,
   fetchWeeklyPlanNote,
+  fetchWeeklyPlanNoteHeaders,
   saveWeeklyPlanNote,
 } from "@/lib/weekly-plan-notes-client";
 
@@ -143,7 +155,10 @@ function readWeeklyPlanCache(
 ): WeeklyPlanCacheEntry | null {
   const entry = weeklyPlanCache.get(key);
   if (!entry) return null;
-  if (!allowStale && Date.now() - entry.updatedAt > WEEKLY_PLAN_CACHE_MAX_AGE_MS) {
+  if (
+    !allowStale &&
+    Date.now() - entry.updatedAt > WEEKLY_PLAN_CACHE_MAX_AGE_MS
+  ) {
     return null;
   }
   return entry;
@@ -414,6 +429,7 @@ export function WeeklyPlanScreen({
   onDateChange?: (dateKey: string) => void;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const tabBarHeight = useTabBarHeight();
   const timeZone = useMemo(() => getLocalTimeZone(), []);
   const editorRef = useRef<RichEditor>(null);
@@ -451,6 +467,7 @@ export function WeeklyPlanScreen({
   const [isLoading, setIsLoading] = useState(!initialCachedWeek);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [isSyncingGoogleCalendar, setIsSyncingGoogleCalendar] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [headersModalOpen, setHeadersModalOpen] = useState(false);
   const [selectedHeaderIds, setSelectedHeaderIds] = useState<string[]>([]);
@@ -470,6 +487,7 @@ export function WeeklyPlanScreen({
     for (const bucket of map.values()) bucket.sort(compareEvents);
     return map;
   }, [weekEvents, weekDays]);
+  const selectedDayEvents = weekEventsByDate.get(selectedDateKey) ?? [];
   const hasUnsavedNotes = normalizeEditorHtml(draftNotes) !== notes;
   const notesPreview = useMemo(() => stripEditorText(draftNotes), [draftNotes]);
   const availableHeaders = useMemo(() => {
@@ -556,7 +574,8 @@ export function WeeklyPlanScreen({
       requestIdRef.current = requestId;
       const cacheKey = getWeeklyPlanCacheKey(weekStartKey, timeZone);
       const freshCachedWeek = readWeeklyPlanCache(cacheKey);
-      const cachedWeek = freshCachedWeek ?? readWeeklyPlanCache(cacheKey, { allowStale: true });
+      const cachedWeek =
+        freshCachedWeek ?? readWeeklyPlanCache(cacheKey, { allowStale: true });
 
       if (!refresh && cachedWeek) {
         setWeekEvents(cachedWeek.events);
@@ -678,6 +697,49 @@ export function WeeklyPlanScreen({
     setSelectedDateKey(toDateKey(today));
   }, []);
 
+  const syncGoogleCalendar = useCallback(async () => {
+    if (isSyncingGoogleCalendar) return;
+
+    setIsSyncingGoogleCalendar(true);
+    try {
+      const status = await fetchGoogleCalendarStatus();
+      if (!status.configured) {
+        Alert.alert(
+          "Google Calendar unavailable",
+          "Google Calendar is not configured yet.",
+        );
+        return;
+      }
+
+      if (!status.connected) {
+        const response = await authClient.linkSocial({
+          provider: "google",
+          callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
+          errorCallbackURL:
+            getNativeAuthErrorCallbackURLForPath("/plan-report"),
+          scopes: GOOGLE_CALENDAR_SCOPES,
+        });
+
+        if (response.error) {
+          throw new Error(
+            response.error.message ?? "Could not connect Google Calendar.",
+          );
+        }
+      }
+
+      await load(true);
+    } catch (syncError) {
+      Alert.alert(
+        "Google Calendar",
+        syncError instanceof Error
+          ? syncError.message
+          : "Could not sync Google Calendar.",
+      );
+    } finally {
+      if (mountedRef.current) setIsSyncingGoogleCalendar(false);
+    }
+  }, [isSyncingGoogleCalendar, load]);
+
   const saveNotes = useCallback(
     async (html?: string) => {
       const nextNotes = normalizeEditorHtml(html ?? draftNotesRef.current);
@@ -686,29 +748,29 @@ export function WeeklyPlanScreen({
       setError(null);
 
       try {
-      const saved = await saveWeeklyPlanNote({
-        notes: nextNotes,
-        weekStartDate: weekStartKey,
-      });
-      if (!mountedRef.current) return;
-      const savedHtml = normalizeEditorHtml(saved.notes);
-      setNotes(savedHtml);
-      fetchWeeklyPlanNoteHeaders()
-        .then((headers) => {
-          if (!mountedRef.current) return;
-          setSavedHeaders(headers);
-          const cacheKey = getWeeklyPlanCacheKey(weekStartKey, timeZone);
-          const cachedWeek = readWeeklyPlanCache(cacheKey, {
-            allowStale: true,
-          });
-          weeklyPlanCache.set(cacheKey, {
-            events: cachedWeek?.events ?? weekEvents,
-            headers,
-            notes: savedHtml,
-            updatedAt: Date.now(),
-          });
-        })
-        .catch(() => undefined);
+        const saved = await saveWeeklyPlanNote({
+          notes: nextNotes,
+          weekStartDate: weekStartKey,
+        });
+        if (!mountedRef.current) return;
+        const savedHtml = normalizeEditorHtml(saved.notes);
+        setNotes(savedHtml);
+        fetchWeeklyPlanNoteHeaders()
+          .then((headers) => {
+            if (!mountedRef.current) return;
+            setSavedHeaders(headers);
+            const cacheKey = getWeeklyPlanCacheKey(weekStartKey, timeZone);
+            const cachedWeek = readWeeklyPlanCache(cacheKey, {
+              allowStale: true,
+            });
+            weeklyPlanCache.set(cacheKey, {
+              events: cachedWeek?.events ?? weekEvents,
+              headers,
+              notes: savedHtml,
+              updatedAt: Date.now(),
+            });
+          })
+          .catch(() => undefined);
       } catch (saveError) {
         if (!mountedRef.current) return;
         setError(
@@ -751,6 +813,8 @@ export function WeeklyPlanScreen({
   }, []);
 
   const openHeadersModal = useCallback(() => {
+    Keyboard.dismiss();
+    setEditorFocused(false);
     setSelectedHeaderIds([]);
     setHeadersModalOpen(true);
     void saveNotes(draftNotesRef.current);
@@ -818,6 +882,52 @@ export function WeeklyPlanScreen({
           </View>
 
           <View style={[styles.container, { maxWidth: MaxContentWidth }]}>
+            {selectedDayEvents.length === 0 ? (
+              <View
+                style={[
+                  styles.calendarEmptyState,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.calendarEmptyTitle, { color: theme.text }]}
+                >
+                  No events for this day
+                </Text>
+                <Text
+                  style={[
+                    styles.calendarEmptyDescription,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Connect Google Calendar to import events.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSyncingGoogleCalendar}
+                  onPress={() => void syncGoogleCalendar()}
+                  style={({ pressed }) => [
+                    styles.calendarSyncButton,
+                    { backgroundColor: theme.primary },
+                    isSyncingGoogleCalendar && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.calendarSyncButtonText,
+                      { color: theme.primaryForeground },
+                    ]}
+                  >
+                    {isSyncingGoogleCalendar ? "Syncing..." : "Sync Calendar"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
             <View
               style={[
                 styles.calendarCard,
@@ -1022,14 +1132,16 @@ export function WeeklyPlanScreen({
                           },
                         ]}
                       >
-                        {laidOutEvents.map(({ event, laneCount, laneIndex }) => (
-                          <EventBlock
-                            key={event.id}
-                            event={event}
-                            laneCount={laneCount}
-                            laneIndex={laneIndex}
-                          />
-                        ))}
+                        {laidOutEvents.map(
+                          ({ event, laneCount, laneIndex }) => (
+                            <EventBlock
+                              key={event.id}
+                              event={event}
+                              laneCount={laneCount}
+                              laneIndex={laneIndex}
+                            />
+                          ),
+                        )}
                       </View>
                     );
                   })}
@@ -1086,10 +1198,7 @@ export function WeeklyPlanScreen({
         <View
           style={[styles.notesModal, { backgroundColor: theme.background }]}
         >
-          <SafeAreaView
-            edges={["top", "left", "right"]}
-            style={styles.safeArea}
-          >
+          <SafeAreaView edges={["left", "right"]} style={styles.safeArea}>
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : undefined}
               style={styles.notesModalKeyboard}
@@ -1097,7 +1206,10 @@ export function WeeklyPlanScreen({
               <View
                 style={[
                   styles.notesModalHeader,
-                  { borderBottomColor: theme.tabBorder },
+                  {
+                    borderBottomColor: theme.tabBorder,
+                    paddingTop: insets.top + 10,
+                  },
                 ]}
               >
                 <View style={styles.notesModalTitleBlock}>
@@ -1191,7 +1303,7 @@ export function WeeklyPlanScreen({
                 onBlur={() => setEditorFocused(false)}
                 onChange={setDraftNotes}
                 onFocus={() => setEditorFocused(true)}
-                placeholder="What would make this week feel well-planned?"
+                placeholder="Type type type..."
                 style={styles.modalEditor}
                 styleWithCSS={false}
               />
@@ -1377,9 +1489,7 @@ function EventBlock({
   const theme = useTheme();
   const palette = eventPalette(event.sourceType, theme);
   const { end, start } = getEventMinutes(event);
-  const top =
-    ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT +
-    3;
+  const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + 3;
   const height = ((end - start) / 60) * HOUR_HEIGHT - 3;
   const laneWidth = 100 / laneCount;
 
@@ -1476,6 +1586,37 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
+  calendarEmptyDescription: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  calendarEmptyState: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  calendarEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  calendarSyncButton: {
+    borderRadius: 999,
+    marginTop: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  calendarSyncButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
   container: {
     alignSelf: "center",
     gap: 10,
@@ -1504,6 +1645,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
     lineHeight: 11,
+  },
+  disabled: {
+    opacity: 0.55,
   },
   dayNumber: {
     fontSize: 13,

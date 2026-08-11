@@ -1,5 +1,5 @@
-import { mobileApiFetch } from "@/lib/mobile-api";
 import { recordReviewMilestone } from "@/lib/in-app-review";
+import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type HabitPeriod = "daily" | "weekly" | "monthly";
 export type HabitPriority = "high" | "low";
@@ -33,6 +33,7 @@ export type Habit = {
   audienceGroupIds: string[];
   iconKey: string;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
@@ -58,6 +59,7 @@ export type HabitInput = {
   audienceGroupIds: string[];
   iconKey: string;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;

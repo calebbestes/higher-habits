@@ -28,6 +28,7 @@ export type GoalInCategory = {
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
@@ -91,6 +92,7 @@ export type PeriodicGoalInfo = {
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
@@ -177,6 +179,7 @@ function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
       ? goal.audienceGroupIds.filter((id) => typeof id === "string")
       : [],
     defaultComplete: normalizeDefaultComplete(goal.defaultComplete),
+    requireEvidence: booleanOrFallback(goal.requireEvidence, true),
     planOnCalendar: normalizePlanOnCalendar(goal.planOnCalendar),
     priority: normalizePriority(goal.priority),
   };

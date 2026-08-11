@@ -93,6 +93,11 @@ export function createAuth() {
             google: {
               clientId: googleClientId,
               clientSecret: googleClientSecret,
+              // Calendar linking needs an explicit consent step so Google
+              // grants the requested calendar scope and returns a refresh
+              // token that the server can use after the access token expires.
+              prompt: "consent",
+              accessType: "offline",
             },
           }
         : {}),

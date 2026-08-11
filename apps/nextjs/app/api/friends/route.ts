@@ -389,6 +389,7 @@ async function getFriendProfile(
       visibility: habits.visibility,
       period: habits.period,
       defaultComplete: habits.defaultComplete,
+      requireEvidence: habits.requireEvidence,
     })
     .from(habits)
     .innerJoin(categories, eq(habits.categoryId, categories.id))
@@ -440,6 +441,16 @@ async function getFriendProfile(
     .select({ id: tasks.id })
     .from(tasks)
     .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
+  const earnedIncentiveRows = await db
+    .select({ id: friendMessages.id })
+    .from(friendMessages)
+    .where(
+      and(
+        eq(friendMessages.recipientId, friendId),
+        eq(friendMessages.type, "incentive"),
+        eq(friendMessages.accepted, true),
+      ),
+    );
   const logRows =
     visibleHabitIdList.length > 0
       ? await db
@@ -480,6 +491,7 @@ async function getFriendProfile(
         priority: "high" | "low";
         visibility: "only_me" | "goal_friends" | "all_friends";
         defaultComplete: boolean;
+        requireEvidence: boolean;
       }>;
     }
   >();
@@ -499,6 +511,7 @@ async function getFriendProfile(
       priority: habit.priority,
       visibility: habit.visibility,
       defaultComplete: habit.defaultComplete,
+      requireEvidence: habit.requireEvidence,
     });
     categoriesById.set(habit.categoryId, category);
   }
@@ -516,6 +529,7 @@ async function getFriendProfile(
       friendCount: friendRows.length,
       goalCompletions: completedCheckpointRows.length,
       habitCompletions: completedHabitRows.length,
+      incentivesEarned: earnedIncentiveRows.length,
       taskCompletions: completedTaskRows.length,
     },
     dateKeys,

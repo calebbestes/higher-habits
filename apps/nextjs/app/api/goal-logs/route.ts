@@ -229,6 +229,7 @@ export async function GET(request: Request) {
             repeatDays: habits.repeatDays,
             repeatMonthlyType: habits.repeatMonthlyType,
             defaultComplete: habits.defaultComplete,
+            requireEvidence: habits.requireEvidence,
             planOnCalendar: habits.planOnCalendar,
             reminderEnabled: habits.reminderEnabled,
             reminderTime: habits.reminderTime,
@@ -516,6 +517,7 @@ export async function GET(request: Request) {
                     frequencyGoal: g.frequencyGoal,
                     repeatCadence: g.repeatCadence,
                     defaultComplete: g.defaultComplete,
+                    requireEvidence: g.requireEvidence,
                     planOnCalendar: g.planOnCalendar,
                     reminderEnabled: g.reminderEnabled,
                     reminderTime: g.reminderTime,
@@ -553,6 +555,7 @@ export async function GET(request: Request) {
             repeatDays: (g.repeatDays as number[] | null) ?? null,
             repeatMonthlyType: g.repeatMonthlyType ?? null,
             defaultComplete: g.defaultComplete,
+            requireEvidence: g.requireEvidence,
             planOnCalendar: g.planOnCalendar,
             reminderEnabled: g.reminderEnabled,
             reminderTime: g.reminderTime,
@@ -809,6 +812,7 @@ export async function POST(request: Request) {
                 period: habits.period,
                 frequencyGoal: habits.frequencyGoal,
                 visibility: habits.visibility,
+                requireEvidence: habits.requireEvidence,
             })
             .from(habits)
             .where(and(eq(habits.id, data.goalId), eq(habits.userId, user.id)))
@@ -861,6 +865,32 @@ export async function POST(request: Request) {
                     ),
                 )
                 .limit(1);
+
+            if (data.status === "complete" && goal.requireEvidence) {
+                const [evidencePhoto] = existingLog?.id
+                    ? await db
+                          .select({ id: goalLogPhotos.id })
+                          .from(goalLogPhotos)
+                          .where(
+                              and(
+                                  eq(goalLogPhotos.goalLogId, existingLog.id),
+                                  eq(goalLogPhotos.userId, user.id),
+                              ),
+                          )
+                          .limit(1)
+                    : [];
+                const hasEvidenceNote = Boolean(existingLog?.notes?.trim());
+
+                if (!evidencePhoto && !hasEvidenceNote) {
+                    return NextResponse.json(
+                        {
+                            error:
+                                "Add a photo or note before marking this habit complete.",
+                        },
+                        { status: 400 },
+                    );
+                }
+            }
 
             if (!data.status) {
                 const shouldDeletePlanEvent = existingLog?.status === "planned";

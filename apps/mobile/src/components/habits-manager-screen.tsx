@@ -144,6 +144,7 @@ const EMPTY_HABIT: HabitInput = {
   audienceGroupIds: [],
   iconKey: "mdi:heart-outline",
   defaultComplete: false,
+  requireEvidence: true,
   planOnCalendar: true,
   reminderEnabled: false,
   reminderTime: null,
@@ -224,6 +225,7 @@ function toInput(habit: Habit): HabitInput {
     audienceGroupIds: habit.audienceGroupIds ?? [],
     iconKey: habit.iconKey,
     defaultComplete: habit.defaultComplete,
+    requireEvidence: habit.requireEvidence !== false,
     planOnCalendar: habit.planOnCalendar !== false,
     reminderEnabled: habit.reminderEnabled ?? false,
     reminderTime: habit.reminderTime ?? null,
@@ -2190,6 +2192,41 @@ export function HabitFormModal({
                     true: theme.primary,
                   }}
                   value={form.defaultComplete}
+                />
+              </View>
+
+              <View
+                style={[
+                  styles.switchRow,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.switchCopy}>
+                  <Text style={[styles.switchTitle, { color: theme.text }]}>
+                    Require evidence
+                  </Text>
+                  <Text
+                    style={[
+                      styles.switchDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Add a photo or note before marking this habit complete.
+                  </Text>
+                </View>
+                <Switch
+                  onValueChange={(requireEvidence) => {
+                    playSelectionHaptic();
+                    setForm((current) => ({ ...current, requireEvidence }));
+                  }}
+                  trackColor={{
+                    false: theme.backgroundSelected,
+                    true: theme.primary,
+                  }}
+                  value={form.requireEvidence}
                 />
               </View>
 

@@ -23,7 +23,6 @@ import {
   PageHeaderTitle,
 } from "@/components/section-header-tabs";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
-import { toInput } from "@/components/tasks/shared";
 import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import { TaskPlanModal } from "@/components/tasks/task-plan-modal";
@@ -784,7 +783,7 @@ function EmptyState({
       ) : (
         <BrandedEmptyState
           title="Create your first task"
-          description="Choose what matters and clear it."
+          description="Tasks are specific actions you can finish. Lists organize related tasks—like Groceries or Finances."
         />
       )}
       {!hasTasks ? (

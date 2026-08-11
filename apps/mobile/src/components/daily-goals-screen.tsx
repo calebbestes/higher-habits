@@ -1063,7 +1063,7 @@ export function DailyGoalsScreen({
                 <FloatingLogoLoader />
               </View>
             ) : periodHabitGroups.length === 0 ? (
-              <EmptyState />
+              <EmptyState onAdd={() => setFormOpen(true)} />
             ) : (
               <View style={styles.prioritySections}>
                 {(["high"] as const).map((p) => {

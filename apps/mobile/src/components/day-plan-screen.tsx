@@ -46,13 +46,16 @@ import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
+import { authClient } from "@/lib/auth-client";
 import { uploadCheckpointPhoto } from "@/lib/checkpoint-photos-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
+import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
   fetchGoogleCalendarEvents,
+  fetchGoogleCalendarStatus,
   getLocalTimeZone,
   updateGoogleCalendarEvent,
 } from "@/lib/google-calendar-client";
@@ -77,6 +80,10 @@ import {
   fetchCategories,
 } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
+import {
+  getNativeAuthCallbackURLForPath,
+  getNativeAuthErrorCallbackURLForPath,
+} from "@/lib/native-auth-callback";
 import {
   DEFAULT_PLAN_PERIOD,
   DEFAULT_PLAN_START_TIME,
@@ -286,6 +293,7 @@ export function DayPlanScreen({
   );
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>([]);
   const [googleStatus, setGoogleStatus] = useState<string>("synced");
+  const [isSyncingGoogleCalendar, setIsSyncingGoogleCalendar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -828,6 +836,49 @@ export function DayPlanScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const syncGoogleCalendar = useCallback(async () => {
+    if (isSyncingGoogleCalendar) return;
+
+    setIsSyncingGoogleCalendar(true);
+    try {
+      const status = await fetchGoogleCalendarStatus();
+      if (!status.configured) {
+        Alert.alert(
+          "Google Calendar unavailable",
+          "Google Calendar is not configured yet.",
+        );
+        return;
+      }
+
+      if (!status.connected) {
+        const response = await authClient.linkSocial({
+          provider: "google",
+          callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
+          errorCallbackURL:
+            getNativeAuthErrorCallbackURLForPath("/plan-report"),
+          scopes: GOOGLE_CALENDAR_SCOPES,
+        });
+
+        if (response.error) {
+          throw new Error(
+            response.error.message ?? "Could not connect Google Calendar.",
+          );
+        }
+      }
+
+      await load({ force: true });
+    } catch (syncError) {
+      Alert.alert(
+        "Google Calendar",
+        syncError instanceof Error
+          ? syncError.message
+          : "Could not sync Google Calendar.",
+      );
+    } finally {
+      if (isMountedRef.current) setIsSyncingGoogleCalendar(false);
+    }
+  }, [isSyncingGoogleCalendar, load]);
 
   // Keep the current-time indicator in sync, ticking at the top of each minute.
   useEffect(() => {
@@ -2694,7 +2745,7 @@ export function DayPlanScreen({
             </View>
 
             <Animated.View style={[styles.dateMotion, dateMotionStyle]}>
-              {googleStatus !== "synced" ? (
+              {googleStatus !== "synced" && googleEvents.length > 0 ? (
                 <View
                   style={[
                     styles.notice,
@@ -2716,6 +2767,52 @@ export function DayPlanScreen({
                   <Text style={styles.errorText}>{error}</Text>
                   <Pressable onPress={() => void load({ force: true })}>
                     <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {!isLoading && !error && googleEvents.length === 0 ? (
+                <View
+                  style={[
+                    styles.calendarEmptyState,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.calendarEmptyTitle, { color: theme.text }]}
+                  >
+                    No events for this day
+                  </Text>
+                  <Text
+                    style={[
+                      styles.calendarEmptyDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Connect Google Calendar to import events.
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isSyncingGoogleCalendar}
+                    onPress={() => void syncGoogleCalendar()}
+                    style={({ pressed }) => [
+                      styles.calendarSyncButton,
+                      { backgroundColor: theme.primary },
+                      isSyncingGoogleCalendar && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.calendarSyncButtonText,
+                        { color: theme.primaryForeground },
+                      ]}
+                    >
+                      {isSyncingGoogleCalendar ? "Syncing..." : "Sync Calendar"}
+                    </Text>
                   </Pressable>
                 </View>
               ) : null}
@@ -6073,6 +6170,38 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "600",
   },
+  calendarEmptyDescription: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  calendarEmptyState: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  calendarEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 21,
+    textAlign: "center",
+  },
+  calendarSyncButton: {
+    borderRadius: 999,
+    marginTop: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  calendarSyncButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  disabled: { opacity: 0.55 },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",

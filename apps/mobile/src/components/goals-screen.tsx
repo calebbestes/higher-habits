@@ -2130,7 +2130,7 @@ function EmptyState({
       ) : (
         <BrandedEmptyState
           title="Create your first goal"
-          description="Add a bigger outcome and break it into checkpoints."
+          description="Goals are bigger outcomes. Checkpoints are the habits and tasks that move you forward."
         />
       )}
       {!hasGoals ? (

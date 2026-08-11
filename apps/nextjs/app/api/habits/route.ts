@@ -40,6 +40,7 @@ const habitFields = {
   audienceGroupIds: z.array(z.string().uuid()).max(50).default([]),
   iconKey: z.string().default(""),
   defaultComplete: z.boolean().default(false),
+  requireEvidence: z.boolean().default(true),
   planOnCalendar: z.boolean().default(true),
   reminderEnabled: z.boolean().default(false),
   reminderTime: z.string().regex(TIME_REGEX).nullable().default(null),
@@ -84,6 +85,7 @@ const selectHabitShape = {
   visibility: habits.visibility,
   iconKey: habits.iconKey,
   defaultComplete: habits.defaultComplete,
+  requireEvidence: habits.requireEvidence,
   planOnCalendar: habits.planOnCalendar,
   reminderEnabled: habits.reminderEnabled,
   reminderTime: habits.reminderTime,
@@ -409,6 +411,7 @@ export async function POST(request: Request) {
       visibility: d.visibility,
       iconKey: d.iconKey,
       defaultComplete: d.defaultComplete,
+      requireEvidence: d.requireEvidence,
       planOnCalendar: d.planOnCalendar,
       reminderEnabled: d.reminderEnabled,
       reminderTime: d.reminderEnabled

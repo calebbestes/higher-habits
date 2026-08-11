@@ -36,6 +36,7 @@ import {
   AUTH_BASE_URL,
   authClient,
   fetchMobileSession,
+  signOutMobile,
   useMobileSession,
 } from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
@@ -249,7 +250,7 @@ export function SettingsScreen() {
   const signOut = async () => {
     setIsSigningOut(true);
     try {
-      await authClient.signOut();
+      await signOutMobile().catch(() => undefined);
       router.replace("/login");
     } finally {
       setIsSigningOut(false);
@@ -272,7 +273,7 @@ export function SettingsScreen() {
       });
 
       if (!sessionResponse.data) {
-        await authClient.signOut().catch(() => undefined);
+        await signOutMobile().catch(() => undefined);
         Alert.alert(
           "Session expired",
           "Please sign in again before deleting your account.",
@@ -292,7 +293,7 @@ export function SettingsScreen() {
         throw new Error(payload?.error ?? "Could not delete account.");
       }
 
-      await authClient.signOut().catch(() => undefined);
+      await signOutMobile().catch(() => undefined);
       Alert.alert("Account deleted", "Your account has been deleted.", [
         { text: "OK", onPress: () => router.replace("/login") },
       ]);

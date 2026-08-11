@@ -72,6 +72,7 @@ export type FriendProfileHabit = {
   priority: "high" | "low";
   visibility: "only_me" | "goal_friends" | "all_friends";
   defaultComplete: boolean;
+  requireEvidence: boolean;
 };
 
 export type FriendProfilePeriodicHabit = FriendProfileHabit & {
@@ -100,6 +101,7 @@ export type FriendProfile = {
     friendCount: number;
     goalCompletions: number;
     habitCompletions: number;
+    incentivesEarned: number;
     taskCompletions: number;
   };
   dateKeys: string[];
@@ -237,6 +239,7 @@ function normalizeProfileHabit(value: unknown): FriendProfileHabit | null {
         ? value.visibility
         : "only_me",
     defaultComplete: booleanOrFallback(value.defaultComplete),
+    requireEvidence: booleanOrFallback(value.requireEvidence, true),
   };
 }
 
@@ -308,12 +311,14 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
           friendCount: numberOrFallback(value.stats.friendCount),
           goalCompletions: numberOrFallback(value.stats.goalCompletions),
           habitCompletions: numberOrFallback(value.stats.habitCompletions),
+          incentivesEarned: numberOrFallback(value.stats.incentivesEarned),
           taskCompletions: numberOrFallback(value.stats.taskCompletions),
         }
       : {
           friendCount: 0,
           goalCompletions: 0,
           habitCompletions: 0,
+          incentivesEarned: 0,
           taskCompletions: 0,
         },
     dateKeys: Array.isArray(value.dateKeys)
@@ -375,7 +380,7 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
               ? "shared_goal"
               : value.kind === "incentive"
                 ? "incentive"
-            : "habit",
+                : "habit",
     friend: isRecord(value.friend)
       ? {
           id: stringOrFallback(value.friend.id),
@@ -635,6 +640,7 @@ export async function fetchMyProfile(): Promise<FriendProfile> {
           period: habit.period === "monthly" ? "monthly" : "weekly",
           frequencyGoal: habit.frequencyGoal,
           defaultComplete: habit.defaultComplete,
+          requireEvidence: habit.requireEvidence,
         })),
         logsByHabitDate: {
           ...snapshot.logsByGoalDate,
@@ -728,6 +734,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       priority: "low",
       visibility: "all_friends",
       defaultComplete: false,
+      requireEvidence: true,
     });
   }
 
@@ -743,6 +750,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       priority: habitsById.get(entry.goal.id)?.priority ?? "low",
       visibility: habitsById.get(entry.goal.id)?.visibility ?? "all_friends",
       defaultComplete: habitsById.get(entry.goal.id)?.defaultComplete ?? false,
+      requireEvidence: habitsById.get(entry.goal.id)?.requireEvidence ?? true,
     });
     logsByHabitDate[`${entry.goal.id}_${entry.dateKey}`] = "complete";
   }
@@ -769,6 +777,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
         (entry) =>
           entry.friend.id === friend.friendId && entry.kind === "habit",
       ).length,
+      incentivesEarned: 0,
       taskCompletions: 0,
     },
     dateKeys,

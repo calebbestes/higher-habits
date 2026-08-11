@@ -28,6 +28,7 @@ export type HabitInCategory = {
   frequencyGoal: number | null;
   repeatCadence: "daily" | "weekly" | "monthly" | null;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
@@ -90,6 +91,7 @@ export type PeriodicHabitInfo = {
   repeatDays: number[] | null;
   repeatMonthlyType: string | null;
   defaultComplete: boolean;
+  requireEvidence: boolean;
   planOnCalendar: boolean;
   reminderEnabled: boolean;
   reminderTime: string | null;
@@ -193,6 +195,7 @@ function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
       ? habit.audienceGroupIds.filter((id) => typeof id === "string")
       : [],
     defaultComplete: normalizeDefaultComplete(habit.defaultComplete),
+    requireEvidence: booleanOrFallback(habit.requireEvidence, true),
     planOnCalendar: normalizePlanOnCalendar(habit.planOnCalendar),
     priority: normalizePriority(habit.priority),
   };
