@@ -2,7 +2,11 @@
 // unknown Metro module in Expo Go unless it is already in the main bundle.
 import "expo-network";
 
-import { expoClient } from "@better-auth/expo/client";
+import {
+  expoClient,
+  getSetCookie,
+  storageAdapter,
+} from "@better-auth/expo/client";
 import { createAuthClient } from "better-auth/react";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
@@ -14,13 +18,28 @@ export const AUTH_BASE_URL = (
   process.env.EXPO_PUBLIC_AUTH_URL ?? localAuthURL
 ).replace(/\/$/, "");
 
+const storagePrefix = "higher-habits";
+const cookieStorageKey = `${storagePrefix}_cookie`;
+const authStorage = storageAdapter(SecureStore);
+
 export const authClient = createAuthClient({
   baseURL: AUTH_BASE_URL,
+  sessionOptions: {
+    refetchOnWindowFocus: false,
+  },
   plugins: [
     expoClient({
       scheme: "mobile",
-      storagePrefix: "higher-habits",
+      storagePrefix,
       storage: SecureStore,
     }),
   ],
 });
+
+export async function persistAuthCallbackCookie(cookie: string) {
+  const previousCookie = authStorage.getItem(cookieStorageKey) ?? undefined;
+  await authStorage.setItem(
+    cookieStorageKey,
+    getSetCookie(cookie, previousCookie),
+  );
+}

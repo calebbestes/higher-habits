@@ -45,6 +45,14 @@ type NavigationDefaults = {
   defaultPlanReportView: PlanReportView;
 };
 
+const STARTUP_REQUEST_TIMEOUT_MS = 8_000;
+
+const FALLBACK_NAVIGATION_DEFAULTS: NavigationDefaults = {
+  defaultAppStartPage: DEFAULT_APP_START_PAGE,
+  defaultCollabSection: DEFAULT_COLLAB_SECTION,
+  defaultPlanReportView: DEFAULT_PLAN_REPORT_VIEW,
+};
+
 function RootLayout() {
   const colorScheme = useColorScheme();
 
@@ -69,9 +77,24 @@ function AuthNavigator() {
   const theme = useTheme();
   const { data: session, isPending } = authClient.useSession();
   const sessionUserId = session?.user.id;
+  const [authStartupTimedOut, setAuthStartupTimedOut] = useState(false);
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isPending) {
+      setAuthStartupTimedOut(false);
+      return;
+    }
+
+    const timeout = setTimeout(
+      () => setAuthStartupTimedOut(true),
+      STARTUP_REQUEST_TIMEOUT_MS,
+    );
+
+    return () => clearTimeout(timeout);
+  }, [isPending]);
 
   useEffect(() => {
     setCrashReportingUser(sessionUserId ?? null);
@@ -88,6 +111,13 @@ function AuthNavigator() {
 
     setNavigationDefaults(null);
     appliedStartPageUserRef.current = null;
+    const fallbackTimeout = setTimeout(() => {
+      if (!cancelled) {
+        applyNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
+        setNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
+      }
+    }, STARTUP_REQUEST_TIMEOUT_MS);
+
     void fetchUserSettings()
       .then((settings) => {
         if (!cancelled) {
@@ -102,18 +132,17 @@ function AuthNavigator() {
       })
       .catch(() => {
         if (!cancelled) {
-          const fallbackNavigationDefaults = {
-            defaultAppStartPage: DEFAULT_APP_START_PAGE,
-            defaultCollabSection: DEFAULT_COLLAB_SECTION,
-            defaultPlanReportView: DEFAULT_PLAN_REPORT_VIEW,
-          };
-          applyNavigationDefaults(fallbackNavigationDefaults);
-          setNavigationDefaults(fallbackNavigationDefaults);
+          applyNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
+          setNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
         }
+      })
+      .finally(() => {
+        clearTimeout(fallbackTimeout);
       });
 
     return () => {
       cancelled = true;
+      clearTimeout(fallbackTimeout);
     };
   }, [sessionUserId]);
 
@@ -146,7 +175,10 @@ function AuthNavigator() {
     router.replace(getAppStartHref(navigationDefaults) as Href);
   }, [navigationDefaults, router, sessionUserId]);
 
-  if (isPending || (session && navigationDefaults === null)) {
+  if (
+    (isPending && !authStartupTimedOut) ||
+    (session && navigationDefaults === null)
+  ) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.background }]}>
         <FloatingLogoLoader />
@@ -156,6 +188,7 @@ function AuthNavigator() {
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="auth-callback" />
       <Stack.Protected guard={!session}>
         <Stack.Screen name="login" />
         <Stack.Screen name="sign-up" />

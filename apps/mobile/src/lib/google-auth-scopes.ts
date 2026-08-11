@@ -1,6 +1,6 @@
-export const GOOGLE_SIGN_IN_SCOPES = ["openid", "email", "profile"];
+const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"];
 
 export const GOOGLE_CALENDAR_SCOPES = [
-  ...GOOGLE_SIGN_IN_SCOPES,
+  ...GOOGLE_IDENTITY_SCOPES,
   "https://www.googleapis.com/auth/calendar.events",
 ];
