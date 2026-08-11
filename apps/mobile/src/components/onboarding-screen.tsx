@@ -42,6 +42,7 @@ export function OnboardingScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const providerPhotoUrl = session?.user.image ?? null;
 
   useEffect(() => {
     const fallbackName = splitName(session?.user.name);
@@ -89,11 +90,9 @@ export function OnboardingScreen() {
       !lastName.trim() ||
       !phoneNumber.trim() ||
       !birthday ||
-      !photoUri
+      (!photoUri && !providerPhotoUrl)
     ) {
-      setError(
-        "Add your name, phone number, birthday, and profile photo first.",
-      );
+      setError("Add your name, phone number, and birthday first.");
       return;
     }
 
@@ -107,7 +106,9 @@ export function OnboardingScreen() {
         lastName: lastName.trim(),
         phoneNumber: phoneNumber.trim(),
       });
-      await uploadProfilePicture(photoUri);
+      if (photoUri) {
+        await uploadProfilePicture(photoUri);
+      }
       await updateUserSettings({ onboardingCompleted: true });
       router.replace("/");
     } catch (saveError) {
@@ -162,10 +163,10 @@ export function OnboardingScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                {photoUri ? (
+                {photoUri || providerPhotoUrl ? (
                   <Image
                     contentFit="cover"
-                    source={{ uri: photoUri }}
+                    source={{ uri: photoUri ?? providerPhotoUrl ?? undefined }}
                     style={styles.photo}
                   />
                 ) : (
@@ -187,7 +188,11 @@ export function OnboardingScreen() {
                   </View>
                 )}
                 <Text style={[styles.photoLabel, { color: theme.primary }]}>
-                  {photoUri ? "Change profile photo" : "Add profile photo"}
+                  {photoUri
+                    ? "Change profile photo"
+                    : providerPhotoUrl
+                      ? "Use a different photo"
+                      : "Add profile photo"}
                 </Text>
               </Pressable>
 
