@@ -26,6 +26,9 @@ const authStorage = storageAdapter(SecureStore);
 
 export const authClient = createAuthClient({
   baseURL: AUTH_BASE_URL,
+  sessionOptions: {
+    refetchOnWindowFocus: false,
+  },
   plugins: [
     expoClient({
       scheme: "mobile",

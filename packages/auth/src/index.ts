@@ -79,6 +79,14 @@ export function createAuth() {
     emailAndPassword: {
       enabled: true,
     },
+    session: {
+      // Sessions are stored in Postgres. Avoid rewriting a session-data cookie
+      // on every get-session request, which can trigger native clients to
+      // refetch the session continuously.
+      cookieCache: {
+        enabled: false,
+      },
+    },
     socialProviders: {
       ...(googleClientId && googleClientSecret
         ? {
