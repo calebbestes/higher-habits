@@ -9,7 +9,10 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_AUTH_URL": "https://higher-habits.vercel.app"
+      }
     },
     "production": {
       "autoIncrement": true,
