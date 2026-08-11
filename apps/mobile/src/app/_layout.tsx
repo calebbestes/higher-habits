@@ -77,19 +77,22 @@ function AuthNavigator() {
   const theme = useTheme();
   const { data: session, isPending } = authClient.useSession();
   const sessionUserId = session?.user.id;
-  const [authStartupTimedOut, setAuthStartupTimedOut] = useState(false);
+  const [authStartupResolved, setAuthStartupResolved] = useState(false);
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isPending) {
-      setAuthStartupTimedOut(false);
+      // Keep this resolved after the first response. Better Auth can briefly
+      // set isPending again when its native cookie signal fires; that should
+      // not put the whole app back behind the splash screen.
+      setAuthStartupResolved(true);
       return;
     }
 
     const timeout = setTimeout(
-      () => setAuthStartupTimedOut(true),
+      () => setAuthStartupResolved(true),
       STARTUP_REQUEST_TIMEOUT_MS,
     );
 
@@ -176,7 +179,7 @@ function AuthNavigator() {
   }, [navigationDefaults, router, sessionUserId]);
 
   if (
-    (isPending && !authStartupTimedOut) ||
+    (isPending && !authStartupResolved) ||
     (session && navigationDefaults === null)
   ) {
     return (
