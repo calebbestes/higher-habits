@@ -25,7 +25,10 @@ import {
   fetchMobileSession,
   useMobileSession,
 } from "@/lib/auth-client";
-import { getNativeAuthCallbackURL } from "@/lib/native-auth-callback";
+import {
+  getNativeAuthCallbackURL,
+  getNativeAuthErrorCallbackURL,
+} from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 
 type AuthFormScreenProps = {
@@ -141,6 +144,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
       const response = await authClient.signIn.social({
         provider,
         callbackURL: getNativeAuthCallbackURL(),
+        errorCallbackURL: getNativeAuthErrorCallbackURL(),
       });
 
       if (response.error) {

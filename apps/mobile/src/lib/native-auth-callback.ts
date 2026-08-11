@@ -1,3 +1,5 @@
+import * as Linking from "expo-linking";
+
 const AUTH_CALLBACK_PATH = "/auth-callback";
 const DEFAULT_RETURN_PATH = "/";
 
@@ -23,4 +25,24 @@ export function getNativeAuthCallbackURLForPath(path: string) {
   });
 
   return `${AUTH_CALLBACK_PATH}?${params.toString()}`;
+}
+
+// Better Auth's Expo client converts callbackURL and newUserCallbackURL, but
+// errorCallbackURL is passed through unchanged. Give error redirects the
+// same native destination explicitly so OAuth failures do not fall back to
+// the web login page.
+export function getNativeAuthErrorCallbackURL() {
+  const params = new URLSearchParams({
+    next: DEFAULT_RETURN_PATH,
+  });
+
+  return Linking.createURL(`${AUTH_CALLBACK_PATH}?${params.toString()}`);
+}
+
+export function getNativeAuthErrorCallbackURLForPath(path: string) {
+  const params = new URLSearchParams({
+    next: getSafeReturnPath(path),
+  });
+
+  return Linking.createURL(`${AUTH_CALLBACK_PATH}?${params.toString()}`);
 }

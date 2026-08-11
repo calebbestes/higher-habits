@@ -1,6 +1,6 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { useTheme } from "@/hooks/use-theme";
@@ -36,6 +36,8 @@ export default function AuthCallbackScreen() {
   const theme = useTheme();
   const params = useLocalSearchParams<{
     cookie?: string | string[];
+    error?: string | string[];
+    error_description?: string | string[];
     next?: string | string[];
   }>();
   const callbackCookie = useMemo(
@@ -43,12 +45,26 @@ export default function AuthCallbackScreen() {
     [params.cookie],
   );
   const nextPath = useMemo(() => getSafeNextPath(params.next), [params.next]);
+  const oauthError = useMemo(() => getFirstParam(params.error), [params.error]);
+  const oauthErrorDescription = useMemo(
+    () => getFirstParam(params.error_description),
+    [params.error_description],
+  );
 
   useEffect(() => {
     let active = true;
     let timeout: ReturnType<typeof setTimeout> | undefined;
 
     const completeAuth = async (attempt = 0) => {
+      if (oauthError) {
+        Alert.alert(
+          "Google sign-in failed",
+          oauthErrorDescription ?? oauthError,
+        );
+        router.replace("/login");
+        return;
+      }
+
       try {
         if (callbackCookie) {
           await persistAuthCallbackCookie(callbackCookie);
@@ -82,7 +98,7 @@ export default function AuthCallbackScreen() {
       active = false;
       if (timeout) clearTimeout(timeout);
     };
-  }, [callbackCookie, nextPath, router]);
+  }, [callbackCookie, nextPath, oauthError, oauthErrorDescription, router]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>

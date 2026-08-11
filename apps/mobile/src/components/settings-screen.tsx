@@ -45,7 +45,10 @@ import {
   playWarningHaptic,
 } from "@/lib/haptics";
 import { mobileApiFetch } from "@/lib/mobile-api";
-import { getNativeAuthCallbackURLForPath } from "@/lib/native-auth-callback";
+import {
+  getNativeAuthCallbackURLForPath,
+  getNativeAuthErrorCallbackURLForPath,
+} from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
   registerForPushNotificationsAsync,
@@ -506,6 +509,7 @@ export function SettingsScreen() {
       const response = await authClient.linkSocial({
         provider: "google",
         callbackURL: getNativeAuthCallbackURLForPath("/settings"),
+        errorCallbackURL: getNativeAuthErrorCallbackURLForPath("/settings"),
         scopes: GOOGLE_CALENDAR_SCOPES,
       });
 
