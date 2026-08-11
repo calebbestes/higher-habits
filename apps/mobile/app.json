@@ -2,7 +2,7 @@
     "expo": {
         "name": "float",
         "slug": "abi",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "orientation": "portrait",
         "icon": "./assets/images/abi-logo.png",
         "scheme": "mobile",
