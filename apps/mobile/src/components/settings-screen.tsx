@@ -16,8 +16,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { NotificationSettingsModal } from "@/components/notification-settings-screen";
 import { DatePartPicker } from "@/components/date-part-picker";
+import { NotificationSettingsModal } from "@/components/notification-settings-screen";
 import {
   ColorThemeOptions,
   ColorThemeOrder,
@@ -34,18 +34,18 @@ import {
 } from "@/lib/account-client";
 import { AUTH_BASE_URL, authClient } from "@/lib/auth-client";
 import { reportContent } from "@/lib/friends-client";
+import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarStatus,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
-import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   playSelectionHaptic,
   playSuccessHaptic,
   playWarningHaptic,
 } from "@/lib/haptics";
 import { mobileApiFetch } from "@/lib/mobile-api";
-import { getNativeAuthCallbackURL } from "@/lib/native-auth-callback";
+import { getNativeAuthCallbackURLForPath } from "@/lib/native-auth-callback";
 import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
   registerForPushNotificationsAsync,
@@ -505,7 +505,7 @@ export function SettingsScreen() {
     try {
       const response = await authClient.linkSocial({
         provider: "google",
-        callbackURL: getNativeAuthCallbackURL(),
+        callbackURL: getNativeAuthCallbackURLForPath("/settings"),
         scopes: GOOGLE_CALENDAR_SCOPES,
       });
 
@@ -690,7 +690,7 @@ export function SettingsScreen() {
   const profileDisplayName =
     savedFirstName && savedLastName
       ? `${savedFirstName} ${savedLastName}`
-      : session?.user.name ?? "float account";
+      : (session?.user.name ?? "float account");
 
   const openSubmenu = (submenu: SettingsSubmenu) => {
     playSelectionHaptic();
@@ -1187,8 +1187,7 @@ function ProfileNameSettingsRow({
     currentFirstName.trim() !== currentSavedFirstName ||
     currentLastName.trim() !== currentSavedLastName;
   const canSave =
-    currentFirstName.trim().length > 0 &&
-    currentLastName.trim().length > 0;
+    currentFirstName.trim().length > 0 && currentLastName.trim().length > 0;
 
   return (
     <View style={[styles.nameRowCard, { borderBottomColor: theme.tabBorder }]}>
