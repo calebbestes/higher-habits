@@ -2651,7 +2651,10 @@ export function DayPlanScreen({
                 </View>
               ) : null}
 
-              {!isLoading && !error && googleEvents.length === 0 ? (
+              {!isLoading &&
+              !error &&
+              googleStatus === "not_connected" &&
+              googleEvents.length === 0 ? (
                 <View
                   style={[
                     styles.calendarEmptyState,

@@ -9,10 +9,11 @@ import {
   tasks,
   users,
 } from "@habit/db";
-import { and, asc, eq, gte, inArray, isNotNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { getLongestProfileStreak } from "@/lib/profile-metrics";
 
 function mountainDateKey(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -77,6 +78,7 @@ export async function GET(request: Request) {
         visibility: habits.visibility,
         defaultComplete: habits.defaultComplete,
         requireEvidence: habits.requireEvidence,
+        createdAt: habits.createdAt,
       })
       .from(habits)
       .innerJoin(categories, eq(habits.categoryId, categories.id))
@@ -101,6 +103,7 @@ export async function GET(request: Request) {
         frequencyGoal: habits.frequencyGoal,
         defaultComplete: habits.defaultComplete,
         requireEvidence: habits.requireEvidence,
+        createdAt: habits.createdAt,
       })
       .from(habits)
       .where(
@@ -151,18 +154,29 @@ export async function GET(request: Request) {
       .from(tasks)
       .where(and(eq(tasks.userId, user.id), isNotNull(tasks.completedAt)));
 
-    const earnedIncentiveRows = await db
-      .select({ id: friendMessages.id })
-      .from(friendMessages)
-      .where(
-        and(
-          eq(friendMessages.recipientId, user.id),
-          eq(friendMessages.type, "incentive"),
-          eq(friendMessages.accepted, true),
+    const [earnedIncentiveRows, givenIncentiveRows] = await Promise.all([
+      db
+        .select({ id: friendMessages.id })
+        .from(friendMessages)
+        .where(
+          and(
+            eq(friendMessages.recipientId, user.id),
+            eq(friendMessages.type, "incentive"),
+            eq(friendMessages.accepted, true),
+          ),
         ),
-      );
+      db
+        .select({ id: friendMessages.id })
+        .from(friendMessages)
+        .where(
+          and(
+            eq(friendMessages.senderId, user.id),
+            eq(friendMessages.type, "incentive"),
+          ),
+        ),
+    ]);
 
-    const logRows =
+    const profileLogRows =
       visibleHabitIdList.length > 0
         ? await db
             .select({
@@ -174,11 +188,15 @@ export async function GET(request: Request) {
             .where(
               and(
                 eq(goalLogs.userId, user.id),
-                gte(goalLogs.date, startDateKey),
                 inArray(goalLogs.goalId, visibleHabitIdList),
               ),
             )
         : [];
+    const logRows = profileLogRows.filter((log) => log.date >= startDateKey);
+    const longestStreak = getLongestProfileStreak(
+      [...visibleHabits, ...periodicHabits],
+      profileLogRows,
+    );
 
     const logsByHabitDate = Object.fromEntries(
       logRows
@@ -242,6 +260,8 @@ export async function GET(request: Request) {
         goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
         incentivesEarned: earnedIncentiveRows.length,
+        incentivesGiven: givenIncentiveRows.length,
+        longestStreak,
         taskCompletions: completedTaskRows.length,
       },
       dateKeys,

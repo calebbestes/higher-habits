@@ -125,6 +125,60 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
   };
 }
 
+export async function disconnectGoogleCalendar(userId: string) {
+  const db = getDb();
+
+  if (!db) {
+    throw new Error("Database unavailable.");
+  }
+
+  const [account] = await db
+    .select({
+      accessToken: accounts.accessToken,
+      refreshToken: accounts.refreshToken,
+    })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")))
+    .limit(1);
+
+  if (!account) {
+    return { disconnected: false };
+  }
+
+  const tokens = [account.refreshToken, account.accessToken].filter(
+    (token): token is string => Boolean(token),
+  );
+
+  await Promise.allSettled(tokens.map(revokeGoogleToken));
+
+  await db
+    .update(accounts)
+    .set({
+      accessToken: null,
+      accessTokenExpiresAt: null,
+      refreshToken: null,
+      refreshTokenExpiresAt: null,
+      scope: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, "google")));
+
+  return { disconnected: true };
+}
+
+async function revokeGoogleToken(token: string) {
+  try {
+    await fetch("https://oauth2.googleapis.com/revoke", {
+      body: new URLSearchParams({ token }).toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+  } catch {
+    // Clearing the local credentials still disconnects Calendar in the app if
+    // Google has already expired or rejected the token.
+  }
+}
+
 export async function upsertGoogleCalendarHabitPlan({
   dateKey,
   description,

@@ -63,6 +63,13 @@ export const fetchGoogleCalendarStatus = (): Promise<GoogleCalendarStatus> =>
     parseResponse<GoogleCalendarStatus>(response),
   );
 
+export const disconnectGoogleCalendar = (): Promise<{
+  disconnected: boolean;
+}> =>
+  mobileApiFetch("/api/google-calendar/disconnect", {
+    method: "POST",
+  }).then((response) => parseResponse<{ disconnected: boolean }>(response));
+
 export const fetchGoogleCalendarEvents = ({
   timeMax,
   timeMin,

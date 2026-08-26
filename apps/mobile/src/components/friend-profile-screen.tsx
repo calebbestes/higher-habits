@@ -100,6 +100,8 @@ function createPrivateProfilePreview({
       goalCompletions: 0,
       habitCompletions: 0,
       incentivesEarned: 0,
+      incentivesGiven: 0,
+      longestStreak: 0,
       taskCompletions: 0,
     },
     dateKeys: [],
@@ -161,14 +163,6 @@ export function FriendProfileScreen({
   const habits = useMemo(
     () => profile?.categories.flatMap((category) => category.habits) ?? [],
     [profile],
-  );
-  const streak = useMemo(
-    () => (profile ? getCurrentProfileStreak(profile) : 0),
-    [profile],
-  );
-  const reflectionCount = useMemo(
-    () => posts.filter((post) => post.kind === "reflection").length,
-    [posts],
   );
 
   const load = useCallback(
@@ -573,12 +567,18 @@ export function FriendProfileScreen({
                     value={profile.stats.friendCount}
                     onPress={self ? openFriendsSheet : undefined}
                   />
-                  <ProfileStat label="streak" value={streak} />
+                  <ProfileStat
+                    label="longest streak"
+                    value={profile.stats.longestStreak}
+                  />
                   <ProfileStat
                     label="incentives earned"
                     value={profile.stats.incentivesEarned}
                   />
-                  <ProfileStat label="reflections" value={reflectionCount} />
+                  <ProfileStat
+                    label="incentives given"
+                    value={profile.stats.incentivesGiven}
+                  />
                 </View>
               </View>
               {!self && nudgeFriendshipId ? (
@@ -1214,11 +1214,13 @@ function ProfileStat({
   value: number;
 }) {
   const theme = useTheme();
+  const safeValue =
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
 
   const content = (
     <>
       <Text style={[styles.statValue, { color: theme.text }]}>
-        {value.toLocaleString()}
+        {safeValue.toLocaleString()}
       </Text>
       <Text
         numberOfLines={2}
@@ -1232,7 +1234,7 @@ function ProfileStat({
   if (onPress) {
     return (
       <Pressable
-        accessibilityLabel={`${value.toLocaleString()} ${label}`}
+        accessibilityLabel={`${safeValue.toLocaleString()} ${label}`}
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [
@@ -1550,37 +1552,6 @@ function toProfileActionGoal(habit: FriendProfileHabit): ActionGoal {
 function dateFromProfileKey(key: string) {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
-}
-
-function getCurrentProfileStreak(profile: FriendProfile) {
-  if (profile.dateKeys.length === 0) return 0;
-
-  const profileHabits = [
-    ...profile.categories.flatMap((category) => category.habits),
-    ...profile.periodicHabits,
-  ];
-  const hasCompletedHabitOnDate = (dateKey: string) =>
-    profileHabits.some(
-      (habit) =>
-        profile.logsByHabitDate[`${habit.id}_${dateKey}`] === "complete" ||
-        (profile.logsByHabitDate[`${habit.id}_${dateKey}`] === undefined &&
-          habit.defaultComplete),
-    );
-
-  let dateIndex = profile.dateKeys.length - 1;
-  if (!hasCompletedHabitOnDate(profile.dateKeys[dateIndex] ?? "")) {
-    dateIndex -= 1;
-  }
-
-  let streak = 0;
-  while (dateIndex >= 0) {
-    const dateKey = profile.dateKeys[dateIndex];
-    if (!dateKey || !hasCompletedHabitOnDate(dateKey)) break;
-    streak += 1;
-    dateIndex -= 1;
-  }
-
-  return streak;
 }
 
 function startOfProfileDay(date: Date) {

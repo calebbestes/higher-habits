@@ -35,6 +35,7 @@ import { authClient } from "@/lib/auth-client";
 import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
+  type GoogleCalendarEventsResponse,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
   getLocalTimeZone,
@@ -115,6 +116,7 @@ type LaidOutWeekEvent = {
 
 type WeeklyPlanCacheEntry = {
   events: WeekEvent[];
+  googleStatus?: GoogleCalendarEventsResponse["status"];
   headers: WeeklyPlanNoteHeader[];
   notes: string;
   updatedAt: number;
@@ -457,6 +459,9 @@ export function WeeklyPlanScreen({
   const [weekEvents, setWeekEvents] = useState<WeekEvent[]>(
     () => initialCachedWeek?.events ?? [],
   );
+  const [googleStatus, setGoogleStatus] = useState<
+    GoogleCalendarEventsResponse["status"]
+  >(() => initialCachedWeek?.googleStatus ?? "synced");
   const [savedHeaders, setSavedHeaders] = useState<WeeklyPlanNoteHeader[]>(
     () => initialCachedWeek?.headers ?? [],
   );
@@ -579,11 +584,12 @@ export function WeeklyPlanScreen({
 
       if (!refresh && cachedWeek) {
         setWeekEvents(cachedWeek.events);
+        setGoogleStatus(cachedWeek.googleStatus ?? "synced");
         setSavedHeaders(cachedWeek.headers);
         setNotes(cachedWeek.notes);
         setDraftNotes(cachedWeek.notes);
         setIsLoading(false);
-        if (freshCachedWeek) return;
+        if (freshCachedWeek?.googleStatus) return;
       } else if (refresh) {
         setIsRefreshing(true);
       } else {
@@ -630,6 +636,14 @@ export function WeeklyPlanScreen({
               )
             : [],
         );
+        const googleStatus =
+          googleResults.find(
+            (result) =>
+              result.status === "fulfilled" && result.value.status === "synced",
+          )?.status === "fulfilled"
+            ? "synced"
+            : (googleResults.find((result) => result.status === "fulfilled")
+                ?.value.status ?? "error");
         const habitWeekEvents = snapshotResults.flatMap((result) =>
           result.status === "fulfilled"
             ? snapshotHabitEventsForWeek({
@@ -653,11 +667,13 @@ export function WeeklyPlanScreen({
             : (cachedWeek?.headers ?? []);
 
         setWeekEvents(nextWeekEvents);
+        setGoogleStatus(googleStatus);
         setNotes(nextNotes);
         setDraftNotes(nextNotes);
         setSavedHeaders(nextHeaders);
         weeklyPlanCache.set(cacheKey, {
           events: nextWeekEvents,
+          googleStatus,
           headers: nextHeaders,
           notes: nextNotes,
           updatedAt: Date.now(),
@@ -769,6 +785,7 @@ export function WeeklyPlanScreen({
             });
             weeklyPlanCache.set(cacheKey, {
               events: cachedWeek?.events ?? weekEvents,
+              googleStatus: cachedWeek?.googleStatus ?? googleStatus,
               headers,
               notes: savedHtml,
               updatedAt: Date.now(),
@@ -786,7 +803,7 @@ export function WeeklyPlanScreen({
         if (mountedRef.current) setIsSavingNotes(false);
       }
     },
-    [timeZone, weekEvents, weekStartKey],
+    [googleStatus, timeZone, weekEvents, weekStartKey],
   );
 
   useEffect(() => {
@@ -886,7 +903,8 @@ export function WeeklyPlanScreen({
           </View>
 
           <View style={[styles.container, { maxWidth: MaxContentWidth }]}>
-            {selectedDayEvents.length === 0 ? (
+            {selectedDayEvents.length === 0 &&
+            googleStatus === "not_connected" ? (
               <View
                 style={[
                   styles.calendarEmptyState,

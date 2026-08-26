@@ -10,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -43,6 +44,7 @@ import { reportContent } from "@/lib/friends-client";
 import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarStatus,
+  disconnectGoogleCalendar as disconnectGoogleCalendarRequest,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
 import {
@@ -157,7 +159,7 @@ export function SettingsScreen() {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
+  const [isGoogleUpdating, setIsGoogleUpdating] = useState(false);
   const [isRegisteringNotifications, setIsRegisteringNotifications] =
     useState(false);
   const [isSendingTestNotification, setIsSendingTestNotification] =
@@ -523,9 +525,9 @@ export function SettingsScreen() {
   };
 
   const connectGoogleCalendar = async () => {
-    if (isGoogleConnecting) return;
+    if (isGoogleUpdating) return;
 
-    setIsGoogleConnecting(true);
+    setIsGoogleUpdating(true);
     try {
       const response = await authClient.linkSocial({
         provider: "google",
@@ -551,8 +553,49 @@ export function SettingsScreen() {
           : "Could not connect Google Calendar.",
       );
     } finally {
-      setIsGoogleConnecting(false);
+      setIsGoogleUpdating(false);
     }
+  };
+
+  const disconnectGoogleCalendar = async () => {
+    if (isGoogleUpdating) return;
+
+    setIsGoogleUpdating(true);
+    try {
+      await disconnectGoogleCalendarRequest();
+      await loadGoogleCalendarStatus();
+    } catch (disconnectError) {
+      Alert.alert(
+        "Google Calendar",
+        disconnectError instanceof Error
+          ? disconnectError.message
+          : "Could not disconnect Google Calendar.",
+      );
+    } finally {
+      setIsGoogleUpdating(false);
+    }
+  };
+
+  const toggleGoogleCalendar = (enabled: boolean) => {
+    if (isGoogleUpdating) return;
+
+    if (enabled) {
+      void connectGoogleCalendar();
+      return;
+    }
+
+    Alert.alert(
+      "Disconnect Google Calendar?",
+      "Higher Habits will stop importing and updating calendar events. Existing events in Google Calendar will not be deleted.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: () => void disconnectGoogleCalendar(),
+        },
+      ],
+    );
   };
 
   const sendTestNotification = async () => {
@@ -670,8 +713,10 @@ export function SettingsScreen() {
       : appearance === "dark"
         ? "Dark"
         : "Light";
-  const googleCalendarValue = isGoogleConnecting
-    ? "Connecting"
+  const googleCalendarValue = isGoogleUpdating
+    ? googleCalendarStatus?.connected
+      ? "Disconnecting"
+      : "Connecting"
     : googleCalendarStatus
       ? googleCalendarStatus.configured
         ? googleCalendarStatus.connected
@@ -972,10 +1017,21 @@ export function SettingsScreen() {
                 icon={sym("calendar.badge.plus", "event_available")}
                 title="Google Calendar"
                 value={googleCalendarValue}
-                onPress={
-                  googleCalendarStatus?.configured && !isGoogleConnecting
-                    ? () => void connectGoogleCalendar()
-                    : undefined
+                trailing={
+                  googleCalendarStatus?.configured ? (
+                    <Switch
+                      accessibilityLabel="Connect Google Calendar"
+                      disabled={isGoogleUpdating}
+                      onValueChange={toggleGoogleCalendar}
+                      style={styles.integrationSwitch}
+                      thumbColor="#FFFFFF"
+                      trackColor={{
+                        false: theme.tabBorder,
+                        true: theme.primary,
+                      }}
+                      value={googleCalendarStatus.connected}
+                    />
+                  ) : undefined
                 }
               />
             </SettingsGroup>
@@ -1397,11 +1453,13 @@ function SettingsGroup({
 function SettingsRow({
   icon,
   onPress,
+  trailing,
   title,
   value,
 }: {
   icon: SymbolName;
   onPress?: () => void;
+  trailing?: React.ReactNode;
   title: string;
   value: string;
 }) {
@@ -1418,14 +1476,15 @@ function SettingsRow({
       <Text style={[styles.rowValue, { color: theme.textSecondary }]}>
         {value}
       </Text>
-      {onPress ? (
-        <SymbolView
-          name={sym("chevron.right", "chevron_right")}
-          size={13}
-          weight="semibold"
-          tintColor={theme.textSecondary}
-        />
-      ) : null}
+      {trailing ??
+        (onPress ? (
+          <SymbolView
+            name={sym("chevron.right", "chevron_right")}
+            size={13}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        ) : null)}
     </>
   );
 
@@ -1470,7 +1529,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 20,
     paddingBottom: 40,
-    gap: 24,
+    gap: 16,
   },
   pageHeader: {
     flexDirection: "row",
@@ -1536,7 +1595,7 @@ const styles = StyleSheet.create({
   profileText: { flex: 1, gap: 2 },
   profileName: { fontSize: 18, fontWeight: "700" },
   profileEmail: { fontSize: 14, fontWeight: "500" },
-  group: { gap: 8 },
+  group: { gap: 6 },
   groupTitle: {
     paddingHorizontal: 4,
     fontSize: 12,
@@ -1556,6 +1615,9 @@ const styles = StyleSheet.create({
     gap: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 16,
+  },
+  integrationSwitch: {
+    transform: [{ translateY: 11 }],
   },
   rowTitle: { flex: 1, fontSize: 16, fontWeight: "600" },
   rowValue: { fontSize: 14, fontWeight: "500" },
@@ -1653,7 +1715,7 @@ const styles = StyleSheet.create({
   brandFooter: {
     alignItems: "center",
     gap: 2,
-    paddingTop: 6,
+    paddingTop: 0,
     paddingBottom: 18,
   },
   brandFooterLogo: {
