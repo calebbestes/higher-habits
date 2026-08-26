@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Higher Habits | Build a life you want to live",
   description:
-    "Higher Habits helps you build consistent habits, organize goals and tasks, and plan your days with Google Calendar.",
+    "Higher Habits is a habit-tracking and daily-planning app for goals, tasks, reflections, and optional Google Calendar planning.",
 };
 
 const features = [
@@ -70,9 +70,9 @@ export default function HomePage() {
               Build habits that support the life you want.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-foreground-600 sm:text-xl">
-              Higher Habits is a habit-tracking app that helps you turn goals
-              into daily actions, reflect on your progress, and plan your time
-              with more intention.
+              Higher Habits is a habit-tracking and daily-planning app. Turn
+              goals into daily actions, reflect on your progress, and organize
+              your time with optional Google Calendar integration.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
