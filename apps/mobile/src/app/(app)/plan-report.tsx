@@ -47,41 +47,31 @@ export default function PlanReportScreen() {
 
   return (
     <View style={styles.pageStack}>
-      <View
-        style={[styles.page, activeView !== "day-plan" && styles.inactivePage]}
-      >
-        <ComponentErrorBoundary name="DayPlanScreen">
-          <DayPlanScreen
-            initialDateKey={activeDateKey}
-            onDateChange={setPlanReportDateKey}
-          />
-        </ComponentErrorBoundary>
-      </View>
-      <View
-        style={[
-          styles.page,
-          activeView !== "weekly-plan" && styles.inactivePage,
-        ]}
-      >
-        <ComponentErrorBoundary name="WeeklyPlanScreen">
-          <WeeklyPlanScreen
-            initialDateKey={activeDateKey}
-            onDateChange={setPlanReportDateKey}
-          />
-        </ComponentErrorBoundary>
-      </View>
-      <View
-        style={[
-          styles.page,
-          activeView !== "monthly-plan" && styles.inactivePage,
-        ]}
-      >
-        <ComponentErrorBoundary name="MonthlyGoalsScreen">
-          <MonthlyGoalsScreen
-            initialDateKey={activeDateKey}
-            onDateChange={setPlanReportDateKey}
-          />
-        </ComponentErrorBoundary>
+      <View style={styles.page}>
+        {activeView === "day-plan" ? (
+          <ComponentErrorBoundary name="DayPlanScreen">
+            <DayPlanScreen
+              initialDateKey={activeDateKey}
+              onDateChange={setPlanReportDateKey}
+            />
+          </ComponentErrorBoundary>
+        ) : null}
+        {activeView === "weekly-plan" ? (
+          <ComponentErrorBoundary name="WeeklyPlanScreen">
+            <WeeklyPlanScreen
+              initialDateKey={activeDateKey}
+              onDateChange={setPlanReportDateKey}
+            />
+          </ComponentErrorBoundary>
+        ) : null}
+        {activeView === "monthly-plan" ? (
+          <ComponentErrorBoundary name="MonthlyGoalsScreen">
+            <MonthlyGoalsScreen
+              initialDateKey={activeDateKey}
+              onDateChange={setPlanReportDateKey}
+            />
+          </ComponentErrorBoundary>
+        ) : null}
       </View>
     </View>
   );
@@ -101,7 +91,6 @@ function isDateKey(value: string | undefined): value is string {
 }
 
 const styles = StyleSheet.create({
-  inactivePage: { display: "none" },
   page: { flex: 1 },
   pageStack: { flex: 1 },
 });

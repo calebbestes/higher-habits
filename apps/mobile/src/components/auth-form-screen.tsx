@@ -7,6 +7,10 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  InputAccessoryView,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,6 +41,33 @@ type AuthFormScreenProps = {
 };
 
 type SocialProvider = "apple" | "google";
+
+type SignUpFields = {
+  birthday: string | null;
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+  profilePhotoUri: string | null;
+};
+
+const AUTH_INPUT_ACCESSORY_ID = "auth-input-accessory";
+
+function getMissingSignUpFields(fields: SignUpFields) {
+  return [
+    fields.firstName.trim() ? null : "first name",
+    fields.lastName.trim() ? null : "last name",
+    fields.phoneNumber.trim() ? null : "phone number",
+    fields.birthday ? null : "birthday",
+    fields.profilePhotoUri ? null : "profile photo",
+  ].filter((field): field is string => field !== null);
+}
+
+function formatMissingFields(fields: string[]) {
+  if (fields.length === 1) return `Add your ${fields[0]} first.`;
+
+  const lastField = fields.at(-1);
+  return `Add your ${fields.slice(0, -1).join(", ")}, and ${lastField} first.`;
+}
 
 async function imageToDataUrl(uri: string) {
   const image = await ImageManipulator.manipulateAsync(
@@ -71,6 +102,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     null,
   );
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+  const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
   const [submitting, setSubmitting] = useState<SocialProvider | "email" | null>(
     null,
   );
@@ -78,6 +110,23 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
 
   const isSignUp = mode === "sign-up";
   const isSubmitting = submitting !== null;
+  const signUpFields = {
+    birthday,
+    firstName,
+    lastName,
+    phoneNumber,
+    profilePhotoUri,
+  };
+  const missingSignUpFields = isSignUp
+    ? getMissingSignUpFields(signUpFields)
+    : [];
+
+  const validateSignUp = () => {
+    if (missingSignUpFields.length === 0) return true;
+
+    setError(formatMissingFields(missingSignUpFields));
+    return false;
+  };
 
   useEffect(() => {
     if (shouldEnterApp && session) {
@@ -86,6 +135,11 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   }, [router, session, shouldEnterApp]);
 
   const enterApp = async () => {
+    if (isSignUp && !validateSignUp()) {
+      setShouldEnterApp(false);
+      return;
+    }
+
     const sessionResponse = await fetchMobileSession({ force: true });
     if (!sessionResponse.data) {
       setShouldEnterApp(false);
@@ -96,27 +150,13 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
     }
 
     if (isSignUp) {
-      if (
-        !firstName.trim() ||
-        !lastName.trim() ||
-        !birthday ||
-        !phoneNumber.trim() ||
-        !profilePhotoUri
-      ) {
-        setShouldEnterApp(false);
-        setError(
-          "Add your name, profile photo, phone number, and birthday first.",
-        );
-        return;
-      }
-
       await updateAccountProfile({
-        birthday,
+        birthday: birthday as string,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phoneNumber: phoneNumber.trim(),
       });
-      await uploadProfilePicture(profilePhotoUri);
+      await uploadProfilePicture(profilePhotoUri as string);
       await updateUserSettings({ onboardingCompleted: true });
     }
 
@@ -124,20 +164,8 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   };
 
   const continueWithSocial = async (provider: SocialProvider) => {
-    if (isSubmitting) return;
-    if (
-      isSignUp &&
-      (!firstName.trim() ||
-        !lastName.trim() ||
-        !birthday ||
-        !phoneNumber.trim() ||
-        !profilePhotoUri)
-    ) {
-      setError(
-        "Add your name, profile photo, phone number, and birthday first.",
-      );
-      return;
-    }
+    if (isSubmitting || isPreparingPhoto) return;
+    if (isSignUp && !validateSignUp()) return;
 
     setError(null);
     setSubmitting(provider);
@@ -169,28 +197,33 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   };
 
   const chooseProfilePhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "Allow photo access in Settings to choose your profile photo.",
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-
-    if (result.canceled || !result.assets[0]) return;
-
+    if (isSubmitting || isPreparingPhoto) return;
+    setIsPreparingPhoto(true);
     try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission required",
+          "Allow photo access in Settings to choose your profile photo.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
       setError(null);
-      setProfilePhotoUri(result.assets[0].uri);
-      setProfilePhotoDataUrl(await imageToDataUrl(result.assets[0].uri));
+      const uri = result.assets[0].uri;
+      const dataUrl = await imageToDataUrl(uri);
+      setProfilePhotoUri(uri);
+      setProfilePhotoDataUrl(dataUrl);
     } catch (photoError) {
       setProfilePhotoUri(null);
       setProfilePhotoDataUrl(null);
@@ -199,11 +232,14 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
           ? photoError.message
           : "Could not prepare that profile photo.",
       );
+    } finally {
+      setIsPreparingPhoto(false);
     }
   };
 
   const submitEmail = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isPreparingPhoto) return;
+    if (isSignUp && !validateSignUp()) return;
 
     setError(null);
     setSubmitting("email");
@@ -250,12 +286,7 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
   const canSubmitEmail =
     email.trim().length > 0 &&
     password.length > 0 &&
-    (!isSignUp ||
-      (firstName.trim().length > 0 &&
-        lastName.trim().length > 0 &&
-        phoneNumber.trim().length > 0 &&
-        Boolean(birthday) &&
-        Boolean(profilePhotoUri)));
+    (!isSignUp || (missingSignUpFields.length === 0 && !isPreparingPhoto));
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -265,268 +296,311 @@ export function AuthFormScreen({ mode }: AuthFormScreenProps) {
         style={styles.backgroundLogo}
       />
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          bounces={false}
-          canCancelContentTouches
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+          style={styles.keyboardView}
         >
-          <View style={styles.content}>
-            <View style={styles.brand}>
-              <Image
-                contentFit="contain"
-                source={require("@/assets/images/abi-logo-no-background.png")}
-                style={styles.brandLogo}
-              />
-              <Text style={[styles.brandName, { color: theme.text }]}>
-                float
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderColor: theme.tabBorder,
-                },
-              ]}
-            >
-              <View style={styles.heading}>
-                <Text style={[styles.title, { color: theme.text }]}>
-                  {isSignUp ? "Create your account" : "Welcome back"}
-                </Text>
-                <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-                  {isSignUp
-                    ? "Keep your plans, goals, and proof synced across devices."
-                    : "Sign in to get back to your goals and calendar."}
+          <ScrollView
+            bounces={false}
+            canCancelContentTouches
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode={
+              Platform.OS === "ios" ? "interactive" : "on-drag"
+            }
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.content}>
+              <View style={styles.brand}>
+                <Image
+                  contentFit="contain"
+                  source={require("@/assets/images/abi-logo-no-background.png")}
+                  style={styles.brandLogo}
+                />
+                <Text style={[styles.brandName, { color: theme.text }]}>
+                  float
                 </Text>
               </View>
 
-              <View style={styles.socialStack}>
-                <AuthButton
-                  disabled={isSubmitting}
-                  iconColor="#111111"
-                  isLoading={submitting === "apple"}
-                  label="Continue with Apple"
-                  mark="apple.logo"
-                  onPress={() => void continueWithSocial("apple")}
-                  theme={theme}
-                />
-                <AuthButton
-                  disabled={isSubmitting}
-                  iconColor={theme.primary}
-                  isLoading={submitting === "google"}
-                  label="Continue with Google"
-                  mark="G"
-                  onPress={() => void continueWithSocial("google")}
-                  theme={theme}
-                />
-              </View>
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.heading}>
+                  <Text style={[styles.title, { color: theme.text }]}>
+                    {isSignUp ? "Create your account" : "Welcome back"}
+                  </Text>
+                  <Text
+                    style={[styles.subtitle, { color: theme.textSecondary }]}
+                  >
+                    {isSignUp
+                      ? "Keep your plans, goals, and proof synced across devices."
+                      : "Sign in to get back to your goals and calendar."}
+                  </Text>
+                </View>
 
-              <View style={styles.dividerRow}>
-                <View
-                  style={[
-                    styles.dividerLine,
-                    { backgroundColor: theme.tabBorder },
-                  ]}
-                />
-                <Text
-                  style={[styles.dividerText, { color: theme.textSecondary }]}
-                >
-                  or
-                </Text>
-                <View
-                  style={[
-                    styles.dividerLine,
-                    { backgroundColor: theme.tabBorder },
-                  ]}
-                />
-              </View>
+                <View style={styles.socialStack}>
+                  <AuthButton
+                    disabled={isSubmitting || isPreparingPhoto}
+                    iconColor="#111111"
+                    isLoading={submitting === "apple"}
+                    label="Continue with Apple"
+                    mark="apple.logo"
+                    onPress={() => void continueWithSocial("apple")}
+                    theme={theme}
+                  />
+                  <AuthButton
+                    disabled={isSubmitting || isPreparingPhoto}
+                    iconColor={theme.primary}
+                    isLoading={submitting === "google"}
+                    label="Continue with Google"
+                    mark="G"
+                    onPress={() => void continueWithSocial("google")}
+                    theme={theme}
+                  />
+                </View>
 
-              <View style={styles.form}>
-                {isSignUp ? (
-                  <>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={isSubmitting}
-                      onPress={() => void chooseProfilePhoto()}
-                      style={({ pressed }) => [
-                        styles.photoPicker,
-                        {
-                          backgroundColor: theme.backgroundElement,
-                          borderColor: theme.tabBorder,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      {profilePhotoUri ? (
-                        <Image
-                          contentFit="cover"
-                          source={{ uri: profilePhotoUri }}
-                          style={styles.photoPreview}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.photoPlaceholder,
-                            { backgroundColor: theme.tabBar },
-                          ]}
-                        >
-                          <SymbolView
-                            name={{
-                              ios: "camera.fill",
-                              android: "photo_camera",
-                              web: "photo_camera",
-                            }}
-                            size={20}
-                            tintColor={theme.primary}
+                <View style={styles.dividerRow}>
+                  <View
+                    style={[
+                      styles.dividerLine,
+                      { backgroundColor: theme.tabBorder },
+                    ]}
+                  />
+                  <Text
+                    style={[styles.dividerText, { color: theme.textSecondary }]}
+                  >
+                    or
+                  </Text>
+                  <View
+                    style={[
+                      styles.dividerLine,
+                      { backgroundColor: theme.tabBorder },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.form}>
+                  {isSignUp ? (
+                    <>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={isSubmitting || isPreparingPhoto}
+                        onPress={() => void chooseProfilePhoto()}
+                        style={({ pressed }) => [
+                          styles.photoPicker,
+                          {
+                            backgroundColor: theme.backgroundElement,
+                            borderColor: theme.tabBorder,
+                          },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        {profilePhotoUri ? (
+                          <Image
+                            contentFit="cover"
+                            source={{ uri: profilePhotoUri }}
+                            style={styles.photoPreview}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.photoPlaceholder,
+                              { backgroundColor: theme.tabBar },
+                            ]}
+                          >
+                            <SymbolView
+                              name={{
+                                ios: "camera.fill",
+                                android: "photo_camera",
+                                web: "photo_camera",
+                              }}
+                              size={20}
+                              tintColor={theme.primary}
+                            />
+                          </View>
+                        )}
+                        <View style={styles.photoText}>
+                          <Text
+                            style={[styles.photoTitle, { color: theme.text }]}
+                          >
+                            Profile photo
+                          </Text>
+                          <Text
+                            style={[
+                              styles.photoSubtitle,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {profilePhotoUri
+                              ? "Choose a different photo"
+                              : "Required"}
+                          </Text>
+                        </View>
+                      </Pressable>
+
+                      <View style={styles.nameRow}>
+                        <View style={styles.nameInput}>
+                          <AuthInput
+                            autoComplete="given-name"
+                            editable={!isSubmitting}
+                            label="First name"
+                            onChangeText={setFirstName}
+                            theme={theme}
+                            value={firstName}
                           />
                         </View>
-                      )}
-                      <View style={styles.photoText}>
-                        <Text
-                          style={[styles.photoTitle, { color: theme.text }]}
-                        >
-                          Profile photo
-                        </Text>
-                        <Text
-                          style={[
-                            styles.photoSubtitle,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          {profilePhotoUri
-                            ? "Choose a different photo"
-                            : "Required"}
-                        </Text>
+                        <View style={styles.nameInput}>
+                          <AuthInput
+                            autoComplete="family-name"
+                            editable={!isSubmitting}
+                            label="Last name"
+                            onChangeText={setLastName}
+                            theme={theme}
+                            value={lastName}
+                          />
+                        </View>
                       </View>
-                    </Pressable>
+                      <AuthInput
+                        autoComplete="tel"
+                        editable={!isSubmitting}
+                        keyboardType="phone-pad"
+                        label="Phone number"
+                        onChangeText={setPhoneNumber}
+                        theme={theme}
+                        value={phoneNumber}
+                      />
+                      <BirthdayPicker
+                        disabled={isSubmitting}
+                        onChange={setBirthday}
+                        theme={theme}
+                        value={birthday}
+                      />
+                    </>
+                  ) : null}
 
-                    <View style={styles.nameRow}>
-                      <View style={styles.nameInput}>
-                        <AuthInput
-                          autoComplete="given-name"
-                          editable={!isSubmitting}
-                          label="First name"
-                          onChangeText={setFirstName}
-                          theme={theme}
-                          value={firstName}
-                        />
-                      </View>
-                      <View style={styles.nameInput}>
-                        <AuthInput
-                          autoComplete="family-name"
-                          editable={!isSubmitting}
-                          label="Last name"
-                          onChangeText={setLastName}
-                          theme={theme}
-                          value={lastName}
-                        />
-                      </View>
-                    </View>
-                    <AuthInput
-                      autoComplete="tel"
-                      editable={!isSubmitting}
-                      keyboardType="phone-pad"
-                      label="Phone number"
-                      onChangeText={setPhoneNumber}
-                      theme={theme}
-                      value={phoneNumber}
+                  <AuthInput
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    editable={!isSubmitting}
+                    keyboardType="email-address"
+                    label="Email"
+                    onChangeText={setEmail}
+                    theme={theme}
+                    value={email}
+                  />
+                  <AuthInput
+                    autoCapitalize="none"
+                    autoComplete={
+                      isSignUp ? "new-password" : "current-password"
+                    }
+                    editable={!isSubmitting}
+                    label="Password"
+                    onChangeText={setPassword}
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    returnKeyType="done"
+                    secureTextEntry
+                    theme={theme}
+                    value={password}
+                  />
+
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={!canSubmitEmail || isSubmitting}
+                    onPress={() => void submitEmail()}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      { backgroundColor: theme.primary },
+                      (!canSubmitEmail || isSubmitting) && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {submitting === "email" ? (
+                      <ActivityIndicator color={theme.primaryForeground} />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.primaryButtonText,
+                          { color: theme.primaryForeground },
+                        ]}
+                      >
+                        {isSignUp ? "Create account" : "Sign in"}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+
+                {error ? (
+                  <View style={styles.errorRow}>
+                    <SymbolView
+                      name={{
+                        ios: "exclamationmark.circle.fill",
+                        android: "error",
+                        web: "error",
+                      }}
+                      size={17}
+                      tintColor="#B84D54"
                     />
-                    <BirthdayPicker
-                      disabled={isSubmitting}
-                      onChange={setBirthday}
-                      theme={theme}
-                      value={birthday}
-                    />
-                  </>
+                    <Text style={styles.errorText}>{error}</Text>
+                  </View>
                 ) : null}
 
-                <AuthInput
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  editable={!isSubmitting}
-                  keyboardType="email-address"
-                  label="Email"
-                  onChangeText={setEmail}
-                  theme={theme}
-                  value={email}
-                />
-                <AuthInput
-                  autoCapitalize="none"
-                  autoComplete={isSignUp ? "new-password" : "current-password"}
-                  editable={!isSubmitting}
-                  label="Password"
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  theme={theme}
-                  value={password}
-                />
-
                 <Pressable
-                  accessibilityRole="button"
-                  disabled={!canSubmitEmail || isSubmitting}
-                  onPress={() => void submitEmail()}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    { backgroundColor: theme.primary },
-                    (!canSubmitEmail || isSubmitting) && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
+                  accessibilityRole="link"
+                  onPress={() =>
+                    router.replace(isSignUp ? "/login" : "/sign-up")
+                  }
                 >
-                  {submitting === "email" ? (
-                    <ActivityIndicator color={theme.primaryForeground} />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        { color: theme.primaryForeground },
-                      ]}
-                    >
-                      {isSignUp ? "Create account" : "Sign in"}
+                  <Text
+                    style={[styles.switchText, { color: theme.textSecondary }]}
+                  >
+                    {isSignUp ? "Already have an account?" : "Need an account?"}{" "}
+                    <Text style={{ color: theme.primary }}>
+                      {isSignUp ? "Sign in" : "Create one"}
                     </Text>
-                  )}
+                  </Text>
                 </Pressable>
               </View>
 
-              {error ? (
-                <View style={styles.errorRow}>
-                  <SymbolView
-                    name={{
-                      ios: "exclamationmark.circle.fill",
-                      android: "error",
-                      web: "error",
-                    }}
-                    size={17}
-                    tintColor="#B84D54"
-                  />
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              ) : null}
-
-              <Pressable
-                accessibilityRole="link"
-                onPress={() => router.replace(isSignUp ? "/login" : "/sign-up")}
-              >
-                <Text
-                  style={[styles.switchText, { color: theme.textSecondary }]}
-                >
-                  {isSignUp ? "Already have an account?" : "Need an account?"}{" "}
-                  <Text style={{ color: theme.primary }}>
-                    {isSignUp ? "Sign in" : "Create one"}
-                  </Text>
-                </Text>
-              </Pressable>
+              <Text style={[styles.privacy, { color: theme.textSecondary }]}>
+                Your progress stays private until you choose to share it.
+              </Text>
             </View>
-
-            <Text style={[styles.privacy, { color: theme.textSecondary }]}>
-              Your progress stays private until you choose to share it.
-            </Text>
-          </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID={AUTH_INPUT_ACCESSORY_ID}>
+          <View
+            style={[
+              styles.inputAccessory,
+              {
+                backgroundColor: theme.tabBar,
+                borderTopColor: theme.tabBorder,
+              },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss keyboard"
+              onPress={() => Keyboard.dismiss()}
+              style={({ pressed }) => [pressed && styles.pressed]}
+            >
+              <Text
+                style={[styles.inputAccessoryText, { color: theme.primary }]}
+              >
+                Done
+              </Text>
+            </Pressable>
+          </View>
+        </InputAccessoryView>
+      ) : null}
     </View>
   );
 }
@@ -633,6 +707,9 @@ function AuthInput({
       </Text>
       <TextInput
         {...props}
+        inputAccessoryViewID={
+          props.inputAccessoryViewID ?? AUTH_INPUT_ACCESSORY_ID
+        }
         placeholderTextColor={theme.textSecondary}
         style={[
           styles.input,
@@ -661,6 +738,9 @@ const styles = StyleSheet.create({
     opacity: 0.08,
   },
   safeArea: {
+    flex: 1,
+  },
+  keyboardView: {
     flex: 1,
   },
   scrollContent: {
@@ -845,6 +925,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "600",
+  },
+  inputAccessory: {
+    minHeight: 42,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+  },
+  inputAccessoryText: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "800",
   },
   switchText: {
     textAlign: "center",

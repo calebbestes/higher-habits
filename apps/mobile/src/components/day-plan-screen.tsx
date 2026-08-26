@@ -77,13 +77,13 @@ import {
   type HabitVisibility,
   createHabit,
   createCategory as createHabitCategory,
-  fetchCategories,
 } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
   getNativeAuthCallbackURLForPath,
   getNativeAuthErrorCallbackURLForPath,
 } from "@/lib/native-auth-callback";
+import { fetchDayPlanBootstrap } from "@/lib/plan-bootstrap-client";
 import {
   DEFAULT_PLAN_PERIOD,
   DEFAULT_PLAN_START_TIME,
@@ -96,7 +96,6 @@ import {
 import {
   type PlannedEvent,
   deletePlannedEvent,
-  fetchPlannedEvents,
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
@@ -104,7 +103,6 @@ import {
   type GoalCheckpoint,
   type GoalInput,
   createPlanGoal,
-  fetchPlanGoals,
   updatePlanGoalCheckpoint,
 } from "@/lib/planning-goals-client";
 import {
@@ -116,7 +114,6 @@ import {
   type Task,
   type TaskInput,
   createTask,
-  fetchTasks,
   getTaskImportanceScore,
   updateTaskCompletion,
 } from "@/lib/tasks-client";
@@ -364,7 +361,6 @@ export function DayPlanScreen({
     new Map<string, Promise<HabitLogsSnapshot>>(),
   );
   const tasksCacheRef = useRef(new Map<string, Task[]>());
-  const tasksInFlightRef = useRef(new Map<string, Promise<Task[]>>());
   const googleEventsCacheRef = useRef(
     new Map<string, GoogleCalendarEventsResponse>(),
   );
@@ -372,14 +368,9 @@ export function DayPlanScreen({
     new Map<string, Promise<GoogleCalendarEventsResponse>>(),
   );
   const plannedEventsCacheRef = useRef(new Map<string, PlannedEvent[]>());
-  const plannedEventsInFlightRef = useRef(
-    new Map<string, Promise<PlannedEvent[]>>(),
-  );
   const isMountedRef = useRef(true);
   const planGoalsCacheRef = useRef<Goal[] | null>(null);
-  const planGoalsInFlightRef = useRef<Promise<Goal[]> | null>(null);
   const habitCategoriesCacheRef = useRef<Category[] | null>(null);
-  const habitCategoriesInFlightRef = useRef<Promise<Category[]> | null>(null);
   const projectsLoadedRef = useRef(false);
   const projectsInFlightRef = useRef<Promise<void> | null>(null);
 
@@ -495,35 +486,6 @@ export function DayPlanScreen({
     [],
   );
 
-  const getTasksForDate = useCallback(
-    (targetDateKey: string, force = false) => {
-      if (!force) {
-        const cached = tasksCacheRef.current.get(targetDateKey);
-        if (cached) return Promise.resolve(cached);
-
-        const inFlight = tasksInFlightRef.current.get(targetDateKey);
-        if (inFlight) return inFlight;
-      }
-
-      const request = fetchTasks(targetDateKey)
-        .then((nextTasks) => {
-          if (tasksInFlightRef.current.get(targetDateKey) === request) {
-            tasksCacheRef.current.set(targetDateKey, nextTasks);
-          }
-          return nextTasks;
-        })
-        .finally(() => {
-          if (tasksInFlightRef.current.get(targetDateKey) === request) {
-            tasksInFlightRef.current.delete(targetDateKey);
-          }
-        });
-
-      tasksInFlightRef.current.set(targetDateKey, request);
-      return request;
-    },
-    [],
-  );
-
   const getGoogleEventsForDate = useCallback(
     (targetDate: Date, targetDateKey: string, force = false) => {
       if (!force) {
@@ -558,87 +520,6 @@ export function DayPlanScreen({
     [timeZone],
   );
 
-  const getPlannedEventsForDate = useCallback(
-    (targetDateKey: string, force = false) => {
-      if (!force) {
-        const cached = plannedEventsCacheRef.current.get(targetDateKey);
-        if (cached) return Promise.resolve(cached);
-
-        const inFlight = plannedEventsInFlightRef.current.get(targetDateKey);
-        if (inFlight) return inFlight;
-      }
-
-      const request = fetchPlannedEvents({ dateKey: targetDateKey })
-        .then((nextPlannedEvents) => {
-          if (plannedEventsInFlightRef.current.get(targetDateKey) === request) {
-            plannedEventsCacheRef.current.set(targetDateKey, nextPlannedEvents);
-          }
-          return nextPlannedEvents;
-        })
-        .finally(() => {
-          if (plannedEventsInFlightRef.current.get(targetDateKey) === request) {
-            plannedEventsInFlightRef.current.delete(targetDateKey);
-          }
-        });
-
-      plannedEventsInFlightRef.current.set(targetDateKey, request);
-      return request;
-    },
-    [],
-  );
-
-  const getPlanGoals = useCallback((force = false) => {
-    if (!force && planGoalsCacheRef.current) {
-      return Promise.resolve(planGoalsCacheRef.current);
-    }
-
-    if (!force && planGoalsInFlightRef.current) {
-      return planGoalsInFlightRef.current;
-    }
-
-    const request = fetchPlanGoals()
-      .then((nextPlanGoals) => {
-        if (planGoalsInFlightRef.current === request) {
-          planGoalsCacheRef.current = nextPlanGoals;
-        }
-        return nextPlanGoals;
-      })
-      .finally(() => {
-        if (planGoalsInFlightRef.current === request) {
-          planGoalsInFlightRef.current = null;
-        }
-      });
-
-    planGoalsInFlightRef.current = request;
-    return request;
-  }, []);
-
-  const getHabitCategories = useCallback((force = false) => {
-    if (!force && habitCategoriesCacheRef.current) {
-      return Promise.resolve(habitCategoriesCacheRef.current);
-    }
-
-    if (!force && habitCategoriesInFlightRef.current) {
-      return habitCategoriesInFlightRef.current;
-    }
-
-    const request = fetchCategories()
-      .then((nextHabitCategories) => {
-        if (habitCategoriesInFlightRef.current === request) {
-          habitCategoriesCacheRef.current = nextHabitCategories;
-        }
-        return nextHabitCategories;
-      })
-      .finally(() => {
-        if (habitCategoriesInFlightRef.current === request) {
-          habitCategoriesInFlightRef.current = null;
-        }
-      });
-
-    habitCategoriesInFlightRef.current = request;
-    return request;
-  }, []);
-
   const ensureProjects = useCallback(
     (force = false) => {
       if (!force && projectsLoadedRef.current) return Promise.resolve();
@@ -671,17 +552,25 @@ export function DayPlanScreen({
 
       void Promise.allSettled([
         getSnapshotForMonth(targetMonthKey),
-        getTasksForDate(targetDateKey),
         getGoogleEventsForDate(targetDate, targetDateKey),
-        getPlannedEventsForDate(targetDateKey),
-      ]);
+        fetchDayPlanBootstrap(targetDateKey),
+      ]).then(([snapshotResult, googleResult, bootstrapResult]) => {
+        if (snapshotResult.status === "fulfilled") {
+          snapshotCacheRef.current.set(targetMonthKey, snapshotResult.value);
+        }
+        if (googleResult.status === "fulfilled") {
+          googleEventsCacheRef.current.set(targetDateKey, googleResult.value);
+        }
+        if (bootstrapResult.status === "fulfilled") {
+          const data = bootstrapResult.value;
+          tasksCacheRef.current.set(targetDateKey, data.tasks);
+          plannedEventsCacheRef.current.set(targetDateKey, data.plannedEvents);
+          planGoalsCacheRef.current = data.planGoals;
+          habitCategoriesCacheRef.current = data.habitCategories;
+        }
+      });
     },
-    [
-      getGoogleEventsForDate,
-      getPlannedEventsForDate,
-      getSnapshotForMonth,
-      getTasksForDate,
-    ],
+    [getGoogleEventsForDate, getSnapshotForMonth],
   );
 
   const prefetchAdjacentDays = useCallback(
@@ -715,7 +604,6 @@ export function DayPlanScreen({
 
       if (shouldInvalidateTasks) {
         tasksCacheRef.current.clear();
-        tasksInFlightRef.current.clear();
       }
 
       if (google) {
@@ -725,17 +613,14 @@ export function DayPlanScreen({
 
       if (planned) {
         plannedEventsCacheRef.current.delete(dateKey);
-        plannedEventsInFlightRef.current.delete(dateKey);
       }
 
       if (shouldInvalidatePlanGoals) {
         planGoalsCacheRef.current = null;
-        planGoalsInFlightRef.current = null;
       }
 
       if (shouldInvalidateHabitCategories) {
         habitCategoriesCacheRef.current = null;
-        habitCategoriesInFlightRef.current = null;
       }
     },
     [dateKey, monthKey],
@@ -770,22 +655,17 @@ export function DayPlanScreen({
       }
 
       try {
-        const [
-          nextSnapshot,
-          nextTasks,
-          nextPlanGoals,
-          googleResponse,
-          nextPlannedEvents,
-          nextHabitCategories,
-        ] = await Promise.all([
-          getSnapshotForMonth(targetMonthKey, force),
-          getTasksForDate(targetDateKey, force),
-          getPlanGoals(force),
-          getGoogleEventsForDate(targetDate, targetDateKey, force),
-          getPlannedEventsForDate(targetDateKey, force),
-          getHabitCategories(force),
-          ensureProjects(force),
-        ]);
+        const [nextSnapshot, nextPlanBootstrap, googleResponse] =
+          await Promise.all([
+            getSnapshotForMonth(targetMonthKey, force),
+            fetchDayPlanBootstrap(targetDateKey),
+            getGoogleEventsForDate(targetDate, targetDateKey, force),
+            ensureProjects(force),
+          ] as const);
+        const nextTasks = nextPlanBootstrap.tasks;
+        const nextPlanGoals = nextPlanBootstrap.planGoals;
+        const nextPlannedEvents = nextPlanBootstrap.plannedEvents;
+        const nextHabitCategories = nextPlanBootstrap.habitCategories;
 
         if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
           return;
@@ -798,6 +678,10 @@ export function DayPlanScreen({
         setGoogleEvents(googleResponse.events);
         setPlannedEvents(nextPlannedEvents);
         setGoogleStatus(googleResponse.status);
+        tasksCacheRef.current.set(targetDateKey, nextTasks);
+        plannedEventsCacheRef.current.set(targetDateKey, nextPlannedEvents);
+        planGoalsCacheRef.current = nextPlanGoals;
+        habitCategoriesCacheRef.current = nextHabitCategories;
         prefetchAdjacentDays(targetDate);
       } catch (loadError) {
         if (!isMountedRef.current || sequence !== loadSequenceRef.current) {
@@ -821,11 +705,7 @@ export function DayPlanScreen({
       dateKey,
       ensureProjects,
       getGoogleEventsForDate,
-      getHabitCategories,
-      getPlanGoals,
-      getPlannedEventsForDate,
       getSnapshotForMonth,
-      getTasksForDate,
       monthKey,
       prefetchAdjacentDays,
       readCachedDayPlanData,

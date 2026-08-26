@@ -6,7 +6,7 @@ import {
   plannedEvents,
   tasks,
 } from "@habit/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 
 import {
   deleteGoogleCalendarPlannedEvent,
@@ -44,20 +44,35 @@ export async function getPlannedEventsForUser(
   db: Database,
   {
     dateKey,
+    endDateKey,
     sourceType,
+    startDateKey,
     userId,
   }: {
     dateKey?: string | null;
+    endDateKey?: string | null;
     sourceType?: PlannedEventSourceType | null;
+    startDateKey?: string | null;
     userId: string;
   },
 ) {
   if (dateKey) {
     await ensureGoalCheckpointPlansForDate(db, { dateKey, userId });
+  } else if (startDateKey && endDateKey) {
+    let currentDateKey = startDateKey;
+    while (currentDateKey <= endDateKey) {
+      await ensureGoalCheckpointPlansForDate(db, {
+        dateKey: currentDateKey,
+        userId,
+      });
+      currentDateKey = addDaysToDateKey(currentDateKey, 1);
+    }
   }
 
   const filters = [eq(plannedEvents.userId, userId)];
   if (dateKey) filters.push(eq(plannedEvents.date, dateKey));
+  if (startDateKey) filters.push(gte(plannedEvents.date, startDateKey));
+  if (endDateKey) filters.push(lte(plannedEvents.date, endDateKey));
   if (sourceType) filters.push(eq(plannedEvents.sourceType, sourceType));
 
   return (await db
@@ -69,6 +84,12 @@ export async function getPlannedEventsForUser(
       asc(plannedEvents.plannedStartTime),
       asc(plannedEvents.createdAt),
     )) as PlannedEventRow[];
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
 }
 
 async function ensureGoalCheckpointPlansForDate(

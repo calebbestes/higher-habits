@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | float",
-  description: "Privacy policy for float.",
+  title: "Privacy Policy | Higher Habits",
+  description: "Privacy policy for Higher Habits.",
 };
 
 export default function PrivacyPage() {
@@ -11,7 +11,7 @@ export default function PrivacyPage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-3">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-            float
+            Higher Habits
           </p>
           <h1 className="text-4xl font-black tracking-tight">Privacy Policy</h1>
           <p className="text-sm text-foreground-500">
@@ -22,10 +22,10 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">What We Collect</h2>
           <p>
-            float collects the information needed to run your account and sync
-            your goals, plans, journal entries, photos, friends, shared goals,
-            notification preferences, and app settings. This may include your
-            name, email address, phone number, profile photo, goal and task
+            Higher Habits collects the information needed to run your account
+            and sync your goals, plans, journal entries, photos, friends, shared
+            goals, notification preferences, and app settings. This may include
+            your name, email address, phone number, profile photo, goal and task
             data, journal text, uploaded photos, comments, props, friend
             relationships, and device push notification tokens.
           </p>
@@ -34,9 +34,10 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Contacts</h2>
           <p>
-            If you choose to find friends from contacts, float compares contact
-            emails and phone numbers with existing float accounts. Contact
-            identifiers are used only for this lookup and are not stored.
+            If you choose to find friends from contacts, Higher Habits compares
+            contact emails and phone numbers with existing Higher Habits
+            accounts. Contact identifiers are used only for this lookup and are
+            not stored.
           </p>
         </section>
 
@@ -53,39 +54,43 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Notifications</h2>
           <p>
-            If you enable notifications, float uses a device push token to send
-            reminders, friend activity, shared goal updates, and progress
-            notifications based on your settings.
+            If you enable notifications, Higher Habits uses a device push token
+            to send reminders, friend activity, shared goal updates, and
+            progress notifications based on your settings.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Diagnostics</h2>
           <p>
-            float uses diagnostics and crash reporting to understand failures
-            and improve reliability. Diagnostic reports may include device, app,
-            and error details.
+            Higher Habits uses diagnostics and crash reporting to understand
+            failures and improve reliability. Diagnostic reports may include
+            device, app, and error details.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Advertising</h2>
           <p>
-            float may show sponsored content from advertising partners such as
-            Google AdMob. Ads may use app and device information to deliver,
-            measure, and limit ads. float requests non-personalized ads unless
-            you separately grant tracking permission where required.
+            Higher Habits may show sponsored content from advertising partners
+            such as Google AdMob. Ads may use app and device information to
+            deliver, measure, and limit ads. Higher Habits requests
+            non-personalized ads unless you separately grant tracking permission
+            where required.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Third-Party Services</h2>
           <p>
-            float uses service providers for authentication, hosting, database
-            storage, file storage, push notifications, crash reporting, and
-            advertising. If you connect Google Calendar, float uses the Google
-            Calendar access you grant to read and manage calendar events for
-            planning features.
+            Higher Habits uses service providers for authentication, hosting,
+            database storage, file storage, push notifications, crash reporting,
+            and advertising. If you connect Google Calendar, Higher Habits uses
+            the Google access you grant to read events from your primary
+            calendar and create or update Higher Habits planning events. This
+            lets you see your calendar alongside your plan and schedule habits,
+            goals, and tasks. Higher Habits does not access your Gmail, Google
+            Drive, or other Google services.
           </p>
         </section>
 
@@ -94,7 +99,7 @@ export default function PrivacyPage() {
           <p>
             You can delete your account in the app from Settings. Deleting your
             account permanently removes your account, associated app data, and
-            uploaded photos controlled by float.
+            uploaded photos controlled by Higher Habits.
           </p>
         </section>
 

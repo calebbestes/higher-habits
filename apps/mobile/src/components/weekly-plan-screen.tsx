@@ -49,10 +49,10 @@ import {
   getNativeAuthCallbackURLForPath,
   getNativeAuthErrorCallbackURLForPath,
 } from "@/lib/native-auth-callback";
-import {
-  type PlannedEvent,
-  type PlannedEventSourceType,
-  fetchPlannedEvents,
+import { fetchWeekPlanBootstrap } from "@/lib/plan-bootstrap-client";
+import type {
+  PlannedEvent,
+  PlannedEventSourceType,
 } from "@/lib/planned-events-client";
 import {
   type WeeklyPlanNoteHeader,
@@ -593,9 +593,12 @@ export function WeeklyPlanScreen({
 
       try {
         const weekDateKeys = weekDays.map((day) => toDateKey(day));
-        const plannedResults = await Promise.allSettled(
-          weekDateKeys.map((dateKey) => fetchPlannedEvents({ dateKey })),
-        );
+        const plannedResult = await Promise.allSettled([
+          fetchWeekPlanBootstrap(
+            weekDateKeys[0] ?? weekStartKey,
+            weekDateKeys.at(-1) ?? weekStartKey,
+          ),
+        ]);
         const googleResults = await Promise.allSettled(
           weekDays.map((day) => {
             const range = getDayRange(day);
@@ -616,9 +619,10 @@ export function WeeklyPlanScreen({
         ]);
 
         if (!mountedRef.current || requestId !== requestIdRef.current) return;
-        const plannedWeekEvents = plannedResults.flatMap((result) =>
-          result.status === "fulfilled" ? result.value : [],
-        );
+        const plannedWeekEvents =
+          plannedResult[0]?.status === "fulfilled"
+            ? plannedResult[0].value.plannedEvents
+            : [];
         const googleWeekEvents = googleResults.flatMap((result, index) =>
           result.status === "fulfilled"
             ? result.value.events.map((event) =>
@@ -795,7 +799,7 @@ export function WeeklyPlanScreen({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [draftNotes, hasUnsavedNotes, isLoading, notesModalOpen, saveNotes]);
+  }, [hasUnsavedNotes, isLoading, notesModalOpen, saveNotes]);
 
   const closeNotesModal = useCallback(() => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);

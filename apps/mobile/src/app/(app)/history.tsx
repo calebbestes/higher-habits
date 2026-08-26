@@ -26,23 +26,12 @@ export default function HistoryRoute() {
 
   return (
     <View style={styles.pageStack}>
-      <View
-        style={[
-          styles.page,
-          activeSection !== "dashboard" && styles.inactivePage,
-        ]}
-      >
-        <DashboardScreen />
-      </View>
-      <View
-        style={[styles.page, activeSection !== "journal" && styles.inactivePage]}
-      >
-        <JournalScreen />
-      </View>
-      <View
-        style={[styles.page, activeSection !== "profile" && styles.inactivePage]}
-      >
-        <FriendProfileScreen self showHistoryHeader />
+      <View style={styles.page}>
+        {activeSection === "dashboard" ? <DashboardScreen /> : null}
+        {activeSection === "journal" ? <JournalScreen /> : null}
+        {activeSection === "profile" ? (
+          <FriendProfileScreen self showHistoryHeader />
+        ) : null}
       </View>
     </View>
   );
@@ -57,7 +46,6 @@ function isHistorySection(
 }
 
 const styles = StyleSheet.create({
-  inactivePage: { display: "none" },
   page: { flex: 1 },
   pageStack: { flex: 1 },
 });

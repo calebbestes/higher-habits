@@ -27,27 +27,16 @@ export default function AddScreen() {
 
   return (
     <View style={styles.pageStack}>
-      <View
-        style={[styles.page, activeSection !== "habits" && styles.inactivePage]}
-      >
-        <DailyGoalsScreen />
-      </View>
-      <View
-        style={[styles.page, activeSection !== "goals" && styles.inactivePage]}
-      >
-        <GoalsScreen />
-      </View>
-      <View
-        style={[styles.page, activeSection !== "tasks" && styles.inactivePage]}
-      >
-        <TasksScreen />
+      <View style={styles.page}>
+        {activeSection === "habits" ? <DailyGoalsScreen /> : null}
+        {activeSection === "goals" ? <GoalsScreen /> : null}
+        {activeSection === "tasks" ? <TasksScreen /> : null}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  inactivePage: { display: "none" },
   page: { flex: 1 },
   pageStack: { flex: 1 },
 });

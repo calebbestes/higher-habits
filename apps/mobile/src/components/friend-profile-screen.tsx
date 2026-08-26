@@ -34,8 +34,8 @@ import {
   type FriendRow,
   fetchFriendProfile,
   fetchFriendProfileByFriendId,
+  fetchFriendProfilePosts,
   fetchFriends,
-  fetchFriendsFeed,
   fetchMyPosts,
   fetchMyProfile,
   sendFriendNudge,
@@ -243,14 +243,21 @@ export function FriendProfileScreen({
           setFriends([]);
           setIsLoading(false);
 
-          const feed = await fetchFriendsFeed().catch(() => []);
+          const feedPage = nextProfile.friend.friendshipId
+            ? await fetchFriendProfilePosts(nextProfile.friend.friendshipId, {
+                limit: 20,
+              }).catch(() => ({
+                items: [],
+                nextCursor: null,
+              }))
+            : { items: [], nextCursor: null };
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
 
           setPosts(
-            feed
+            feedPage.items
               .filter((entry) => entry.friend.id === nextProfile.friend.id)
               .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),

@@ -36,10 +36,17 @@ const deleteManySchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
 });
 
+const completeSchema = z.object({
+  type: z.literal("complete"),
+  id: z.string().uuid(),
+  completedAt: dateKeySchema.nullable(),
+});
+
 const bodySchema = z.discriminatedUnion("type", [
   createSchema,
   updateSchema,
   deleteManySchema,
+  completeSchema,
 ]);
 
 const getDatabase = () => getDb() ?? null;
@@ -55,6 +62,86 @@ function mountainTodayDateKey(date = new Date()): string {
     parts.find((part) => part.type === type)?.value ?? "";
 
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function dateFromDateKey(dateKey: string): Date {
+  return new Date(`${dateKey}T12:00:00.000Z`);
+}
+
+function dateKeyFromDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = dateFromDateKey(dateKey);
+  date.setUTCDate(date.getUTCDate() + days);
+  return dateKeyFromDate(date);
+}
+
+function getNextWeekdayDateKey(weekday: number, fromDateKey: string): string {
+  const fromDate = dateFromDateKey(fromDateKey);
+  const currentWeekday = fromDate.getUTCDay();
+  const dayDelta = (weekday - currentWeekday + 7) % 7 || 7;
+  return addDaysToDateKey(fromDateKey, dayDelta);
+}
+
+function getNextMonthDayDateKey(monthDay: number, fromDateKey: string): string {
+  const fromDate = dateFromDateKey(fromDateKey);
+  const nextMonth = new Date(
+    Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth() + 1, 1),
+  );
+  const lastDay = new Date(
+    Date.UTC(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  nextMonth.setUTCDate(Math.min(monthDay, lastDay));
+  return dateKeyFromDate(nextMonth);
+}
+
+function getNextRecurringTaskDueDate(
+  task: Pick<
+    typeof tasks.$inferSelect,
+    | "recurrence"
+    | "recurrenceMonthDay"
+    | "recurrenceMonthDays"
+    | "recurrenceWeekday"
+    | "recurrenceWeekdays"
+  >,
+  completedAt: string,
+): string | null {
+  if (task.recurrence === "none") return null;
+  if (task.recurrence === "daily") return addDaysToDateKey(completedAt, 1);
+
+  if (task.recurrence === "weekly") {
+    const weekdays = Array.from(
+      new Set(
+        (task.recurrenceWeekdays ?? []).filter(
+          (day): day is number => Number.isInteger(day) && day >= 0 && day <= 6,
+        ),
+      ),
+    ).sort((left, right) => left - right);
+    const fallback =
+      task.recurrenceWeekday ?? dateFromDateKey(completedAt).getUTCDay();
+    return (
+      weekdays
+        .map((weekday) => getNextWeekdayDateKey(weekday, completedAt))
+        .sort()[0] ?? getNextWeekdayDateKey(fallback, completedAt)
+    );
+  }
+
+  const monthDays = Array.from(
+    new Set(
+      (task.recurrenceMonthDays ?? []).filter(
+        (day): day is number => Number.isInteger(day) && day >= 1 && day <= 31,
+      ),
+    ),
+  ).sort((left, right) => left - right);
+  const fallback =
+    task.recurrenceMonthDay ?? dateFromDateKey(completedAt).getUTCDate();
+  return (
+    monthDays
+      .map((monthDay) => getNextMonthDayDateKey(monthDay, completedAt))
+      .sort()[0] ?? getNextMonthDayDateKey(fallback, completedAt)
+  );
 }
 
 export async function GET(request: Request) {
@@ -159,6 +246,61 @@ export async function POST(request: Request) {
         projectId: d.projectId,
       };
     };
+
+    if (data.type === "complete") {
+      const nextTask = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(tasks)
+          .set({ completedAt: data.completedAt })
+          .where(
+            and(
+              eq(tasks.id, data.id),
+              eq(tasks.userId, user.id),
+              data.completedAt === null ? undefined : isNull(tasks.completedAt),
+            ),
+          )
+          .returning();
+
+        if (!updated) {
+          return null;
+        }
+
+        if (data.completedAt === null) return null;
+        const dueDate = getNextRecurringTaskDueDate(updated, data.completedAt);
+        if (!dueDate) return null;
+
+        const [created] = await tx
+          .insert(tasks)
+          .values({
+            userId: user.id,
+            projectId: updated.projectId,
+            name: updated.name,
+            importance: updated.importance,
+            dueDate,
+            completedAt: null,
+            timeRequired: updated.timeRequired,
+            recurrence: updated.recurrence,
+            recurrenceWeekday: updated.recurrenceWeekday,
+            recurrenceMonthDay: updated.recurrenceMonthDay,
+            recurrenceWeekdays: updated.recurrenceWeekdays,
+            recurrenceMonthDays: updated.recurrenceMonthDays,
+          })
+          .returning();
+
+        return created ?? null;
+      });
+
+      const [task] = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.id, data.id), eq(tasks.userId, user.id)))
+        .limit(1);
+      if (!task) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({ task, nextTask });
+    }
 
     if (data.type === "create") {
       const [row] = await db.insert(tasks).values(taskValues(data)).returning();

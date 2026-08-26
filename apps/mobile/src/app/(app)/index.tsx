@@ -16,9 +16,7 @@ export default function CollabScreen() {
   const { section } = useLocalSearchParams<{ section?: string }>();
   const rememberedSection = useCollabSection();
   const activeSection =
-    section === "feed" ||
-    section === "incentives" ||
-    section === "shared-goals"
+    section === "feed" || section === "incentives" || section === "shared-goals"
       ? section
       : rememberedSection === "friends"
         ? "feed"
@@ -37,37 +35,20 @@ export default function CollabScreen() {
     ) {
       setCollabSection(section);
     }
-  }, [section]);
+  }, [router, section]);
 
   return (
     <View style={styles.pageStack}>
-      <View
-        style={[styles.page, activeSection !== "feed" && styles.inactivePage]}
-      >
-        <FeedScreen />
-      </View>
-      <View
-        style={[
-          styles.page,
-          activeSection !== "incentives" && styles.inactivePage,
-        ]}
-      >
-        <IncentivesScreen />
-      </View>
-      <View
-        style={[
-          styles.page,
-          activeSection !== "shared-goals" && styles.inactivePage,
-        ]}
-      >
-        <SharedGoalsScreen />
+      <View style={styles.page}>
+        {activeSection === "feed" ? <FeedScreen /> : null}
+        {activeSection === "incentives" ? <IncentivesScreen /> : null}
+        {activeSection === "shared-goals" ? <SharedGoalsScreen /> : null}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  inactivePage: { display: "none" },
   page: { flex: 1 },
   pageStack: { flex: 1 },
 });

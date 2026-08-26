@@ -93,7 +93,11 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [isMobileFriendsOpen, setIsMobileFriendsOpen] = useState(false);
   const [isMobileAddOpen, setIsMobileAddOpen] = useState(false);
   const isPublicPage =
-    pathname === "/login" || pathname === "/privacy" || pathname === "/sign-up";
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/privacy" ||
+    pathname === "/sign-up" ||
+    pathname === "/support";
   const isCalendarRoute = isNavActive("/calendar", pathname);
   const isFriendsRoute = isNavActive(COLLAB_NAV_ITEM.href, pathname);
   const activeFriendsSection = parseFriendsSection(

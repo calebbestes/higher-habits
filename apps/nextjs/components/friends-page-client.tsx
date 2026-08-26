@@ -229,7 +229,10 @@ async function fetchFriendsFeed() {
   const response = await fetch(`${FRIENDS_ENDPOINT}/feed`, {
     cache: "no-store",
   });
-  return parseJsonResponse<FriendFeedEntry[]>(response);
+  const payload = await parseJsonResponse<
+    FriendFeedEntry[] | { items?: FriendFeedEntry[] }
+  >(response);
+  return Array.isArray(payload) ? payload : (payload.items ?? []);
 }
 
 async function updateFriendFeedPost(

@@ -8,9 +8,9 @@ import {
   type FriendFeedEntry,
   addFeedComment,
   addReflectionComment,
-  deleteReflectionPost,
   deleteFeedComment,
   deleteReflectionComment,
+  deleteReflectionPost,
   fetchFriendsFeed,
   fetchMyPosts,
   reportContent,
@@ -75,11 +75,17 @@ export function PostScreen({
       try {
         const primary = source === "self" ? fetchMyPosts : fetchFriendsFeed;
         const fallback = source === "self" ? fetchFriendsFeed : fetchMyPosts;
-        const primaryPosts = await primary();
+        const primaryResponse = await primary();
+        const primaryPosts = Array.isArray(primaryResponse)
+          ? primaryResponse
+          : primaryResponse.items;
         let nextEntry = primaryPosts.find((post) => post.id === postId) ?? null;
 
         if (!nextEntry) {
-          const fallbackPosts = await fallback().catch(() => []);
+          const fallbackResponse = await fallback().catch(() => []);
+          const fallbackPosts = Array.isArray(fallbackResponse)
+            ? fallbackResponse
+            : fallbackResponse.items;
           nextEntry = fallbackPosts.find((post) => post.id === postId) ?? null;
         }
 

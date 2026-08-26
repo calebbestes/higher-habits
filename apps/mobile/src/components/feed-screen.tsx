@@ -14,6 +14,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -21,7 +22,6 @@ import {
   Platform,
   Pressable,
   Image as RNImage,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -116,6 +116,7 @@ const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
 const DAILY_REFLECTION_PROMPT_KEY = "daily-reflection-prompt";
 const DAILY_REFLECTION_FAVORITES_KEY = "daily-reflection-favorites";
 const FEED_AD_INTERVAL = 3;
+const FEED_BATCH_SIZE = 10;
 const POST_DOUBLE_TAP_DELAY_MS = 260;
 
 type FeedFilters = {
@@ -131,6 +132,10 @@ type FeedRenderItem =
       slotIndex: number;
       afterEntryId: string;
     };
+
+function FeedItemSeparator() {
+  return <View style={styles.feedItemSeparator} />;
+}
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -461,6 +466,8 @@ export function FeedScreen() {
     [viewportHeight, viewportWidth],
   );
   const [entries, setEntries] = useState<FriendFeedEntry[]>([]);
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
   const [myDailyReflectionEntry, setMyDailyReflectionEntry] =
     useState<FriendFeedEntry | null>(null);
   const [friends, setFriends] = useState<FriendRow[]>([]);
@@ -581,14 +588,14 @@ export function FeedScreen() {
     setError(null);
     try {
       const [
-        data,
+        feedPage,
         groups,
         nextFriends,
         nextPersonalGoals,
         sharedGoals,
         myPosts,
       ] = await Promise.all([
-        fetchFriendsFeed(),
+        fetchFriendsFeed({ limit: FEED_BATCH_SIZE }),
         fetchFriendGroups().catch(() => []),
         fetchFriends().catch(() => []),
         fetchGoals().catch(() => []),
@@ -599,7 +606,8 @@ export function FeedScreen() {
         return;
       }
       const todayKey = toDateKey(new Date());
-      setEntries(data);
+      setFeedCursor(feedPage.nextCursor);
+      setEntries(feedPage.items);
       setMyDailyReflectionEntry(
         myPosts.find(
           (post) => post.kind === "reflection" && post.dateKey === todayKey,
@@ -610,7 +618,7 @@ export function FeedScreen() {
       setPersonalGoals(nextPersonalGoals);
       setJoinedGoalKeys(
         new Set(
-          data
+          feedPage.items
             .filter((entry) => hasJoinedSharedGoal(entry, sharedGoals))
             .map(feedGoalKey),
         ),
@@ -1475,6 +1483,226 @@ export function FeedScreen() {
     () => buildFeedRenderItems(visibleEntries, hiddenFeedAdKeys),
     [hiddenFeedAdKeys, visibleEntries],
   );
+  const loadMoreFeedEntries = useCallback(async () => {
+    if (!feedCursor || isLoadingMoreFeed || isLoading) return;
+
+    setIsLoadingMoreFeed(true);
+    try {
+      const nextPage = await fetchFriendsFeed({
+        cursor: feedCursor,
+        limit: FEED_BATCH_SIZE,
+      });
+      if (!isMountedRef.current) return;
+
+      setEntries((current) => {
+        const existingIds = new Set(current.map((entry) => entry.id));
+        return [
+          ...current,
+          ...nextPage.items.filter((entry) => !existingIds.has(entry.id)),
+        ];
+      });
+      setFeedCursor(nextPage.nextCursor);
+    } catch {
+      // The next scroll can retry the cursor request without disrupting the
+      // entries already on screen.
+    } finally {
+      if (isMountedRef.current) setIsLoadingMoreFeed(false);
+    }
+  }, [feedCursor, isLoading, isLoadingMoreFeed]);
+  useEffect(() => {
+    if (
+      isLoading ||
+      isLoadingMoreFeed ||
+      visibleEntries.length > 0 ||
+      !feedCursor
+    ) {
+      return;
+    }
+
+    void loadMoreFeedEntries();
+  }, [
+    feedCursor,
+    isLoading,
+    isLoadingMoreFeed,
+    loadMoreFeedEntries,
+    visibleEntries.length,
+  ]);
+  const renderFeedItem = useCallback(
+    ({ item }: { item: FeedRenderItem }) =>
+      item.type === "entry" ? (
+        <FeedCard
+          entry={item.entry}
+          onToggleProp={() => void handleToggleProp(item.entry)}
+          onPhotoPress={(photo) => {
+            playSelectionHaptic();
+            setActivePhoto({ entry: item.entry, photo });
+          }}
+          onOpenComments={() => {
+            playSelectionHaptic();
+            setActiveCommentsEntryId(item.entry.id);
+          }}
+          onOpenProfile={() => void openFriendProfile(item.entry)}
+          onOpenSafetyActions={() => openPostSafetyActions(item.entry)}
+          onOpenBirthdayMessage={
+            item.entry.kind === "birthday"
+              ? () => messageBirthdayFriend(item.entry)
+              : undefined
+          }
+          onOpenIncentive={
+            item.entry.kind !== "habit"
+              ? undefined
+              : () => openPostIncentive(item.entry)
+          }
+          joinGoalStatus={
+            joinedGoalKeys.has(feedGoalKey(item.entry))
+              ? "joined"
+              : isPreparingJoinGoal
+                ? "loading"
+                : "idle"
+          }
+          onOpenJoinGoal={
+            item.entry.kind !== "habit"
+              ? undefined
+              : () => void openJoinGoal(item.entry)
+          }
+        />
+      ) : (
+        <FeedAdCard
+          disabled={reportingFeedAdKey === item.id}
+          item={item}
+          onHide={() => hideFeedAd(item)}
+          onReport={() => void reportFeedAd(item)}
+        />
+      ),
+    [
+      handleToggleProp,
+      hideFeedAd,
+      isPreparingJoinGoal,
+      joinedGoalKeys,
+      messageBirthdayFriend,
+      openFriendProfile,
+      openJoinGoal,
+      openPostIncentive,
+      openPostSafetyActions,
+      reportFeedAd,
+      reportingFeedAdKey,
+    ],
+  );
+  const feedHeader = (
+    <View style={styles.feedListHeader}>
+      <View style={styles.pageHeader}>
+        <View style={styles.pageHeaderText}>
+          <PageHeaderTitle title="Collab" />
+          <CollabSectionHeaderTabs currentSection="feed" />
+        </View>
+        <Pressable
+          accessibilityLabel="Filter feed"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => {
+            playSelectionHaptic();
+            setIsFilterOpen(true);
+          }}
+          style={({ pressed }) => [
+            styles.filterButton,
+            {
+              backgroundColor:
+                activeFilterCount > 0 ? `${theme.primary}18` : "transparent",
+              borderColor:
+                activeFilterCount > 0 ? theme.primary : theme.tabBorder,
+            },
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("line.3.horizontal.decrease.circle", "tune")}
+            size={22}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+          {activeFilterCount > 0 ? (
+            <View
+              style={[
+                styles.filterBadge,
+                {
+                  backgroundColor: theme.primary,
+                  borderColor: theme.background,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.filterBadgeText,
+                  { color: theme.primaryForeground },
+                ]}
+              >
+                {activeFilterCount}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
+      </View>
+
+      {myDailyReflectionEntry ? null : (
+        <DailyReflectionCard
+          prompt={dailyReflectionPrompt}
+          onChoosePrompt={() => {
+            playSelectionHaptic();
+            setIsReflectionPickerOpen(true);
+          }}
+          onUsePrompt={() => openReflectionComposer(dailyReflectionPrompt)}
+        />
+      )}
+
+      {myDailyReflectionEntry ? (
+        <View style={styles.pinnedReflection}>
+          <FeedCard
+            entry={myDailyReflectionEntry}
+            onToggleProp={() => void handleToggleProp(myDailyReflectionEntry)}
+            onPhotoPress={(photo) => {
+              playSelectionHaptic();
+              setActivePhoto({ entry: myDailyReflectionEntry, photo });
+            }}
+            onOpenComments={() => {
+              playSelectionHaptic();
+              setActiveCommentsEntryId(myDailyReflectionEntry.id);
+            }}
+            onOpenProfile={() => void openFriendProfile(myDailyReflectionEntry)}
+            onOpenSafetyActions={() =>
+              openPostSafetyActions(myDailyReflectionEntry)
+            }
+            joinGoalStatus="idle"
+          />
+        </View>
+      ) : null}
+
+      {error ? (
+        <View style={styles.errorBanner}>
+          <SymbolView
+            name={sym("exclamationmark.circle.fill", "error")}
+            size={18}
+            tintColor="#9D474D"
+          />
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable onPress={() => void load()}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+  const emptyFeedState = isLoading ? (
+    <View style={styles.centerState}>
+      <FloatingLogoLoader />
+    </View>
+  ) : visibleEntries.length === 0 && !error ? (
+    <View style={styles.centerState}>
+      <BrandedEmptyState
+        title="No activity yet"
+        description="Friends' journal entries with photos will appear here."
+      />
+    </View>
+  ) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -1483,199 +1711,41 @@ export function FeedScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.keyboardView}
         >
-          <ScrollView
+          <FlatList
             canCancelContentTouches
             contentContainerStyle={[
               styles.content,
               { paddingBottom: tabBarHeight + 16 },
             ]}
+            data={isLoading || visibleEntries.length === 0 ? [] : feedItems}
             directionalLockEnabled
+            initialNumToRender={4}
+            ItemSeparatorComponent={FeedItemSeparator}
             keyboardShouldPersistTaps="handled"
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                tintColor={theme.primary}
-                onRefresh={() => void load(true)}
-              />
+            keyExtractor={(item) =>
+              item.type === "entry" ? item.entry.id : item.id
             }
+            ListEmptyComponent={emptyFeedState}
+            ListFooterComponent={
+              isLoadingMoreFeed ? (
+                <ActivityIndicator
+                  color={theme.primary}
+                  size="small"
+                  style={styles.feedLoadMoreIndicator}
+                />
+              ) : null
+            }
+            ListHeaderComponent={feedHeader}
+            maxToRenderPerBatch={4}
+            onEndReached={loadMoreFeedEntries}
+            onEndReachedThreshold={0.4}
+            onRefresh={() => void load(true)}
+            refreshing={isRefreshing}
+            removeClippedSubviews={Platform.OS !== "web"}
+            renderItem={renderFeedItem}
             showsVerticalScrollIndicator={false}
-          >
-            {/* Page header */}
-            <View style={styles.pageHeader}>
-              <View style={styles.pageHeaderText}>
-                <PageHeaderTitle title="Collab" />
-                <CollabSectionHeaderTabs currentSection="feed" />
-              </View>
-              <Pressable
-                accessibilityLabel="Filter feed"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => {
-                  playSelectionHaptic();
-                  setIsFilterOpen(true);
-                }}
-                style={({ pressed }) => [
-                  styles.filterButton,
-                  {
-                    backgroundColor:
-                      activeFilterCount > 0
-                        ? `${theme.primary}18`
-                        : "transparent",
-                    borderColor:
-                      activeFilterCount > 0 ? theme.primary : theme.tabBorder,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("line.3.horizontal.decrease.circle", "tune")}
-                  size={22}
-                  weight="semibold"
-                  tintColor={theme.primary}
-                />
-                {activeFilterCount > 0 ? (
-                  <View
-                    style={[
-                      styles.filterBadge,
-                      {
-                        backgroundColor: theme.primary,
-                        borderColor: theme.background,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterBadgeText,
-                        { color: theme.primaryForeground },
-                      ]}
-                    >
-                      {activeFilterCount}
-                    </Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            </View>
-
-            {myDailyReflectionEntry ? null : (
-              <DailyReflectionCard
-                prompt={dailyReflectionPrompt}
-                onChoosePrompt={() => {
-                  playSelectionHaptic();
-                  setIsReflectionPickerOpen(true);
-                }}
-                onUsePrompt={() =>
-                  openReflectionComposer(dailyReflectionPrompt)
-                }
-              />
-            )}
-
-            {myDailyReflectionEntry ? (
-              <View style={styles.pinnedReflection}>
-                <FeedCard
-                  entry={myDailyReflectionEntry}
-                  onToggleProp={() =>
-                    void handleToggleProp(myDailyReflectionEntry)
-                  }
-                  onPhotoPress={(photo) => {
-                    playSelectionHaptic();
-                    setActivePhoto({ entry: myDailyReflectionEntry, photo });
-                  }}
-                  onOpenComments={() => {
-                    playSelectionHaptic();
-                    setActiveCommentsEntryId(myDailyReflectionEntry.id);
-                  }}
-                  onOpenProfile={() =>
-                    void openFriendProfile(myDailyReflectionEntry)
-                  }
-                  onOpenSafetyActions={() =>
-                    openPostSafetyActions(myDailyReflectionEntry)
-                  }
-                  joinGoalStatus="idle"
-                />
-              </View>
-            ) : null}
-
-            {error ? (
-              <View style={styles.errorBanner}>
-                <SymbolView
-                  name={sym("exclamationmark.circle.fill", "error")}
-                  size={18}
-                  tintColor="#9D474D"
-                />
-                <Text style={styles.errorText}>{error}</Text>
-                <Pressable onPress={() => void load()}>
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            {isLoading ? (
-              <View style={styles.centerState}>
-                <FloatingLogoLoader />
-              </View>
-            ) : visibleEntries.length === 0 && !error ? (
-              <View style={styles.centerState}>
-                <BrandedEmptyState
-                  title="No activity yet"
-                  description="Friends' journal entries with photos will appear here."
-                />
-              </View>
-            ) : (
-              <View style={styles.feedList}>
-                {feedItems.map((item) =>
-                  item.type === "entry" ? (
-                    <FeedCard
-                      key={item.entry.id}
-                      entry={item.entry}
-                      onToggleProp={() => void handleToggleProp(item.entry)}
-                      onPhotoPress={(photo) => {
-                        playSelectionHaptic();
-                        setActivePhoto({ entry: item.entry, photo });
-                      }}
-                      onOpenComments={() => {
-                        playSelectionHaptic();
-                        setActiveCommentsEntryId(item.entry.id);
-                      }}
-                      onOpenProfile={() => void openFriendProfile(item.entry)}
-                      onOpenSafetyActions={() =>
-                        openPostSafetyActions(item.entry)
-                      }
-                      onOpenBirthdayMessage={
-                        item.entry.kind === "birthday"
-                          ? () => messageBirthdayFriend(item.entry)
-                          : undefined
-                      }
-                      onOpenIncentive={
-                        item.entry.kind !== "habit"
-                          ? undefined
-                          : () => openPostIncentive(item.entry)
-                      }
-                      joinGoalStatus={
-                        joinedGoalKeys.has(feedGoalKey(item.entry))
-                          ? "joined"
-                          : isPreparingJoinGoal
-                            ? "loading"
-                            : "idle"
-                      }
-                      onOpenJoinGoal={
-                        item.entry.kind !== "habit"
-                          ? undefined
-                          : () => void openJoinGoal(item.entry)
-                      }
-                    />
-                  ) : (
-                    <FeedAdCard
-                      key={item.id}
-                      disabled={reportingFeedAdKey === item.id}
-                      item={item}
-                      onHide={() => hideFeedAd(item)}
-                      onReport={() => void reportFeedAd(item)}
-                    />
-                  ),
-                )}
-              </View>
-            )}
-          </ScrollView>
+            windowSize={7}
+          />
         </KeyboardAvoidingView>
       </SafeAreaView>
 
@@ -4565,7 +4635,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 40,
-    gap: 13,
   },
   pageHeader: {
     flexDirection: "row",
@@ -4700,7 +4769,12 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "800",
   },
-  feedList: { gap: 10 },
+  feedListHeader: {
+    gap: 13,
+    paddingBottom: 13,
+  },
+  feedItemSeparator: { height: 10 },
+  feedLoadMoreIndicator: { paddingVertical: 16 },
   pinnedReflection: {
     marginTop: 3,
   },

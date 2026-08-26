@@ -1,5 +1,5 @@
-import { mobileApiFetch } from "@/lib/mobile-api";
 import { recordReviewMilestone } from "@/lib/in-app-review";
+import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type Task = {
   id: string;
@@ -393,21 +393,22 @@ export const updateTask = (id: string, input: TaskInput) =>
     body: JSON.stringify({ type: "update", id, ...input }),
   }).then((response) => parseResponse<Task>(response));
 
+export const completeTask = (
+  id: string,
+  completedAt: string | null,
+): Promise<{ task: Task; nextTask: Task | null }> =>
+  mobileApiFetch("/api/tasks", {
+    method: "POST",
+    body: JSON.stringify({ type: "complete", id, completedAt }),
+  }).then((response) =>
+    parseResponse<{ task: Task; nextTask: Task | null }>(response),
+  );
+
 export async function updateTaskCompletion(
   task: Task,
   completedAt: string | null,
 ): Promise<{ nextTask: Task | null; task: Task }> {
-  const updated = await updateTask(task.id, {
-    ...taskToInput(task),
-    completedAt,
-  });
-  const nextInput =
-    task.completedAt || !completedAt
-      ? null
-      : nextRecurringTaskInput(task, completedAt);
-  const nextTask = nextInput ? await createTask(nextInput) : null;
-
-  return { nextTask, task: updated };
+  return completeTask(task.id, completedAt);
 }
 
 export const deleteTask = (id: string) =>

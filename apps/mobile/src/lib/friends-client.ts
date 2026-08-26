@@ -452,6 +452,26 @@ function normalizeFeed(value: unknown): FriendFeedEntry[] {
     : [];
 }
 
+export type FriendFeedPage = {
+  items: FriendFeedEntry[];
+  nextCursor: string | null;
+};
+
+function normalizeFeedPage(value: unknown): FriendFeedPage {
+  if (Array.isArray(value)) {
+    return { items: normalizeFeed(value), nextCursor: null };
+  }
+
+  if (!isRecord(value)) {
+    return { items: [], nextCursor: null };
+  }
+
+  return {
+    items: normalizeFeed(value.items),
+    nextCursor: typeof value.nextCursor === "string" ? value.nextCursor : null,
+  };
+}
+
 function toProfileDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -705,10 +725,11 @@ async function fetchFriendProfileFromExistingData(lookup: {
   friendshipId?: string;
   friendId?: string;
 }): Promise<FriendProfile> {
-  const [friends, feed] = await Promise.all([
+  const [friends, feedPage] = await Promise.all([
     fetchFriends(),
     fetchFriendsFeed(),
   ]);
+  const feed = feedPage.items;
   const friend = friends.find(
     (row) =>
       row.status === "accepted" &&
@@ -865,10 +886,35 @@ export const reportContent = (payload: {
     body: JSON.stringify(payload),
   }).then((r) => parseResponse<{ ok: true }>(r));
 
-export const fetchFriendsFeed = () =>
-  mobileApiFetch("/api/friends/feed")
+export const fetchFriendsFeed = (
+  options: {
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<FriendFeedPage> => {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 10));
+  if (options.cursor) params.set("cursor", options.cursor);
+
+  return mobileApiFetch(`/api/friends/feed?${params.toString()}`)
     .then((r) => parseResponse<unknown>(r))
-    .then(normalizeFeed);
+    .then(normalizeFeedPage);
+};
+
+export const fetchFriendProfilePosts = (
+  friendshipId: string,
+  options: { cursor?: string | null; limit?: number } = {},
+): Promise<FriendFeedPage> => {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 10));
+  if (options.cursor) params.set("cursor", options.cursor);
+
+  return mobileApiFetch(
+    `/api/friends/${encodeURIComponent(friendshipId)}/posts?${params.toString()}`,
+  )
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeFeedPage);
+};
 
 export const fetchDailyReflectionPromptStats = () =>
   mobileApiFetch("/api/daily-reflections/prompts")

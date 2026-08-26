@@ -25,12 +25,16 @@ import {
   asc,
   desc,
   eq,
+  exists,
   inArray,
   isNotNull,
   isNull,
+  lt,
+  ne,
   or,
 } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
@@ -40,6 +44,48 @@ import {
 } from "@/lib/supabase-storage";
 
 const getDatabase = () => getDb() ?? null;
+const DEFAULT_FEED_PAGE_SIZE = 10;
+const MAX_FEED_PAGE_SIZE = 20;
+const FEED_CANDIDATE_MULTIPLIER = 4;
+
+const feedCursorSchema = z.object({
+  id: z.string().uuid().or(z.string().min(1)),
+  updatedAt: z.string().datetime(),
+});
+
+type FeedCursor = z.infer<typeof feedCursorSchema>;
+
+function decodeFeedCursor(value: string | null): FeedCursor | null {
+  if (!value) return null;
+
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    );
+    const parsed = feedCursorSchema.safeParse(decoded);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeFeedCursor(entry: { id: string; updatedAt: string }) {
+  return Buffer.from(
+    JSON.stringify({ id: entry.id, updatedAt: entry.updatedAt }),
+  ).toString("base64url");
+}
+
+function isBeforeFeedCursor(
+  entry: { id: string; updatedAt: string },
+  cursor: FeedCursor | null,
+) {
+  if (!cursor) return true;
+  const entryTime = new Date(entry.updatedAt).getTime();
+  const cursorTime = new Date(cursor.updatedAt).getTime();
+  return (
+    entryTime < cursorTime || (entryTime === cursorTime && entry.id < cursor.id)
+  );
+}
 
 type FeedCommentRow = {
   id: string;
@@ -303,8 +349,27 @@ export async function GET(request: Request) {
       );
     }
 
+    const url = new URL(request.url);
+    const requestedLimit = Number(url.searchParams.get("limit"));
+    const limit = Number.isInteger(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), MAX_FEED_PAGE_SIZE)
+      : DEFAULT_FEED_PAGE_SIZE;
+    const cursor = decodeFeedCursor(url.searchParams.get("cursor"));
+    const profilePostsOnly = url.searchParams.get("profilePosts") === "1";
+    const cursorDate = cursor ? new Date(cursor.updatedAt) : null;
+    const cursorId = cursor?.id ?? "";
+    const cursorHasUuid = Boolean(
+      cursor?.id && z.string().uuid().safeParse(cursor.id).success,
+    );
+    const candidateLimit = Math.min(
+      limit * FEED_CANDIDATE_MULTIPLIER,
+      MAX_FEED_PAGE_SIZE * FEED_CANDIDATE_MULTIPLIER,
+    );
+
+    const requestedFriendshipId = url.searchParams.get("friendshipId");
     const friendRows = await db
       .select({
+        friendshipId: friends.id,
         id: users.id,
         name: users.name,
         image: users.image,
@@ -323,6 +388,9 @@ export async function GET(request: Request) {
         and(
           eq(friends.status, "accepted"),
           or(eq(friends.userId1, user.id), eq(friends.userId2, user.id)),
+          requestedFriendshipId
+            ? eq(friends.id, requestedFriendshipId)
+            : undefined,
         ),
       );
 
@@ -332,7 +400,7 @@ export async function GET(request: Request) {
     const friendIds = [...friendsById.keys()];
 
     if (friendIds.length === 0) {
-      return NextResponse.json([]);
+      return NextResponse.json({ items: [], nextCursor: null });
     }
 
     const logRows = await db
@@ -360,9 +428,32 @@ export async function GET(request: Request) {
           inArray(goalLogs.userId, friendIds),
           eq(goalLogs.status, "complete"),
           eq(habits.userId, goalLogs.userId),
+          profilePostsOnly
+            ? or(
+                ne(goalLogs.notes, ""),
+                exists(
+                  db
+                    .select({ id: goalLogPhotos.id })
+                    .from(goalLogPhotos)
+                    .where(eq(goalLogPhotos.goalLogId, goalLogs.id)),
+                ),
+              )
+            : undefined,
+          cursorDate
+            ? cursorHasUuid
+              ? or(
+                  lt(goalLogs.updatedAt, cursorDate),
+                  and(
+                    eq(goalLogs.updatedAt, cursorDate),
+                    lt(goalLogs.id, cursorId),
+                  ),
+                )
+              : lt(goalLogs.updatedAt, cursorDate)
+            : undefined,
         ),
       )
-      .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.date));
+      .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.id))
+      .limit(candidateLimit);
 
     const goalRowsByFriendId = new Map<
       string,
@@ -508,41 +599,52 @@ export async function GET(request: Request) {
 
     const todayKey = mountainDateKey();
     const todayMonthDay = todayKey.slice(5);
-    for (const friend of friendRows) {
-      if (!friend.birthday || friend.birthday.slice(5) !== todayMonthDay) {
-        continue;
-      }
+    if (!profilePostsOnly) {
+      for (const friend of friendRows) {
+        const birthdayId = `birthday:${friend.id}:${todayKey}`;
+        const birthdayUpdatedAt = dateKeyToNoon(todayKey).toISOString();
+        if (
+          !friend.birthday ||
+          friend.birthday.slice(5) !== todayMonthDay ||
+          !isBeforeFeedCursor(
+            { id: birthdayId, updatedAt: birthdayUpdatedAt },
+            cursor,
+          )
+        ) {
+          continue;
+        }
 
-      entries.set(`birthday:${friend.id}:${todayKey}`, {
-        id: `birthday:${friend.id}:${todayKey}`,
-        kind: "birthday",
-        friend,
-        goal: {
-          id: `birthday:${friend.id}`,
-          name: "Birthday",
-          icon: "gift.fill",
-        },
-        category: null,
-        dateKey: todayKey,
-        notes: `It's ${friend.name}'s birthday today.`,
-        reflectionPrompt: null,
-        updatedAt: dateKeyToNoon(todayKey).toISOString(),
-        canDeletePhotos: false,
-        postType: "journal",
-        highlights: ["Birthday"],
-        props: { count: 0, hasPropped: false },
-        comments: [],
-        photos: friend.image
-          ? [
-              {
-                id: `birthday-photo:${friend.id}`,
-                url: friend.image,
-                contentType: "image/*",
-                createdAt: dateKeyToNoon(todayKey).toISOString(),
-              },
-            ]
-          : [],
-      });
+        entries.set(birthdayId, {
+          id: birthdayId,
+          kind: "birthday",
+          friend,
+          goal: {
+            id: `birthday:${friend.id}`,
+            name: "Birthday",
+            icon: "gift.fill",
+          },
+          category: null,
+          dateKey: todayKey,
+          notes: `It's ${friend.name}'s birthday today.`,
+          reflectionPrompt: null,
+          updatedAt: birthdayUpdatedAt,
+          canDeletePhotos: false,
+          postType: "journal",
+          highlights: ["Birthday"],
+          props: { count: 0, hasPropped: false },
+          comments: [],
+          photos: friend.image
+            ? [
+                {
+                  id: `birthday-photo:${friend.id}`,
+                  url: friend.image,
+                  contentType: "image/*",
+                  createdAt: birthdayUpdatedAt,
+                },
+              ]
+            : [],
+        });
+      }
     }
 
     for (const row of visibleLogRows) {
@@ -584,7 +686,7 @@ export async function GET(request: Request) {
 
     const entryIds = [...entries.keys()];
 
-    if (entryIds.length > 0) {
+    if (entryIds.length > 0 && !profilePostsOnly) {
       const [propRows, commentRows] = await Promise.all([
         db
           .select({
@@ -651,9 +753,34 @@ export async function GET(request: Request) {
           isNotNull(goalCheckpoints.completedAt),
           eq(goalCheckpoints.visibility, "all_friends"),
           eq(goals.userId, goalCheckpoints.userId),
+          profilePostsOnly
+            ? or(
+                ne(goalCheckpoints.notes, ""),
+                exists(
+                  db
+                    .select({ id: goalCheckpointPhotos.id })
+                    .from(goalCheckpointPhotos)
+                    .where(
+                      eq(goalCheckpointPhotos.checkpointId, goalCheckpoints.id),
+                    ),
+                ),
+              )
+            : undefined,
+          cursorDate
+            ? cursorHasUuid
+              ? or(
+                  lt(goalCheckpoints.updatedAt, cursorDate),
+                  and(
+                    eq(goalCheckpoints.updatedAt, cursorDate),
+                    lt(goalCheckpoints.id, cursorId),
+                  ),
+                )
+              : lt(goalCheckpoints.updatedAt, cursorDate)
+            : undefined,
         ),
       )
-      .orderBy(desc(goalCheckpoints.updatedAt));
+      .orderBy(desc(goalCheckpoints.updatedAt), desc(goalCheckpoints.id))
+      .limit(candidateLimit);
 
     const checkpointIds = checkpointRows.map((row) => row.entryId);
     const checkpointPhotoRows =
@@ -748,9 +875,25 @@ export async function GET(request: Request) {
             eq(dailyReflectionPosts.visibility, "all_friends"),
             eq(dailyReflectionPosts.visibility, "goal_friends"),
           ),
+          profilePostsOnly ? ne(dailyReflectionPosts.body, "") : undefined,
+          cursorDate
+            ? cursorHasUuid
+              ? or(
+                  lt(dailyReflectionPosts.updatedAt, cursorDate),
+                  and(
+                    eq(dailyReflectionPosts.updatedAt, cursorDate),
+                    lt(dailyReflectionPosts.id, cursorId),
+                  ),
+                )
+              : lt(dailyReflectionPosts.updatedAt, cursorDate)
+            : undefined,
         ),
       )
-      .orderBy(desc(dailyReflectionPosts.updatedAt));
+      .orderBy(
+        desc(dailyReflectionPosts.updatedAt),
+        desc(dailyReflectionPosts.id),
+      )
+      .limit(candidateLimit);
 
     const rawReflectionIds = reflectionRows.map((row) => row.entryId);
     const [reflectionAudienceFriendRows, reflectionAudienceGroupRows] =
@@ -879,28 +1022,42 @@ export async function GET(request: Request) {
       });
     }
 
-    const socialRows = await db
-      .select({
-        entryId: socialFeedPosts.id,
-        friendId: socialFeedPosts.userId,
-        targetUserId: socialFeedPosts.targetUserId,
-        kind: socialFeedPosts.kind,
-        title: socialFeedPosts.title,
-        body: socialFeedPosts.body,
-        createdAt: socialFeedPosts.createdAt,
-      })
-      .from(socialFeedPosts)
-      .where(
-        and(
-          inArray(socialFeedPosts.userId, friendIds),
-          or(
-            eq(socialFeedPosts.userId, user.id),
-            eq(socialFeedPosts.targetUserId, user.id),
-            isNull(socialFeedPosts.targetUserId),
-          ),
-        ),
-      )
-      .orderBy(desc(socialFeedPosts.createdAt));
+    const socialRows = profilePostsOnly
+      ? []
+      : await db
+          .select({
+            entryId: socialFeedPosts.id,
+            friendId: socialFeedPosts.userId,
+            targetUserId: socialFeedPosts.targetUserId,
+            kind: socialFeedPosts.kind,
+            title: socialFeedPosts.title,
+            body: socialFeedPosts.body,
+            createdAt: socialFeedPosts.createdAt,
+          })
+          .from(socialFeedPosts)
+          .where(
+            and(
+              inArray(socialFeedPosts.userId, friendIds),
+              or(
+                eq(socialFeedPosts.userId, user.id),
+                eq(socialFeedPosts.targetUserId, user.id),
+                isNull(socialFeedPosts.targetUserId),
+              ),
+              cursorDate
+                ? cursorHasUuid
+                  ? or(
+                      lt(socialFeedPosts.createdAt, cursorDate),
+                      and(
+                        eq(socialFeedPosts.createdAt, cursorDate),
+                        lt(socialFeedPosts.id, cursorId),
+                      ),
+                    )
+                  : lt(socialFeedPosts.createdAt, cursorDate)
+                : undefined,
+            ),
+          )
+          .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
+          .limit(candidateLimit);
 
     for (const row of socialRows) {
       const friend = friendsById.get(row.friendId);
@@ -936,7 +1093,7 @@ export async function GET(request: Request) {
       });
     }
 
-    if (reflectionIds.length > 0) {
+    if (reflectionIds.length > 0 && !profilePostsOnly) {
       const [reflectionPropRows, reflectionCommentRows] = await Promise.all([
         db
           .select({
@@ -988,10 +1145,25 @@ export async function GET(request: Request) {
     }
 
     const orderedEntries = [...entries.values()].sort((a, b) =>
-      a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
+      a.updatedAt === b.updatedAt
+        ? b.id.localeCompare(a.id)
+        : a.updatedAt < b.updatedAt
+          ? 1
+          : -1,
     );
+    const pageEntries = orderedEntries.slice(0, limit);
+    const hasMoreCandidates =
+      logRows.length === candidateLimit ||
+      checkpointRows.length === candidateLimit ||
+      reflectionRows.length === candidateLimit ||
+      socialRows.length === candidateLimit;
+    const hasMore = hasMoreCandidates || orderedEntries.length > limit;
+    const lastEntry = pageEntries.at(-1);
 
-    return NextResponse.json(orderedEntries);
+    return NextResponse.json({
+      items: pageEntries,
+      nextCursor: hasMore && lastEntry ? encodeFeedCursor(lastEntry) : null,
+    });
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
 
