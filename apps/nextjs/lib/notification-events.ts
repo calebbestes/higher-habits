@@ -1,7 +1,7 @@
 import {
-  type getDb,
   friendMessages,
   friends,
+  type getDb,
   goalCheckpoints,
   goalLogs,
   goals,

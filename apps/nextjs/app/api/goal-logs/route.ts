@@ -1024,8 +1024,8 @@ export async function POST(request: Request) {
                 savedLog.status === "complete" &&
                 existingLog?.status !== "complete"
             ) {
-                void notifyFriendsOfVisibleHabitPost(db, savedLog.id);
-                void notifyHabitCompletionEvents({
+                await notifyFriendsOfVisibleHabitPost(db, savedLog.id);
+                await notifyHabitCompletionEvents({
                     db,
                     dateKey: data.dateKey,
                     habitId: data.goalId,
@@ -1034,6 +1034,8 @@ export async function POST(request: Request) {
                     previouslyComplete: false,
                     userId: user.id,
                     userName: user.name,
+                }).catch((error) => {
+                    console.error("Habit completion notifications failed", error);
                 });
             }
 
@@ -1212,7 +1214,7 @@ export async function POST(request: Request) {
             }
 
             if (shouldNotifyPost && syncedLog) {
-                void notifyFriendsOfVisibleHabitPost(db, syncedLog.id);
+                await notifyFriendsOfVisibleHabitPost(db, syncedLog.id);
             }
 
             return NextResponse.json({ ok: true, calendarSync });
@@ -1275,7 +1277,7 @@ export async function POST(request: Request) {
                 previousLog?.visibility === "only_me" &&
                 data.visibility !== "only_me"
             ) {
-                void notifyFriendsOfVisibleHabitPost(db, updatedLog.id);
+                await notifyFriendsOfVisibleHabitPost(db, updatedLog.id);
             }
 
             return NextResponse.json({ ok: true });

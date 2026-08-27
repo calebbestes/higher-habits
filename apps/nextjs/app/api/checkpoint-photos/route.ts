@@ -209,7 +209,7 @@ export async function POST(request: Request) {
       }
 
       if (shouldNotifyPost) {
-        void notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
+        await notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
       }
 
       const responseBody = {

@@ -1,9 +1,9 @@
-import { type getDb, notificationDeliveries } from "@habit/db";
 import {
   type NotificationPreferenceKey,
   type PushMessage,
   sendPushToUser,
 } from "@/lib/push";
+import { type getDb, notificationDeliveries } from "@habit/db";
 
 type Database = NonNullable<ReturnType<typeof getDb>>;
 

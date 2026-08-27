@@ -11,7 +11,7 @@ import {
   userSettings,
   users,
 } from "@habit/db";
-import { and, eq, gte, inArray, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
 
 import { sendNotificationOnce } from "@/lib/notification-delivery";
 
@@ -383,11 +383,8 @@ async function notifyWeeklyRecap(
   db: Database,
   userId: string,
   dateKey: string,
-  timeZone: string,
 ) {
   const startDate = shiftDateKey(dateKey, -6);
-  const queryStart = new Date(`${shiftDateKey(startDate, -1)}T00:00:00.000Z`);
-  const queryEnd = new Date(`${shiftDateKey(dateKey, 1)}T00:00:00.000Z`);
   const [logs, completedTasks] = await Promise.all([
     db
       .select({ id: goalLogs.id })
@@ -401,29 +398,24 @@ async function notifyWeeklyRecap(
         ),
       ),
     db
-      .select({ completedAt: tasks.completedAt, id: tasks.id })
+      .select({ id: tasks.id })
       .from(tasks)
       .where(
         and(
           eq(tasks.userId, userId),
-          gte(tasks.completedAt, queryStart),
-          lt(tasks.completedAt, queryEnd),
+          gte(tasks.completedAt, startDate),
+          lte(tasks.completedAt, dateKey),
         ),
       ),
   ]);
-  const tasksThisWeek = completedTasks.filter((task) => {
-    if (!task.completedAt) return false;
-    const taskDateKey = localDateTime(task.completedAt, timeZone).dateKey;
-    return taskDateKey >= startDate && taskDateKey <= dateKey;
-  });
-  if (logs.length === 0 && tasksThisWeek.length === 0) return;
+  if (logs.length === 0 && completedTasks.length === 0) return;
 
   await sendNotificationOnce({
     db,
     dedupeKey: `weekly-recap:${dateKey}`,
     message: {
       title: "Your weekly recap",
-      body: `${logs.length} habit completion${logs.length === 1 ? "" : "s"} and ${tasksThisWeek.length} task${tasksThisWeek.length === 1 ? "" : "s"} completed this week.`,
+      body: `${logs.length} habit completion${logs.length === 1 ? "" : "s"} and ${completedTasks.length} task${completedTasks.length === 1 ? "" : "s"} completed this week.`,
       data: { type: "weekly_recap", dateKey, startDate },
     },
     preferenceKey: "notifyWeeklyRecap",
@@ -558,7 +550,7 @@ async function runUserNotifications(
   }
 
   if (weeklyDue && preference(settings, "notifyWeeklyRecap")) {
-    await notifyWeeklyRecap(db, row.userId, local.dateKey, timeZone);
+    await notifyWeeklyRecap(db, row.userId, local.dateKey);
   }
 }
 

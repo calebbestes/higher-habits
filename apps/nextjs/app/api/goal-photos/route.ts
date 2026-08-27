@@ -331,7 +331,7 @@ export async function POST(request: Request) {
       }
 
       if (shouldNotifyPost) {
-        void notifyFriendsOfVisibleHabitPost(db, goalLog.id);
+        await notifyFriendsOfVisibleHabitPost(db, goalLog.id);
       }
 
       const responseBody = {

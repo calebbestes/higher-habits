@@ -316,7 +316,9 @@ export async function PATCH(
     // An accepted incentive is not earned yet. Recalculate in case the
     // requirement was already satisfied, otherwise completion events will
     // claim and notify it later.
-    void notifyAcceptedIncentives(db, user.id);
+    await notifyAcceptedIncentives(db, user.id).catch((error) => {
+      console.error("Accepted incentive notification failed", error);
+    });
 
     return NextResponse.json({ id: row.id, accepted: row.accepted });
   } catch (error) {

@@ -421,16 +421,18 @@ export async function POST(request: Request) {
         checkpoint.visibility === "all_friends" &&
         (Boolean(checkpoint.notes?.trim()) || Boolean(previousPhoto));
       if (!wasVisiblePost && isVisiblePost) {
-        void notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
+        await notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
       }
 
       if (data.completed && !previousCheckpoint?.completedAt) {
-        void notifyPlanGoalCompletionEvents({
+        await notifyPlanGoalCompletionEvents({
           db,
           goalId: checkpoint.goalId,
           previouslyComplete: false,
           userId: user.id,
           userName: user.name,
+        }).catch((error) => {
+          console.error("Plan goal completion notifications failed", error);
         });
       }
 
