@@ -8,6 +8,7 @@ import {
   dailyReflectionProps,
   feedComments,
   feedProps,
+  feedReposts,
   friendGroupMembers,
   friends,
   getDb,
@@ -17,6 +18,10 @@ import {
   goalLogs,
   goals,
   habits,
+  sharedGoalParticipants,
+  sharedGoals,
+  socialFeedPostComments,
+  socialFeedPostProps,
   socialFeedPosts,
   users,
 } from "@habit/db";
@@ -38,6 +43,7 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getGoalIdsTiedToFriend } from "@/lib/goal-visibility";
+import { type Mention, loadContentMentions } from "@/lib/mentions";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -103,6 +109,38 @@ type ReflectionCommentRow = Omit<FeedCommentRow, "goalLogId"> & {
   reflectionPostId: string;
 };
 
+type SocialFeedPostCommentRow = Omit<FeedCommentRow, "goalLogId"> & {
+  socialFeedPostId: string;
+};
+
+type SharedGoalFeedParticipant = {
+  id: string;
+  userId: string;
+  userName: string;
+  userImage: string | null;
+  status: "invited" | "accepted";
+};
+
+type SharedGoalFeedDetails = {
+  id: string;
+  name: string;
+  mode: "collaborative" | "competitive";
+  scoringType:
+    | "shared_streak"
+    | "combined_target"
+    | "first_to_target"
+    | "highest_total"
+    | "longest_streak"
+    | "one_time";
+  target: number | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  openInvite: boolean;
+  status: "active" | "completed" | "archived";
+  currentUserStatus: "invited" | "accepted";
+  participants: SharedGoalFeedParticipant[];
+};
+
 type SerializedFeedComment = {
   id: string;
   userId: string;
@@ -113,12 +151,14 @@ type SerializedFeedComment = {
   createdAt: string;
   updatedAt: string;
   canDelete: boolean;
+  mentions: Mention[];
   replies: SerializedFeedComment[];
 };
 
 function groupNestedComments(
   commentRows: FeedCommentRow[],
   currentUserId: string,
+  mentionsByCommentId: Map<string, Mention[]>,
 ) {
   const commentsById = new Map<string, SerializedFeedComment>();
   const goalLogIdByCommentId = new Map<string, string>();
@@ -135,6 +175,7 @@ function groupNestedComments(
       createdAt: comment.createdAt.toISOString(),
       updatedAt: comment.updatedAt.toISOString(),
       canDelete: comment.userId === currentUserId,
+      mentions: mentionsByCommentId.get(comment.id) ?? [],
       replies: [],
     });
     goalLogIdByCommentId.set(comment.id, comment.goalLogId);
@@ -167,6 +208,7 @@ function groupNestedComments(
 function groupNestedReflectionComments(
   commentRows: ReflectionCommentRow[],
   currentUserId: string,
+  mentionsByCommentId: Map<string, Mention[]>,
 ) {
   const commentsById = new Map<string, SerializedFeedComment>();
   const postIdByCommentId = new Map<string, string>();
@@ -183,6 +225,7 @@ function groupNestedReflectionComments(
       createdAt: comment.createdAt.toISOString(),
       updatedAt: comment.updatedAt.toISOString(),
       canDelete: comment.userId === currentUserId,
+      mentions: mentionsByCommentId.get(comment.id) ?? [],
       replies: [],
     });
     postIdByCommentId.set(comment.id, comment.reflectionPostId);
@@ -207,6 +250,56 @@ function groupNestedReflectionComments(
     const comments = rootCommentsByPostId.get(comment.reflectionPostId) ?? [];
     comments.push(serialized);
     rootCommentsByPostId.set(comment.reflectionPostId, comments);
+  }
+
+  return rootCommentsByPostId;
+}
+
+function groupNestedSocialComments(
+  commentRows: SocialFeedPostCommentRow[],
+  currentUserId: string,
+  mentionsByCommentId: Map<string, Mention[]>,
+) {
+  const commentsById = new Map<string, SerializedFeedComment>();
+  const postIdByCommentId = new Map<string, string>();
+  const rootCommentsByPostId = new Map<string, SerializedFeedComment[]>();
+
+  for (const comment of commentRows) {
+    commentsById.set(comment.id, {
+      id: comment.id,
+      userId: comment.userId,
+      parentCommentId: comment.parentCommentId,
+      authorName: comment.authorName,
+      authorImage: comment.authorImage,
+      body: comment.body,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString(),
+      canDelete: comment.userId === currentUserId,
+      mentions: mentionsByCommentId.get(comment.id) ?? [],
+      replies: [],
+    });
+    postIdByCommentId.set(comment.id, comment.socialFeedPostId);
+  }
+
+  for (const comment of commentRows) {
+    const serialized = commentsById.get(comment.id);
+    if (!serialized) continue;
+
+    const parent = comment.parentCommentId
+      ? commentsById.get(comment.parentCommentId)
+      : null;
+    const parentPostId = comment.parentCommentId
+      ? postIdByCommentId.get(comment.parentCommentId)
+      : null;
+
+    if (parent && parentPostId === comment.socialFeedPostId) {
+      parent.replies.push(serialized);
+      continue;
+    }
+
+    const comments = rootCommentsByPostId.get(comment.socialFeedPostId) ?? [];
+    comments.push(serialized);
+    rootCommentsByPostId.set(comment.socialFeedPostId, comments);
   }
 
   return rootCommentsByPostId;
@@ -403,6 +496,64 @@ export async function GET(request: Request) {
       return NextResponse.json({ items: [], nextCursor: null });
     }
 
+    const repostActivityRows = profilePostsOnly
+      ? []
+      : await db
+          .select({
+            entryId: socialFeedPosts.id,
+            friendId: socialFeedPosts.userId,
+            repostId: socialFeedPosts.sourceId,
+            createdAt: socialFeedPosts.createdAt,
+          })
+          .from(socialFeedPosts)
+          .where(
+            and(
+              inArray(socialFeedPosts.userId, friendIds),
+              eq(socialFeedPosts.kind, "repost"),
+              eq(socialFeedPosts.sourceType, "repost"),
+              cursorDate
+                ? cursorHasUuid
+                  ? or(
+                      lt(socialFeedPosts.createdAt, cursorDate),
+                      and(
+                        eq(socialFeedPosts.createdAt, cursorDate),
+                        lt(socialFeedPosts.id, cursorId),
+                      ),
+                    )
+                  : lt(socialFeedPosts.createdAt, cursorDate)
+                : undefined,
+            ),
+          )
+          .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
+          .limit(candidateLimit);
+    const repostRefs =
+      repostActivityRows.length > 0
+        ? await db
+            .select({
+              id: feedReposts.id,
+              sourceType: feedReposts.sourceType,
+              sourceId: feedReposts.sourceId,
+            })
+            .from(feedReposts)
+            .where(
+              inArray(
+                feedReposts.id,
+                repostActivityRows.map((row) => row.repostId),
+              ),
+            )
+        : [];
+    const repostRefById = new Map(
+      repostRefs.map((repost) => [repost.id, repost]),
+    );
+    const repostSourceIds = (sourceType: string) =>
+      repostRefs
+        .filter((repost) => repost.sourceType === sourceType)
+        .map((repost) => repost.sourceId);
+    const repostGoalLogIds = repostSourceIds("goal_log");
+    const repostCheckpointIds = repostSourceIds("goal_checkpoint");
+    const repostReflectionIds = repostSourceIds("reflection_post");
+    const repostSocialPostIds = repostSourceIds("social_feed_post");
+
     const logRows = await db
       .select({
         entryId: goalLogs.id,
@@ -441,19 +592,37 @@ export async function GET(request: Request) {
             : undefined,
           cursorDate
             ? cursorHasUuid
-              ? or(
-                  lt(goalLogs.updatedAt, cursorDate),
-                  and(
-                    eq(goalLogs.updatedAt, cursorDate),
-                    lt(goalLogs.id, cursorId),
-                  ),
-                )
-              : lt(goalLogs.updatedAt, cursorDate)
-            : undefined,
+              ? repostGoalLogIds.length > 0
+                ? or(
+                    or(
+                      lt(goalLogs.updatedAt, cursorDate),
+                      and(
+                        eq(goalLogs.updatedAt, cursorDate),
+                        lt(goalLogs.id, cursorId),
+                      ),
+                    ),
+                    inArray(goalLogs.id, repostGoalLogIds),
+                  )
+                : or(
+                    lt(goalLogs.updatedAt, cursorDate),
+                    and(
+                      eq(goalLogs.updatedAt, cursorDate),
+                      lt(goalLogs.id, cursorId),
+                    ),
+                  )
+              : repostGoalLogIds.length > 0
+                ? or(
+                    lt(goalLogs.updatedAt, cursorDate),
+                    inArray(goalLogs.id, repostGoalLogIds),
+                  )
+                : lt(goalLogs.updatedAt, cursorDate)
+            : repostGoalLogIds.length > 0
+              ? inArray(goalLogs.id, repostGoalLogIds)
+              : undefined,
         ),
       )
       .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.id))
-      .limit(candidateLimit);
+      .limit(candidateLimit + repostGoalLogIds.length);
 
     const goalRowsByFriendId = new Map<
       string,
@@ -503,6 +672,11 @@ export async function GET(request: Request) {
           tiedGoalIdsByFriendId.get(row.friendId)?.has(row.goalId)),
     );
     const visibleLogIds = visibleLogRows.map((row) => row.entryId);
+    const goalLogMentionsById = await loadContentMentions(
+      db,
+      "goal_log",
+      visibleLogIds,
+    );
     const photoRows =
       visibleLogIds.length > 0
         ? await db
@@ -576,6 +750,23 @@ export async function GET(request: Request) {
           count: number;
           hasPropped: boolean;
         };
+        repost?: {
+          count: number;
+          hasReposted: boolean;
+        };
+        sourceType?:
+          | "goal_log"
+          | "goal_checkpoint"
+          | "reflection_post"
+          | "social_feed_post";
+        sourceId?: string;
+        sharedGoal?: SharedGoalFeedDetails;
+        repostedBy?: {
+          id: string;
+          name: string;
+          image: string | null;
+        };
+        mentions: Mention[];
         comments: Array<{
           id: string;
           userId: string;
@@ -632,6 +823,7 @@ export async function GET(request: Request) {
           postType: "journal",
           highlights: ["Birthday"],
           props: { count: 0, hasPropped: false },
+          mentions: [],
           comments: [],
           photos: friend.image
             ? [
@@ -679,6 +871,7 @@ export async function GET(request: Request) {
           count: 0,
           hasPropped: false,
         },
+        mentions: goalLogMentionsById.get(row.entryId) ?? [],
         comments: [],
         photos,
       });
@@ -723,7 +916,16 @@ export async function GET(request: Request) {
         }
       }
 
-      const commentsByGoalLogId = groupNestedComments(commentRows, user.id);
+      const feedCommentMentionsById = await loadContentMentions(
+        db,
+        "feed_comment",
+        commentRows.map((comment) => comment.id),
+      );
+      const commentsByGoalLogId = groupNestedComments(
+        commentRows,
+        user.id,
+        feedCommentMentionsById,
+      );
       for (const [goalLogId, comments] of commentsByGoalLogId) {
         const entry = entries.get(goalLogId);
         if (!entry) continue;
@@ -768,21 +970,44 @@ export async function GET(request: Request) {
             : undefined,
           cursorDate
             ? cursorHasUuid
-              ? or(
-                  lt(goalCheckpoints.updatedAt, cursorDate),
-                  and(
-                    eq(goalCheckpoints.updatedAt, cursorDate),
-                    lt(goalCheckpoints.id, cursorId),
-                  ),
-                )
-              : lt(goalCheckpoints.updatedAt, cursorDate)
-            : undefined,
+              ? repostCheckpointIds.length > 0
+                ? or(
+                    or(
+                      lt(goalCheckpoints.updatedAt, cursorDate),
+                      and(
+                        eq(goalCheckpoints.updatedAt, cursorDate),
+                        lt(goalCheckpoints.id, cursorId),
+                      ),
+                    ),
+                    inArray(goalCheckpoints.id, repostCheckpointIds),
+                  )
+                : or(
+                    lt(goalCheckpoints.updatedAt, cursorDate),
+                    and(
+                      eq(goalCheckpoints.updatedAt, cursorDate),
+                      lt(goalCheckpoints.id, cursorId),
+                    ),
+                  )
+              : repostCheckpointIds.length > 0
+                ? or(
+                    lt(goalCheckpoints.updatedAt, cursorDate),
+                    inArray(goalCheckpoints.id, repostCheckpointIds),
+                  )
+                : lt(goalCheckpoints.updatedAt, cursorDate)
+            : repostCheckpointIds.length > 0
+              ? inArray(goalCheckpoints.id, repostCheckpointIds)
+              : undefined,
         ),
       )
       .orderBy(desc(goalCheckpoints.updatedAt), desc(goalCheckpoints.id))
-      .limit(candidateLimit);
+      .limit(candidateLimit + repostCheckpointIds.length);
 
     const checkpointIds = checkpointRows.map((row) => row.entryId);
+    const checkpointMentionsById = await loadContentMentions(
+      db,
+      "goal_checkpoint",
+      checkpointIds,
+    );
     const checkpointPhotoRows =
       checkpointIds.length > 0
         ? await db
@@ -852,6 +1077,7 @@ export async function GET(request: Request) {
         postType,
         highlights: ["Checkpoint complete"],
         props: { count: 0, hasPropped: false },
+        mentions: checkpointMentionsById.get(row.entryId) ?? [],
         comments: [],
         photos,
       });
@@ -878,22 +1104,40 @@ export async function GET(request: Request) {
           profilePostsOnly ? ne(dailyReflectionPosts.body, "") : undefined,
           cursorDate
             ? cursorHasUuid
-              ? or(
-                  lt(dailyReflectionPosts.updatedAt, cursorDate),
-                  and(
-                    eq(dailyReflectionPosts.updatedAt, cursorDate),
-                    lt(dailyReflectionPosts.id, cursorId),
-                  ),
-                )
-              : lt(dailyReflectionPosts.updatedAt, cursorDate)
-            : undefined,
+              ? repostReflectionIds.length > 0
+                ? or(
+                    or(
+                      lt(dailyReflectionPosts.updatedAt, cursorDate),
+                      and(
+                        eq(dailyReflectionPosts.updatedAt, cursorDate),
+                        lt(dailyReflectionPosts.id, cursorId),
+                      ),
+                    ),
+                    inArray(dailyReflectionPosts.id, repostReflectionIds),
+                  )
+                : or(
+                    lt(dailyReflectionPosts.updatedAt, cursorDate),
+                    and(
+                      eq(dailyReflectionPosts.updatedAt, cursorDate),
+                      lt(dailyReflectionPosts.id, cursorId),
+                    ),
+                  )
+              : repostReflectionIds.length > 0
+                ? or(
+                    lt(dailyReflectionPosts.updatedAt, cursorDate),
+                    inArray(dailyReflectionPosts.id, repostReflectionIds),
+                  )
+                : lt(dailyReflectionPosts.updatedAt, cursorDate)
+            : repostReflectionIds.length > 0
+              ? inArray(dailyReflectionPosts.id, repostReflectionIds)
+              : undefined,
         ),
       )
       .orderBy(
         desc(dailyReflectionPosts.updatedAt),
         desc(dailyReflectionPosts.id),
       )
-      .limit(candidateLimit);
+      .limit(candidateLimit + repostReflectionIds.length);
 
     const rawReflectionIds = reflectionRows.map((row) => row.entryId);
     const [reflectionAudienceFriendRows, reflectionAudienceGroupRows] =
@@ -948,6 +1192,11 @@ export async function GET(request: Request) {
         selectedReflectionIds.has(row.entryId),
     );
     const reflectionIds = visibleReflectionRows.map((row) => row.entryId);
+    const reflectionMentionsById = await loadContentMentions(
+      db,
+      "reflection_post",
+      reflectionIds,
+    );
     const reflectionPhotoRows =
       reflectionIds.length > 0
         ? await db
@@ -1017,6 +1266,7 @@ export async function GET(request: Request) {
         postType: "journal",
         highlights: ["Daily reflection"],
         props: { count: 0, hasPropped: false },
+        mentions: reflectionMentionsById.get(row.entryId) ?? [],
         comments: [],
         photos,
       });
@@ -1032,9 +1282,20 @@ export async function GET(request: Request) {
             kind: socialFeedPosts.kind,
             title: socialFeedPosts.title,
             body: socialFeedPosts.body,
+            sourceId: socialFeedPosts.sourceId,
             createdAt: socialFeedPosts.createdAt,
+            sharedGoalId: sharedGoals.id,
+            sharedGoalName: sharedGoals.name,
+            sharedGoalMode: sharedGoals.mode,
+            sharedGoalScoringType: sharedGoals.scoringType,
+            sharedGoalTarget: sharedGoals.target,
+            sharedGoalStartsOn: sharedGoals.startsOn,
+            sharedGoalEndsOn: sharedGoals.endsOn,
+            sharedGoalOpenInvite: sharedGoals.openInvite,
+            sharedGoalStatus: sharedGoals.status,
           })
           .from(socialFeedPosts)
+          .leftJoin(sharedGoals, eq(socialFeedPosts.sourceId, sharedGoals.id))
           .where(
             and(
               inArray(socialFeedPosts.userId, friendIds),
@@ -1045,33 +1306,129 @@ export async function GET(request: Request) {
               ),
               cursorDate
                 ? cursorHasUuid
-                  ? or(
-                      lt(socialFeedPosts.createdAt, cursorDate),
+                  ? repostSocialPostIds.length > 0
+                    ? or(
+                        or(
+                          lt(socialFeedPosts.createdAt, cursorDate),
+                          and(
+                            eq(socialFeedPosts.createdAt, cursorDate),
+                            lt(socialFeedPosts.id, cursorId),
+                          ),
+                        ),
+                        inArray(socialFeedPosts.id, repostSocialPostIds),
+                      )
+                    : or(
+                        lt(socialFeedPosts.createdAt, cursorDate),
+                        and(
+                          eq(socialFeedPosts.createdAt, cursorDate),
+                          lt(socialFeedPosts.id, cursorId),
+                        ),
+                      )
+                  : repostSocialPostIds.length > 0
+                    ? or(
+                        lt(socialFeedPosts.createdAt, cursorDate),
+                        inArray(socialFeedPosts.id, repostSocialPostIds),
+                      )
+                    : lt(socialFeedPosts.createdAt, cursorDate)
+                : repostSocialPostIds.length > 0
+                  ? inArray(socialFeedPosts.id, repostSocialPostIds)
+                  : undefined,
+              or(
+                ne(socialFeedPosts.kind, "shared_goal"),
+                exists(
+                  db
+                    .select({ id: sharedGoalParticipants.id })
+                    .from(sharedGoalParticipants)
+                    .where(
                       and(
-                        eq(socialFeedPosts.createdAt, cursorDate),
-                        lt(socialFeedPosts.id, cursorId),
+                        eq(
+                          sharedGoalParticipants.sharedGoalId,
+                          socialFeedPosts.sourceId,
+                        ),
+                        eq(sharedGoalParticipants.userId, user.id),
+                        or(
+                          eq(sharedGoalParticipants.status, "invited"),
+                          eq(sharedGoalParticipants.status, "accepted"),
+                        ),
                       ),
-                    )
-                  : lt(socialFeedPosts.createdAt, cursorDate)
-                : undefined,
+                    ),
+                ),
+              ),
             ),
           )
           .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
-          .limit(candidateLimit);
+          .limit(candidateLimit + repostSocialPostIds.length);
+
+    const socialSharedGoalIds = [
+      ...new Set(
+        socialRows
+          .filter((row) => row.kind === "shared_goal")
+          .map((row) => row.sourceId),
+      ),
+    ];
+    const socialGoalParticipantRows =
+      socialSharedGoalIds.length > 0
+        ? await db
+            .select({
+              id: sharedGoalParticipants.id,
+              sharedGoalId: sharedGoalParticipants.sharedGoalId,
+              userId: sharedGoalParticipants.userId,
+              userName: users.name,
+              userImage: users.image,
+              status: sharedGoalParticipants.status,
+            })
+            .from(sharedGoalParticipants)
+            .innerJoin(users, eq(sharedGoalParticipants.userId, users.id))
+            .where(
+              and(
+                inArray(
+                  sharedGoalParticipants.sharedGoalId,
+                  socialSharedGoalIds,
+                ),
+                or(
+                  eq(sharedGoalParticipants.status, "invited"),
+                  eq(sharedGoalParticipants.status, "accepted"),
+                ),
+              ),
+            )
+            .orderBy(asc(sharedGoalParticipants.createdAt))
+        : [];
+    const participantsBySharedGoalId = new Map<
+      string,
+      SharedGoalFeedParticipant[]
+    >();
+    for (const participant of socialGoalParticipantRows) {
+      const participants =
+        participantsBySharedGoalId.get(participant.sharedGoalId) ?? [];
+      participants.push({
+        id: participant.id,
+        userId: participant.userId,
+        userName: participant.userName,
+        userImage: participant.userImage,
+        status: participant.status as "invited" | "accepted",
+      });
+      participantsBySharedGoalId.set(participant.sharedGoalId, participants);
+    }
 
     for (const row of socialRows) {
       const friend = friendsById.get(row.friendId);
-      if (!friend) continue;
+      if (!friend || row.kind === "repost") continue;
       const kind = row.kind === "incentive" ? "incentive" : "shared_goal";
       const createdAt = row.createdAt.toISOString();
+      const sharedGoalParticipantsForPost = row.sharedGoalId
+        ? (participantsBySharedGoalId.get(row.sharedGoalId) ?? [])
+        : [];
+      const currentUserStatus = sharedGoalParticipantsForPost.find(
+        (participant) => participant.userId === user.id,
+      )?.status;
 
       entries.set(row.entryId, {
         id: row.entryId,
         kind,
         friend,
         goal: {
-          id: row.entryId,
-          name: row.title,
+          id: row.sharedGoalId ?? row.entryId,
+          name: row.sharedGoalName ?? row.title,
           icon:
             kind === "incentive"
               ? "gift.fill"
@@ -1088,9 +1445,88 @@ export async function GET(request: Request) {
           kind === "incentive" ? "Incentive challenge" : "Shared goal",
         ],
         props: { count: 0, hasPropped: false },
+        sourceType: "social_feed_post",
+        sourceId: row.entryId,
+        sharedGoal:
+          kind === "shared_goal" &&
+          row.sharedGoalId &&
+          row.sharedGoalMode &&
+          row.sharedGoalScoringType &&
+          currentUserStatus
+            ? {
+                id: row.sharedGoalId,
+                name: row.sharedGoalName ?? row.title,
+                mode: row.sharedGoalMode,
+                scoringType: row.sharedGoalScoringType,
+                target: row.sharedGoalTarget,
+                startsOn: row.sharedGoalStartsOn,
+                endsOn: row.sharedGoalEndsOn,
+                openInvite: row.sharedGoalOpenInvite ?? false,
+                status: row.sharedGoalStatus ?? "active",
+                currentUserStatus,
+                participants: sharedGoalParticipantsForPost,
+              }
+            : undefined,
+        mentions: [],
         comments: [],
         photos: [],
       });
+    }
+
+    const socialPostIds = socialRows
+      .filter((row) => row.kind === "shared_goal")
+      .map((row) => row.entryId);
+    if (socialPostIds.length > 0) {
+      const [socialPropRows, socialCommentRows] = await Promise.all([
+        db
+          .select({
+            socialFeedPostId: socialFeedPostProps.socialFeedPostId,
+            userId: socialFeedPostProps.userId,
+          })
+          .from(socialFeedPostProps)
+          .where(inArray(socialFeedPostProps.socialFeedPostId, socialPostIds)),
+        db
+          .select({
+            id: socialFeedPostComments.id,
+            socialFeedPostId: socialFeedPostComments.socialFeedPostId,
+            userId: socialFeedPostComments.userId,
+            parentCommentId: socialFeedPostComments.parentCommentId,
+            authorName: users.name,
+            authorImage: users.image,
+            body: socialFeedPostComments.body,
+            createdAt: socialFeedPostComments.createdAt,
+            updatedAt: socialFeedPostComments.updatedAt,
+          })
+          .from(socialFeedPostComments)
+          .innerJoin(users, eq(socialFeedPostComments.userId, users.id))
+          .where(
+            inArray(socialFeedPostComments.socialFeedPostId, socialPostIds),
+          )
+          .orderBy(asc(socialFeedPostComments.createdAt)),
+      ]);
+
+      for (const prop of socialPropRows) {
+        const entry = entries.get(prop.socialFeedPostId);
+        if (!entry) continue;
+
+        entry.props.count += 1;
+        entry.props.hasPropped =
+          entry.props.hasPropped || prop.userId === user.id;
+      }
+
+      const commentsByPostId = groupNestedSocialComments(
+        socialCommentRows,
+        user.id,
+        await loadContentMentions(
+          db,
+          "feed_comment",
+          socialCommentRows.map((comment) => comment.id),
+        ),
+      );
+      for (const [postId, comments] of commentsByPostId) {
+        const entry = entries.get(postId);
+        if (entry) entry.comments = comments;
+      }
     }
 
     if (reflectionIds.length > 0 && !profilePostsOnly) {
@@ -1135,6 +1571,11 @@ export async function GET(request: Request) {
       const commentsByPostId = groupNestedReflectionComments(
         reflectionCommentRows,
         user.id,
+        await loadContentMentions(
+          db,
+          "reflection_comment",
+          reflectionCommentRows.map((comment) => comment.id),
+        ),
       );
       for (const [postId, comments] of commentsByPostId) {
         const entry = entries.get(postId);
@@ -1142,6 +1583,119 @@ export async function GET(request: Request) {
 
         entry.comments = comments;
       }
+    }
+
+    const sourceTypeForEntry = (
+      entry: typeof entries extends Map<string, infer V> ? V : never,
+    ) => {
+      if (entry.kind === "habit") return "goal_log" as const;
+      if (entry.kind === "goal_checkpoint") return "goal_checkpoint" as const;
+      if (entry.kind === "reflection") return "reflection_post" as const;
+      if (entry.kind === "shared_goal" || entry.kind === "incentive") {
+        return "social_feed_post" as const;
+      }
+      return null;
+    };
+    const repostStateFilters = [
+      ...(visibleLogIds.length > 0
+        ? [
+            and(
+              eq(feedReposts.sourceType, "goal_log"),
+              inArray(feedReposts.sourceId, visibleLogIds),
+            ),
+          ]
+        : []),
+      ...(checkpointRows.length > 0
+        ? [
+            and(
+              eq(feedReposts.sourceType, "goal_checkpoint"),
+              inArray(
+                feedReposts.sourceId,
+                checkpointRows.map((row) => row.entryId),
+              ),
+            ),
+          ]
+        : []),
+      ...(reflectionIds.length > 0
+        ? [
+            and(
+              eq(feedReposts.sourceType, "reflection_post"),
+              inArray(feedReposts.sourceId, reflectionIds),
+            ),
+          ]
+        : []),
+      ...(socialRows.some((row) => row.kind !== "repost")
+        ? [
+            and(
+              eq(feedReposts.sourceType, "social_feed_post"),
+              inArray(
+                feedReposts.sourceId,
+                socialRows
+                  .filter((row) => row.kind !== "repost")
+                  .map((row) => row.entryId),
+              ),
+            ),
+          ]
+        : []),
+    ];
+    const repostStateRows =
+      repostStateFilters.length > 0
+        ? await db
+            .select({
+              sourceType: feedReposts.sourceType,
+              sourceId: feedReposts.sourceId,
+              userId: feedReposts.userId,
+            })
+            .from(feedReposts)
+            .where(or(...repostStateFilters))
+        : [];
+    const repostStateBySource = new Map<
+      string,
+      { count: number; hasReposted: boolean }
+    >();
+    for (const repost of repostStateRows) {
+      const key = `${repost.sourceType}:${repost.sourceId}`;
+      const state = repostStateBySource.get(key) ?? {
+        count: 0,
+        hasReposted: false,
+      };
+      state.count += 1;
+      state.hasReposted = state.hasReposted || repost.userId === user.id;
+      repostStateBySource.set(key, state);
+    }
+
+    for (const entry of entries.values()) {
+      const sourceType = sourceTypeForEntry(entry);
+      if (!sourceType) continue;
+      entry.repost = repostStateBySource.get(`${sourceType}:${entry.id}`) ?? {
+        count: 0,
+        hasReposted: false,
+      };
+    }
+
+    for (const activity of repostActivityRows) {
+      const repost = repostRefById.get(activity.repostId);
+      const original = repost ? entries.get(repost.sourceId) : undefined;
+      const reposter = friendsById.get(activity.friendId);
+      if (!repost || !original || !reposter) continue;
+
+      entries.set(activity.entryId, {
+        ...original,
+        id: activity.entryId,
+        sourceType: repost.sourceType as
+          | "goal_log"
+          | "goal_checkpoint"
+          | "reflection_post"
+          | "social_feed_post",
+        sourceId: repost.sourceId,
+        repostedBy: {
+          id: reposter.id,
+          name: reposter.name,
+          image: reposter.image,
+        },
+        updatedAt: activity.createdAt.toISOString(),
+        canDeletePhotos: false,
+      });
     }
 
     const orderedEntries = [...entries.values()].sort((a, b) =>
@@ -1156,7 +1710,8 @@ export async function GET(request: Request) {
       logRows.length === candidateLimit ||
       checkpointRows.length === candidateLimit ||
       reflectionRows.length === candidateLimit ||
-      socialRows.length === candidateLimit;
+      socialRows.length === candidateLimit ||
+      repostActivityRows.length === candidateLimit;
     const hasMore = hasMoreCandidates || orderedEntries.length > limit;
     const lastEntry = pageEntries.at(-1);
 

@@ -195,7 +195,7 @@ function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
       ? habit.audienceGroupIds.filter((id) => typeof id === "string")
       : [],
     defaultComplete: normalizeDefaultComplete(habit.defaultComplete),
-    requireEvidence: booleanOrFallback(habit.requireEvidence, true),
+    requireEvidence: booleanOrFallback(habit.requireEvidence, false),
     planOnCalendar: normalizePlanOnCalendar(habit.planOnCalendar),
     priority: normalizePriority(habit.priority),
   };

@@ -1,0 +1,15 @@
+ALTER TABLE "user_settings"
+  ALTER COLUMN "notify_monthly_goal_today" SET DEFAULT false,
+  ALTER COLUMN "notify_tasks_due_today" SET DEFAULT false,
+  ALTER COLUMN "notify_streak_at_risk" SET DEFAULT false,
+  ALTER COLUMN "notify_streak_milestone" SET DEFAULT false,
+  ALTER COLUMN "notify_end_of_day_nudge" SET DEFAULT false,
+  ALTER COLUMN "notify_post_props" SET DEFAULT false,
+  ALTER COLUMN "notify_friend_posts" SET DEFAULT false,
+  ALTER COLUMN "notify_friend_milestone" SET DEFAULT false,
+  ALTER COLUMN "notify_last_to_complete" SET DEFAULT false,
+  ALTER COLUMN "notify_shared_goal_ending" SET DEFAULT false,
+  ALTER COLUMN "notify_stakes_reminder" SET DEFAULT false,
+  ALTER COLUMN "notify_incentive_earned" SET DEFAULT false,
+  ALTER COLUMN "notify_plan_tomorrow" SET DEFAULT false,
+  ALTER COLUMN "notify_weekly_recap" SET DEFAULT false;

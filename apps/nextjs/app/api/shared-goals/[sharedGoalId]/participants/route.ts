@@ -2,6 +2,7 @@ import {
   categories,
   friends,
   getDb,
+  goals,
   habits,
   sharedGoalParticipants,
   sharedGoals,
@@ -52,18 +53,40 @@ export async function POST(
     if (!parsed.success) {
       return NextResponse.json({ error: "Choose a friend." }, { status: 400 });
     }
-    const [ownedGoal] = await db
-      .select({ id: sharedGoals.id, name: sharedGoals.name })
+    const [sharedGoal] = await db
+      .select({
+        id: sharedGoals.id,
+        name: sharedGoals.name,
+        ownerId: sharedGoals.ownerId,
+        openInvite: sharedGoals.openInvite,
+      })
       .from(sharedGoals)
-      .where(
-        and(eq(sharedGoals.id, sharedGoalId), eq(sharedGoals.ownerId, user.id)),
-      )
+      .where(eq(sharedGoals.id, sharedGoalId))
       .limit(1);
-    if (!ownedGoal) {
+    if (!sharedGoal) {
       return NextResponse.json(
-        { error: "Only the owner can invite participants." },
-        { status: 403 },
+        { error: "Shared goal not found." },
+        { status: 404 },
       );
+    }
+    if (sharedGoal.ownerId !== user.id) {
+      const [membership] = await db
+        .select({ status: sharedGoalParticipants.status })
+        .from(sharedGoalParticipants)
+        .where(
+          and(
+            eq(sharedGoalParticipants.sharedGoalId, sharedGoalId),
+            eq(sharedGoalParticipants.userId, user.id),
+            eq(sharedGoalParticipants.status, "accepted"),
+          ),
+        )
+        .limit(1);
+      if (!sharedGoal.openInvite || !membership) {
+        return NextResponse.json(
+          { error: "Only open shared goals let participants invite friends." },
+          { status: 403 },
+        );
+      }
     }
 
     const userIds = [
@@ -122,6 +145,7 @@ export async function POST(
         set: {
           status: "invited",
           personalGoalId: null,
+          personalPlanGoalId: null,
           personalGoalAutoCreated: false,
           joinedAt: null,
           leftAt: null,
@@ -129,13 +153,15 @@ export async function POST(
         },
       });
 
-    for (const friendId of userIds) {
-      void sendPushToUser(friendId, "notifySharedGoalInvites", {
-        title: "New shared goal",
-        body: `${user.name} invited you to "${ownedGoal.name}".`,
-        data: { type: "shared_goal_invite", sharedGoalId },
-      });
-    }
+    await Promise.all(
+      userIds.map((friendId) =>
+        sendPushToUser(friendId, "notifySharedGoalInvites", {
+          title: "New shared goal",
+          body: `${user.name} invited you to "${sharedGoal.name}".`,
+          data: { type: "shared_goal_invite", sharedGoalId },
+        }),
+      ),
+    );
 
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
     return NextResponse.json(snapshot);
@@ -171,20 +197,45 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid action." }, { status: 400 });
     }
 
+    const [sharedGoalForLinking] = await db
+      .select({ scoringType: sharedGoals.scoringType })
+      .from(sharedGoals)
+      .where(eq(sharedGoals.id, sharedGoalId))
+      .limit(1);
+
+    if (!sharedGoalForLinking) {
+      return NextResponse.json(
+        { error: "Shared goal not found." },
+        { status: 404 },
+      );
+    }
+
     if (
       (parsed.data.action === "accept" || parsed.data.action === "relink") &&
       parsed.data.personalGoalId
     ) {
-      const [personalGoal] = await db
-        .select({ id: habits.id })
-        .from(habits)
-        .where(
-          and(
-            eq(habits.id, parsed.data.personalGoalId),
-            eq(habits.userId, user.id),
-          ),
-        )
-        .limit(1);
+      const [personalGoal] =
+        sharedGoalForLinking.scoringType === "one_time"
+          ? await db
+              .select({ id: goals.id })
+              .from(goals)
+              .where(
+                and(
+                  eq(goals.id, parsed.data.personalGoalId),
+                  eq(goals.userId, user.id),
+                ),
+              )
+              .limit(1)
+          : await db
+              .select({ id: habits.id })
+              .from(habits)
+              .where(
+                and(
+                  eq(habits.id, parsed.data.personalGoalId),
+                  eq(habits.userId, user.id),
+                ),
+              )
+              .limit(1);
       if (!personalGoal) {
         return NextResponse.json(
           { error: "Personal goal not found." },
@@ -198,6 +249,7 @@ export async function PATCH(
         .select({
           id: sharedGoalParticipants.id,
           personalGoalId: sharedGoalParticipants.personalGoalId,
+          personalPlanGoalId: sharedGoalParticipants.personalPlanGoalId,
           personalGoalAutoCreated:
             sharedGoalParticipants.personalGoalAutoCreated,
         })
@@ -213,10 +265,22 @@ export async function PATCH(
       if (!existingParticipant) return null;
 
       let personalGoalId =
-        parsed.data.action === "decline" ? null : parsed.data.personalGoalId;
+        parsed.data.action === "decline" ||
+        sharedGoalForLinking.scoringType === "one_time"
+          ? null
+          : parsed.data.personalGoalId;
+      const personalPlanGoalId =
+        parsed.data.action === "decline" ||
+        sharedGoalForLinking.scoringType !== "one_time"
+          ? null
+          : parsed.data.personalGoalId;
       let personalGoalAutoCreated = false;
 
-      if (parsed.data.action !== "decline" && !personalGoalId) {
+      if (
+        parsed.data.action !== "decline" &&
+        sharedGoalForLinking.scoringType !== "one_time" &&
+        !personalGoalId
+      ) {
         const [sharedGoal] = await tx
           .select({
             name: sharedGoals.name,
@@ -298,6 +362,7 @@ export async function PATCH(
             ? {
                 status: "declined",
                 personalGoalId: null,
+                personalPlanGoalId: null,
                 personalGoalAutoCreated: false,
                 joinedAt: null,
                 updatedAt: new Date(),
@@ -305,6 +370,7 @@ export async function PATCH(
             : {
                 status: "accepted",
                 personalGoalId,
+                personalPlanGoalId,
                 personalGoalAutoCreated,
                 joinedAt: new Date(),
                 leftAt: null,
@@ -355,7 +421,7 @@ export async function PATCH(
       (parsed.data.action === "accept" || parsed.data.action === "decline")
     ) {
       const joined = parsed.data.action === "accept";
-      void sendPushToUser(snapshot.ownerId, "notifySharedGoalResponses", {
+      await sendPushToUser(snapshot.ownerId, "notifySharedGoalResponses", {
         title: joined ? "Shared goal joined" : "Invite declined",
         body: `${user.name} ${joined ? "joined" : "declined"} "${snapshot.name}".`,
         data: { type: "shared_goal_response", sharedGoalId },

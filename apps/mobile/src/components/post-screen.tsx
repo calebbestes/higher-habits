@@ -4,18 +4,22 @@ import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  type FeedRepostSourceType,
   type FriendFeedComment,
   type FriendFeedEntry,
+  type FriendRow,
   addFeedComment,
   addReflectionComment,
   deleteFeedComment,
   deleteReflectionComment,
   deleteReflectionPost,
+  fetchFriends,
   fetchFriendsFeed,
   fetchMyPosts,
   reportContent,
   setReflectionBody,
   toggleFeedProp,
+  toggleFeedRepost,
   toggleReflectionProp,
 } from "@/lib/friends-client";
 import { deleteGoalLog, setGoalLogNote } from "@/lib/goal-logs-client";
@@ -36,6 +40,28 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 type SymbolName = SymbolViewProps["name"];
 
+function getRepostSource(entry: FriendFeedEntry): {
+  sourceType: FeedRepostSourceType;
+  sourceId: string;
+} | null {
+  if (entry.sourceType && entry.sourceId) {
+    return { sourceType: entry.sourceType, sourceId: entry.sourceId };
+  }
+  if (entry.kind === "habit") {
+    return { sourceType: "goal_log", sourceId: entry.id };
+  }
+  if (entry.kind === "goal_checkpoint") {
+    return { sourceType: "goal_checkpoint", sourceId: entry.id };
+  }
+  if (entry.kind === "reflection") {
+    return { sourceType: "reflection_post", sourceId: entry.id };
+  }
+  if (entry.kind === "shared_goal" || entry.kind === "incentive") {
+    return { sourceType: "social_feed_post", sourceId: entry.id };
+  }
+  return null;
+}
+
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
@@ -54,6 +80,7 @@ export function PostScreen({
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const [entry, setEntry] = useState<FriendFeedEntry | null>(null);
+  const [friends, setFriends] = useState<FriendRow[]>([]);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [replyTarget, setReplyTarget] = useState<FriendFeedComment | null>(
@@ -62,6 +89,7 @@ export function PostScreen({
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [isDeletingPost, setIsDeletingPost] = useState(false);
+  const [isTogglingRepost, setIsTogglingRepost] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +156,14 @@ export function PostScreen({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    void fetchFriends()
+      .then((nextFriends) => {
+        if (isMountedRef.current) setFriends(nextFriends);
+      })
+      .catch(() => undefined);
+  }, []);
+
   const handleToggleProp = useCallback(async () => {
     if (!entry || entry.kind === "goal_checkpoint") return;
 
@@ -145,9 +181,9 @@ export function PostScreen({
 
     try {
       if (entry.kind === "reflection") {
-        await toggleReflectionProp(entry.id);
+        await toggleReflectionProp(entry.sourceId ?? entry.id);
       } else {
-        await toggleFeedProp(entry.id);
+        await toggleFeedProp(entry.sourceId ?? entry.id);
       }
     } catch (propError) {
       if (!isMountedRef.current) return;
@@ -159,6 +195,61 @@ export function PostScreen({
     }
   }, [entry]);
 
+  const handleToggleRepost = useCallback(async () => {
+    if (!entry || isTogglingRepost) return;
+    const source = getRepostSource(entry);
+    if (!source) return;
+
+    const wasReposted = entry.repost.hasReposted;
+    setIsTogglingRepost(true);
+    setEntry({
+      ...entry,
+      repost: {
+        count: Math.max(entry.repost.count + (wasReposted ? -1 : 1), 0),
+        hasReposted: !wasReposted,
+      },
+    });
+
+    try {
+      const result = await toggleFeedRepost(source.sourceType, source.sourceId);
+      if (!isMountedRef.current) return;
+      setEntry((current) =>
+        current
+          ? {
+              ...current,
+              repost: {
+                count: current.repost.count,
+                hasReposted: result.reposted,
+              },
+            }
+          : current,
+      );
+      playSuccessHaptic();
+    } catch (repostError) {
+      if (!isMountedRef.current) return;
+      setEntry((current) =>
+        current
+          ? {
+              ...current,
+              repost: {
+                count: Math.max(
+                  current.repost.count + (wasReposted ? 1 : -1),
+                  0,
+                ),
+                hasReposted: wasReposted,
+              },
+            }
+          : current,
+      );
+      Alert.alert(
+        "Could not repost",
+        repostError instanceof Error ? repostError.message : undefined,
+      );
+    } finally {
+      if (isMountedRef.current) setIsTogglingRepost(false);
+    }
+  }, [entry, isTogglingRepost]);
+
   const handleAddComment = useCallback(async () => {
     if (!entry || isSubmittingComment) return;
     const body = commentDraft.trim();
@@ -167,9 +258,17 @@ export function PostScreen({
     setIsSubmittingComment(true);
     try {
       if (entry.kind === "reflection") {
-        await addReflectionComment(entry.id, body, replyTarget?.id ?? null);
+        await addReflectionComment(
+          entry.sourceId ?? entry.id,
+          body,
+          replyTarget?.id ?? null,
+        );
       } else {
-        await addFeedComment(entry.id, body, replyTarget?.id ?? null);
+        await addFeedComment(
+          entry.sourceId ?? entry.id,
+          body,
+          replyTarget?.id ?? null,
+        );
       }
       playSuccessHaptic();
       if (!isMountedRef.current) return;
@@ -193,9 +292,9 @@ export function PostScreen({
 
       try {
         if (entry.kind === "reflection") {
-          await deleteReflectionComment(entry.id, commentId);
+          await deleteReflectionComment(entry.sourceId ?? entry.id, commentId);
         } else {
-          await deleteFeedComment(entry.id, commentId);
+          await deleteFeedComment(entry.sourceId ?? entry.id, commentId);
         }
         if (!isMountedRef.current) return;
         playSelectionHaptic();
@@ -256,6 +355,16 @@ export function PostScreen({
       },
     });
   }, [entry, router, source]);
+
+  const openMentionProfile = useCallback(
+    (friendId: string, friendName: string) => {
+      router.push({
+        pathname: "/friend-profile",
+        params: { friendId, initialName: friendName },
+      });
+    },
+    [router],
+  );
 
   const canManagePost = source === "self" && entry !== null;
 
@@ -324,9 +433,16 @@ export function PostScreen({
 
   const openPostActions = useCallback(() => {
     if (!entry) return;
+    const repostAction = getRepostSource(entry)
+      ? {
+          text: entry.repost.hasReposted ? "Remove repost" : "Repost",
+          onPress: () => void handleToggleRepost(),
+        }
+      : null;
 
     if (!canManagePost) {
       Alert.alert(entry.friend.name, "Choose an action.", [
+        ...(repostAction ? [repostAction] : []),
         {
           text: "Report Post",
           onPress: () =>
@@ -343,6 +459,7 @@ export function PostScreen({
     }
 
     Alert.alert("Post options", "Choose an action.", [
+      ...(repostAction ? [repostAction] : []),
       {
         text: entry.notes.trim() ? "Edit note" : "Add note",
         onPress: handleEditPost,
@@ -354,7 +471,13 @@ export function PostScreen({
       },
       { text: "Cancel", style: "cancel" },
     ]);
-  }, [canManagePost, confirmDeletePost, entry, handleEditPost]);
+  }, [
+    canManagePost,
+    confirmDeletePost,
+    entry,
+    handleEditPost,
+    handleToggleRepost,
+  ]);
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
@@ -421,6 +544,7 @@ export function PostScreen({
                 playSelectionHaptic();
                 setIsCommentsOpen(true);
               }}
+              onOpenMention={openMentionProfile}
               onOpenProfile={openProfile}
               onOpenSafetyActions={openPostActions}
             />
@@ -431,7 +555,15 @@ export function PostScreen({
         commentDraft={commentDraft}
         entry={isCommentsOpen ? entry : null}
         isSubmittingComment={isSubmittingComment}
+        mentionFriends={friends
+          .filter((friend) => friend.status === "accepted")
+          .map((friend) => ({
+            id: friend.friendId,
+            name: friend.friendName,
+            image: friend.friendImage,
+          }))}
         replyTarget={replyTarget}
+        onOpenMention={openMentionProfile}
         onAddComment={() => void handleAddComment()}
         onCancelReply={() => setReplyTarget(null)}
         onClose={() => setIsCommentsOpen(false)}

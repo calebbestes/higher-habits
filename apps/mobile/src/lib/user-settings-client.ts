@@ -22,6 +22,7 @@ export type NotificationSettings = {
   notifyPostProps: boolean;
   notifyPostComments: boolean;
   notifyFriendPosts: boolean;
+  notifyFriendNudges: boolean;
   notifyFriendRequestAccepted: boolean;
   notifyFriendMilestone: boolean;
   notifySharedGoalResponses: boolean;
@@ -37,6 +38,7 @@ export type NotificationSettings = {
   weeklyNotificationDay: string;
   monthlyNotificationTime: string;
   monthlyNotificationDay: string;
+  timeZone: string;
 };
 
 export type UserSettings = NotificationSettings & {
@@ -50,26 +52,28 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   defaultAppStartPage: "collab",
   defaultCollabSection: "feed",
   defaultPlanReportView: "day-plan",
+  timeZone: "America/Denver",
   notifyFriendRequests: true,
-  notifyMonthlyGoalToday: true,
-  notifyTasksDueToday: true,
+  notifyMonthlyGoalToday: false,
+  notifyTasksDueToday: false,
   notifyInactivityReminder: true,
   notifySharedGoalInvites: true,
-  notifyStreakAtRisk: true,
-  notifyStreakMilestone: true,
-  notifyEndOfDayNudge: true,
-  notifyPostProps: true,
+  notifyStreakAtRisk: false,
+  notifyStreakMilestone: false,
+  notifyEndOfDayNudge: false,
+  notifyPostProps: false,
   notifyPostComments: true,
-  notifyFriendPosts: true,
+  notifyFriendPosts: false,
+  notifyFriendNudges: true,
   notifyFriendRequestAccepted: true,
-  notifyFriendMilestone: true,
+  notifyFriendMilestone: false,
   notifySharedGoalResponses: true,
-  notifyLastToComplete: true,
-  notifySharedGoalEnding: true,
-  notifyStakesReminder: true,
-  notifyIncentiveEarned: true,
-  notifyPlanTomorrow: true,
-  notifyWeeklyRecap: true,
+  notifyLastToComplete: false,
+  notifySharedGoalEnding: false,
+  notifyStakesReminder: false,
+  notifyIncentiveEarned: false,
+  notifyPlanTomorrow: false,
+  notifyWeeklyRecap: false,
   notifyScheduleEvents: true,
   dailyNotificationTime: "20:30",
   weeklyNotificationTime: "18:00",
@@ -90,6 +94,7 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyPostProps: USER_SETTING_DEFAULTS.notifyPostProps,
   notifyPostComments: USER_SETTING_DEFAULTS.notifyPostComments,
   notifyFriendPosts: USER_SETTING_DEFAULTS.notifyFriendPosts,
+  notifyFriendNudges: USER_SETTING_DEFAULTS.notifyFriendNudges,
   notifyFriendRequestAccepted:
     USER_SETTING_DEFAULTS.notifyFriendRequestAccepted,
   notifyFriendMilestone: USER_SETTING_DEFAULTS.notifyFriendMilestone,
@@ -106,6 +111,7 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   weeklyNotificationDay: USER_SETTING_DEFAULTS.weeklyNotificationDay,
   monthlyNotificationTime: USER_SETTING_DEFAULTS.monthlyNotificationTime,
   monthlyNotificationDay: USER_SETTING_DEFAULTS.monthlyNotificationDay,
+  timeZone: USER_SETTING_DEFAULTS.timeZone,
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {

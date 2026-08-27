@@ -11,6 +11,11 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { notifyFriendsOfVisibleCheckpointPost } from "@/lib/friend-post-notifications";
+import { notifyPlanGoalCompletionEvents } from "@/lib/notification-events";
+import {
+  getAcceptedFriendIds,
+  syncContentMentionsAndNotify,
+} from "@/lib/mentions";
 import {
   deletePlannedEventsForSources,
   upsertPlannedEvent,
@@ -398,12 +403,35 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
 
+      await syncContentMentionsAndNotify({
+        allowedUserIds:
+          checkpoint.completedAt && checkpoint.visibility === "all_friends"
+            ? new Set(await getAcceptedFriendIds(db, user.id))
+            : new Set(),
+        authorId: user.id,
+        authorName: user.name,
+        body: checkpoint.notes ?? "",
+        db,
+        sourceId: checkpoint.id,
+        sourceType: "goal_checkpoint",
+      });
+
       const isVisiblePost =
         Boolean(checkpoint.completedAt) &&
         checkpoint.visibility === "all_friends" &&
         (Boolean(checkpoint.notes?.trim()) || Boolean(previousPhoto));
       if (!wasVisiblePost && isVisiblePost) {
         void notifyFriendsOfVisibleCheckpointPost(db, checkpoint.id);
+      }
+
+      if (data.completed && !previousCheckpoint?.completedAt) {
+        void notifyPlanGoalCompletionEvents({
+          db,
+          goalId: checkpoint.goalId,
+          previouslyComplete: false,
+          userId: user.id,
+          userName: user.name,
+        });
       }
 
       return NextResponse.json(

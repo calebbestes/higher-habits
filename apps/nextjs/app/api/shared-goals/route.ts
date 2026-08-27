@@ -2,10 +2,11 @@ import {
   categories,
   friends,
   getDb,
+  goals,
   habits,
-  socialFeedPosts,
   sharedGoalParticipants,
   sharedGoals,
+  socialFeedPosts,
 } from "@habit/db";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -20,20 +21,28 @@ const createSharedGoalSchema = z
     name: z.string().trim().min(1).max(200),
     mode: z.enum(["collaborative", "competitive"]),
     scoringType: z.enum([
-      "everyone_completes",
+      "shared_streak",
       "combined_target",
       "first_to_target",
       "highest_total",
       "longest_streak",
+      "one_time",
     ]),
     target: z.number().int().positive().nullable().default(null),
     startsOn: z.string().date().nullable().default(null),
     endsOn: z.string().date().nullable().default(null),
     personalGoalId: z.string().uuid().nullable().default(null),
     invitedUserIds: z.array(z.string().min(1)).max(25).default([]),
+    openInvite: z.boolean().default(false),
+    requireEvidence: z.boolean().default(true),
     stakeType: z.enum(["none", "carrot", "stick"]).default("none"),
     stakeDescription: z.string().trim().max(500).nullable().default(null),
   })
+  .refine(
+    ({ scoringType, target }) =>
+      scoringType !== "shared_streak" || target !== null,
+    { message: "Set a target for the collaborative streak.", path: ["target"] },
+  )
   .refine(
     ({ startsOn, endsOn }) => !startsOn || !endsOn || endsOn >= startsOn,
     { message: "End date must be on or after the start date." },
@@ -94,13 +103,28 @@ export async function POST(request: Request) {
     }
     const data = parsed.data;
     if (data.personalGoalId) {
-      const [personalGoal] = await db
-        .select({ id: habits.id })
-        .from(habits)
-        .where(
-          and(eq(habits.id, data.personalGoalId), eq(habits.userId, user.id)),
-        )
-        .limit(1);
+      const [personalGoal] =
+        data.scoringType === "one_time"
+          ? await db
+              .select({ id: goals.id })
+              .from(goals)
+              .where(
+                and(
+                  eq(goals.id, data.personalGoalId),
+                  eq(goals.userId, user.id),
+                ),
+              )
+              .limit(1)
+          : await db
+              .select({ id: habits.id })
+              .from(habits)
+              .where(
+                and(
+                  eq(habits.id, data.personalGoalId),
+                  eq(habits.userId, user.id),
+                ),
+              )
+              .limit(1);
 
       if (!personalGoal) {
         return NextResponse.json(
@@ -153,9 +177,12 @@ export async function POST(request: Request) {
     }
 
     const sharedGoalId = await db.transaction(async (tx) => {
-      let personalGoalId = data.personalGoalId;
+      let personalGoalId =
+        data.scoringType === "one_time" ? null : data.personalGoalId;
+      const personalPlanGoalId =
+        data.scoringType === "one_time" ? data.personalGoalId : null;
 
-      if (!personalGoalId) {
+      if (!personalGoalId && data.scoringType !== "one_time") {
         const [existingCategory] = await tx
           .select({ id: categories.id })
           .from(categories)
@@ -205,6 +232,7 @@ export async function POST(request: Request) {
             categoryId,
             priority: "low",
             visibility: "goal_friends",
+            requireEvidence: data.requireEvidence,
             iconKey:
               data.mode === "collaborative"
                 ? "mdi:account-group-outline"
@@ -228,6 +256,7 @@ export async function POST(request: Request) {
           target: data.target,
           startsOn: data.startsOn,
           endsOn: data.endsOn,
+          openInvite: data.openInvite,
           stakeType: data.stakeType,
           stakeDescription:
             data.stakeType === "none" ? null : data.stakeDescription,
@@ -241,7 +270,9 @@ export async function POST(request: Request) {
           sharedGoalId: created.id,
           userId: user.id,
           personalGoalId,
-          personalGoalAutoCreated: !data.personalGoalId,
+          personalPlanGoalId,
+          personalGoalAutoCreated:
+            data.scoringType === "one_time" ? false : !data.personalGoalId,
           status: "accepted",
           joinedAt: new Date(),
         },
@@ -271,13 +302,15 @@ export async function POST(request: Request) {
     });
     const [snapshot] = await getSharedGoalSnapshots(db, user.id, sharedGoalId);
 
-    for (const friendId of uniqueInvitedUserIds) {
-      void sendPushToUser(friendId, "notifySharedGoalInvites", {
-        title: "New shared goal",
-        body: `${user.name} invited you to "${data.name}".`,
-        data: { type: "shared_goal_invite", sharedGoalId },
-      });
-    }
+    await Promise.all(
+      uniqueInvitedUserIds.map((friendId) =>
+        sendPushToUser(friendId, "notifySharedGoalInvites", {
+          title: "New shared goal",
+          body: `${user.name} invited you to "${data.name}".`,
+          data: { type: "shared_goal_invite", sharedGoalId },
+        }),
+      ),
+    );
 
     return NextResponse.json(snapshot, { status: 201 });
   } catch (error) {

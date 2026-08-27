@@ -29,10 +29,15 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { notifyFriendsOfVisibleHabitPost } from "@/lib/friend-post-notifications";
+import { notifyHabitCompletionEvents } from "@/lib/notification-events";
 import {
     deleteGoogleCalendarHabitPlan,
     upsertGoogleCalendarHabitPlan,
 } from "@/lib/google-calendar";
+import {
+    getAcceptedFriendIds,
+    syncContentMentionsAndNotify,
+} from "@/lib/mentions";
 import {
     GOAL_PHOTOS_BUCKET,
     getSupabaseStorageAdmin,
@@ -1020,6 +1025,16 @@ export async function POST(request: Request) {
                 existingLog?.status !== "complete"
             ) {
                 void notifyFriendsOfVisibleHabitPost(db, savedLog.id);
+                void notifyHabitCompletionEvents({
+                    db,
+                    dateKey: data.dateKey,
+                    habitId: data.goalId,
+                    habitName: goal.name,
+                    canNotifyFriends: goal.visibility !== "only_me",
+                    previouslyComplete: false,
+                    userId: user.id,
+                    userName: user.name,
+                });
             }
 
             if (data.status !== "planned") {
@@ -1137,6 +1152,7 @@ export async function POST(request: Request) {
                     plannedEndTime: goalLogs.plannedEndTime,
                     plannedStartTime: goalLogs.plannedStartTime,
                     status: goalLogs.status,
+                    visibility: goalLogs.visibility,
                 })
                 .from(goalLogs)
                 .where(
@@ -1161,6 +1177,23 @@ export async function POST(request: Request) {
                           userId: user.id,
                       })
                     : { status: "skipped" as const };
+
+            const mentionSourceId = syncedLog?.id ?? previousLog?.id;
+            if (mentionSourceId) {
+                await syncContentMentionsAndNotify({
+                    allowedUserIds:
+                        syncedLog?.status === "complete" &&
+                        syncedLog.visibility !== "only_me"
+                            ? new Set(await getAcceptedFriendIds(db, user.id))
+                            : new Set(),
+                    authorId: user.id,
+                    authorName: user.name,
+                    body: data.notes,
+                    db,
+                    sourceId: mentionSourceId,
+                    sourceType: "goal_log",
+                });
+            }
 
             if (calendarSync.status === "synced" && calendarSync.eventId) {
                 await db
@@ -1210,7 +1243,12 @@ export async function POST(request: Request) {
                         eq(goalLogs.userId, user.id),
                     ),
                 )
-                .returning({ id: goalLogs.id });
+                .returning({
+                    id: goalLogs.id,
+                    notes: goalLogs.notes,
+                    status: goalLogs.status,
+                    visibility: goalLogs.visibility,
+                });
 
             if (!updatedLog) {
                 return NextResponse.json(
@@ -1218,6 +1256,20 @@ export async function POST(request: Request) {
                     { status: 404 },
                 );
             }
+
+            await syncContentMentionsAndNotify({
+                allowedUserIds:
+                    updatedLog.status === "complete" &&
+                    updatedLog.visibility !== "only_me"
+                        ? new Set(await getAcceptedFriendIds(db, user.id))
+                        : new Set(),
+                authorId: user.id,
+                authorName: user.name,
+                body: updatedLog.notes,
+                db,
+                sourceId: updatedLog.id,
+                sourceType: "goal_log",
+            });
 
             if (
                 previousLog?.visibility === "only_me" &&

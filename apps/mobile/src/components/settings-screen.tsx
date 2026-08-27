@@ -6,7 +6,10 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -189,6 +192,8 @@ export function SettingsScreen() {
   const [activeSubmenu, setActiveSubmenu] = useState<SettingsSubmenu | null>(
     null,
   );
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
@@ -312,18 +317,24 @@ export function SettingsScreen() {
   };
 
   const confirmDeleteAccount = () => {
-    Alert.alert(
-      "Delete account?",
-      "This permanently deletes your account, goals, plans, journal entries, photos, friends, and settings.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Account",
-          style: "destructive",
-          onPress: () => void deleteAccount(),
-        },
-      ],
-    );
+    setDeleteConfirmationText("");
+    setShowDeleteConfirmation(true);
+  };
+
+  const cancelDeleteAccount = () => {
+    if (isDeletingAccount) return;
+    setDeleteConfirmationText("");
+    setShowDeleteConfirmation(false);
+  };
+
+  const submitDeleteAccount = () => {
+    if (deleteConfirmationText.trim() !== "DELETE" || isDeletingAccount) {
+      return;
+    }
+
+    setShowDeleteConfirmation(false);
+    setDeleteConfirmationText("");
+    void deleteAccount();
   };
 
   const chooseAppearance = () => {
@@ -1163,6 +1174,99 @@ export function SettingsScreen() {
         visible={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
+
+      <Modal
+        animationType="fade"
+        onRequestClose={cancelDeleteAccount}
+        transparent
+        visible={showDeleteConfirmation}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.deleteModalOverlay}
+        >
+          <View
+            style={[
+              styles.deleteModalCard,
+              {
+                backgroundColor: theme.backgroundElement,
+                borderColor: theme.tabBorder,
+              },
+            ]}
+          >
+            <Text style={[styles.deleteModalTitle, { color: theme.text }]}>
+              Delete account?
+            </Text>
+            <Text
+              style={[
+                styles.deleteModalDescription,
+                { color: theme.textSecondary },
+              ]}
+            >
+              This permanently deletes your account, goals, plans, journal
+              entries, photos, friends, and settings.
+            </Text>
+            <TextInput
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoFocus
+              editable={!isDeletingAccount}
+              onChangeText={setDeleteConfirmationText}
+              placeholder="Type DELETE"
+              placeholderTextColor={theme.textSecondary}
+              style={[
+                styles.deleteConfirmationInput,
+                {
+                  backgroundColor: theme.background,
+                  borderColor: theme.tabBorder,
+                  color: theme.text,
+                },
+              ]}
+              value={deleteConfirmationText}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={
+                deleteConfirmationText.trim() !== "DELETE" || isDeletingAccount
+              }
+              onPress={submitDeleteAccount}
+              style={({ pressed }) => [
+                styles.deleteConfirmButton,
+                (deleteConfirmationText.trim() !== "DELETE" ||
+                  isDeletingAccount) &&
+                  styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              {isDeletingAccount ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.deleteConfirmButtonText}>
+                  Delete Account
+                </Text>
+              )}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={isDeletingAccount}
+              onPress={cancelDeleteAccount}
+              style={({ pressed }) => [
+                styles.deleteCancelButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.deleteCancelButtonText,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -1712,6 +1816,53 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "600",
   },
+  deleteModalOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    padding: 24,
+  },
+  deleteModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    gap: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 22,
+    padding: 22,
+  },
+  deleteModalTitle: { fontSize: 23, lineHeight: 28, fontWeight: "800" },
+  deleteModalDescription: { fontSize: 15, lineHeight: 21, fontWeight: "500" },
+  deleteConfirmationInput: {
+    minHeight: 48,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  deleteConfirmButton: {
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: "#B4232C",
+    paddingHorizontal: 16,
+  },
+  deleteConfirmButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  deleteCancelButton: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: "rgba(127, 127, 127, 0.14)",
+    paddingHorizontal: 16,
+  },
+  deleteCancelButtonText: { fontSize: 16, fontWeight: "700" },
   brandFooter: {
     alignItems: "center",
     gap: 2,

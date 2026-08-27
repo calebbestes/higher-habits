@@ -928,6 +928,7 @@ export function WeeklyPlanScreen({
                   Connect Google Calendar to import events.
                 </Text>
                 <Pressable
+                  accessibilityLabel="Connect Google Calendar"
                   accessibilityRole="button"
                   disabled={isSyncingGoogleCalendar}
                   onPress={() => void syncGoogleCalendar()}
@@ -944,7 +945,9 @@ export function WeeklyPlanScreen({
                       { color: theme.primaryForeground },
                     ]}
                   >
-                    {isSyncingGoogleCalendar ? "Syncing..." : "Sync Calendar"}
+                    {isSyncingGoogleCalendar
+                      ? "Connecting..."
+                      : "Connect Google Calendar"}
                   </Text>
                 </Pressable>
               </View>

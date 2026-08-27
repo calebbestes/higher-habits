@@ -40,7 +40,7 @@ const habitFields = {
   audienceGroupIds: z.array(z.string().uuid()).max(50).default([]),
   iconKey: z.string().default(""),
   defaultComplete: z.boolean().default(false),
-  requireEvidence: z.boolean().default(true),
+  requireEvidence: z.boolean().default(false),
   planOnCalendar: z.boolean().default(true),
   reminderEnabled: z.boolean().default(false),
   reminderTime: z.string().regex(TIME_REGEX).nullable().default(null),
@@ -418,9 +418,9 @@ export async function POST(request: Request) {
         ? (d.reminderTimes?.[0] ?? d.reminderTime ?? "09:00")
         : null,
       reminderTimes: d.reminderEnabled
-        ? (d.reminderTimes?.length
-            ? d.reminderTimes
-            : [d.reminderTime ?? "09:00"])
+        ? d.reminderTimes?.length
+          ? d.reminderTimes
+          : [d.reminderTime ?? "09:00"]
         : null,
       hidden: d.hidden,
     });

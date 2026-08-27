@@ -1,6 +1,5 @@
 import {
   categories,
-  friendMessages,
   friends,
   getDb,
   goalCheckpoints,
@@ -13,6 +12,7 @@ import { and, asc, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { countCompletedIncentives } from "@/lib/incentive-progress";
 import { getLongestProfileStreak } from "@/lib/profile-metrics";
 
 function mountainDateKey(date = new Date()): string {
@@ -154,26 +154,9 @@ export async function GET(request: Request) {
       .from(tasks)
       .where(and(eq(tasks.userId, user.id), isNotNull(tasks.completedAt)));
 
-    const [earnedIncentiveRows, givenIncentiveRows] = await Promise.all([
-      db
-        .select({ id: friendMessages.id })
-        .from(friendMessages)
-        .where(
-          and(
-            eq(friendMessages.recipientId, user.id),
-            eq(friendMessages.type, "incentive"),
-            eq(friendMessages.accepted, true),
-          ),
-        ),
-      db
-        .select({ id: friendMessages.id })
-        .from(friendMessages)
-        .where(
-          and(
-            eq(friendMessages.senderId, user.id),
-            eq(friendMessages.type, "incentive"),
-          ),
-        ),
+    const [incentivesEarned, incentivesGiven] = await Promise.all([
+      countCompletedIncentives(db, { recipientId: user.id }),
+      countCompletedIncentives(db, { senderId: user.id }),
     ]);
 
     const profileLogRows =
@@ -259,8 +242,8 @@ export async function GET(request: Request) {
         friendCount: friendRows.length,
         goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
-        incentivesEarned: earnedIncentiveRows.length,
-        incentivesGiven: givenIncentiveRows.length,
+        incentivesEarned,
+        incentivesGiven,
         longestStreak,
         taskCompletions: completedTaskRows.length,
       },

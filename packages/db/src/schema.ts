@@ -31,13 +31,15 @@ export const PLANNED_EVENT_SOURCE_TYPES = [
 export const FRIEND_STATUSES = ["requested", "accepted", "archived"] as const;
 export const FRIEND_MESSAGE_TYPES = ["message", "incentive"] as const;
 export const FRIEND_GOAL_SCOPES = ["all", "shared", "single", "high"] as const;
+export const FRIEND_GOAL_TARGET_TYPES = ["habit", "goal"] as const;
 export const SHARED_GOAL_MODES = ["collaborative", "competitive"] as const;
 export const SHARED_GOAL_SCORING_TYPES = [
-  "everyone_completes",
+  "shared_streak",
   "combined_target",
   "first_to_target",
   "highest_total",
   "longest_streak",
+  "one_time",
 ] as const;
 export const SHARED_GOAL_STATUSES = [
   "active",
@@ -64,6 +66,19 @@ export const MODERATION_REPORT_STATUSES = [
   "dismissed",
   "actioned",
 ] as const;
+export const MENTION_SOURCE_TYPES = [
+  "goal_log",
+  "goal_checkpoint",
+  "reflection_post",
+  "feed_comment",
+  "reflection_comment",
+] as const;
+export const FEED_REPOST_SOURCE_TYPES = [
+  "goal_log",
+  "goal_checkpoint",
+  "reflection_post",
+  "social_feed_post",
+] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
@@ -77,6 +92,10 @@ export const friendMessageTypeEnum = pgEnum(
 export const friendGoalScopeEnum = pgEnum(
   "friend_goal_scope",
   FRIEND_GOAL_SCOPES,
+);
+export const friendGoalTargetTypeEnum = pgEnum(
+  "friend_goal_target_type",
+  FRIEND_GOAL_TARGET_TYPES,
 );
 export const sharedGoalModeEnum = pgEnum("shared_goal_mode", SHARED_GOAL_MODES);
 export const sharedGoalScoringTypeEnum = pgEnum(
@@ -102,6 +121,10 @@ export const moderationReportTargetTypeEnum = pgEnum(
 export const moderationReportStatusEnum = pgEnum(
   "moderation_report_status",
   MODERATION_REPORT_STATUSES,
+);
+export const mentionSourceTypeEnum = pgEnum(
+  "mention_source_type",
+  MENTION_SOURCE_TYPES,
 );
 
 export const users = pgTable(
@@ -563,7 +586,7 @@ export const habits = pgTable(
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     iconKey: text("icon_key").default("").notNull(),
     defaultComplete: boolean("default_complete").default(false).notNull(),
-    requireEvidence: boolean("require_evidence").default(true).notNull(),
+    requireEvidence: boolean("require_evidence").default(false).notNull(),
     planOnCalendar: boolean("plan_on_calendar").default(true).notNull(),
     reminderEnabled: boolean("reminder_enabled").default(false).notNull(),
     reminderTime: text("reminder_time"),
@@ -977,6 +1000,113 @@ export const socialFeedPosts = pgTable(
   ],
 );
 
+export const socialFeedPostProps = pgTable(
+  "social_feed_post_props",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("social_feed_post_props_post_user_uidx").on(
+      table.socialFeedPostId,
+      table.userId,
+    ),
+    index("social_feed_post_props_post_id_idx").on(table.socialFeedPostId),
+    index("social_feed_post_props_user_id_idx").on(table.userId),
+  ],
+);
+
+export const socialFeedPostComments = pgTable(
+  "social_feed_post_comments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    parentCommentId: uuid("parent_comment_id").references(
+      (): AnyPgColumn => socialFeedPostComments.id,
+      { onDelete: "cascade" },
+    ),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("social_feed_post_comments_post_id_idx").on(table.socialFeedPostId),
+    index("social_feed_post_comments_parent_comment_id_idx").on(
+      table.parentCommentId,
+    ),
+    index("social_feed_post_comments_user_id_idx").on(table.userId),
+  ],
+);
+
+export const feedReposts = pgTable(
+  "feed_reposts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("feed_reposts_user_source_uidx").on(
+      table.userId,
+      table.sourceType,
+      table.sourceId,
+    ),
+    index("feed_reposts_source_idx").on(table.sourceType, table.sourceId),
+    index("feed_reposts_user_id_idx").on(table.userId),
+    index("feed_reposts_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const contentMentions = pgTable(
+  "content_mentions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sourceType: mentionSourceTypeEnum("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mentionedUserId: text("mentioned_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("content_mentions_source_user_uidx").on(
+      table.sourceType,
+      table.sourceId,
+      table.mentionedUserId,
+    ),
+    index("content_mentions_source_idx").on(table.sourceType, table.sourceId),
+    index("content_mentions_mentioned_user_id_idx").on(table.mentionedUserId),
+  ],
+);
+
 export const moderationReports = pgTable(
   "moderation_reports",
   {
@@ -1017,6 +1147,7 @@ export const sharedGoals = pgTable(
     target: integer("target"),
     startsOn: date("starts_on", { mode: "string" }),
     endsOn: date("ends_on", { mode: "string" }),
+    openInvite: boolean("open_invite").default(false).notNull(),
     status: sharedGoalStatusEnum("status").default("active").notNull(),
     stakeType: sharedGoalStakeTypeEnum("stake_type").default("none").notNull(),
     stakeDescription: text("stake_description"),
@@ -1046,6 +1177,10 @@ export const sharedGoalParticipants = pgTable(
     personalGoalId: uuid("personal_goal_id").references(() => habits.id, {
       onDelete: "set null",
     }),
+    personalPlanGoalId: uuid("personal_plan_goal_id").references(
+      () => goals.id,
+      { onDelete: "set null" },
+    ),
     personalGoalAutoCreated: boolean("personal_goal_auto_created")
       .default(false)
       .notNull(),
@@ -1070,6 +1205,9 @@ export const sharedGoalParticipants = pgTable(
     index("shared_goal_participants_user_id_idx").on(table.userId),
     index("shared_goal_participants_personal_goal_id_idx").on(
       table.personalGoalId,
+    ),
+    index("shared_goal_participants_personal_plan_goal_id_idx").on(
+      table.personalPlanGoalId,
     ),
     index("shared_goal_participants_status_idx").on(table.status),
   ],
@@ -1115,8 +1253,7 @@ export type NewPlannedEvent = typeof plannedEvents.$inferInsert;
 export type WeeklyPlanNote = typeof weeklyPlanNotes.$inferSelect;
 export type NewWeeklyPlanNote = typeof weeklyPlanNotes.$inferInsert;
 export type WeeklyPlanNoteHeader = typeof weeklyPlanNoteHeaders.$inferSelect;
-export type NewWeeklyPlanNoteHeader =
-  typeof weeklyPlanNoteHeaders.$inferInsert;
+export type NewWeeklyPlanNoteHeader = typeof weeklyPlanNoteHeaders.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
@@ -1131,6 +1268,17 @@ export type FeedComment = typeof feedComments.$inferSelect;
 export type NewFeedComment = typeof feedComments.$inferInsert;
 export type SocialFeedPost = typeof socialFeedPosts.$inferSelect;
 export type NewSocialFeedPost = typeof socialFeedPosts.$inferInsert;
+export type SocialFeedPostProp = typeof socialFeedPostProps.$inferSelect;
+export type NewSocialFeedPostProp = typeof socialFeedPostProps.$inferInsert;
+export type SocialFeedPostComment = typeof socialFeedPostComments.$inferSelect;
+export type NewSocialFeedPostComment =
+  typeof socialFeedPostComments.$inferInsert;
+export type FeedRepost = typeof feedReposts.$inferSelect;
+export type NewFeedRepost = typeof feedReposts.$inferInsert;
+export type FeedRepostSourceType = (typeof FEED_REPOST_SOURCE_TYPES)[number];
+export type ContentMention = typeof contentMentions.$inferSelect;
+export type NewContentMention = typeof contentMentions.$inferInsert;
+export type MentionSourceType = (typeof MENTION_SOURCE_TYPES)[number];
 export type SharedGoal = typeof sharedGoals.$inferSelect;
 export type NewSharedGoal = typeof sharedGoals.$inferInsert;
 export type SharedGoalParticipant = typeof sharedGoalParticipants.$inferSelect;
@@ -1162,8 +1310,17 @@ export const friendMessages = pgTable(
     streakDays: integer("streak_days"),
     streakPercent: integer("streak_percent"),
     goalScope: friendGoalScopeEnum("goal_scope"),
+    targetType: friendGoalTargetTypeEnum("target_type")
+      .default("habit")
+      .notNull(),
     goalId: uuid("goal_id").references(() => habits.id, {
       onDelete: "set null",
+    }),
+    planGoalId: uuid("plan_goal_id").references(() => goals.id, {
+      onDelete: "set null",
+    }),
+    incentiveCompletedAt: timestamp("incentive_completed_at", {
+      withTimezone: true,
     }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1174,6 +1331,7 @@ export const friendMessages = pgTable(
     index("friend_messages_friendship_id_idx").on(table.friendshipId),
     index("friend_messages_sender_id_idx").on(table.senderId),
     index("friend_messages_recipient_id_idx").on(table.recipientId),
+    index("friend_messages_plan_goal_id_idx").on(table.planGoalId),
   ],
 );
 
@@ -1215,10 +1373,10 @@ export const userSettings = pgTable("user_settings", {
     .default(true),
   notifyMonthlyGoalToday: boolean("notify_monthly_goal_today")
     .notNull()
-    .default(true),
+    .default(false),
   notifyTasksDueToday: boolean("notify_tasks_due_today")
     .notNull()
-    .default(true),
+    .default(false),
   notifyInactivityReminder: boolean("notify_inactivity_reminder")
     .notNull()
     .default(true),
@@ -1226,42 +1384,43 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .default(true),
   // Streaks & progress.
-  notifyStreakAtRisk: boolean("notify_streak_at_risk").notNull().default(true),
+  notifyStreakAtRisk: boolean("notify_streak_at_risk").notNull().default(false),
   notifyStreakMilestone: boolean("notify_streak_milestone")
     .notNull()
-    .default(true),
+    .default(false),
   notifyEndOfDayNudge: boolean("notify_end_of_day_nudge")
     .notNull()
-    .default(true),
+    .default(false),
   // Friends & social.
-  notifyPostProps: boolean("notify_post_props").notNull().default(true),
+  notifyPostProps: boolean("notify_post_props").notNull().default(false),
   notifyPostComments: boolean("notify_post_comments").notNull().default(true),
-  notifyFriendPosts: boolean("notify_friend_posts").notNull().default(true),
+  notifyFriendPosts: boolean("notify_friend_posts").notNull().default(false),
+  notifyFriendNudges: boolean("notify_friend_nudges").notNull().default(true),
   notifyFriendRequestAccepted: boolean("notify_friend_request_accepted")
     .notNull()
     .default(true),
   notifyFriendMilestone: boolean("notify_friend_milestone")
     .notNull()
-    .default(true),
+    .default(false),
   // Shared goals & incentives.
   notifySharedGoalResponses: boolean("notify_shared_goal_responses")
     .notNull()
     .default(true),
   notifyLastToComplete: boolean("notify_last_to_complete")
     .notNull()
-    .default(true),
+    .default(false),
   notifySharedGoalEnding: boolean("notify_shared_goal_ending")
     .notNull()
-    .default(true),
+    .default(false),
   notifyStakesReminder: boolean("notify_stakes_reminder")
     .notNull()
-    .default(true),
+    .default(false),
   notifyIncentiveEarned: boolean("notify_incentive_earned")
     .notNull()
-    .default(true),
+    .default(false),
   // Planning & recap.
-  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(true),
-  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(true),
+  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(false),
+  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(false),
   notifyScheduleEvents: boolean("notify_schedule_events")
     .notNull()
     .default(true),
@@ -1280,6 +1439,7 @@ export const userSettings = pgTable("user_settings", {
   monthlyNotificationDay: text("monthly_notification_day")
     .notNull()
     .default("first"),
+  timeZone: text("time_zone").notNull().default("America/Denver"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1307,6 +1467,29 @@ export const pushTokens = pgTable(
 );
 
 export type PushToken = typeof pushTokens.$inferSelect;
+
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dedupeKey: text("dedupe_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("notification_deliveries_user_key_uidx").on(
+      table.userId,
+      table.dedupeKey,
+    ),
+    index("notification_deliveries_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 
 export type CalendarSettings = typeof calendarSettings.$inferSelect;
 export type FriendMessage = typeof friendMessages.$inferSelect;

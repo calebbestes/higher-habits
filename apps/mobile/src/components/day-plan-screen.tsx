@@ -987,8 +987,6 @@ export function DayPlanScreen({
       buildSuggestedPlanEntries({
         allDayEntries,
         dateKey,
-        planGoals,
-        scheduledCheckpointIds,
         scheduledHabitCounts,
         scheduledTaskIds,
         snapshot,
@@ -997,8 +995,6 @@ export function DayPlanScreen({
     [
       allDayEntries,
       dateKey,
-      planGoals,
-      scheduledCheckpointIds,
       scheduledHabitCounts,
       scheduledTaskIds,
       snapshot,
@@ -2678,6 +2674,7 @@ export function DayPlanScreen({
                     Connect Google Calendar to import events.
                   </Text>
                   <Pressable
+                    accessibilityLabel="Connect Google Calendar"
                     accessibilityRole="button"
                     disabled={isSyncingGoogleCalendar}
                     onPress={() => void syncGoogleCalendar()}
@@ -2694,7 +2691,9 @@ export function DayPlanScreen({
                         { color: theme.primaryForeground },
                       ]}
                     >
-                      {isSyncingGoogleCalendar ? "Syncing..." : "Sync Calendar"}
+                      {isSyncingGoogleCalendar
+                        ? "Connecting..."
+                        : "Connect Google Calendar"}
                     </Text>
                   </Pressable>
                 </View>
@@ -5084,8 +5083,6 @@ function isExplicitDatePlannedEntry(
 function buildSuggestedPlanEntries({
   allDayEntries,
   dateKey,
-  planGoals,
-  scheduledCheckpointIds,
   scheduledHabitCounts,
   scheduledTaskIds,
   snapshot,
@@ -5093,8 +5090,6 @@ function buildSuggestedPlanEntries({
 }: {
   allDayEntries: DayPlanEntry[];
   dateKey: string;
-  planGoals: Goal[];
-  scheduledCheckpointIds: Set<string>;
   scheduledHabitCounts: Map<string, number>;
   scheduledTaskIds: Set<string>;
   snapshot: HabitLogsSnapshot | null;
@@ -5191,7 +5186,12 @@ function buildSuggestedPlanEntries({
       .map((row) => row.entry) ?? [];
 
   const taskEntries = tasks
-    .filter((task) => !task.completedAt && !scheduledTaskIds.has(task.id))
+    .filter(
+      (task) =>
+        task.importance === "High" &&
+        !task.completedAt &&
+        !scheduledTaskIds.has(task.id),
+    )
     .sort((left, right) => {
       const leftDue = left.dueDate ?? "9999-99-99";
       const rightDue = right.dueDate ?? "9999-99-99";
@@ -5215,99 +5215,18 @@ function buildSuggestedPlanEntries({
         sourceId: task.id,
         title: task.name,
       }),
-    )
-    .slice(0, 2);
-
-  const checkpointEntries = planGoals
-    .filter((goal) => goal.timing !== "later")
-    .flatMap((goal) => {
-      const checkpoint = [...goal.checkpoints]
-        .sort(sortCheckpointsForPlanning)
-        .find(
-          (candidate) =>
-            !candidate.completed && !scheduledCheckpointIds.has(candidate.id),
-        );
-
-      return checkpoint
-        ? [
-            {
-              checkpoint,
-              entry: suggestedEntry({
-                description: goal.title,
-                id: `suggested-goal-${checkpoint.id}`,
-                kind: "goal",
-                sourceId: checkpoint.id,
-                title: checkpoint.title,
-              }),
-              goal,
-            },
-          ]
-        : [];
-    })
-    .sort(
-      (left, right) =>
-        getGoalTimingScore(right.goal.timing) -
-          getGoalTimingScore(left.goal.timing) ||
-        compareCheckpointDates(left.checkpoint, right.checkpoint, dateKey) ||
-        left.goal.sortOrder - right.goal.sortOrder ||
-        left.goal.title.localeCompare(right.goal.title) ||
-        left.checkpoint.sortOrder - right.checkpoint.sortOrder ||
-        left.checkpoint.title.localeCompare(right.checkpoint.title),
-    )
-    .map((row) => row.entry);
+    );
 
   return [
     ...periodicEntries,
     ...recurringEntries,
     ...dailyHabitEntries,
     ...taskEntries,
-    ...checkpointEntries,
   ];
 }
 
 function getHabitPriorityScore(priority: ActionHabit["priority"] | undefined) {
   return priority === "high" ? 1 : 0;
-}
-
-function sortCheckpointsForPlanning(
-  left: GoalCheckpoint,
-  right: GoalCheckpoint,
-) {
-  return (
-    compareOptionalDateKeys(left.targetDate, right.targetDate) ||
-    left.sortOrder - right.sortOrder ||
-    left.title.localeCompare(right.title)
-  );
-}
-
-function compareCheckpointDates(
-  left: GoalCheckpoint,
-  right: GoalCheckpoint,
-  dateKey: string,
-) {
-  const leftRank = getCheckpointDateRank(left.targetDate, dateKey);
-  const rightRank = getCheckpointDateRank(right.targetDate, dateKey);
-
-  return (
-    leftRank - rightRank ||
-    compareOptionalDateKeys(left.targetDate, right.targetDate)
-  );
-}
-
-function getCheckpointDateRank(targetDate: string | null, dateKey: string) {
-  if (!targetDate) return 2;
-  return targetDate <= dateKey ? 0 : 1;
-}
-
-function compareOptionalDateKeys(left: string | null, right: string | null) {
-  if (left && right) return left.localeCompare(right);
-  if (left) return -1;
-  if (right) return 1;
-  return 0;
-}
-
-function getGoalTimingScore(timing: Goal["timing"]) {
-  return timing === "current" ? 1 : 0;
 }
 
 function countHabitCompletionsInLastDays(

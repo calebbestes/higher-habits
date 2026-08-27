@@ -1,6 +1,5 @@
 import {
   categories,
-  friendMessages,
   friends,
   getDb,
   goalCheckpoints,
@@ -14,6 +13,7 @@ import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
+import { countCompletedIncentives } from "@/lib/incentive-progress";
 import { getLongestProfileStreak } from "@/lib/profile-metrics";
 
 function mountainDateKey(date = new Date()): string {
@@ -203,26 +203,9 @@ export async function GET(
       .select({ id: tasks.id })
       .from(tasks)
       .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
-    const [earnedIncentiveRows, givenIncentiveRows] = await Promise.all([
-      db
-        .select({ id: friendMessages.id })
-        .from(friendMessages)
-        .where(
-          and(
-            eq(friendMessages.recipientId, friendId),
-            eq(friendMessages.type, "incentive"),
-            eq(friendMessages.accepted, true),
-          ),
-        ),
-      db
-        .select({ id: friendMessages.id })
-        .from(friendMessages)
-        .where(
-          and(
-            eq(friendMessages.senderId, friendId),
-            eq(friendMessages.type, "incentive"),
-          ),
-        ),
+    const [incentivesEarned, incentivesGiven] = await Promise.all([
+      countCompletedIncentives(db, { recipientId: friendId }),
+      countCompletedIncentives(db, { senderId: friendId }),
     ]);
     const profileLogRows =
       visibleHabitIdList.length > 0
@@ -306,8 +289,8 @@ export async function GET(
         friendCount: friendRows.length,
         goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
-        incentivesEarned: earnedIncentiveRows.length,
-        incentivesGiven: givenIncentiveRows.length,
+        incentivesEarned,
+        incentivesGiven,
         longestStreak,
         taskCompletions: completedTaskRows.length,
       },

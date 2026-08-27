@@ -2,8 +2,10 @@ import { fetchGoalLogsSnapshot, getMonthKey } from "@/lib/goal-logs-client";
 import type { GoalPhotoUpload } from "@/lib/goal-photos-client";
 import { recordReviewMilestone } from "@/lib/in-app-review";
 import { mobileApiFetch } from "@/lib/mobile-api";
+import type { SharedGoalScoringType } from "@/lib/shared-goals-client";
 
 export type StreakGoalScope = "all" | "shared" | "single" | "high";
+export type IncentiveTargetType = "habit" | "goal";
 
 export type FriendMessageRow = {
   id: string;
@@ -17,13 +19,17 @@ export type FriendIncentiveRow = FriendMessageRow & {
   streakDays: number | null;
   streakPercent: number | null;
   goalScope: StreakGoalScope | null;
+  targetType: IncentiveTargetType;
   goalId: string | null;
   goalName: string | null;
+  planGoalId: string | null;
+  planGoalName: string | null;
   accepted: boolean | null;
   progress: {
     qualifyingDays: number;
     requiredDays: number;
     percent: number;
+    unit?: "days" | "checkpoints";
   } | null;
 };
 
@@ -47,6 +53,7 @@ export type FriendRow = {
     percent: number;
   } | null;
   goalOptions: Array<{ id: string; name: string }>;
+  planGoalOptions: Array<{ id: string; name: string }>;
   incentives: FriendIncentiveRow[];
 };
 
@@ -176,6 +183,18 @@ function normalizeFriend(row: unknown): FriendRow | null {
             : [],
         )
       : [],
+    planGoalOptions: Array.isArray(row.planGoalOptions)
+      ? row.planGoalOptions.flatMap((option) =>
+          isRecord(option) && typeof option.id === "string"
+            ? [
+                {
+                  id: option.id,
+                  name: stringOrFallback(option.name, "Personal goal"),
+                },
+              ]
+            : [],
+        )
+      : [],
     incentives: Array.isArray(row.incentives)
       ? (row.incentives as FriendIncentiveRow[])
       : [],
@@ -241,7 +260,7 @@ function normalizeProfileHabit(value: unknown): FriendProfileHabit | null {
         ? value.visibility
         : "only_me",
     defaultComplete: booleanOrFallback(value.defaultComplete),
-    requireEvidence: booleanOrFallback(value.requireEvidence, true),
+    requireEvidence: booleanOrFallback(value.requireEvidence, false),
   };
 }
 
@@ -348,6 +367,24 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
   };
 }
 
+function normalizeFeedMention(value: unknown): FeedMention | null {
+  if (!isRecord(value) || typeof value.userId !== "string") return null;
+
+  return {
+    userId: value.userId,
+    name: stringOrFallback(value.name, "Friend"),
+  };
+}
+
+function normalizeFeedMentions(value: unknown): FeedMention[] {
+  return Array.isArray(value)
+    ? value.flatMap((mention) => {
+        const normalized = normalizeFeedMention(mention);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+}
+
 function normalizeFeedComment(value: unknown): FriendFeedComment | null {
   if (!isRecord(value) || typeof value.id !== "string") return null;
 
@@ -361,12 +398,68 @@ function normalizeFeedComment(value: unknown): FriendFeedComment | null {
     createdAt: stringOrFallback(value.createdAt),
     updatedAt: stringOrFallback(value.updatedAt),
     canDelete: booleanOrFallback(value.canDelete),
+    mentions: normalizeFeedMentions(value.mentions),
     replies: Array.isArray(value.replies)
       ? value.replies.flatMap((reply) => {
           const normalized = normalizeFeedComment(reply);
           return normalized ? [normalized] : [];
         })
       : [],
+  };
+}
+
+function normalizeSharedGoalFeedDetails(
+  value: unknown,
+): FriendFeedEntry["sharedGoal"] {
+  if (!isRecord(value) || typeof value.id !== "string") return undefined;
+
+  const participants = Array.isArray(value.participants)
+    ? value.participants.flatMap((participant) =>
+        isRecord(participant) && typeof participant.id === "string"
+          ? [
+              {
+                id: participant.id,
+                userId: stringOrFallback(participant.userId),
+                name: stringOrFallback(participant.userName, "Friend"),
+                image: nullableString(participant.userImage),
+                status:
+                  participant.status === "accepted" ? "accepted" : "invited",
+              } as const,
+            ]
+          : [],
+      )
+    : [];
+
+  return {
+    id: value.id,
+    name: stringOrFallback(value.name, "Shared goal"),
+    mode: value.mode === "competitive" ? "competitive" : "collaborative",
+    scoringType:
+      value.scoringType === "combined_target"
+        ? "combined_target"
+        : value.scoringType === "first_to_target"
+          ? "first_to_target"
+          : value.scoringType === "highest_total"
+            ? "highest_total"
+            : value.scoringType === "longest_streak"
+              ? "longest_streak"
+              : value.scoringType === "one_time"
+                ? "one_time"
+                : "shared_streak",
+    target:
+      typeof value.target === "number" && Number.isFinite(value.target)
+        ? value.target
+        : null,
+    startsOn: nullableString(value.startsOn),
+    endsOn: nullableString(value.endsOn),
+    openInvite: booleanOrFallback(value.openInvite),
+    status:
+      value.status === "completed" || value.status === "archived"
+        ? value.status
+        : "active",
+    currentUserStatus:
+      value.currentUserStatus === "accepted" ? "accepted" : "invited",
+    participants,
   };
 }
 
@@ -426,6 +519,29 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
           hasPropped: booleanOrFallback(value.props.hasPropped),
         }
       : { count: 0, hasPropped: false },
+    repost: isRecord(value.repost)
+      ? {
+          count: numberOrFallback(value.repost.count),
+          hasReposted: booleanOrFallback(value.repost.hasReposted),
+        }
+      : { count: 0, hasReposted: false },
+    sourceType:
+      value.sourceType === "goal_log" ||
+      value.sourceType === "goal_checkpoint" ||
+      value.sourceType === "reflection_post" ||
+      value.sourceType === "social_feed_post"
+        ? value.sourceType
+        : undefined,
+    sourceId: typeof value.sourceId === "string" ? value.sourceId : undefined,
+    sharedGoal: normalizeSharedGoalFeedDetails(value.sharedGoal),
+    repostedBy: isRecord(value.repostedBy)
+      ? {
+          id: stringOrFallback(value.repostedBy.id),
+          name: stringOrFallback(value.repostedBy.name, "Friend"),
+          image: nullableString(value.repostedBy.image),
+        }
+      : undefined,
+    mentions: normalizeFeedMentions(value.mentions),
     comments: Array.isArray(value.comments)
       ? value.comments.flatMap((comment) => {
           const normalized = normalizeFeedComment(comment);
@@ -500,6 +616,17 @@ export type FriendFeedPhoto = {
   createdAt: string;
 };
 
+export type FeedRepostSourceType =
+  | "goal_log"
+  | "goal_checkpoint"
+  | "reflection_post"
+  | "social_feed_post";
+
+export type FeedMention = {
+  userId: string;
+  name: string;
+};
+
 export type FriendFeedComment = {
   id: string;
   userId: string;
@@ -510,6 +637,7 @@ export type FriendFeedComment = {
   createdAt: string;
   updatedAt: string;
   canDelete: boolean;
+  mentions: FeedMention[];
   replies: FriendFeedComment[];
 };
 
@@ -549,6 +677,37 @@ export type FriendFeedEntry = {
     count: number;
     hasPropped: boolean;
   };
+  repost: {
+    count: number;
+    hasReposted: boolean;
+  };
+  sourceType?: FeedRepostSourceType;
+  sourceId?: string;
+  repostedBy?: {
+    id: string;
+    name: string;
+    image: string | null;
+  };
+  sharedGoal?: {
+    id: string;
+    name: string;
+    mode: "collaborative" | "competitive";
+    scoringType: SharedGoalScoringType;
+    target: number | null;
+    startsOn: string | null;
+    endsOn: string | null;
+    openInvite: boolean;
+    status: "active" | "completed" | "archived";
+    currentUserStatus: "invited" | "accepted";
+    participants: Array<{
+      id: string;
+      userId: string;
+      name: string;
+      image: string | null;
+      status: "invited" | "accepted";
+    }>;
+  };
+  mentions: FeedMention[];
   comments: FriendFeedComment[];
   photos: FriendFeedPhoto[];
 };
@@ -761,7 +920,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       priority: "low",
       visibility: "all_friends",
       defaultComplete: false,
-      requireEvidence: true,
+      requireEvidence: false,
     });
   }
 
@@ -777,7 +936,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       priority: habitsById.get(entry.goal.id)?.priority ?? "low",
       visibility: habitsById.get(entry.goal.id)?.visibility ?? "all_friends",
       defaultComplete: habitsById.get(entry.goal.id)?.defaultComplete ?? false,
-      requireEvidence: habitsById.get(entry.goal.id)?.requireEvidence ?? true,
+      requireEvidence: habitsById.get(entry.goal.id)?.requireEvidence ?? false,
     });
     logsByHabitDate[`${entry.goal.id}_${entry.dateKey}`] = "complete";
   }
@@ -959,6 +1118,23 @@ export const toggleReflectionProp = (postId: string) =>
     body: JSON.stringify({ type: "toggleProp" }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
 
+export const toggleSocialPostProp = (postId: string) =>
+  mobileApiFetch(`/api/friends/feed/social/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "toggleProp" }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const toggleFeedRepost = (
+  sourceType: FeedRepostSourceType,
+  sourceId: string,
+) =>
+  mobileApiFetch("/api/friends/feed/reposts", {
+    method: "POST",
+    body: JSON.stringify({ sourceType, sourceId }),
+  }).then((r) =>
+    parseResponse<{ reposted: boolean; repostId: string | null }>(r),
+  );
+
 export const setReflectionBody = (
   postId: string,
   body: string,
@@ -1003,6 +1179,16 @@ export const addReflectionComment = (
     body: JSON.stringify({ type: "addComment", body, parentCommentId }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
 
+export const addSocialPostComment = (
+  postId: string,
+  body: string,
+  parentCommentId?: string | null,
+) =>
+  mobileApiFetch(`/api/friends/feed/social/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "addComment", body, parentCommentId }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
 export const deleteFeedComment = (goalLogId: string, commentId: string) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {
     method: "POST",
@@ -1011,6 +1197,12 @@ export const deleteFeedComment = (goalLogId: string, commentId: string) =>
 
 export const deleteReflectionComment = (postId: string, commentId: string) =>
   mobileApiFetch(`/api/daily-reflections/${postId}`, {
+    method: "POST",
+    body: JSON.stringify({ type: "deleteComment", commentId }),
+  }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const deleteSocialPostComment = (postId: string, commentId: string) =>
+  mobileApiFetch(`/api/friends/feed/social/${postId}`, {
     method: "POST",
     body: JSON.stringify({ type: "deleteComment", commentId }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
@@ -1058,14 +1250,23 @@ export async function uploadDailyReflectionPhoto(
   }).then((r) => parseResponse<FriendFeedPhoto>(r));
 }
 
-export type SendIncentivePayload = {
-  type: "incentive";
-  body: string;
-  streakDays: number;
-  streakPercent: number;
-  goalScope: StreakGoalScope;
-  goalId?: string;
-};
+export type SendIncentivePayload =
+  | {
+      type: "incentive";
+      targetType: "habit";
+      body: string;
+      streakDays: number;
+      streakPercent: number;
+      goalScope: StreakGoalScope;
+      goalId?: string;
+    }
+  | {
+      type: "incentive";
+      targetType: "goal";
+      body: string;
+      goalScope: "all" | "single";
+      planGoalId?: string;
+    };
 
 export const sendFriendIncentive = (
   friendshipId: string,

@@ -1,24 +1,77 @@
-import { friendMessages, friends, getDb, socialFeedPosts } from "@habit/db";
+import {
+  type NewFriendMessage,
+  friendMessages,
+  friends,
+  getDb,
+  goals,
+  habits,
+  socialFeedPosts,
+} from "@habit/db";
 import { and, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { notifyAcceptedIncentives } from "@/lib/notification-events";
 import { sendPushToUser } from "@/lib/push";
 
-const sendMessageSchema = z.discriminatedUnion("type", [
+const sendMessageSchema = z.union([
   z.object({
     type: z.literal("message"),
     body: z.string().trim().min(1),
   }),
-  z.object({
-    type: z.literal("incentive"),
-    body: z.string().trim().min(1),
-    streakDays: z.number().int().min(1),
-    streakPercent: z.number().int().min(1).max(100),
-    goalScope: z.enum(["all", "shared", "single", "high"]),
-    goalId: z.string().uuid().optional(),
-  }),
+  z
+    .object({
+      type: z.literal("incentive"),
+      body: z.string().trim().min(1),
+      targetType: z.enum(["habit", "goal"]).default("habit"),
+      streakDays: z.number().int().min(1).optional(),
+      streakPercent: z.number().int().min(1).max(100).optional(),
+      goalScope: z.enum(["all", "shared", "single", "high"]),
+      goalId: z.string().uuid().optional(),
+      planGoalId: z.string().uuid().optional(),
+    })
+    .superRefine((value, context) => {
+      if (value.targetType === "habit") {
+        if (value.streakDays === undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["streakDays"],
+            message: "Streak length is required for habit incentives.",
+          });
+        }
+        if (value.streakPercent === undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["streakPercent"],
+            message: "Completion threshold is required for habit incentives.",
+          });
+        }
+        if (value.goalScope === "single" && !value.goalId) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["goalId"],
+            message: "Choose a habit for a single-habit incentive.",
+          });
+        }
+        return;
+      }
+
+      if (value.goalScope !== "all" && value.goalScope !== "single") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["goalScope"],
+          message: "Personal-goal incentives can target all goals or one goal.",
+        });
+      }
+      if (value.goalScope === "single" && !value.planGoalId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["planGoalId"],
+          message: "Choose a personal goal for a single-goal incentive.",
+        });
+      }
+    }),
 ]);
 
 const acceptIncentiveSchema = z.object({
@@ -73,31 +126,82 @@ export async function POST(
       );
     }
 
-    const values =
+    if (parsed.data.type === "incentive") {
+      const targetId =
+        parsed.data.targetType === "goal"
+          ? parsed.data.planGoalId
+          : parsed.data.goalId;
+
+      if (parsed.data.goalScope === "single" && targetId) {
+        const [target] = await db
+          .select({
+            id: parsed.data.targetType === "goal" ? goals.id : habits.id,
+          })
+          .from(parsed.data.targetType === "goal" ? goals : habits)
+          .where(
+            and(
+              eq(
+                parsed.data.targetType === "goal" ? goals.id : habits.id,
+                targetId,
+              ),
+              eq(
+                parsed.data.targetType === "goal"
+                  ? goals.userId
+                  : habits.userId,
+                recipientId,
+              ),
+            ),
+          )
+          .limit(1);
+
+        if (!target) {
+          return NextResponse.json(
+            { error: "That goal is not available for this friend." },
+            { status: 400 },
+          );
+        }
+      }
+    }
+
+    const values: NewFriendMessage =
       parsed.data.type === "message"
         ? {
             friendshipId,
             senderId: user.id,
             recipientId,
-            type: parsed.data.type,
+            type: "message",
             body: parsed.data.body,
           }
         : {
             friendshipId,
             senderId: user.id,
             recipientId,
-            type: parsed.data.type,
+            type: "incentive",
             body: parsed.data.body,
-            streakDays: parsed.data.streakDays,
-            streakPercent: parsed.data.streakPercent,
+            streakDays:
+              parsed.data.targetType === "habit"
+                ? (parsed.data.streakDays ?? null)
+                : null,
+            streakPercent:
+              parsed.data.targetType === "habit"
+                ? (parsed.data.streakPercent ?? null)
+                : null,
             goalScope: parsed.data.goalScope,
-            goalId: parsed.data.goalId ?? null,
+            targetType: parsed.data.targetType,
+            goalId:
+              parsed.data.targetType === "habit"
+                ? (parsed.data.goalId ?? null)
+                : null,
+            planGoalId:
+              parsed.data.targetType === "goal"
+                ? (parsed.data.planGoalId ?? null)
+                : null,
           };
 
     const [row] = await db.insert(friendMessages).values(values).returning();
 
     if (parsed.data.type === "message") {
-      void sendPushToUser(recipientId, "notifyFriendMilestone", {
+      await sendPushToUser(recipientId, "notifyFriendNudges", {
         title: `${user.name} nudged you`,
         body: parsed.data.body,
         data: { type: "friend_nudge", friendshipId },
@@ -118,7 +222,7 @@ export async function POST(
           .onConflictDoNothing();
       }
 
-      void sendPushToUser(recipientId, "notifySharedGoalInvites", {
+      await sendPushToUser(recipientId, "notifySharedGoalInvites", {
         title: "New incentive",
         body: `${user.name} sent you an incentive challenge.`,
         data: { type: "incentive", friendshipId },
@@ -209,11 +313,10 @@ export async function PATCH(
       );
     }
 
-    void sendPushToUser(row.senderId, "notifyIncentiveEarned", {
-      title: "Incentive accepted",
-      body: `${user.name} accepted your incentive challenge.`,
-      data: { type: "incentive_accepted", friendshipId },
-    });
+    // An accepted incentive is not earned yet. Recalculate in case the
+    // requirement was already satisfied, otherwise completion events will
+    // claim and notify it later.
+    void notifyAcceptedIncentives(db, user.id);
 
     return NextResponse.json({ id: row.id, accepted: row.accepted });
   } catch (error) {

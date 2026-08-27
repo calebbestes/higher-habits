@@ -237,6 +237,14 @@ export function GoalNoteEditorModal({
                 styleWithCSS={false}
               />
             </View>
+            <Text
+              style={[
+                styles.sectionDescription,
+                { color: theme.textSecondary },
+              ]}
+            >
+              Type @ followed by a friend&apos;s name to mention them.
+            </Text>
 
             {error ? (
               <View style={styles.errorRow}>

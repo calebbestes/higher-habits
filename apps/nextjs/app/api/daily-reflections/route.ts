@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { syncContentMentionsAndNotify } from "@/lib/mentions";
 import { sendPushToUser } from "@/lib/push";
 
 const createReflectionSchema = z.object({
@@ -171,11 +172,11 @@ export async function POST(request: Request) {
       ]);
     }
 
-    if (data.visibility !== "only_me") {
-      const notificationFriendIds =
-        data.visibility === "all_friends"
-          ? audience.acceptedFriendIds
-          : [
+    const notificationFriendIds =
+      data.visibility === "all_friends"
+        ? audience.acceptedFriendIds
+        : data.visibility === "goal_friends"
+          ? [
               ...new Set([
                 ...audience.audienceFriendIds,
                 ...(audience.audienceGroupIds.length
@@ -198,15 +199,29 @@ export async function POST(request: Request) {
                     )
                   : []),
               ]),
-            ];
+            ]
+          : [];
 
-      for (const friendId of notificationFriendIds) {
-        void sendPushToUser(friendId, "notifyFriendPosts", {
-          title: `${user.name} posted a reflection`,
-          body: data.body.slice(0, 100),
-          data: { type: "friend_post", reflectionPostId: post.id },
-        });
-      }
+    await syncContentMentionsAndNotify({
+      allowedUserIds: new Set(notificationFriendIds),
+      authorId: user.id,
+      authorName: user.name,
+      body: data.body,
+      db,
+      sourceId: post.id,
+      sourceType: "reflection_post",
+    });
+
+    if (data.visibility !== "only_me") {
+      await Promise.all(
+        [...notificationFriendIds].map((friendId) =>
+          sendPushToUser(friendId, "notifyFriendPosts", {
+            title: `${user.name} posted a reflection`,
+            body: data.body.slice(0, 100),
+            data: { type: "friend_post", reflectionPostId: post.id },
+          }),
+        ),
+      );
     }
 
     return NextResponse.json(post, { status: 201 });

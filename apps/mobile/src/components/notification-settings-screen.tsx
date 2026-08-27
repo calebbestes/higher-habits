@@ -175,6 +175,12 @@ const SECTIONS: ToggleSection[] = [
         description: "When a friend shares a visible post.",
       },
       {
+        key: "notifyFriendNudges",
+        icon: sym("hand.tap.fill", "touch_app"),
+        title: "Nudges",
+        description: "When a friend nudges you.",
+      },
+      {
         key: "notifyFriendMilestone",
         icon: sym("party.popper.fill", "celebration"),
         title: "Friend milestones",

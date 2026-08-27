@@ -18,6 +18,7 @@ const NOTIFICATION_KEYS = [
   "notifyPostProps",
   "notifyPostComments",
   "notifyFriendPosts",
+  "notifyFriendNudges",
   "notifyFriendRequestAccepted",
   "notifyFriendMilestone",
   "notifySharedGoalResponses",
@@ -44,9 +45,32 @@ const DAY_SETTING_KEYS = [
 type TimeSettingKey = (typeof TIME_SETTING_KEYS)[number];
 type DaySettingKey = (typeof DAY_SETTING_KEYS)[number];
 
-const DEFAULTS = Object.fromEntries(
-  NOTIFICATION_KEYS.map((key) => [key, true]),
-) as Record<NotificationKey, boolean>;
+// Keep the first-run experience useful without turning every activity into a
+// push notification. Existing saved preferences are never overwritten.
+const DEFAULTS: Record<NotificationKey, boolean> = {
+  notifyFriendRequests: true,
+  notifyMonthlyGoalToday: false,
+  notifyTasksDueToday: false,
+  notifyInactivityReminder: true,
+  notifySharedGoalInvites: true,
+  notifyStreakAtRisk: false,
+  notifyStreakMilestone: false,
+  notifyEndOfDayNudge: false,
+  notifyPostProps: false,
+  notifyPostComments: true,
+  notifyFriendPosts: false,
+  notifyFriendNudges: true,
+  notifyFriendRequestAccepted: true,
+  notifyFriendMilestone: false,
+  notifySharedGoalResponses: true,
+  notifyLastToComplete: false,
+  notifySharedGoalEnding: false,
+  notifyStakesReminder: false,
+  notifyIncentiveEarned: false,
+  notifyPlanTomorrow: false,
+  notifyWeeklyRecap: false,
+  notifyScheduleEvents: true,
+};
 const TIME_DEFAULTS = {
   dailyNotificationTime: "20:30",
   weeklyNotificationTime: "18:00",
@@ -56,6 +80,7 @@ const DAY_DEFAULTS = {
   weeklyNotificationDay: "sunday",
   monthlyNotificationDay: "first",
 } as const satisfies Record<DaySettingKey, string>;
+const TIME_ZONE_DEFAULT = "America/Denver";
 
 const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
@@ -105,6 +130,7 @@ const bodySchema = z
       "friends",
     ]),
     defaultPlanReportView: z.enum(["day-plan", "monthly-plan"]),
+    timeZone: z.string().min(1).max(100),
     ...notificationSchemaShape,
     ...timeSchemaShape,
     ...daySchemaShape,
@@ -147,6 +173,7 @@ export async function GET(request: Request) {
       ...Object.fromEntries(
         DAY_SETTING_KEYS.map((key) => [key, row?.[key] ?? DAY_DEFAULTS[key]]),
       ),
+      timeZone: row?.timeZone ?? TIME_ZONE_DEFAULT,
     };
 
     return NextResponse.json(response);

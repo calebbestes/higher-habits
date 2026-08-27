@@ -3,11 +3,12 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type SharedGoalStakeType = "none" | "carrot" | "stick";
 
 export type SharedGoalScoringType =
-  | "everyone_completes"
+  | "shared_streak"
   | "combined_target"
   | "first_to_target"
   | "highest_total"
-  | "longest_streak";
+  | "longest_streak"
+  | "one_time";
 
 export type SharedGoalParticipantSnapshot = {
   id: string;
@@ -16,6 +17,8 @@ export type SharedGoalParticipantSnapshot = {
   userImage: string | null;
   personalGoalId: string | null;
   personalGoalName: string | null;
+  personalPlanGoalId: string | null;
+  personalPlanGoalName: string | null;
   personalGoalAutoCreated: boolean;
   status: "invited" | "accepted" | "declined" | "left";
   completedToday: boolean;
@@ -33,6 +36,7 @@ export type SharedGoalSnapshot = {
   target: number | null;
   startsOn: string | null;
   endsOn: string | null;
+  openInvite: boolean;
   status: "active" | "completed" | "archived";
   stakeType: SharedGoalStakeType;
   stakeDescription: string | null;
@@ -65,6 +69,8 @@ export type CreateSharedGoalInput = {
   endsOn: string | null;
   personalGoalId: string | null;
   invitedUserIds: string[];
+  openInvite: boolean;
+  requireEvidence: boolean;
   stakeType: SharedGoalStakeType;
   stakeDescription: string | null;
 };

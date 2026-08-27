@@ -63,10 +63,10 @@ const SCORING_OPTIONS: Record<
 > = {
   collaborative: [
     {
-      value: "everyone_completes",
-      label: "Everyone completes",
+      value: "shared_streak",
+      label: "Collaborative streak",
       description:
-        "Counts every day all participants complete the goal, adding up over time.",
+        "Builds one streak when every participant completes the goal each day.",
     },
     {
       value: "combined_target",
@@ -89,11 +89,12 @@ const SCORING_OPTIONS: Record<
 };
 
 const SCORING_LABELS: Record<ScoringType, string> = {
-  everyone_completes: "Everyone completes",
+  shared_streak: "Collaborative streak",
   combined_target: "Combined target",
   first_to_target: "First to target",
   highest_total: "Highest total",
   longest_streak: "Longest streak",
+  one_time: "One-time goal",
 };
 
 const todayDateKey = () => {
@@ -415,9 +416,8 @@ export function SharedGoalsSection({
   const [createStep, setCreateStep] = useState(1);
   const [name, setName] = useState("");
   const [mode, setMode] = useState<Mode>("collaborative");
-  const [scoringType, setScoringType] =
-    useState<ScoringType>("combined_target");
-  const [target, setTarget] = useState("30");
+  const [scoringType, setScoringType] = useState<ScoringType>("shared_streak");
+  const [target, setTarget] = useState("7");
   const [startsOn, setStartsOn] = useState(todayDateKey());
   const [endsOn, setEndsOn] = useState("");
   const [personalGoalId, setPersonalGoalId] = useState(
@@ -464,8 +464,8 @@ export function SharedGoalsSection({
     setCreateStep(1);
     setName("");
     setMode("collaborative");
-    setScoringType("combined_target");
-    setTarget("30");
+    setScoringType("shared_streak");
+    setTarget("7");
     setStartsOn(todayDateKey());
     setEndsOn("");
     setPersonalGoalId(initialPersonalGoalId ?? "");
@@ -769,7 +769,7 @@ export function SharedGoalsSection({
                       onClick={() => {
                         setMode(option);
                         setScoringType(SCORING_OPTIONS[option][0].value);
-                        setTarget(option === "collaborative" ? "30" : "7");
+                        setTarget("7");
                       }}
                       className={cn(
                         "rounded-2xl border p-5 text-left",
@@ -832,13 +832,16 @@ export function SharedGoalsSection({
                       </button>
                     ))}
                   </div>
-                  {scoringType !== "highest_total" &&
-                  scoringType !== "everyone_completes" ? (
+                  {scoringType !== "highest_total" ? (
                     <Input
                       isRequired
                       type="number"
                       min={1}
-                      label="Completion target"
+                      label={
+                        scoringType === "shared_streak"
+                          ? "Streak target (days)"
+                          : "Completion target"
+                      }
                       value={target}
                       onValueChange={setTarget}
                     />

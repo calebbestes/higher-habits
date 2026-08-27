@@ -23,9 +23,11 @@ import {
   Pressable,
   Image as RNImage,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  type TextStyle,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -33,6 +35,7 @@ import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { MentionInput } from "@/components/mention-input";
 import {
   type ImageNaturalSize,
   PhotoBackdropHitTargets,
@@ -42,6 +45,7 @@ import {
   CollabSectionHeaderTabs,
   PageHeaderTitle,
 } from "@/components/section-header-tabs";
+import { SharedGoalInviteModal } from "@/components/shared-goal-invite-modal";
 import {
   CreateGoalModal,
   type CreateSharedGoalInitialValues,
@@ -57,6 +61,8 @@ import {
   getDailyReflectionPrompt,
 } from "@/lib/daily-reflection-prompts";
 import {
+  type FeedMention,
+  type FeedRepostSourceType,
   type FriendFeedComment,
   type FriendFeedEntry,
   type FriendFeedPhoto,
@@ -64,10 +70,12 @@ import {
   type FriendRow,
   addFeedComment,
   addReflectionComment,
+  addSocialPostComment,
   archiveFriend,
   createDailyReflection,
   deleteFeedComment,
   deleteReflectionComment,
+  deleteSocialPostComment,
   fetchDailyReflectionPromptStats,
   fetchFriendGroups,
   fetchFriends,
@@ -76,7 +84,9 @@ import {
   reportContent,
   sendFriendIncentive,
   toggleFeedProp,
+  toggleFeedRepost,
   toggleReflectionProp,
+  toggleSocialPostProp,
   uploadDailyReflectionPhoto,
 } from "@/lib/friends-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
@@ -96,12 +106,18 @@ import {
   isNativeFeedAdsEnabled,
   loadNativeFeedAd,
 } from "@/lib/mobile-ads";
+import {
+  type Goal as PlanGoal,
+  fetchPlanGoals,
+} from "@/lib/planning-goals-client";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type CreateSharedGoalInput,
   type SharedGoalSnapshot,
   createSharedGoal,
   fetchSharedGoals,
+  inviteSharedGoalParticipants,
+  respondToSharedGoal,
 } from "@/lib/shared-goals-client";
 
 type SymbolName = SymbolViewProps["name"];
@@ -155,6 +171,29 @@ function buildSmsUrl(recipient: string) {
 
 function feedGoalKey(entry: Pick<FriendFeedEntry, "goal" | "kind">): string {
   return `${entry.kind}:${entry.goal.id}`;
+}
+
+function getFeedRepostSource(entry: FriendFeedEntry): {
+  sourceType: FeedRepostSourceType;
+  sourceId: string;
+} | null {
+  if (entry.sourceType && entry.sourceId) {
+    return { sourceType: entry.sourceType, sourceId: entry.sourceId };
+  }
+
+  if (entry.kind === "habit") {
+    return { sourceType: "goal_log", sourceId: entry.id };
+  }
+  if (entry.kind === "goal_checkpoint") {
+    return { sourceType: "goal_checkpoint", sourceId: entry.id };
+  }
+  if (entry.kind === "reflection") {
+    return { sourceType: "reflection_post", sourceId: entry.id };
+  }
+  if (entry.kind === "shared_goal" || entry.kind === "incentive") {
+    return { sourceType: "social_feed_post", sourceId: entry.id };
+  }
+  return null;
 }
 
 function hasJoinedSharedGoal(
@@ -473,6 +512,7 @@ export function FeedScreen() {
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
+  const [personalPlanGoals, setPersonalPlanGoals] = useState<PlanGoal[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
     groupIds: [],
     categoryIds: [],
@@ -507,6 +547,7 @@ export function FeedScreen() {
   const [activeCommentsEntryId, setActiveCommentsEntryId] = useState<
     string | null
   >(null);
+  const [togglingRepostId, setTogglingRepostId] = useState<string | null>(null);
   const [activeIncentiveEntry, setActiveIncentiveEntry] =
     useState<FriendFeedEntry | null>(null);
   const [incentiveBody, setIncentiveBody] = useState("");
@@ -515,8 +556,11 @@ export function FeedScreen() {
   const [isSendingIncentive, setIsSendingIncentive] = useState(false);
   const [activeJoinGoalEntry, setActiveJoinGoalEntry] =
     useState<FriendFeedEntry | null>(null);
+  const [activeSharedGoalInvite, setActiveSharedGoalInvite] =
+    useState<FriendFeedEntry | null>(null);
   const [joinedGoalKeys, setJoinedGoalKeys] = useState<Set<string>>(new Set());
   const [isPreparingJoinGoal, setIsPreparingJoinGoal] = useState(false);
+  const [isJoiningSharedGoal, setIsJoiningSharedGoal] = useState(false);
   const [reflectionFavorites, setReflectionFavorites] = useState<Set<string>>(
     new Set(),
   );
@@ -716,6 +760,7 @@ export function FeedScreen() {
   const handleToggleProp = useCallback(
     async (entry: FriendFeedEntry) => {
       const entryId = entry.id;
+      const sourceId = entry.sourceId ?? entry.id;
       if (!entry?.props.hasPropped) {
         playSuccessHaptic();
       } else {
@@ -732,9 +777,11 @@ export function FeedScreen() {
       }));
       try {
         if (entry.kind === "reflection") {
-          await toggleReflectionProp(entryId);
+          await toggleReflectionProp(sourceId);
+        } else if (entry.kind === "shared_goal") {
+          await toggleSocialPostProp(sourceId);
         } else {
-          await toggleFeedProp(entryId);
+          await toggleFeedProp(sourceId);
         }
       } catch (err) {
         updateFeedEntry(entryId, (e) => ({
@@ -755,6 +802,60 @@ export function FeedScreen() {
     [updateFeedEntry],
   );
 
+  const handleToggleRepost = useCallback(
+    async (entry: FriendFeedEntry) => {
+      const source = getFeedRepostSource(entry);
+      if (!source || togglingRepostId) return;
+
+      const wasReposted = entry.repost.hasReposted;
+      playSelectionHaptic();
+      setTogglingRepostId(entry.id);
+      updateFeedEntry(entry.id, (current) => ({
+        ...current,
+        repost: {
+          count: Math.max(current.repost.count + (wasReposted ? -1 : 1), 0),
+          hasReposted: !wasReposted,
+        },
+      }));
+
+      try {
+        const result = await toggleFeedRepost(
+          source.sourceType,
+          source.sourceId,
+        );
+        if (!isMountedRef.current) return;
+        updateFeedEntry(entry.id, (current) => ({
+          ...current,
+          repost: {
+            count: Math.max(
+              current.repost.count +
+                (result.reposted === !wasReposted ? 0 : wasReposted ? 1 : -1),
+              0,
+            ),
+            hasReposted: result.reposted,
+          },
+        }));
+        playSuccessHaptic();
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        updateFeedEntry(entry.id, (current) => ({
+          ...current,
+          repost: {
+            count: Math.max(current.repost.count + (wasReposted ? 1 : -1), 0),
+            hasReposted: wasReposted,
+          },
+        }));
+        Alert.alert(
+          "Could not repost",
+          err instanceof Error ? err.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setTogglingRepostId(null);
+      }
+    },
+    [togglingRepostId, updateFeedEntry],
+  );
+
   const handleAddComment = useCallback(
     async (entryId: string) => {
       const body = (commentDrafts[entryId] ?? "").trim();
@@ -769,9 +870,23 @@ export function FeedScreen() {
       setSubmittingComment(entryId);
       try {
         if (entry?.kind === "reflection") {
-          await addReflectionComment(entryId, body, replyTarget?.id ?? null);
+          await addReflectionComment(
+            entry.sourceId ?? entryId,
+            body,
+            replyTarget?.id ?? null,
+          );
+        } else if (entry?.kind === "shared_goal") {
+          await addSocialPostComment(
+            entry.sourceId ?? entryId,
+            body,
+            replyTarget?.id ?? null,
+          );
         } else {
-          await addFeedComment(entryId, body, replyTarget?.id ?? null);
+          await addFeedComment(
+            entry?.sourceId ?? entryId,
+            body,
+            replyTarget?.id ?? null,
+          );
         }
         playSuccessHaptic();
         if (!isMountedRef.current) return;
@@ -807,9 +922,11 @@ export function FeedScreen() {
             ? myDailyReflectionEntry
             : null);
         if (entry?.kind === "reflection") {
-          await deleteReflectionComment(entryId, commentId);
+          await deleteReflectionComment(entry.sourceId ?? entryId, commentId);
+        } else if (entry?.kind === "shared_goal") {
+          await deleteSocialPostComment(entry.sourceId ?? entryId, commentId);
         } else {
-          await deleteFeedComment(entryId, commentId);
+          await deleteFeedComment(entry?.sourceId ?? entryId, commentId);
         }
         playWarningHaptic();
         if (!isMountedRef.current) return;
@@ -1209,6 +1326,7 @@ export function FeedScreen() {
 
       await sendFriendIncentive(friendship.id, {
         type: "incentive",
+        targetType: "habit",
         body: incentiveBody.trim(),
         streakDays: days,
         streakPercent: percent,
@@ -1248,13 +1366,18 @@ export function FeedScreen() {
       playSelectionHaptic();
       setIsPreparingJoinGoal(true);
       try {
-        const [nextFriends, nextPersonalGoals] = await Promise.all([
-          friends.length ? Promise.resolve(friends) : fetchFriends(),
-          personalGoals.length ? Promise.resolve(personalGoals) : fetchGoals(),
-        ]);
+        const [nextFriends, nextPersonalGoals, nextPersonalPlanGoals] =
+          await Promise.all([
+            friends.length ? Promise.resolve(friends) : fetchFriends(),
+            personalGoals.length
+              ? Promise.resolve(personalGoals)
+              : fetchGoals(),
+            fetchPlanGoals(),
+          ]);
         if (!isMountedRef.current) return;
         setFriends(nextFriends);
         setPersonalGoals(nextPersonalGoals);
+        setPersonalPlanGoals(nextPersonalPlanGoals);
         setActiveJoinGoalEntry(entry);
       } catch (err) {
         if (!isMountedRef.current) return;
@@ -1267,6 +1390,94 @@ export function FeedScreen() {
       }
     },
     [friends, joinedGoalKeys, personalGoals],
+  );
+
+  const openSharedGoalInvite = useCallback(
+    async (entry: FriendFeedEntry) => {
+      if (
+        entry.kind !== "shared_goal" ||
+        !entry.sharedGoal ||
+        entry.sharedGoal.currentUserStatus !== "invited"
+      ) {
+        return;
+      }
+
+      playSelectionHaptic();
+      setIsPreparingJoinGoal(true);
+      try {
+        const [nextFriends, nextPersonalGoals, nextPersonalPlanGoals] =
+          await Promise.all([
+            friends.length ? Promise.resolve(friends) : fetchFriends(),
+            personalGoals.length
+              ? Promise.resolve(personalGoals)
+              : fetchGoals(),
+            fetchPlanGoals(),
+          ]);
+        if (!isMountedRef.current) return;
+        setFriends(nextFriends);
+        setPersonalGoals(nextPersonalGoals);
+        setPersonalPlanGoals(nextPersonalPlanGoals);
+        setActiveSharedGoalInvite(entry);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not open invitation",
+          err instanceof Error ? err.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setIsPreparingJoinGoal(false);
+      }
+    },
+    [friends, personalGoals],
+  );
+
+  const handleJoinSharedGoal = useCallback(
+    async (personalGoalId: string | null, inviteFriendIds: string[]) => {
+      const entry = activeSharedGoalInvite;
+      const sharedGoalId = entry?.sharedGoal?.id;
+      if (!entry || !sharedGoalId || isJoiningSharedGoal) return;
+
+      setIsJoiningSharedGoal(true);
+      try {
+        await respondToSharedGoal(sharedGoalId, {
+          action: "accept",
+          personalGoalId,
+        });
+
+        let inviteError: unknown = null;
+        if (inviteFriendIds.length > 0) {
+          try {
+            await inviteSharedGoalParticipants(sharedGoalId, inviteFriendIds);
+          } catch (error) {
+            inviteError = error;
+          }
+        }
+
+        updateFeedEntry(entry.id, (current) => ({
+          ...current,
+          sharedGoal: current.sharedGoal
+            ? { ...current.sharedGoal, currentUserStatus: "accepted" }
+            : current.sharedGoal,
+        }));
+        setActiveSharedGoalInvite(null);
+        playSuccessHaptic();
+        if (isMountedRef.current && inviteError) {
+          Alert.alert(
+            "Joined shared goal",
+            "You joined, but some friend invitations could not be sent. You can try again from Shared Goals.",
+          );
+        }
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not join shared goal",
+          err instanceof Error ? err.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setIsJoiningSharedGoal(false);
+      }
+    },
+    [activeSharedGoalInvite, isJoiningSharedGoal, updateFeedEntry],
   );
 
   const joinGoalInitialValues =
@@ -1303,6 +1514,14 @@ export function FeedScreen() {
         entry.photos.length === 0 &&
         !richTextToPlainText(entry.notes).trim();
       const canUsePostGoalActions = entry.kind === "habit";
+      const repostActionButtons = getFeedRepostSource(entry)
+        ? [
+            {
+              text: entry.repost.hasReposted ? "Remove repost" : "Repost",
+              onPress: () => void handleToggleRepost(entry),
+            },
+          ]
+        : [];
       const goalActionButtons =
         isCompletionOnly && canUsePostGoalActions
           ? [
@@ -1323,6 +1542,7 @@ export function FeedScreen() {
 
       Alert.alert(entry.friend.name, "Choose an action.", [
         ...goalActionButtons,
+        ...repostActionButtons,
         {
           text: `Unfollow ${entry.friend.name}`,
           onPress: () => void unfollowFriend(entry),
@@ -1346,6 +1566,7 @@ export function FeedScreen() {
       openJoinGoal,
       openPostIncentive,
       reportPost,
+      handleToggleRepost,
       unfollowFeedGoal,
       unfollowFriend,
     ],
@@ -1359,6 +1580,15 @@ export function FeedScreen() {
           friendId: entry.friend.id,
           initialName: entry.friend.name,
         },
+      });
+    },
+    [router],
+  );
+  const openMentionProfile = useCallback(
+    (friendId: string, friendName: string) => {
+      router.push({
+        pathname: "/friend-profile",
+        params: { friendId, initialName: friendName },
       });
     },
     [router],
@@ -1542,6 +1772,7 @@ export function FeedScreen() {
             setActiveCommentsEntryId(item.entry.id);
           }}
           onOpenProfile={() => void openFriendProfile(item.entry)}
+          onOpenMention={openMentionProfile}
           onOpenSafetyActions={() => openPostSafetyActions(item.entry)}
           onOpenBirthdayMessage={
             item.entry.kind === "birthday"
@@ -1554,16 +1785,25 @@ export function FeedScreen() {
               : () => openPostIncentive(item.entry)
           }
           joinGoalStatus={
-            joinedGoalKeys.has(feedGoalKey(item.entry))
-              ? "joined"
-              : isPreparingJoinGoal
-                ? "loading"
-                : "idle"
+            item.entry.kind === "shared_goal"
+              ? item.entry.sharedGoal?.currentUserStatus === "accepted"
+                ? "joined"
+                : isPreparingJoinGoal
+                  ? "loading"
+                  : "idle"
+              : joinedGoalKeys.has(feedGoalKey(item.entry))
+                ? "joined"
+                : isPreparingJoinGoal
+                  ? "loading"
+                  : "idle"
           }
           onOpenJoinGoal={
-            item.entry.kind !== "habit"
-              ? undefined
-              : () => void openJoinGoal(item.entry)
+            item.entry.kind === "habit"
+              ? () => void openJoinGoal(item.entry)
+              : item.entry.kind === "shared_goal" &&
+                  item.entry.sharedGoal?.currentUserStatus === "invited"
+                ? () => void openSharedGoalInvite(item.entry)
+                : undefined
           }
         />
       ) : (
@@ -1582,10 +1822,12 @@ export function FeedScreen() {
       messageBirthdayFriend,
       openFriendProfile,
       openJoinGoal,
+      openSharedGoalInvite,
       openPostIncentive,
       openPostSafetyActions,
       reportFeedAd,
       reportingFeedAdKey,
+      openMentionProfile,
     ],
   );
   const feedHeader = (
@@ -1668,6 +1910,7 @@ export function FeedScreen() {
               setActiveCommentsEntryId(myDailyReflectionEntry.id);
             }}
             onOpenProfile={() => void openFriendProfile(myDailyReflectionEntry)}
+            onOpenMention={openMentionProfile}
             onOpenSafetyActions={() =>
               openPostSafetyActions(myDailyReflectionEntry)
             }
@@ -1909,6 +2152,14 @@ export function FeedScreen() {
             [activeCommentsEntry.id]: val,
           }));
         }}
+        mentionFriends={friends
+          .filter((friend) => friend.status === "accepted")
+          .map((friend) => ({
+            id: friend.friendId,
+            name: friend.friendName,
+            image: friend.friendImage,
+          }))}
+        onOpenMention={openMentionProfile}
         onAddComment={() => {
           if (!activeCommentsEntry) return;
           void handleAddComment(activeCommentsEntry.id);
@@ -1960,8 +2211,29 @@ export function FeedScreen() {
             friendGroups={friendGroups}
             initialValues={joinGoalInitialValues}
             personalGoals={personalGoals}
+            personalPlanGoals={personalPlanGoals}
             onClose={() => setActiveJoinGoalEntry(null)}
             onCreate={handleCreateJoinedGoal}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setActiveSharedGoalInvite(null)}
+        presentationStyle="pageSheet"
+        visible={activeSharedGoalInvite !== null}
+      >
+        {activeSharedGoalInvite ? (
+          <SharedGoalInviteModal
+            entry={activeSharedGoalInvite}
+            friends={friends}
+            personalGoals={personalGoals}
+            personalPlanGoals={personalPlanGoals}
+            submitting={isJoiningSharedGoal}
+            onClose={() => setActiveSharedGoalInvite(null)}
+            onJoin={(personalGoalId, inviteFriendIds) =>
+              void handleJoinSharedGoal(personalGoalId, inviteFriendIds)
+            }
           />
         ) : null}
       </Modal>
@@ -1994,6 +2266,13 @@ export function FeedScreen() {
           reflectionAudienceFriendIds.length + reflectionAudienceGroupIds.length
         }
         body={reflectionDraft}
+        mentionFriends={friends
+          .filter((friend) => friend.status === "accepted")
+          .map((friend) => ({
+            id: friend.friendId,
+            name: friend.friendName,
+            image: friend.friendImage,
+          }))}
         isSubmitting={isSubmittingReflection}
         photos={reflectionPhotos}
         prompt={selectedReflectionPrompt}
@@ -2368,6 +2647,7 @@ function PromptRow({
 function ReflectionComposerModal({
   audienceCount,
   body,
+  mentionFriends,
   isSubmitting,
   onAddPhoto,
   onBodyChange,
@@ -2382,6 +2662,11 @@ function ReflectionComposerModal({
 }: {
   audienceCount: number;
   body: string;
+  mentionFriends: Array<{
+    id: string;
+    name: string;
+    image?: string | null;
+  }>;
   isSubmitting: boolean;
   onAddPhoto: (source: GoalPhotoSource) => void;
   onBodyChange: (value: string) => void;
@@ -2475,8 +2760,9 @@ function ReflectionComposerModal({
                 </Text>
               </View>
 
-              <TextInput
+              <MentionInput
                 autoFocus
+                friends={mentionFriends}
                 multiline
                 onChangeText={onBodyChange}
                 placeholder="Write a real little piece of your day..."
@@ -3365,6 +3651,14 @@ function PostHeaderContent({
         >
           {entry.goal.name}
         </Text>
+        {entry.repostedBy ? (
+          <Text
+            numberOfLines={1}
+            style={[styles.repostedByText, { color: secondaryColor }]}
+          >
+            ↻ {entry.repostedBy.name} reposted
+          </Text>
+        ) : null}
       </View>
       {onOpenSafetyActions ? (
         <Pressable
@@ -3397,6 +3691,7 @@ export function FeedCard({
   onPhotoPress,
   onOpenComments,
   onOpenBirthdayMessage,
+  onOpenMention,
   onOpenProfile,
   onOpenSafetyActions,
 }: {
@@ -3408,6 +3703,7 @@ export function FeedCard({
   onPhotoPress: (photo: FriendFeedPhoto) => void;
   onOpenComments: () => void;
   onOpenBirthdayMessage?: () => void;
+  onOpenMention: (friendId: string, friendName: string) => void;
   onOpenProfile: () => void;
   onOpenSafetyActions: () => void;
 }) {
@@ -3427,8 +3723,14 @@ export function FeedCard({
   const hasPhotos = entry.photos.length > 0;
   const propIsActive = entry.props.hasPropped || entry.props.count > 0;
   const canUseSocialActions =
-    entry.kind === "habit" || entry.kind === "reflection";
-  const canUseGoalActions = entry.kind === "habit";
+    entry.kind === "habit" ||
+    entry.kind === "reflection" ||
+    entry.kind === "shared_goal";
+  const canUseGoalActions =
+    entry.kind === "habit" || entry.kind === "shared_goal";
+  const isSharedGoalInvite =
+    entry.kind === "shared_goal" &&
+    entry.sharedGoal?.currentUserStatus === "invited";
   const isBirthdayPost = entry.kind === "birthday";
   const isDarkMode = theme.background === "#000000";
   const cardBackground = isDarkMode ? "#1C1C1E" : theme.tabBar;
@@ -3597,8 +3899,19 @@ export function FeedCard({
           <RichFeedNote
             expanded={notesExpanded}
             html={entry.notes}
+            mentions={entry.mentions}
+            onOpenMention={onOpenMention}
             onToggleExpanded={() => setNotesExpanded((x) => !x)}
           />
+        </Pressable>
+      ) : null}
+
+      {entry.kind === "shared_goal" && entry.sharedGoal ? (
+        <Pressable
+          onPress={() => handlePostContentTap()}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <SharedGoalInviteBody entry={entry} />
         </Pressable>
       ) : null}
 
@@ -3746,6 +4059,10 @@ export function FeedCard({
                 onPress={onOpenJoinGoal}
                 style={({ pressed }) => [
                   styles.joinGoalButton,
+                  isSharedGoalInvite && {
+                    backgroundColor: theme.primary,
+                    paddingHorizontal: 9,
+                  },
                   joinGoalStatus === "joined" && {
                     backgroundColor: `${theme.primary}14`,
                   },
@@ -3762,7 +4079,11 @@ export function FeedCard({
                   size={15}
                   weight="semibold"
                   tintColor={
-                    joinGoalStatus === "joined" ? theme.primary : theme.tabIcon
+                    isSharedGoalInvite
+                      ? theme.primaryForeground
+                      : joinGoalStatus === "joined"
+                        ? theme.primary
+                        : theme.tabIcon
                   }
                 />
                 <Text
@@ -3770,8 +4091,9 @@ export function FeedCard({
                   style={[
                     styles.feedActionText,
                     {
-                      color:
-                        joinGoalStatus === "joined"
+                      color: isSharedGoalInvite
+                        ? theme.primaryForeground
+                        : joinGoalStatus === "joined"
                           ? theme.primary
                           : theme.tabIcon,
                     },
@@ -3827,9 +4149,12 @@ export function FeedCard({
                   <Text style={styles.commentPreviewAuthor}>
                     {comment.authorName}
                   </Text>{" "}
-                  <Text style={{ color: theme.textSecondary }}>
-                    {comment.body}
-                  </Text>
+                  <MentionText
+                    mentions={comment.mentions}
+                    onOpenMention={onOpenMention}
+                    style={{ color: theme.textSecondary }}
+                    text={comment.body}
+                  />
                 </Text>
               ))}
               {commentCount > commentPreview.length ? (
@@ -3845,6 +4170,96 @@ export function FeedCard({
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SharedGoalInviteBody({ entry }: { entry: FriendFeedEntry }) {
+  const theme = useTheme();
+  const sharedGoal = entry.sharedGoal;
+  if (!sharedGoal) return null;
+
+  const scoringLabel =
+    sharedGoal.scoringType === "shared_streak"
+      ? "Collaborative streak"
+      : sharedGoal.scoringType === "combined_target"
+        ? "Combined target"
+        : sharedGoal.scoringType === "first_to_target"
+          ? "First to target"
+          : sharedGoal.scoringType === "highest_total"
+            ? "Highest total"
+            : sharedGoal.scoringType === "one_time"
+              ? "One-time goal"
+              : "Longest streak";
+  const endLabel = sharedGoal.endsOn
+    ? `Ends ${new Date(`${sharedGoal.endsOn}T12:00:00`).toLocaleDateString(
+        "en-US",
+        { month: "short", day: "numeric", year: "numeric" },
+      )}`
+    : "No end date";
+
+  return (
+    <View
+      style={[
+        styles.sharedGoalInviteBody,
+        {
+          backgroundColor: `${theme.primary}10`,
+          borderColor: `${theme.primary}45`,
+        },
+      ]}
+    >
+      <View style={styles.sharedGoalInviteKickerRow}>
+        <SymbolView
+          name={sym("person.2.fill", "groups")}
+          size={14}
+          weight="semibold"
+          tintColor={theme.primary}
+        />
+        <Text style={[styles.sharedGoalInviteKicker, { color: theme.primary }]}>
+          SHARED GOAL INVITE
+        </Text>
+      </View>
+      <Text style={[styles.sharedGoalInviteTitle, { color: theme.text }]}>
+        {sharedGoal.name}
+      </Text>
+      <Text
+        style={[styles.sharedGoalInviteDetails, { color: theme.textSecondary }]}
+      >
+        {sharedGoal.mode === "collaborative" ? "Collaborative" : "Competitive"}{" "}
+        · {scoringLabel}
+        {sharedGoal.target !== null ? ` · Target ${sharedGoal.target}` : ""}
+      </Text>
+      <View style={styles.sharedGoalInviteFooter}>
+        <Text
+          style={[styles.sharedGoalInviteDate, { color: theme.textSecondary }]}
+        >
+          {endLabel}
+        </Text>
+        <View style={styles.sharedGoalInviteParticipants}>
+          {sharedGoal.participants.slice(0, 4).map((participant) => (
+            <FriendAvatar
+              key={participant.id}
+              image={participant.image}
+              name={participant.name}
+              size={24}
+            />
+          ))}
+          <Text
+            style={[
+              styles.sharedGoalInviteCount,
+              { color: theme.textSecondary },
+            ]}
+          >
+            {sharedGoal.participants.length} participant
+            {sharedGoal.participants.length === 1 ? "" : "s"}
+          </Text>
+        </View>
+      </View>
+      {sharedGoal.currentUserStatus === "invited" ? (
+        <Text style={[styles.sharedGoalInviteHint, { color: theme.text }]}>
+          You’re invited — tap Join below to see the details.
+        </Text>
       ) : null}
     </View>
   );
@@ -4096,13 +4511,103 @@ function FeedAdCard({
 const HTML_IGNORED_TAGS = ["script", "style", "iframe", "img", "video"];
 const HTML_DEFAULT_TEXT_PROPS = { selectable: true };
 
+function escapeMentionPattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function MentionText({
+  mentions,
+  numberOfLines,
+  onOpenMention,
+  selectable = false,
+  style,
+  text,
+}: {
+  mentions: FeedMention[];
+  numberOfLines?: number;
+  onOpenMention: (friendId: string, friendName: string) => void;
+  selectable?: boolean;
+  style?: StyleProp<TextStyle>;
+  text: string;
+}) {
+  const theme = useTheme();
+  const mentionTargets = useMemo(() => {
+    const targets = new Map<string, FeedMention>();
+    for (const mention of mentions) {
+      const words = mention.name.trim().split(/\s+/).filter(Boolean);
+      const aliases = [mention.name.trim(), words[0] ?? "", words.join(".")];
+      for (const alias of aliases) {
+        if (alias) targets.set(alias.toLocaleLowerCase(), mention);
+      }
+    }
+    return [...targets.entries()].sort(
+      ([left], [right]) => right.length - left.length,
+    );
+  }, [mentions]);
+
+  const parts = useMemo(() => {
+    if (!text || mentionTargets.length === 0) return [{ text }];
+    const pattern = new RegExp(
+      `@(${mentionTargets.map(([alias]) => escapeMentionPattern(alias)).join("|")})`,
+      "gi",
+    );
+    const nextParts: Array<
+      { text: string } | { text: string; mention: FeedMention }
+    > = [];
+    let cursor = 0;
+    let match = pattern.exec(text);
+    while (match) {
+      if (match.index > cursor) {
+        nextParts.push({ text: text.slice(cursor, match.index) });
+      }
+      const mention = mentionTargets.find(
+        ([alias]) => alias === match?.[1]?.toLocaleLowerCase(),
+      )?.[1];
+      if (mention) {
+        nextParts.push({ text: match[0], mention });
+      } else {
+        nextParts.push({ text: match[0] });
+      }
+      cursor = match.index + match[0].length;
+      match = pattern.exec(text);
+    }
+    if (cursor < text.length) nextParts.push({ text: text.slice(cursor) });
+    return nextParts;
+  }, [mentionTargets, text]);
+
+  return (
+    <Text numberOfLines={numberOfLines} selectable={selectable} style={style}>
+      {parts.map((part, index) =>
+        "mention" in part ? (
+          <Text
+            key={`${part.mention.userId}-${index}`}
+            onPress={(event) => {
+              event.stopPropagation();
+              onOpenMention(part.mention.userId, part.mention.name);
+            }}
+            style={{ color: theme.primary, fontWeight: "700" }}
+          >
+            {part.text}
+          </Text>
+        ) : (
+          <Text key={`plain-${part.text}`}>{part.text}</Text>
+        ),
+      )}
+    </Text>
+  );
+}
+
 function RichFeedNote({
   expanded,
   html,
+  mentions,
+  onOpenMention,
   onToggleExpanded,
 }: {
   expanded: boolean;
   html: string;
+  mentions: FeedMention[];
+  onOpenMention: (friendId: string, friendName: string) => void;
   onToggleExpanded: () => void;
 }) {
   const theme = useTheme();
@@ -4192,14 +4697,22 @@ function RichFeedNote({
   return (
     <View style={styles.richNote}>
       {isLong && !expanded ? (
-        <Text
-          ellipsizeMode="tail"
+        <MentionText
+          mentions={mentions}
           numberOfLines={4}
+          onOpenMention={onOpenMention}
           selectable
           style={[styles.richNotePreviewText, { color: theme.text }]}
-        >
-          {previewText}
-        </Text>
+          text={previewText}
+        />
+      ) : mentions.length > 0 ? (
+        <MentionText
+          mentions={mentions}
+          onOpenMention={onOpenMention}
+          selectable
+          style={[styles.richNotePreviewText, { color: theme.text }]}
+          text={previewText}
+        />
       ) : (
         <RenderHTML
           baseStyle={baseStyle}
@@ -4225,24 +4738,32 @@ function RichFeedNote({
 export function CommentsModal({
   commentDraft,
   entry,
+  mentionFriends,
   isSubmittingComment,
   onAddComment,
   onCancelReply,
   onClose,
   onCommentDraftChange,
   onDeleteComment,
+  onOpenMention,
   onReportComment,
   onReplyToComment,
   replyTarget,
 }: {
   commentDraft: string;
   entry: FriendFeedEntry | null;
+  mentionFriends: Array<{
+    id: string;
+    name: string;
+    image?: string | null;
+  }>;
   isSubmittingComment: boolean;
   onAddComment: () => void;
   onCancelReply: () => void;
   onClose: () => void;
   onCommentDraftChange: (value: string) => void;
   onDeleteComment: (commentId: string) => void;
+  onOpenMention: (friendId: string, friendName: string) => void;
   onReportComment: (comment: FriendFeedComment) => void;
   onReplyToComment: (comment: FriendFeedComment) => void;
   replyTarget: FriendFeedComment | null;
@@ -4365,6 +4886,7 @@ export function CommentsModal({
                   key={comment.id}
                   comment={comment}
                   onDeleteComment={onDeleteComment}
+                  onOpenMention={onOpenMention}
                   onReportComment={onReportComment}
                   onReply={onReplyToComment}
                 />
@@ -4421,24 +4943,26 @@ export function CommentsModal({
               </View>
             ) : null}
             <View style={styles.commentInputRow}>
-              <TextInput
-                style={[
+              <MentionInput
+                containerStyle={styles.mentionInputContainer}
+                friends={mentionFriends}
+                inputStyle={[
                   styles.commentInput,
                   {
                     backgroundColor: theme.backgroundElement,
                     color: theme.text,
                   },
                 ]}
+                onChangeText={onCommentDraftChange}
+                onSubmitEditing={onAddComment}
                 placeholder={
                   replyTarget
                     ? `Reply to ${replyTarget.authorName}...`
                     : "Write a comment..."
                 }
                 placeholderTextColor={theme.textSecondary}
-                value={commentDraft}
-                onChangeText={onCommentDraftChange}
                 returnKeyType="send"
-                onSubmitEditing={onAddComment}
+                value={commentDraft}
                 maxLength={2000}
                 multiline={false}
               />
@@ -4523,12 +5047,14 @@ function CommentRow({
   comment,
   depth = 0,
   onDeleteComment,
+  onOpenMention,
   onReportComment,
   onReply,
 }: {
   comment: FriendFeedComment;
   depth?: number;
   onDeleteComment: (commentId: string) => void;
+  onOpenMention: (friendId: string, friendName: string) => void;
   onReportComment: (comment: FriendFeedComment) => void;
   onReply: (comment: FriendFeedComment) => void;
 }) {
@@ -4562,9 +5088,12 @@ function CommentRow({
               {formatCommentTime(comment.createdAt)}
             </Text>
           </View>
-          <Text style={[styles.commentText, { color: theme.text }]}>
-            {comment.body}
-          </Text>
+          <MentionText
+            mentions={comment.mentions}
+            onOpenMention={onOpenMention}
+            style={[styles.commentText, { color: theme.text }]}
+            text={comment.body}
+          />
           <View style={styles.commentActions}>
             <Pressable
               hitSlop={8}
@@ -4614,6 +5143,7 @@ function CommentRow({
               comment={reply}
               depth={depth + 1}
               onDeleteComment={onDeleteComment}
+              onOpenMention={onOpenMention}
               onReportComment={onReportComment}
               onReply={onReply}
             />
@@ -5246,6 +5776,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "500",
   },
+  repostedByText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
   carouselWrap: {
     marginBottom: 0,
   },
@@ -5288,6 +5823,64 @@ const styles = StyleSheet.create({
   photoImage: {
     width: "100%",
     height: "100%",
+  },
+  sharedGoalInviteBody: {
+    gap: 6,
+    marginHorizontal: 12,
+    marginBottom: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 13,
+  },
+  sharedGoalInviteKickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  sharedGoalInviteKicker: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  sharedGoalInviteTitle: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
+  },
+  sharedGoalInviteDetails: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+  sharedGoalInviteFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 3,
+  },
+  sharedGoalInviteDate: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  sharedGoalInviteParticipants: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  sharedGoalInviteCount: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  sharedGoalInviteHint: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    marginTop: 3,
   },
   richNote: {
     paddingHorizontal: 14,
@@ -5646,6 +6239,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 2,
+  },
+  mentionInputContainer: {
+    flex: 1,
+    minWidth: 0,
   },
   commentInput: {
     flex: 1,

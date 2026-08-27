@@ -179,7 +179,7 @@ function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
       ? goal.audienceGroupIds.filter((id) => typeof id === "string")
       : [],
     defaultComplete: normalizeDefaultComplete(goal.defaultComplete),
-    requireEvidence: booleanOrFallback(goal.requireEvidence, true),
+    requireEvidence: booleanOrFallback(goal.requireEvidence, false),
     planOnCalendar: normalizePlanOnCalendar(goal.planOnCalendar),
     priority: normalizePriority(goal.priority),
   };

@@ -10,7 +10,7 @@ export type NotificationPreferenceKey = {
   [K in keyof UserSettings]: UserSettings[K] extends boolean ? K : never;
 }[keyof UserSettings];
 
-type PushMessage = {
+export type PushMessage = {
   title: string;
   body: string;
   data?: Record<string, unknown>;

@@ -6,6 +6,7 @@ import {
   getDb,
   goalCheckpoints,
   goalLogs,
+  goals,
   habits,
   tasks,
   users,
@@ -16,6 +17,10 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { getVisibleGoalIdsForFriend } from "@/lib/goal-visibility";
+import {
+  countCompletedIncentives,
+  getIncentiveProgress,
+} from "@/lib/incentive-progress";
 import { getLongestProfileStreak } from "@/lib/profile-metrics";
 import { sendPushToUser } from "@/lib/push";
 
@@ -54,8 +59,11 @@ type IncentiveHistoryRow = MessageHistoryRow & {
   streakDays: number | null;
   streakPercent: number | null;
   goalScope: "all" | "shared" | "single" | "high" | null;
+  targetType: "habit" | "goal";
   goalId: string | null;
   goalName: string | null;
+  planGoalId: string | null;
+  planGoalName: string | null;
   accepted: boolean | null;
   progress: {
     qualifyingDays: number;
@@ -96,123 +104,6 @@ function getRecentDateKeys(dayCount: number) {
   });
 }
 
-function getIncentiveDateKeys(createdAt: Date, dayCount: number) {
-  const todayKey = mountainDateKey();
-  return Array.from({ length: dayCount }, (_, index) => {
-    const date = new Date(createdAt);
-    date.setDate(date.getDate() + index);
-    return mountainDateKey(date);
-  }).filter((dateKey) => dateKey <= todayKey);
-}
-
-async function getIncentiveProgress(
-  db: FriendsDb,
-  incentive: {
-    recipientId: string;
-    accepted: boolean | null;
-    streakDays: number | null;
-    streakPercent: number | null;
-    goalScope: "all" | "shared" | "single" | "high" | null;
-    goalId: string | null;
-    createdAt: Date;
-  },
-) {
-  if (
-    incentive.accepted !== true ||
-    !incentive.streakDays ||
-    !incentive.streakPercent ||
-    !incentive.goalScope ||
-    incentive.goalScope === "shared"
-  ) {
-    return null;
-  }
-
-  const requiredDays = incentive.streakDays;
-  const requiredPercent = incentive.streakPercent;
-  const dateKeys = getIncentiveDateKeys(incentive.createdAt, requiredDays);
-  const startDateKey = dateKeys[0];
-  if (!startDateKey) {
-    return {
-      qualifyingDays: 0,
-      requiredDays,
-      percent: 0,
-    };
-  }
-
-  const applicableGoals = await db
-    .select({
-      id: habits.id,
-      priority: habits.priority,
-    })
-    .from(habits)
-    .where(
-      and(
-        eq(habits.userId, incentive.recipientId),
-        eq(habits.period, "daily"),
-        eq(habits.hidden, false),
-      ),
-    );
-
-  const scopedGoals = applicableGoals.filter((goal) => {
-    if (incentive.goalScope === "single") {
-      return goal.id === incentive.goalId;
-    }
-    if (incentive.goalScope === "high") {
-      return goal.priority === "high";
-    }
-    return incentive.goalScope === "all";
-  });
-  const goalPoints = new Map(
-    scopedGoals.map((goal) => [goal.id, PRIORITY_POINTS[goal.priority]]),
-  );
-  const possiblePoints = scopedGoals.reduce(
-    (total, goal) => total + PRIORITY_POINTS[goal.priority],
-    0,
-  );
-  const completedLogs =
-    scopedGoals.length > 0
-      ? await db
-          .select({
-            goalId: goalLogs.goalId,
-            date: goalLogs.date,
-          })
-          .from(goalLogs)
-          .where(
-            and(
-              eq(goalLogs.userId, incentive.recipientId),
-              eq(goalLogs.status, "complete"),
-              gte(goalLogs.date, startDateKey),
-            ),
-          )
-      : [];
-  const earnedPointsByDate = new Map<string, number>();
-
-  for (const log of completedLogs) {
-    const points = goalPoints.get(log.goalId);
-    if (!points || !dateKeys.includes(log.date)) continue;
-    earnedPointsByDate.set(
-      log.date,
-      (earnedPointsByDate.get(log.date) ?? 0) + points,
-    );
-  }
-
-  const qualifyingDays =
-    possiblePoints > 0
-      ? dateKeys.filter((dateKey) => {
-          const earnedPoints = earnedPointsByDate.get(dateKey) ?? 0;
-          return (
-            Math.round((earnedPoints / possiblePoints) * 100) >= requiredPercent
-          );
-        }).length
-      : 0;
-
-  return {
-    qualifyingDays,
-    requiredDays,
-    percent: Math.min(100, Math.round((qualifyingDays / requiredDays) * 100)),
-  };
-}
-
 async function getFriendActivitySummary(
   db: FriendsDb,
   viewerId: string,
@@ -239,6 +130,14 @@ async function getFriendActivitySummary(
       ),
     )
     .orderBy(asc(habits.name));
+  const planGoalOptions = await db
+    .select({
+      id: goals.id,
+      name: goals.title,
+    })
+    .from(goals)
+    .where(eq(goals.userId, friendId))
+    .orderBy(asc(goals.title));
   const visibleGoalIds = await getVisibleGoalIdsForFriend(
     db,
     viewerId,
@@ -295,6 +194,7 @@ async function getFriendActivitySummary(
       id: goal.id,
       name: goal.name,
     })),
+    planGoalOptions,
   };
 }
 
@@ -443,26 +343,9 @@ async function getFriendProfile(
     .select({ id: tasks.id })
     .from(tasks)
     .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
-  const [earnedIncentiveRows, givenIncentiveRows] = await Promise.all([
-    db
-      .select({ id: friendMessages.id })
-      .from(friendMessages)
-      .where(
-        and(
-          eq(friendMessages.recipientId, friendId),
-          eq(friendMessages.type, "incentive"),
-          eq(friendMessages.accepted, true),
-        ),
-      ),
-    db
-      .select({ id: friendMessages.id })
-      .from(friendMessages)
-      .where(
-        and(
-          eq(friendMessages.senderId, friendId),
-          eq(friendMessages.type, "incentive"),
-        ),
-      ),
+  const [incentivesEarned, incentivesGiven] = await Promise.all([
+    countCompletedIncentives(db, { recipientId: friendId }),
+    countCompletedIncentives(db, { senderId: friendId }),
   ]);
   const profileLogRows =
     visibleHabitIdList.length > 0
@@ -543,8 +426,8 @@ async function getFriendProfile(
       friendCount: friendRows.length,
       goalCompletions: completedCheckpointRows.length,
       habitCompletions: completedHabitRows.length,
-      incentivesEarned: earnedIncentiveRows.length,
-      incentivesGiven: givenIncentiveRows.length,
+      incentivesEarned,
+      incentivesGiven,
       longestStreak,
       taskCompletions: completedTaskRows.length,
     },
@@ -642,13 +525,17 @@ export async function GET(request: Request) {
               streakDays: friendMessages.streakDays,
               streakPercent: friendMessages.streakPercent,
               goalScope: friendMessages.goalScope,
+              targetType: friendMessages.targetType,
               goalId: friendMessages.goalId,
               goalName: habits.name,
+              planGoalId: friendMessages.planGoalId,
+              planGoalName: goals.title,
               createdAt: friendMessages.createdAt,
               readAt: friendMessages.readAt,
             })
             .from(friendMessages)
             .leftJoin(habits, eq(friendMessages.goalId, habits.id))
+            .leftJoin(goals, eq(friendMessages.planGoalId, goals.id))
             .where(inArray(friendMessages.friendshipId, friendshipIds))
             .orderBy(asc(friendMessages.createdAt))
         : [];
@@ -696,8 +583,11 @@ export async function GET(request: Request) {
         streakDays: message.streakDays,
         streakPercent: message.streakPercent,
         goalScope: message.goalScope,
+        targetType: message.targetType,
         goalId: message.goalId,
         goalName: message.goalName,
+        planGoalId: message.planGoalId,
+        planGoalName: message.planGoalName,
         accepted: message.accepted,
         progress: incentiveProgressById.get(message.id) ?? null,
       });
@@ -724,6 +614,7 @@ export async function GET(request: Request) {
           : {
               performance7Day: null,
               goalOptions: [],
+              planGoalOptions: [],
             }),
       })),
     );
@@ -833,7 +724,7 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    void sendPushToUser(friendUser.id, "notifyFriendRequests", {
+    await sendPushToUser(friendUser.id, "notifyFriendRequests", {
       title: "New friend request",
       body: `${user.name} sent you a friend request.`,
       data: { type: "friend_request" },
@@ -852,6 +743,7 @@ export async function POST(request: Request) {
       lastOpenedAt: null,
       performance7Day: null,
       goalOptions: [],
+      planGoalOptions: [],
       messages: [],
       incentives: [],
     });
@@ -935,7 +827,7 @@ export async function PATCH(request: Request) {
       .set({ status: "accepted" })
       .where(eq(friends.id, friendship.id));
 
-    void sendPushToUser(friendship.requesterId, "notifyFriendRequestAccepted", {
+    await sendPushToUser(friendship.requesterId, "notifyFriendRequestAccepted", {
       title: "Friend request accepted",
       body: `${user.name} accepted your friend request.`,
       data: { type: "friend_request_accepted" },

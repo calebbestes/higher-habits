@@ -16,6 +16,7 @@ import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import { type Mention, loadContentMentions } from "@/lib/mentions";
 import {
   GOAL_PHOTOS_BUCKET,
   getSupabaseStorageAdmin,
@@ -50,12 +51,14 @@ type SerializedFeedComment = {
   createdAt: string;
   updatedAt: string;
   canDelete: boolean;
+  mentions: Mention[];
   replies: SerializedFeedComment[];
 };
 
 function groupNestedReflectionComments(
   commentRows: ReflectionCommentRow[],
   currentUserId: string,
+  mentionsByCommentId: Map<string, Mention[]>,
 ) {
   const commentsById = new Map<string, SerializedFeedComment>();
   const postIdByCommentId = new Map<string, string>();
@@ -72,6 +75,7 @@ function groupNestedReflectionComments(
       createdAt: comment.createdAt.toISOString(),
       updatedAt: comment.updatedAt.toISOString(),
       canDelete: comment.userId === currentUserId,
+      mentions: mentionsByCommentId.get(comment.id) ?? [],
       replies: [],
     });
     postIdByCommentId.set(comment.id, comment.reflectionPostId);
@@ -236,6 +240,11 @@ export async function GET(request: Request) {
       .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.date));
 
     const logIds = logRows.map((row) => row.entryId);
+    const goalLogMentionsById = await loadContentMentions(
+      db,
+      "goal_log",
+      logIds,
+    );
     const logPhotoRows =
       logIds.length > 0
         ? await db
@@ -274,6 +283,11 @@ export async function GET(request: Request) {
       .orderBy(desc(goalCheckpoints.updatedAt));
 
     const checkpointIds = checkpointRows.map((row) => row.entryId);
+    const checkpointMentionsById = await loadContentMentions(
+      db,
+      "goal_checkpoint",
+      checkpointIds,
+    );
     const checkpointPhotoRows =
       checkpointIds.length > 0
         ? await db
@@ -321,6 +335,7 @@ export async function GET(request: Request) {
       postType: "completion" | "journal";
       highlights: string[];
       props: { count: number; hasPropped: boolean };
+      mentions: Mention[];
       photos: Photo[];
       comments: SerializedFeedComment[];
     }> = [];
@@ -347,6 +362,7 @@ export async function GET(request: Request) {
         postType,
         highlights: getHabitCompletionHighlights(row, logRows),
         props: { count: 0, hasPropped: false },
+        mentions: goalLogMentionsById.get(row.entryId) ?? [],
         comments: [],
         photos,
       });
@@ -375,6 +391,7 @@ export async function GET(request: Request) {
         postType,
         highlights: ["Checkpoint complete"],
         props: { count: 0, hasPropped: false },
+        mentions: checkpointMentionsById.get(row.entryId) ?? [],
         comments: [],
         photos,
       });
@@ -392,6 +409,11 @@ export async function GET(request: Request) {
       .where(eq(dailyReflectionPosts.userId, user.id))
       .orderBy(desc(dailyReflectionPosts.updatedAt));
     const reflectionIds = reflectionRows.map((row) => row.entryId);
+    const reflectionMentionsById = await loadContentMentions(
+      db,
+      "reflection_post",
+      reflectionIds,
+    );
     const reflectionPhotoRows =
       reflectionIds.length > 0
         ? await db
@@ -477,6 +499,11 @@ export async function GET(request: Request) {
     const reflectionCommentsById = groupNestedReflectionComments(
       reflectionCommentRows,
       user.id,
+      await loadContentMentions(
+        db,
+        "reflection_comment",
+        reflectionCommentRows.map((row) => row.id),
+      ),
     );
 
     for (const row of reflectionRows) {
@@ -501,6 +528,7 @@ export async function GET(request: Request) {
           count: 0,
           hasPropped: false,
         },
+        mentions: reflectionMentionsById.get(row.entryId) ?? [],
         comments: reflectionCommentsById.get(row.entryId) ?? [],
         photos,
       });

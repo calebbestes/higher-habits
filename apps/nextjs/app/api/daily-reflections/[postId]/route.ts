@@ -13,6 +13,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+import {
+  getAcceptedFriendIds,
+  syncContentMentionsAndNotify,
+} from "@/lib/mentions";
 import { sendPushToUser } from "@/lib/push";
 
 const interactionSchema = z.discriminatedUnion("type", [
@@ -54,6 +58,7 @@ async function findAccessibleReflectionPost(
       id: dailyReflectionPosts.id,
       ownerId: dailyReflectionPosts.userId,
       visibility: dailyReflectionPosts.visibility,
+      body: dailyReflectionPosts.body,
     })
     .from(dailyReflectionPosts)
     .where(eq(dailyReflectionPosts.id, postId))
@@ -175,7 +180,7 @@ export async function POST(
         .values({ reflectionPostId: postId, userId: user.id })
         .onConflictDoNothing();
 
-      void sendPushToUser(post.ownerId, "notifyPostProps", {
+      await sendPushToUser(post.ownerId, "notifyPostProps", {
         title: "Someone propped your reflection",
         body: `${user.name} gave you props.`,
         data: { type: "post_prop", reflectionPostId: postId },
@@ -194,6 +199,19 @@ export async function POST(
         .set({ body: interaction.body, updatedAt: new Date() })
         .where(eq(dailyReflectionPosts.id, postId));
 
+      await syncContentMentionsAndNotify({
+        allowedUserIds:
+          post.visibility === "only_me"
+            ? new Set()
+            : new Set(await getAcceptedFriendIds(db, post.ownerId)),
+        authorId: post.ownerId,
+        authorName: user.name,
+        body: interaction.body,
+        db,
+        sourceId: postId,
+        sourceType: "reflection_post",
+      });
+
       return NextResponse.json({ ok: true });
     }
 
@@ -206,6 +224,19 @@ export async function POST(
         .update(dailyReflectionPosts)
         .set({ visibility: interaction.visibility, updatedAt: new Date() })
         .where(eq(dailyReflectionPosts.id, postId));
+
+      await syncContentMentionsAndNotify({
+        allowedUserIds:
+          interaction.visibility === "only_me"
+            ? new Set()
+            : new Set(await getAcceptedFriendIds(db, post.ownerId)),
+        authorId: post.ownerId,
+        authorName: user.name,
+        body: post.body,
+        db,
+        sourceId: postId,
+        sourceType: "reflection_post",
+      });
 
       return NextResponse.json({ ok: true });
     }
@@ -257,9 +288,18 @@ export async function POST(
         })
         .returning({ id: dailyReflectionComments.id });
 
+      await syncContentMentionsAndNotify({
+        authorId: user.id,
+        authorName: user.name,
+        body: interaction.body,
+        db,
+        sourceId: comment.id,
+        sourceType: "reflection_comment",
+      });
+
       const notificationUserId = parentComment?.userId ?? post.ownerId;
       if (notificationUserId !== user.id) {
-        void sendPushToUser(notificationUserId, "notifyPostComments", {
+        await sendPushToUser(notificationUserId, "notifyPostComments", {
           title: parentComment
             ? "New reply to your comment"
             : "New comment on your reflection",

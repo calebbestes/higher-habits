@@ -30,6 +30,7 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   type FriendIncentiveRow,
   type FriendRow,
+  type IncentiveTargetType,
   type SendIncentivePayload,
   type StreakGoalScope,
   acceptFriendIncentive,
@@ -95,8 +96,11 @@ function getGoalLabel(friend: FriendRow, incentive: FriendIncentiveRow) {
     return SCOPE_LABELS[incentive.goalScope];
   }
   const name =
-    incentive.goalName ??
-    friend.goalOptions.find((g) => g.id === incentive.goalId)?.name;
+    incentive.targetType === "goal"
+      ? (incentive.planGoalName ??
+        friend.planGoalOptions.find((g) => g.id === incentive.planGoalId)?.name)
+      : (incentive.goalName ??
+        friend.goalOptions.find((g) => g.id === incentive.goalId)?.name);
   return name ?? SCOPE_LABELS.single;
 }
 
@@ -403,7 +407,8 @@ function IncentiveCard({
             </View>
             <Text style={[styles.progressDays, { color: theme.textSecondary }]}>
               {incentive.progress.qualifyingDays}/
-              {incentive.progress.requiredDays} days
+              {incentive.progress.requiredDays}{" "}
+              {incentive.progress.unit ?? "days"}
             </Text>
           </View>
           <ProgressBar percent={incentive.progress.percent} color={accent} />
@@ -482,6 +487,7 @@ function CreateIncentiveModal({
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedFriend, setSelectedFriend] = useState<FriendRow | null>(null);
   const [body, setBody] = useState("");
+  const [targetType, setTargetType] = useState<IncentiveTargetType>("habit");
   const [scope, setScope] = useState<StreakGoalScope>("all");
   const [goalId, setGoalId] = useState<string>("");
   const [days, setDays] = useState("7");
@@ -490,22 +496,38 @@ function CreateIncentiveModal({
 
   const daysNum = Number.parseInt(days, 10);
   const percentNum = Number.parseInt(percent, 10);
-  const selectedGoal = selectedFriend?.goalOptions.find(
-    (goal) => goal.id === goalId,
-  );
+  const targetOptions =
+    targetType === "goal"
+      ? (selectedFriend?.planGoalOptions ?? [])
+      : (selectedFriend?.goalOptions ?? []);
+  const selectedGoal = targetOptions.find((goal) => goal.id === goalId);
+  const visibleScopeOptions =
+    targetType === "goal"
+      ? SCOPE_OPTIONS.filter(
+          (option) => option.value === "all" || option.value === "single",
+        )
+      : SCOPE_OPTIONS;
   const canSend =
     body.trim().length > 0 &&
-    Number.isFinite(daysNum) &&
-    daysNum >= 1 &&
-    Number.isFinite(percentNum) &&
-    percentNum >= 1 &&
-    percentNum <= 100 &&
+    (targetType === "habit" || targetOptions.length > 0) &&
+    (targetType === "goal" ||
+      (Number.isFinite(daysNum) &&
+        daysNum >= 1 &&
+        Number.isFinite(percentNum) &&
+        percentNum >= 1 &&
+        percentNum <= 100)) &&
     (scope !== "single" || goalId.length > 0);
+
+  const selectTargetType = (nextTargetType: IncentiveTargetType) => {
+    setTargetType(nextTargetType);
+    setScope("all");
+    setGoalId("");
+  };
 
   const selectScope = (nextScope: StreakGoalScope) => {
     setScope(nextScope);
-    if (nextScope === "single" && !goalId && selectedFriend?.goalOptions[0]) {
-      setGoalId(selectedFriend.goalOptions[0].id);
+    if (nextScope === "single" && !goalId && targetOptions[0]) {
+      setGoalId(targetOptions[0].id);
     }
   };
 
@@ -517,14 +539,26 @@ function CreateIncentiveModal({
     if (!selectedFriend || !canSend) return;
     setSending(true);
     try {
-      await onSend(selectedFriend.id, {
-        type: "incentive",
-        body: body.trim(),
-        streakDays: daysNum,
-        streakPercent: percentNum,
-        goalScope: scope,
-        ...(scope === "single" ? { goalId } : {}),
-      });
+      const payload =
+        targetType === "habit"
+          ? {
+              type: "incentive" as const,
+              targetType: "habit" as const,
+              body: body.trim(),
+              streakDays: daysNum,
+              streakPercent: percentNum,
+              goalScope: scope,
+              ...(scope === "single" ? { goalId } : {}),
+            }
+          : {
+              type: "incentive" as const,
+              targetType: "goal" as const,
+              body: body.trim(),
+              goalScope:
+                scope === "single" ? ("single" as const) : ("all" as const),
+              ...(scope === "single" ? { planGoalId: goalId } : {}),
+            };
+      await onSend(selectedFriend.id, payload);
     } finally {
       setSending(false);
     }
@@ -689,10 +723,58 @@ function CreateIncentiveModal({
                 </Text>
 
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                  Track
+                </Text>
+                <View style={styles.scopeRow}>
+                  {(
+                    [
+                      { value: "habit", label: "Habits" },
+                      { value: "goal", label: "Personal goals" },
+                    ] as Array<{ value: IncentiveTargetType; label: string }>
+                  ).map((option) => (
+                    <Pressable
+                      key={option.value}
+                      onPress={() =>
+                        runPressAction(`target-${option.value}`, () =>
+                          selectTargetType(option.value),
+                        )
+                      }
+                      style={[
+                        styles.scopeChip,
+                        {
+                          backgroundColor:
+                            targetType === option.value
+                              ? accent
+                              : theme.background,
+                          borderColor:
+                            targetType === option.value
+                              ? accent
+                              : theme.tabBorder,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.scopeChipText,
+                          {
+                            color:
+                              targetType === option.value
+                                ? accentForeground
+                                : theme.textSecondary,
+                          },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>
                   Apply to
                 </Text>
                 <View style={styles.scopeRow}>
-                  {SCOPE_OPTIONS.map((opt) => (
+                  {visibleScopeOptions.map((opt) => (
                     <Pressable
                       key={opt.value}
                       onPress={() =>
@@ -735,9 +817,9 @@ function CreateIncentiveModal({
                         { color: theme.text, marginTop: 12 },
                       ]}
                     >
-                      Goal
+                      {targetType === "goal" ? "Personal goal" : "Habit"}
                     </Text>
-                    {selectedFriend.goalOptions.length === 0 ? (
+                    {targetOptions.length === 0 ? (
                       <Text
                         style={[
                           styles.emptyHint,
@@ -748,7 +830,7 @@ function CreateIncentiveModal({
                       </Text>
                     ) : (
                       <GoalDropdown
-                        goals={selectedFriend.goalOptions}
+                        goals={targetOptions}
                         selectedGoalId={goalId}
                         selectedGoalName={selectedGoal?.name}
                         onSelect={setGoalId}
@@ -757,65 +839,77 @@ function CreateIncentiveModal({
                   </>
                 )}
 
-                <View style={styles.streakRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Streak length
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.textInput,
-                        {
-                          backgroundColor: theme.background,
-                          color: theme.text,
-                          borderColor: theme.tabBorder,
-                        },
-                      ]}
-                      placeholder="7"
-                      placeholderTextColor={theme.textSecondary}
-                      keyboardType="number-pad"
-                      value={days}
-                      onChangeText={setDays}
-                    />
-                    <Text
-                      style={[
-                        styles.inputSuffix,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      days
-                    </Text>
+                {targetType === "goal" ? (
+                  <Text
+                    style={[
+                      styles.goalIncentiveHint,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    This incentive is earned when all checkpoints in the
+                    targeted personal goal are complete.
+                  </Text>
+                ) : (
+                  <View style={styles.streakRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                        Streak length
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.textInput,
+                          {
+                            backgroundColor: theme.background,
+                            color: theme.text,
+                            borderColor: theme.tabBorder,
+                          },
+                        ]}
+                        placeholder="7"
+                        placeholderTextColor={theme.textSecondary}
+                        keyboardType="number-pad"
+                        value={days}
+                        onChangeText={setDays}
+                      />
+                      <Text
+                        style={[
+                          styles.inputSuffix,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        days
+                      </Text>
+                    </View>
+                    <View style={{ width: 12 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                        Completion threshold
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.textInput,
+                          {
+                            backgroundColor: theme.background,
+                            color: theme.text,
+                            borderColor: theme.tabBorder,
+                          },
+                        ]}
+                        placeholder="80"
+                        placeholderTextColor={theme.textSecondary}
+                        keyboardType="number-pad"
+                        value={percent}
+                        onChangeText={setPercent}
+                      />
+                      <Text
+                        style={[
+                          styles.inputSuffix,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        %
+                      </Text>
+                    </View>
                   </View>
-                  <View style={{ width: 12 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                      Completion threshold
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.textInput,
-                        {
-                          backgroundColor: theme.background,
-                          color: theme.text,
-                          borderColor: theme.tabBorder,
-                        },
-                      ]}
-                      placeholder="80"
-                      placeholderTextColor={theme.textSecondary}
-                      keyboardType="number-pad"
-                      value={percent}
-                      onChangeText={setPercent}
-                    />
-                    <Text
-                      style={[
-                        styles.inputSuffix,
-                        { color: theme.textSecondary },
-                      ]}
-                    >
-                      %
-                    </Text>
-                  </View>
-                </View>
+                )}
               </View>
             </View>
           )}
@@ -1392,6 +1486,11 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   scopeChipText: { fontSize: 13, fontWeight: "600" },
+  goalIncentiveHint: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 14,
+  },
   goalDropdownMenu: {
     width: "100%",
   },

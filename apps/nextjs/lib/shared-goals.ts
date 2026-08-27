@@ -1,6 +1,8 @@
 import {
   type HabitDb,
+  goalCheckpoints,
   goalLogs,
+  goals,
   habits,
   sharedGoalParticipants,
   sharedGoals,
@@ -14,14 +16,16 @@ export type SharedGoalSnapshot = {
   name: string;
   mode: "collaborative" | "competitive";
   scoringType:
-    | "everyone_completes"
+    | "shared_streak"
     | "combined_target"
     | "first_to_target"
     | "highest_total"
-    | "longest_streak";
+    | "longest_streak"
+    | "one_time";
   target: number | null;
   startsOn: string | null;
   endsOn: string | null;
+  openInvite: boolean;
   status: "active" | "completed" | "archived";
   stakeType: "none" | "carrot" | "stick";
   stakeDescription: string | null;
@@ -54,6 +58,8 @@ export type SharedGoalParticipantSnapshot = {
   userImage: string | null;
   personalGoalId: string | null;
   personalGoalName: string | null;
+  personalPlanGoalId: string | null;
+  personalPlanGoalName: string | null;
   personalGoalAutoCreated: boolean;
   status: "invited" | "accepted" | "declined" | "left";
   joinedAt: string | null;
@@ -148,6 +154,8 @@ export async function getSharedGoalSnapshots(
         personalGoalId: sharedGoalParticipants.personalGoalId,
         personalGoalAutoCreated: sharedGoalParticipants.personalGoalAutoCreated,
         personalGoalName: habits.name,
+        personalPlanGoalId: sharedGoalParticipants.personalPlanGoalId,
+        personalPlanGoalName: goals.title,
         status: sharedGoalParticipants.status,
         joinedAt: sharedGoalParticipants.joinedAt,
         leftAt: sharedGoalParticipants.leftAt,
@@ -155,6 +163,7 @@ export async function getSharedGoalSnapshots(
       .from(sharedGoalParticipants)
       .innerJoin(users, eq(sharedGoalParticipants.userId, users.id))
       .leftJoin(habits, eq(sharedGoalParticipants.personalGoalId, habits.id))
+      .leftJoin(goals, eq(sharedGoalParticipants.personalPlanGoalId, goals.id))
       .where(inArray(sharedGoalParticipants.sharedGoalId, accessibleIds)),
   ]);
 
@@ -162,6 +171,13 @@ export async function getSharedGoalSnapshots(
     ...new Set(
       participantRows.flatMap((participant) =>
         participant.personalGoalId ? [participant.personalGoalId] : [],
+      ),
+    ),
+  ];
+  const personalPlanGoalIds = [
+    ...new Set(
+      participantRows.flatMap((participant) =>
+        participant.personalPlanGoalId ? [participant.personalPlanGoalId] : [],
       ),
     ),
   ];
@@ -182,6 +198,51 @@ export async function getSharedGoalSnapshots(
           )
           .orderBy(desc(goalLogs.date))
       : [];
+  const completedPlanCheckpoints =
+    personalPlanGoalIds.length > 0
+      ? await db
+          .select({
+            goalId: goalCheckpoints.goalId,
+            completedAt: goalCheckpoints.completedAt,
+          })
+          .from(goalCheckpoints)
+          .where(inArray(goalCheckpoints.goalId, personalPlanGoalIds))
+      : [];
+  const planGoalCheckpointStats = new Map<
+    string,
+    { total: number; completed: number; latestCompletedAt: Date | null }
+  >();
+  for (const checkpoint of completedPlanCheckpoints) {
+    const stats = planGoalCheckpointStats.get(checkpoint.goalId) ?? {
+      total: 0,
+      completed: 0,
+      latestCompletedAt: null,
+    };
+    stats.total += 1;
+    if (checkpoint.completedAt) {
+      stats.completed += 1;
+      if (
+        !stats.latestCompletedAt ||
+        checkpoint.completedAt > stats.latestCompletedAt
+      ) {
+        stats.latestCompletedAt = checkpoint.completedAt;
+      }
+    }
+    planGoalCheckpointStats.set(checkpoint.goalId, stats);
+  }
+  const planGoalCompletionDates = new Map<string, string>();
+  for (const [goalId, stats] of planGoalCheckpointStats) {
+    if (
+      stats.total > 0 &&
+      stats.total === stats.completed &&
+      stats.latestCompletedAt
+    ) {
+      planGoalCompletionDates.set(
+        goalId,
+        mountainDateKey(stats.latestCompletedAt),
+      );
+    }
+  }
   const todayKey = mountainDateKey();
 
   return sharedGoalRows
@@ -196,23 +257,52 @@ export async function getSharedGoalSnapshots(
       const rawParticipants = participantRows.filter(
         (participant) => participant.sharedGoalId === sharedGoal.id,
       );
+      const isOneTimeGoal = sharedGoal.scoringType === "one_time";
+      const participantHasLinkedGoal = (
+        participant: (typeof rawParticipants)[number],
+      ) =>
+        Boolean(
+          isOneTimeGoal
+            ? participant.personalPlanGoalId
+            : participant.personalGoalId,
+        );
       const acceptedParticipants = rawParticipants.filter(
         (participant) =>
-          participant.status === "accepted" && participant.personalGoalId,
+          participant.status === "accepted" &&
+          participantHasLinkedGoal(participant),
       );
 
       const participants = rawParticipants.map((participant) => {
-        const dateKeys = new Set(
-          completedLogs
-            .filter(
-              (log) =>
-                log.goalId === participant.personalGoalId &&
-                log.userId === participant.userId &&
-                log.date >= startDateKey &&
-                log.date <= endDateKey,
-            )
-            .map((log) => log.date),
+        const planGoalCompletionDate = participant.personalPlanGoalId
+          ? (planGoalCompletionDates.get(participant.personalPlanGoalId) ??
+            null)
+          : null;
+        const oneTimeCompleted = Boolean(
+          isOneTimeGoal &&
+            planGoalCompletionDate &&
+            planGoalCompletionDate >= startDateKey &&
+            planGoalCompletionDate <= endDateKey,
         );
+        const dateKeys = new Set(
+          isOneTimeGoal
+            ? oneTimeCompleted && planGoalCompletionDate
+              ? [planGoalCompletionDate]
+              : []
+            : completedLogs
+                .filter(
+                  (log) =>
+                    log.goalId === participant.personalGoalId &&
+                    log.userId === participant.userId &&
+                    log.date >= startDateKey &&
+                    log.date <= endDateKey,
+                )
+                .map((log) => log.date),
+        );
+        const completedCount = isOneTimeGoal
+          ? oneTimeCompleted
+            ? 1
+            : 0
+          : dateKeys.size;
 
         return {
           id: participant.id,
@@ -221,22 +311,34 @@ export async function getSharedGoalSnapshots(
           userImage: participant.userImage,
           personalGoalId: participant.personalGoalId,
           personalGoalName: participant.personalGoalName,
+          personalPlanGoalId: participant.personalPlanGoalId,
+          personalPlanGoalName: participant.personalPlanGoalName,
           personalGoalAutoCreated: participant.personalGoalAutoCreated,
           status: participant.status,
           joinedAt: participant.joinedAt?.toISOString() ?? null,
           leftAt: participant.leftAt?.toISOString() ?? null,
-          completedToday: dateKeys.has(todayKey),
-          completedCount: dateKeys.size,
-          currentStreak: calculateStreak(dateKeys, startDateKey, endDateKey),
-          consistencyPercent:
-            possibleDays > 0
+          completedToday: isOneTimeGoal
+            ? oneTimeCompleted
+            : dateKeys.has(todayKey),
+          completedCount,
+          currentStreak: isOneTimeGoal
+            ? completedCount
+            : calculateStreak(dateKeys, startDateKey, endDateKey),
+          consistencyPercent: isOneTimeGoal
+            ? completedCount > 0
+              ? 100
+              : 0
+            : possibleDays > 0
               ? Math.min(100, Math.round((dateKeys.size / possibleDays) * 100))
               : 0,
         } satisfies SharedGoalParticipantSnapshot;
       });
       const acceptedSnapshots = participants.filter(
         (participant) =>
-          participant.status === "accepted" && participant.personalGoalId,
+          participant.status === "accepted" &&
+          (isOneTimeGoal
+            ? participant.personalPlanGoalId
+            : participant.personalGoalId),
       );
       const completedToday = acceptedSnapshots.filter(
         (participant) => participant.completedToday,
@@ -255,7 +357,7 @@ export async function getSharedGoalSnapshots(
       );
       const sharedCompletedDates = new Set<string>();
 
-      if (acceptedParticipants.length > 0) {
+      if (!isOneTimeGoal && acceptedParticipants.length > 0) {
         for (
           let dateKey = startDateKey;
           dateKey <= endDateKey;
@@ -280,13 +382,27 @@ export async function getSharedGoalSnapshots(
         | "consistencyPercent"
         | "currentStreak" = "completedCount";
 
-      if (sharedGoal.scoringType === "everyone_completes") {
-        // Count every day on which all accepted participants completed,
-        // accumulating across the goal's window (capped by the end date).
-        progressValue = sharedCompletedDates.size;
-        progressTarget = sharedGoal.endsOn
-          ? daysInclusive(startDateKey, sharedGoal.endsOn)
-          : null;
+      if (sharedGoal.scoringType === "one_time") {
+        const completedParticipantCount = acceptedSnapshots.filter(
+          (participant) => participant.completedCount > 0,
+        ).length;
+        progressValue =
+          sharedGoal.mode === "collaborative"
+            ? completedParticipantCount
+            : maxCompletions;
+        progressTarget =
+          sharedGoal.mode === "collaborative"
+            ? acceptedSnapshots.length || null
+            : 1;
+      } else if (sharedGoal.scoringType === "shared_streak") {
+        // A shared streak only continues while every accepted participant
+        // completes the goal on consecutive days.
+        progressValue = calculateStreak(
+          sharedCompletedDates,
+          startDateKey,
+          endDateKey,
+        );
+        progressTarget = sharedGoal.target ?? 7;
       } else if (sharedGoal.scoringType === "first_to_target") {
         progressValue = maxCompletions;
         progressTarget = sharedGoal.target ?? 7;
@@ -319,7 +435,7 @@ export async function getSharedGoalSnapshots(
             : [],
         ),
       );
-      const recentActivity = completedLogs
+      const recentLogActivity = completedLogs
         .filter((log) => {
           const participant = participantByGoalId.get(log.goalId);
           return (
@@ -340,6 +456,28 @@ export async function getSharedGoalSnapshots(
             dateKey: log.date,
           };
         });
+      const recentPlanGoalActivity = isOneTimeGoal
+        ? acceptedSnapshots.flatMap((participant) => {
+            const dateKey = participant.personalPlanGoalId
+              ? planGoalCompletionDates.get(participant.personalPlanGoalId)
+              : null;
+            return participant.completedCount > 0 && dateKey
+              ? [
+                  {
+                    userId: participant.userId,
+                    userName: participant.userName,
+                    userImage: participant.userImage,
+                    goalName:
+                      participant.personalPlanGoalName ?? sharedGoal.name,
+                    dateKey,
+                  },
+                ]
+              : [];
+          })
+        : [];
+      const recentActivity = [...recentLogActivity, ...recentPlanGoalActivity]
+        .sort((left, right) => right.dateKey.localeCompare(left.dateKey))
+        .slice(0, 12);
 
       return {
         id: sharedGoal.id,
@@ -350,6 +488,7 @@ export async function getSharedGoalSnapshots(
         target: sharedGoal.target,
         startsOn: sharedGoal.startsOn,
         endsOn: sharedGoal.endsOn,
+        openInvite: sharedGoal.openInvite,
         status: sharedGoal.status,
         stakeType: sharedGoal.stakeType,
         stakeDescription: sharedGoal.stakeDescription,
