@@ -42,6 +42,11 @@ import {
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
+import {
+  getCalendarCategoryColor,
+  getCalendarTypeColor,
+  getGoogleCalendarColor,
+} from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
@@ -120,6 +125,8 @@ import {
 
 type DayPlanEntry = {
   allDay: boolean;
+  calendarColorId?: string | null;
+  categoryName?: string | null;
   completed?: boolean;
   description?: string | null;
   endMinutes: number;
@@ -193,7 +200,7 @@ type CachedDayPlanData = {
   tasks: Task[];
 };
 
-const HOUR_HEIGHT = 48;
+const HOUR_HEIGHT = 40;
 const TIME_LABEL_WIDTH = 64;
 const MIN_EVENT_HEIGHT = 30;
 const MINUTES_IN_DAY = 24 * 60;
@@ -4164,6 +4171,7 @@ function FloatingScheduleChip({
   screenWidth: number;
 }) {
   const theme = useTheme();
+  const { accentColor } = getEntryColors(entry, theme);
   const width = Math.min(220, Math.max(140, screenWidth - 32));
   const left = clampNumber(pageX - width / 2, 16, screenWidth - width - 16);
   const top = Math.max(8, pageY - 26);
@@ -4177,7 +4185,7 @@ function FloatingScheduleChip({
         styles.unscheduledHabitChip,
         {
           backgroundColor: theme.background,
-          borderColor: theme.primary,
+          borderColor: accentColor,
           left,
           top,
           width,
@@ -4187,7 +4195,7 @@ function FloatingScheduleChip({
       {metaLabel ? (
         <Text
           numberOfLines={1}
-          style={[styles.allDayChipMeta, { color: theme.primary }]}
+          style={[styles.allDayChipMeta, { color: accentColor }]}
         >
           {metaLabel}
         </Text>
@@ -4226,7 +4234,7 @@ function EntryChip({
   } | null>(null);
   const dismissPressRef = useRef(false);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { backgroundColor, color } = getEntryColors(entry, theme);
+  const { accentColor, backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledChip = Boolean(onBeginSchedule);
   const chipColor = isUnscheduledChip ? theme.text : color;
   const metaLabel = isUnscheduledChip
@@ -4269,10 +4277,10 @@ function EntryChip({
               styles.unscheduledHabitChip,
               {
                 backgroundColor: theme.background,
-                borderColor: theme.primary,
+                borderColor: accentColor,
               },
             ]
-          : { backgroundColor },
+          : { backgroundColor, borderLeftColor: accentColor },
       ]}
     >
       {metaLabel ? (
@@ -4281,7 +4289,7 @@ function EntryChip({
           style={[
             styles.allDayChipMeta,
             isUnscheduledChip && styles.allDayChipMetaCompact,
-            { color: isUnscheduledChip ? theme.primary : color },
+            { color: isUnscheduledChip ? accentColor : color },
           ]}
         >
           {metaLabel}
@@ -4293,6 +4301,7 @@ function EntryChip({
           styles.allDayChipText,
           isUnscheduledChip && styles.allDayChipTextCompact,
           onDismiss && styles.dismissibleChipText,
+          entry.completed && styles.completedEntryText,
           { color: chipColor },
         ]}
       >
@@ -4510,7 +4519,7 @@ function TimedEntryBlock({
     pageY: number;
   } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { backgroundColor, color } = getEntryColors(entry, theme);
+  const { accentColor, backgroundColor, color } = getEntryColors(entry, theme);
   const isUnscheduledPreview = variant === "unscheduled";
   const isDraggingPreview = variant === "dragging";
   const previewColor = isUnscheduledPreview ? theme.text : color;
@@ -4522,10 +4531,10 @@ function TimedEntryBlock({
           styles.unscheduledHabitChip,
           {
             backgroundColor: theme.background,
-            borderColor: theme.primary,
+            borderColor: accentColor,
           },
         ]
-      : { backgroundColor },
+      : { backgroundColor, borderLeftColor: accentColor },
   ];
   const top = (entry.startMinutes / 60) * hourHeight;
   const naturalHeight =
@@ -4533,10 +4542,7 @@ function TimedEntryBlock({
   const height = Math.max(naturalHeight, MIN_EVENT_HEIGHT);
   const { left, width } = getEntryLayoutPercent(entry);
   const isTiny = naturalHeight < 24;
-  const isCompact = height <= 38;
-  const timeLabel = isCompact
-    ? formatMinuteRangeCompact(entry.startMinutes, entry.endMinutes)
-    : formatMinuteRange(entry.startMinutes, entry.endMinutes);
+  const timeLabel = formatMinuteRange(entry.startMinutes, entry.endMinutes);
   const clearLongPressTimer = () => {
     if (!longPressTimerRef.current) return;
     clearTimeout(longPressTimerRef.current);
@@ -4611,55 +4617,18 @@ function TimedEntryBlock({
     if (didStartDrag) onRelease?.();
   };
 
-  const content = isTiny ? (
-    <View style={[eventBlockStyle, styles.eventBlockTiny]}>
+  const content = (
+    <View style={[eventBlockStyle, isTiny && styles.eventBlockTiny]}>
       <Text
-        numberOfLines={1}
+        numberOfLines={height >= 56 ? 2 : 1}
         style={[
           styles.eventTitle,
-          styles.eventTitleTiny,
+          isTiny && styles.eventTitleTiny,
+          entry.completed && styles.eventTitleCompleted,
           { color: previewColor },
         ]}
       >
         {entry.title}
-      </Text>
-    </View>
-  ) : isCompact ? (
-    <View style={[eventBlockStyle, styles.eventBlockCompact]}>
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.eventTitle,
-          styles.eventTitleCompact,
-          { color: previewColor },
-        ]}
-      >
-        {entry.title}
-      </Text>
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.eventTime,
-          styles.eventTimeCompact,
-          { color: previewColor },
-        ]}
-      >
-        {timeLabel}
-      </Text>
-    </View>
-  ) : (
-    <View style={eventBlockStyle}>
-      <Text
-        numberOfLines={height >= 62 ? 2 : 1}
-        style={[styles.eventTitle, { color: previewColor }]}
-      >
-        {entry.title}
-      </Text>
-      <Text
-        numberOfLines={1}
-        style={[styles.eventTime, { color: previewColor }]}
-      >
-        {timeLabel}
       </Text>
     </View>
   );
@@ -4679,7 +4648,7 @@ function TimedEntryBlock({
     >
       {onPress || onBeginMove ? (
         <View
-          accessibilityLabel={`Open ${entry.title}`}
+          accessibilityLabel={`Open ${entry.title}, ${timeLabel}`}
           accessibilityRole="button"
           onTouchCancel={handleTouchCancel}
           onTouchEnd={handleTouchEnd}
@@ -4700,23 +4669,17 @@ function getEntryColors(
   entry: DayPlanEntry,
   theme: ReturnType<typeof useTheme>,
 ) {
-  if (entry.kind === "google" || entry.kind === "other") {
-    return {
-      backgroundColor: "#5F6368",
-      color: "#FFFFFF",
-    };
-  }
-
-  if (entry.completed) {
-    return {
-      backgroundColor: "#5F6368",
-      color: "#FFFFFF",
-    };
-  }
+  const accentColor =
+    entry.kind === "google"
+      ? getGoogleCalendarColor(entry.calendarColorId)
+      : entry.categoryName
+        ? getCalendarCategoryColor(entry.categoryName)
+        : getCalendarTypeColor(entry.kind);
 
   return {
-    backgroundColor: theme.primary,
-    color: "#07171D",
+    accentColor,
+    backgroundColor: withHexAlpha(accentColor, entry.completed ? "18" : "2A"),
+    color: entry.completed ? theme.textSecondary : theme.text,
   };
 }
 
@@ -4741,6 +4704,12 @@ function buildDayPlanEntries({
 }): DayPlanEntry[] {
   const dayStart = startOfDay(selectedDate);
   const dayEnd = addDays(dayStart, 1);
+  const categoryNameById = new Map(
+    (snapshot?.categories ?? []).map((category) => [
+      category.id,
+      category.name,
+    ]),
+  );
   const entries: DayPlanEntry[] = [];
 
   for (const event of googleEvents) {
@@ -4751,6 +4720,7 @@ function buildDayPlanEntries({
   for (const event of plannedEvents) {
     const entry = plannedEventToEntry(event, {
       checkpointById,
+      categoryNameById,
       habitById,
       taskById,
     });
@@ -4772,6 +4742,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
+        categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
@@ -4804,6 +4775,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: true,
+        categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: "Periodic habit",
         endMinutes: MINUTES_IN_DAY,
@@ -4837,6 +4809,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
+        categoryName: categoryNameById.get(habit.categoryId),
         description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
           ? normalizeEndMinutes(startMinutes, endMinutes)
@@ -4859,10 +4832,12 @@ function buildDayPlanEntries({
 function plannedEventToEntry(
   event: PlannedEvent,
   {
+    categoryNameById,
     checkpointById,
     habitById,
     taskById,
   }: {
+    categoryNameById: Map<string, string>;
     checkpointById: Map<string, CheckpointRef>;
     habitById: Map<string, ActionHabit>;
     taskById: Map<string, Task>;
@@ -4885,6 +4860,7 @@ function plannedEventToEntry(
 
   return {
     allDay: !hasTimeRange,
+    categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
     completed,
     description:
       event.sourceType === "habit_instance" ? "Daily habit" : undefined,
@@ -4919,6 +4895,7 @@ function googleEventToEntry(
     return {
       allDay: true,
       description: event.description,
+      calendarColorId: event.colorId,
       endMinutes: MINUTES_IN_DAY,
       id: `google-${event.id}`,
       kind: "google",
@@ -4958,6 +4935,7 @@ function googleEventToEntry(
 
   return {
     allDay: false,
+    calendarColorId: event.colorId,
     description: event.description,
     endMinutes: normalizeEndMinutes(startMinutes, endMinutes),
     id: `google-${event.id}`,
@@ -5170,6 +5148,7 @@ function buildSuggestedPlanEntries({
               7,
             ),
             entry: suggestedEntry({
+              categoryName: category.name,
               description: category.name,
               habitId: habit.id,
               id: `suggested-habit-${habit.id}`,
@@ -5247,6 +5226,7 @@ function countHabitCompletionsInLastDays(
 }
 
 function suggestedEntry({
+  categoryName,
   description,
   habitId,
   id,
@@ -5254,6 +5234,7 @@ function suggestedEntry({
   sourceId,
   title,
 }: {
+  categoryName?: string | null;
   description?: string | null;
   habitId?: string;
   id: string;
@@ -5263,6 +5244,7 @@ function suggestedEntry({
 }): SuggestedPlanEntry {
   return {
     allDay: true,
+    categoryName,
     description,
     endMinutes: MINUTES_IN_DAY,
     habitId,
@@ -5715,12 +5697,6 @@ function formatMinuteRange(startMinutes: number, endMinutes: number) {
   )}`;
 }
 
-function formatMinuteRangeCompact(startMinutes: number, endMinutes: number) {
-  return `${formatPlanMinutesDisplay(startMinutes)}-${formatPlanMinutesDisplay(
-    endMinutes,
-  )}`;
-}
-
 function formatMinutes(minutes: number) {
   const hour = Math.floor(minutes / 60);
   const minute = minutes % 60;
@@ -6114,6 +6090,10 @@ const styles = StyleSheet.create({
   dismissibleChipText: {
     paddingRight: 8,
   },
+  completedEntryText: {
+    textDecorationLine: "line-through",
+    opacity: 0.62,
+  },
   unscheduledDismissButton: {
     position: "absolute",
     top: -7,
@@ -6196,6 +6176,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
     borderRadius: 8,
+    borderLeftWidth: 3,
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
@@ -6207,12 +6188,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  eventBlockCompact: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 3,
-  },
   eventBlockTiny: {
     justifyContent: "center",
     paddingHorizontal: 7,
@@ -6223,29 +6198,13 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: "900",
   },
-  eventTitleCompact: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 11,
-    lineHeight: 13,
+  eventTitleCompleted: {
+    textDecorationLine: "line-through",
+    opacity: 0.62,
   },
   eventTitleTiny: {
     fontSize: 10,
     lineHeight: 12,
-  },
-  eventTime: {
-    marginTop: 1,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "700",
-    opacity: 0.8,
-  },
-  eventTimeCompact: {
-    flexShrink: 1,
-    maxWidth: "42%",
-    marginTop: 0,
-    fontSize: 9,
-    lineHeight: 11,
   },
   draftPlanBlock: {
     position: "absolute",

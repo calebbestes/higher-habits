@@ -8,6 +8,7 @@ export type GoogleCalendarStatus = {
 };
 
 export type GoogleCalendarDayEvent = {
+  colorId?: string | null;
   id: string;
   title: string;
   description: string | null;

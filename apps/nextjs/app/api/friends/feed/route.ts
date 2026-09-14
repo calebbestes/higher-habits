@@ -877,9 +877,13 @@ export async function GET(request: Request) {
       });
     }
 
-    const entryIds = [...entries.keys()];
+    // Birthday and other synthetic feed entries do not have rows in the
+    // goal-log tables, so only query reactions/comments for real goal logs.
+    const goalLogEntryIds = visibleLogIds.filter(
+      (id) => z.string().uuid().safeParse(id).success,
+    );
 
-    if (entryIds.length > 0 && !profilePostsOnly) {
+    if (goalLogEntryIds.length > 0 && !profilePostsOnly) {
       const [propRows, commentRows] = await Promise.all([
         db
           .select({
@@ -887,7 +891,7 @@ export async function GET(request: Request) {
             userId: feedProps.userId,
           })
           .from(feedProps)
-          .where(inArray(feedProps.goalLogId, entryIds)),
+          .where(inArray(feedProps.goalLogId, goalLogEntryIds)),
         db
           .select({
             id: feedComments.id,
@@ -902,7 +906,7 @@ export async function GET(request: Request) {
           })
           .from(feedComments)
           .innerJoin(users, eq(feedComments.userId, users.id))
-          .where(inArray(feedComments.goalLogId, entryIds))
+          .where(inArray(feedComments.goalLogId, goalLogEntryIds))
           .orderBy(asc(feedComments.createdAt)),
       ]);
 

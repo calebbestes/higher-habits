@@ -1,6 +1,10 @@
 import type { SymbolViewProps } from "expo-symbols";
 import { StyleSheet } from "react-native";
 
+import {
+  CALENDAR_CATEGORY_COLORS,
+  DEFAULT_CALENDAR_COLOR,
+} from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import type { GoalInCategory, PeriodicGoalInfo } from "@/lib/goal-logs-client";
 
@@ -16,21 +20,33 @@ export function sym(ios: string, android: string): SymbolName {
 
 export const CATEGORY_CONFIG: Record<string, CategoryConfig> = {
   Spiritual: {
-    color: "#2C5352",
+    color: CALENDAR_CATEGORY_COLORS.Spiritual,
     symbol: sym("hands.sparkles", "self_improvement"),
   },
-  Physical: { color: "#9D7474", symbol: sym("dumbbell", "fitness_center") },
-  Work: { color: "#516162", symbol: sym("briefcase", "work") },
-  Social: { color: "#A0D5D5", symbol: sym("person.2", "groups") },
-  "Hobbies/Social": { color: "#A0D5D5", symbol: sym("person.2", "groups") },
+  Physical: {
+    color: CALENDAR_CATEGORY_COLORS.Physical,
+    symbol: sym("dumbbell", "fitness_center"),
+  },
+  Work: {
+    color: CALENDAR_CATEGORY_COLORS.Work,
+    symbol: sym("briefcase", "work"),
+  },
+  Social: {
+    color: CALENDAR_CATEGORY_COLORS.Social,
+    symbol: sym("person.2", "groups"),
+  },
+  "Hobbies/Social": {
+    color: CALENDAR_CATEGORY_COLORS["Hobbies/Social"],
+    symbol: sym("person.2", "groups"),
+  },
   "Financial/Career": {
-    color: "#F3B7B9",
+    color: CALENDAR_CATEGORY_COLORS["Financial/Career"],
     symbol: sym("dollarsign.circle", "paid"),
   },
 };
 
 export const DEFAULT_CATEGORY_CONFIG: CategoryConfig = {
-  color: "#516162",
+  color: DEFAULT_CALENDAR_COLOR,
   symbol: sym("target", "target"),
 };
 

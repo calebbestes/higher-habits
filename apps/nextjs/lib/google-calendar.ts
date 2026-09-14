@@ -33,6 +33,7 @@ type GoogleCalendarEventsListResponse = {
 };
 
 type GoogleCalendarApiEvent = {
+  colorId?: string;
   id?: string;
   status?: string;
   summary?: string;
@@ -45,6 +46,7 @@ type GoogleCalendarApiEvent = {
 };
 
 export type GoogleCalendarEvent = {
+  colorId?: string | null;
   id: string;
   title: string;
   description: string | null;
@@ -772,6 +774,7 @@ function normalizeGoogleCalendarEvent(
   if (!id || !start || !end) return null;
 
   return {
+    colorId: event.colorId ?? null,
     id,
     title: event.summary?.trim() || "Untitled event",
     description: event.description?.trim() || null,
