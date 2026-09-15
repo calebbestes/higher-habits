@@ -7,6 +7,7 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { notifyFriendsOfVisibleHabitPost } from "@/lib/friend-post-notifications";
 import {
   GOAL_PHOTOS_BUCKET,
+  createGoalPhotoSignedUrl,
   getSupabaseStorageAdmin,
 } from "@/lib/supabase-storage";
 
@@ -65,16 +66,7 @@ async function findOwnedGoalLog(
 }
 
 async function createSignedPhotoUrl(storagePath: string) {
-  const storage = getSupabaseStorageAdmin();
-  const { data, error } = await storage.storage
-    .from(GOAL_PHOTOS_BUCKET)
-    .createSignedUrl(storagePath, 60 * 60);
-
-  if (error) {
-    throw new Error(`Could not open photo: ${error.message}`);
-  }
-
-  return data.signedUrl;
+  return createGoalPhotoSignedUrl(storagePath);
 }
 
 export async function GET(request: Request) {

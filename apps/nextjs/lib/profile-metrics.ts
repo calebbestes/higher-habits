@@ -1,7 +1,5 @@
 type ProfileHabit = {
   id: string;
-  createdAt: Date;
-  defaultComplete: boolean;
 };
 
 type ProfileHabitLog = {
@@ -9,6 +7,8 @@ type ProfileHabitLog = {
   date: string;
   status: "complete" | "incomplete" | "planned";
 };
+
+type ProfileCompletionDate = Date | string | null | undefined;
 
 function mountainDateKey(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -29,24 +29,34 @@ function addDays(dateKey: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function createdDateKey(date: Date) {
-  return mountainDateKey(date);
+function completionDateKey(date: ProfileCompletionDate) {
+  if (!date) return null;
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return date;
+  }
+
+  const parsed = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(parsed.getTime())) return null;
+  return mountainDateKey(parsed);
 }
 
 export function getLongestProfileStreak(
   habits: ProfileHabit[],
   logs: ProfileHabitLog[],
+  completionDates: ProfileCompletionDate[] = [],
 ) {
-  if (habits.length === 0) return 0;
-
   const logsByHabitDate = new Map(
     logs.map((log) => [`${log.goalId}_${log.date}`, log.status]),
   );
+  const completionDateKeys = new Set(
+    completionDates.flatMap((date) => {
+      const dateKey = completionDateKey(date);
+      return dateKey ? [dateKey] : [];
+    }),
+  );
   const firstDateKey = [
-    ...logs.map((log) => log.date),
-    ...habits
-      .filter((habit) => habit.defaultComplete)
-      .map((habit) => createdDateKey(habit.createdAt)),
+    ...logs.filter((log) => log.status === "complete").map((log) => log.date),
+    ...completionDateKeys,
   ].sort()[0];
   const todayKey = mountainDateKey();
 
@@ -60,15 +70,11 @@ export function getLongestProfileStreak(
     dateKey <= todayKey;
     dateKey = addDays(dateKey, 1)
   ) {
-    const completed = habits.some((habit) => {
-      const status = logsByHabitDate.get(`${habit.id}_${dateKey}`);
-      return (
-        status === "complete" ||
-        (status === undefined &&
-          habit.defaultComplete &&
-          dateKey >= createdDateKey(habit.createdAt))
+    const completed =
+      completionDateKeys.has(dateKey) ||
+      habits.some(
+        (habit) => logsByHabitDate.get(`${habit.id}_${dateKey}`) === "complete",
       );
-    });
 
     if (completed) {
       currentStreak += 1;

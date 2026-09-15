@@ -330,7 +330,10 @@ async function getFriendProfile(
     .from(goalLogs)
     .where(and(eq(goalLogs.userId, friendId), eq(goalLogs.status, "complete")));
   const completedCheckpointRows = await db
-    .select({ id: goalCheckpoints.id })
+    .select({
+      completedAt: goalCheckpoints.completedAt,
+      id: goalCheckpoints.id,
+    })
     .from(goalCheckpoints)
     .where(
       and(
@@ -340,7 +343,7 @@ async function getFriendProfile(
       ),
     );
   const completedTaskRows = await db
-    .select({ id: tasks.id })
+    .select({ completedAt: tasks.completedAt, id: tasks.id })
     .from(tasks)
     .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
   const [incentivesEarned, incentivesGiven] = await Promise.all([
@@ -364,7 +367,10 @@ async function getFriendProfile(
           )
       : [];
   const logRows = profileLogRows.filter((log) => log.date >= startDateKey);
-  const longestStreak = getLongestProfileStreak(visibleHabits, profileLogRows);
+  const longestStreak = getLongestProfileStreak(visibleHabits, profileLogRows, [
+    ...completedCheckpointRows.map((row) => row.completedAt),
+    ...completedTaskRows.map((row) => row.completedAt),
+  ]);
   const logsByHabitDate = Object.fromEntries(
     logRows
       .filter(
@@ -827,11 +833,15 @@ export async function PATCH(request: Request) {
       .set({ status: "accepted" })
       .where(eq(friends.id, friendship.id));
 
-    await sendPushToUser(friendship.requesterId, "notifyFriendRequestAccepted", {
-      title: "Friend request accepted",
-      body: `${user.name} accepted your friend request.`,
-      data: { type: "friend_request_accepted" },
-    });
+    await sendPushToUser(
+      friendship.requesterId,
+      "notifyFriendRequestAccepted",
+      {
+        title: "Friend request accepted",
+        body: `${user.name} accepted your friend request.`,
+        data: { type: "friend_request_accepted" },
+      },
+    );
 
     return NextResponse.json({ id: friendship.id, status: "accepted" });
   } catch (error) {

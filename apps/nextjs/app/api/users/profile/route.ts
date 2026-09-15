@@ -54,6 +54,7 @@ export async function GET(request: Request) {
         name: users.name,
         email: users.email,
         image: users.image,
+        createdAt: users.createdAt,
         lastOpenedAt: users.lastOpenedAt,
       })
       .from(users)
@@ -140,7 +141,10 @@ export async function GET(request: Request) {
       );
 
     const completedCheckpointRows = await db
-      .select({ id: goalCheckpoints.id })
+      .select({
+        completedAt: goalCheckpoints.completedAt,
+        id: goalCheckpoints.id,
+      })
       .from(goalCheckpoints)
       .where(
         and(
@@ -150,7 +154,7 @@ export async function GET(request: Request) {
       );
 
     const completedTaskRows = await db
-      .select({ id: tasks.id })
+      .select({ completedAt: tasks.completedAt, id: tasks.id })
       .from(tasks)
       .where(and(eq(tasks.userId, user.id), isNotNull(tasks.completedAt)));
 
@@ -179,6 +183,10 @@ export async function GET(request: Request) {
     const longestStreak = getLongestProfileStreak(
       [...visibleHabits, ...periodicHabits],
       profileLogRows,
+      [
+        ...completedCheckpointRows.map((row) => row.completedAt),
+        ...completedTaskRows.map((row) => row.completedAt),
+      ],
     );
 
     const logsByHabitDate = Object.fromEntries(
@@ -236,6 +244,7 @@ export async function GET(request: Request) {
         name: me.name,
         email: me.email,
         image: me.image,
+        createdAt: me.createdAt.toISOString(),
         lastOpenedAt: me.lastOpenedAt?.toISOString() ?? null,
       },
       stats: {

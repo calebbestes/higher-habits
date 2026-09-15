@@ -85,6 +85,20 @@ const PROFILE_NOTE_FILTERS: Array<{ key: ProfileNoteFilter; label: string }> = [
   { key: "daily", label: "Daily" },
   { key: "monthly", label: "Monthly" },
 ];
+const NOTE_MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -112,6 +126,7 @@ function createPrivateProfilePreview({
       name: initialName ?? "float user",
       email: "",
       image: initialImage ?? null,
+      createdAt: null,
       lastOpenedAt: null,
     },
     stats: {
@@ -154,6 +169,29 @@ function formatProfileWeekRange(weekStartDate: string) {
     return `${month.format(start)} ${start.getDate()}-${end.getDate()}`;
   }
   return `${month.format(start)} ${start.getDate()}-${month.format(end)} ${end.getDate()}`;
+}
+
+function getProfileMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function dateFromProfileMonthKey(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, 1);
+}
+
+function formatProfileMonthLabel(monthKey: string) {
+  const date = dateFromProfileMonthKey(monthKey);
+  return `${NOTE_MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function getRecentProfileMonthKeys(count: number) {
+  const start = new Date();
+  return Array.from({ length: count }, (_, index) =>
+    getProfileMonthKey(
+      new Date(start.getFullYear(), start.getMonth() - index, 1),
+    ),
+  );
 }
 
 export function FriendProfileScreen({
@@ -211,6 +249,15 @@ export function FriendProfileScreen({
     () => profile?.categories.flatMap((category) => category.habits) ?? [],
     [profile],
   );
+  const visibleBodySections = useMemo(
+    () =>
+      self
+        ? PROFILE_BODY_SECTIONS
+        : PROFILE_BODY_SECTIONS.filter((section) => section.key !== "notes"),
+    [self],
+  );
+  const visibleActiveBodySection =
+    !self && activeBodySection === "notes" ? "posts" : activeBodySection;
 
   const load = useCallback(
     async (refresh = false) => {
@@ -250,11 +297,15 @@ export function FriendProfileScreen({
           setProfile(nextProfile);
           setIsLoading(false);
 
+          const currentMonth = new Date();
           const [myPosts, nextFriends, nextWeeklyPlanNotes] = await Promise.all(
             [
               fetchMyPosts().catch(() => []),
               fetchFriends().catch(() => []),
-              fetchWeeklyPlanNotes().catch(() => []),
+              fetchWeeklyPlanNotes({
+                month: currentMonth.getMonth() + 1,
+                year: currentMonth.getFullYear(),
+              }).catch(() => []),
             ],
           );
 
@@ -667,14 +718,15 @@ export function FriendProfileScreen({
               ) : null}
 
               <ProfileBodyTabs
-                activeSection={activeBodySection}
+                activeSection={visibleActiveBodySection}
                 locked={privateProfile}
+                sections={visibleBodySections}
                 onChange={setActiveBodySection}
               />
 
               {privateProfile ? (
-                <PrivateProfileSection section={activeBodySection} />
-              ) : activeBodySection === "posts" ? (
+                <PrivateProfileSection section={visibleActiveBodySection} />
+              ) : visibleActiveBodySection === "posts" ? (
                 <ProfilePostsGrid
                   arePostsLoading={arePostsLoading}
                   filter={postFilter}
@@ -692,14 +744,15 @@ export function FriendProfileScreen({
                     })
                   }
                 />
-              ) : activeBodySection === "notes" ? (
+              ) : visibleActiveBodySection === "notes" ? (
                 <ProfileNotesSection
                   activeFilter={noteFilter}
+                  accountCreatedAt={profile.friend.createdAt}
                   self={self}
                   weeklyNotes={weeklyPlanNotes}
                   onChangeFilter={setNoteFilter}
                 />
-              ) : activeBodySection === "daily" ? (
+              ) : visibleActiveBodySection === "daily" ? (
                 <ProfileDailyHabits
                   dateKeys={profile.dateKeys}
                   habits={habits}
@@ -790,17 +843,19 @@ export function FriendProfileScreen({
 function ProfileBodyTabs({
   activeSection,
   locked = false,
+  sections,
   onChange,
 }: {
   activeSection: ProfileBodySection;
   locked?: boolean;
+  sections: Array<{ key: ProfileBodySection; label: string }>;
   onChange: (section: ProfileBodySection) => void;
 }) {
   const theme = useTheme();
 
   return (
     <View style={[styles.profileBodyTabs, { borderColor: theme.tabBorder }]}>
-      {PROFILE_BODY_SECTIONS.map((section) => {
+      {sections.map((section) => {
         const isActive = section.key === activeSection;
         return (
           <Pressable
@@ -882,25 +937,106 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
 
 function ProfileNotesSection({
   activeFilter,
+  accountCreatedAt,
   onChangeFilter,
   self,
   weeklyNotes,
 }: {
   activeFilter: ProfileNoteFilter;
+  accountCreatedAt: string | null;
   onChangeFilter: (filter: ProfileNoteFilter) => void;
   self: boolean;
   weeklyNotes: WeeklyPlanNote[];
 }) {
   const theme = useTheme();
-  const currentWeekLabel = formatProfileWeekRange(
-    toDateKey(startOfWeek(new Date())),
+  const currentMonthKey = getProfileMonthKey(new Date());
+  const [selectedMonthKey, setSelectedMonthKey] = useState(currentMonthKey);
+  const [notesByMonthKey, setNotesByMonthKey] = useState<
+    Record<string, WeeklyPlanNote[]>
+  >({});
+  const [loadingMonthKey, setLoadingMonthKey] = useState<string | null>(null);
+  const [selectedArchiveYear, setSelectedArchiveYear] = useState<number | null>(
+    null,
   );
-  const visibleWeeklyNotes = weeklyNotes
+  const recentMonthKeys = useMemo(() => getRecentProfileMonthKeys(12), []);
+  const currentMonthStartMs = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  }, []);
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const createdAt = accountCreatedAt ? new Date(accountCreatedAt) : null;
+    const createdYear =
+      createdAt && !Number.isNaN(createdAt.getTime())
+        ? createdAt.getFullYear()
+        : null;
+
+    if (createdYear) {
+      const startYear = Math.min(createdYear, currentYear);
+      return Array.from(
+        { length: currentYear - startYear + 1 },
+        (_, index) => currentYear - index,
+      );
+    }
+
+    const noteYears = new Set<number>();
+    for (const note of [
+      ...weeklyNotes,
+      ...Object.values(notesByMonthKey).flat(),
+    ]) {
+      const year = dateFromProfileKey(note.weekStartDate).getFullYear();
+      if (!Number.isNaN(year)) noteYears.add(year);
+    }
+
+    return noteYears.size > 0
+      ? [...noteYears].sort((left, right) => right - left)
+      : [currentYear];
+  }, [accountCreatedAt, notesByMonthKey, weeklyNotes]);
+  const selectedMonthNotes =
+    notesByMonthKey[selectedMonthKey] ??
+    (selectedMonthKey === currentMonthKey ? weeklyNotes : []);
+  const visibleWeeklyNotes = selectedMonthNotes
+    .filter(
+      (note) =>
+        getProfileMonthKey(dateFromProfileKey(note.weekStartDate)) ===
+        selectedMonthKey,
+    )
     .map((note) => ({
       ...note,
       text: richTextToPlainText(note.notes).trim(),
     }))
     .filter((note) => note.text.length > 0);
+
+  useEffect(() => {
+    setNotesByMonthKey((current) => ({
+      ...current,
+      [currentMonthKey]: weeklyNotes,
+    }));
+  }, [currentMonthKey, weeklyNotes]);
+
+  const loadMonthNotes = useCallback(
+    async (monthKey: string) => {
+      setSelectedMonthKey(monthKey);
+      const date = dateFromProfileMonthKey(monthKey);
+      if (notesByMonthKey[monthKey]) return;
+
+      setLoadingMonthKey(monthKey);
+      try {
+        const notes = await fetchWeeklyPlanNotes({
+          month: date.getMonth() + 1,
+          year: date.getFullYear(),
+        });
+        setNotesByMonthKey((current) => ({ ...current, [monthKey]: notes }));
+      } catch {
+        setNotesByMonthKey((current) => ({ ...current, [monthKey]: [] }));
+      } finally {
+        setLoadingMonthKey((current) =>
+          current === monthKey ? null : current,
+        );
+      }
+    },
+    [notesByMonthKey],
+  );
 
   return (
     <View style={styles.notesSection}>
@@ -940,33 +1076,171 @@ function ProfileNotesSection({
       </View>
 
       {activeFilter === "weekly" ? (
-        visibleWeeklyNotes.length > 0 ? (
-          <View style={styles.noteList}>
-            {visibleWeeklyNotes.map((note) => (
-              <View key={note.weekStartDate} style={styles.notePreviewBlock}>
-                <Text style={[styles.noteDateLabel, { color: theme.primary }]}>
-                  {formatProfileWeekRange(note.weekStartDate)}
-                </Text>
-                <Text style={[styles.noteBody, { color: theme.text }]}>
-                  {note.text}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.notesEmptyState}>
-            <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
-              {self ? "No weekly note yet" : "No shared weekly notes"}
+        <>
+          <View style={styles.noteMonthHeader}>
+            <Text style={[styles.noteMonthTitle, { color: theme.text }]}>
+              {formatProfileMonthLabel(selectedMonthKey)}
             </Text>
+            {loadingMonthKey === selectedMonthKey ? (
+              <Text
+                style={[styles.noteMonthStatus, { color: theme.textSecondary }]}
+              >
+                Loading
+              </Text>
+            ) : null}
+          </View>
+
+          {visibleWeeklyNotes.length > 0 ? (
+            <View style={styles.noteList}>
+              {visibleWeeklyNotes.map((note) => (
+                <View key={note.weekStartDate} style={styles.notePreviewBlock}>
+                  <Text
+                    style={[styles.noteDateLabel, { color: theme.primary }]}
+                  >
+                    {formatProfileWeekRange(note.weekStartDate)}
+                  </Text>
+                  <Text style={[styles.noteBody, { color: theme.text }]}>
+                    {note.text}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.notesEmptyState}>
+              <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
+                {self ? "No weekly notes here" : "No shared weekly notes"}
+              </Text>
+              <Text
+                style={[styles.notesEmptyText, { color: theme.textSecondary }]}
+              >
+                {self
+                  ? `${formatProfileMonthLabel(selectedMonthKey)} does not have saved weekly notes yet.`
+                  : "Notes this friend shares will show up here."}
+              </Text>
+            </View>
+          )}
+
+          <ScrollView
+            horizontal
+            contentContainerStyle={styles.noteMonthScroller}
+            showsHorizontalScrollIndicator={false}
+          >
+            {recentMonthKeys.map((monthKey) => {
+              const isSelected = monthKey === selectedMonthKey;
+              return (
+                <Pressable
+                  key={monthKey}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => {
+                    setSelectedArchiveYear(null);
+                    void loadMonthNotes(monthKey);
+                  }}
+                  style={({ pressed }) => [
+                    styles.noteMonthChip,
+                    {
+                      backgroundColor: isSelected
+                        ? `${theme.primary}1F`
+                        : theme.backgroundElement,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.noteMonthChipText,
+                      { color: isSelected ? theme.primary : theme.text },
+                    ]}
+                  >
+                    {formatProfileMonthLabel(monthKey)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.noteArchive}>
             <Text
-              style={[styles.notesEmptyText, { color: theme.textSecondary }]}
+              style={[styles.noteArchiveLabel, { color: theme.textSecondary }]}
             >
-              {self
-                ? `Weekly notes from ${currentWeekLabel} will show up here.`
-                : "Notes this friend shares will show up here."}
+              Browse by year
             </Text>
+            <View style={styles.noteYearRow}>
+              {yearOptions.map((year) => {
+                const isSelected = year === selectedArchiveYear;
+                return (
+                  <Pressable
+                    key={year}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() =>
+                      setSelectedArchiveYear(isSelected ? null : year)
+                    }
+                    style={({ pressed }) => [
+                      styles.noteYearButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.noteYearText,
+                        {
+                          color: isSelected ? theme.text : theme.textSecondary,
+                        },
+                      ]}
+                    >
+                      {year}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {selectedArchiveYear ? (
+              <View style={styles.noteMonthGrid}>
+                {NOTE_MONTH_LABELS.map((label, index) => {
+                  const monthKey = `${selectedArchiveYear}-${String(index + 1).padStart(2, "0")}`;
+                  const isSelected = monthKey === selectedMonthKey;
+                  const isFuture =
+                    dateFromProfileMonthKey(monthKey).getTime() >
+                    currentMonthStartMs;
+                  return (
+                    <Pressable
+                      key={monthKey}
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        disabled: isFuture,
+                        selected: isSelected,
+                      }}
+                      disabled={isFuture}
+                      onPress={() => void loadMonthNotes(monthKey)}
+                      style={({ pressed }) => [
+                        styles.noteArchiveMonthButton,
+                        {
+                          opacity: isFuture ? 0.35 : 1,
+                          backgroundColor: isSelected
+                            ? `${theme.primary}1F`
+                            : "transparent",
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.noteArchiveMonthText,
+                          {
+                            color: isSelected ? theme.primary : theme.text,
+                          },
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
           </View>
-        )
+        </>
       ) : (
         <View style={styles.notesEmptyState}>
           <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
@@ -2037,6 +2311,25 @@ const styles = StyleSheet.create({
     marginTop: 5,
     borderRadius: 999,
   },
+  noteMonthHeader: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 16,
+  },
+  noteMonthTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+  },
+  noteMonthStatus: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
   noteList: {
     gap: 24,
   },
@@ -2067,6 +2360,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: "600",
+  },
+  noteMonthScroller: {
+    gap: 9,
+    paddingTop: 22,
+    paddingRight: 20,
+    paddingBottom: 4,
+  },
+  noteMonthChip: {
+    minHeight: 36,
+    justifyContent: "center",
+    borderRadius: 999,
+    paddingHorizontal: 15,
+  },
+  noteMonthChipText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  noteArchive: {
+    gap: 12,
+    marginTop: 26,
+  },
+  noteArchiveLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  noteYearRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 15,
+  },
+  noteYearButton: {
+    minHeight: 30,
+    justifyContent: "center",
+  },
+  noteYearText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+  noteMonthGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: 8,
+    rowGap: 8,
+  },
+  noteArchiveMonthButton: {
+    minHeight: 34,
+    justifyContent: "center",
+    borderRadius: 999,
+    paddingHorizontal: 13,
+  },
+  noteArchiveMonthText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
   },
   habitRow: {
     minHeight: 30,

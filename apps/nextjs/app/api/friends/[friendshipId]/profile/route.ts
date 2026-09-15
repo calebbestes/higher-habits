@@ -190,7 +190,10 @@ export async function GET(
             )
         : [];
     const completedCheckpointRows = await db
-      .select({ id: goalCheckpoints.id })
+      .select({
+        completedAt: goalCheckpoints.completedAt,
+        id: goalCheckpoints.id,
+      })
       .from(goalCheckpoints)
       .where(
         and(
@@ -200,7 +203,7 @@ export async function GET(
         ),
       );
     const completedTaskRows = await db
-      .select({ id: tasks.id })
+      .select({ completedAt: tasks.completedAt, id: tasks.id })
       .from(tasks)
       .where(and(eq(tasks.userId, friendId), isNotNull(tasks.completedAt)));
     const [incentivesEarned, incentivesGiven] = await Promise.all([
@@ -227,6 +230,10 @@ export async function GET(
     const longestStreak = getLongestProfileStreak(
       [...visibleHabits, ...visiblePeriodicHabits],
       profileLogRows,
+      [
+        ...completedCheckpointRows.map((row) => row.completedAt),
+        ...completedTaskRows.map((row) => row.completedAt),
+      ],
     );
     const logsByHabitDate = Object.fromEntries(
       logRows

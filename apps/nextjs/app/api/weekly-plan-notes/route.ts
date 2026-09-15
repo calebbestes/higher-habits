@@ -1,11 +1,15 @@
 import { getDb, weeklyPlanNoteHeaders, weeklyPlanNotes } from "@habit/db";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, gte, lt, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const monthQuerySchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+});
 
 const bodySchema = z.object({
   weekStartDate: dateKeySchema,
@@ -56,6 +60,38 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     const weekStartDateParam = url.searchParams.get("weekStartDate");
+    const yearParam = url.searchParams.get("year");
+    const monthParam = url.searchParams.get("month");
+
+    if (yearParam && monthParam) {
+      const { month, year } = monthQuerySchema.parse({
+        month: monthParam,
+        year: yearParam,
+      });
+      const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+      const endDate =
+        month === 12
+          ? `${year + 1}-01-01`
+          : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+
+      const rows = await db
+        .select({
+          notes: weeklyPlanNotes.notes,
+          weekStartDate: weeklyPlanNotes.weekStartDate,
+        })
+        .from(weeklyPlanNotes)
+        .where(
+          and(
+            eq(weeklyPlanNotes.userId, user.id),
+            ne(weeklyPlanNotes.notes, ""),
+            gte(weeklyPlanNotes.weekStartDate, startDate),
+            lt(weeklyPlanNotes.weekStartDate, endDate),
+          ),
+        )
+        .orderBy(desc(weeklyPlanNotes.weekStartDate));
+
+      return NextResponse.json(rows);
+    }
 
     if (!weekStartDateParam) {
       const rows = await db

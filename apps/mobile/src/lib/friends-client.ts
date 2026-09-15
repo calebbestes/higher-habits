@@ -102,6 +102,7 @@ export type FriendProfile = {
     name: string;
     email: string;
     image: string | null;
+    createdAt: string | null;
     lastOpenedAt: string | null;
   };
   stats: {
@@ -325,6 +326,7 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
       name: stringOrFallback(value.friend.name, "Friend"),
       email: stringOrFallback(value.friend.email),
       image: nullableString(value.friend.image),
+      createdAt: nullableString(value.friend.createdAt),
       lastOpenedAt: nullableString(value.friend.lastOpenedAt),
     },
     stats: isRecord(value.stats)
@@ -957,6 +959,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       name: friend.friendName,
       email: friend.friendEmail,
       image: friend.friendImage,
+      createdAt: null,
       lastOpenedAt: friend.lastOpenedAt,
     },
     stats: {

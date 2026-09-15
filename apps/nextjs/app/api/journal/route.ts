@@ -30,10 +30,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
-import {
-  GOAL_PHOTOS_BUCKET,
-  getSupabaseStorageAdmin,
-} from "@/lib/supabase-storage";
+import { createGoalPhotoSignedUrl } from "@/lib/supabase-storage";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 40;
@@ -195,13 +192,7 @@ function groupComments(rows: JournalCommentRow[], currentUserId: string) {
 }
 
 async function createSignedPhotoUrl(storagePath: string) {
-  const storage = getSupabaseStorageAdmin();
-  const { data, error } = await storage.storage
-    .from(GOAL_PHOTOS_BUCKET)
-    .createSignedUrl(storagePath, 60 * 60);
-
-  if (error) throw new Error(`Could not open photo: ${error.message}`);
-  return data.signedUrl;
+  return createGoalPhotoSignedUrl(storagePath);
 }
 
 function serializePhoto(row: {

@@ -7,6 +7,7 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { notifyFriendsOfVisibleCheckpointPost } from "@/lib/friend-post-notifications";
 import {
   GOAL_PHOTOS_BUCKET,
+  createGoalPhotoSignedUrl,
   getSupabaseStorageAdmin,
 } from "@/lib/supabase-storage";
 
@@ -23,16 +24,7 @@ const deleteSchema = z.object({ id: z.string().uuid() });
 const getDatabase = () => getDb() ?? null;
 
 async function createSignedPhotoUrl(storagePath: string) {
-  const storage = getSupabaseStorageAdmin();
-  const { data, error } = await storage.storage
-    .from(GOAL_PHOTOS_BUCKET)
-    .createSignedUrl(storagePath, 60 * 60);
-
-  if (error) {
-    throw new Error(`Could not open photo: ${error.message}`);
-  }
-
-  return data.signedUrl;
+  return createGoalPhotoSignedUrl(storagePath);
 }
 
 async function findOwnedCheckpoint(

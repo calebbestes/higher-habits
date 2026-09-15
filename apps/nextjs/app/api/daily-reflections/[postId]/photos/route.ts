@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
   GOAL_PHOTOS_BUCKET,
+  createGoalPhotoSignedUrl,
   getSupabaseStorageAdmin,
 } from "@/lib/supabase-storage";
 
@@ -17,16 +18,7 @@ const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
 };
 
 async function createSignedPhotoUrl(storagePath: string) {
-  const storage = getSupabaseStorageAdmin();
-  const { data, error } = await storage.storage
-    .from(GOAL_PHOTOS_BUCKET)
-    .createSignedUrl(storagePath, 60 * 60);
-
-  if (error) {
-    throw new Error(`Could not open photo: ${error.message}`);
-  }
-
-  return data.signedUrl;
+  return createGoalPhotoSignedUrl(storagePath);
 }
 
 export async function POST(

@@ -28,10 +28,19 @@ export const fetchWeeklyPlanNote = (weekStartDate: string) =>
     `/api/weekly-plan-notes?weekStartDate=${encodeURIComponent(weekStartDate)}`,
   ).then((response) => parseResponse<WeeklyPlanNote>(response));
 
-export const fetchWeeklyPlanNotes = () =>
-  mobileApiFetch("/api/weekly-plan-notes").then((response) =>
-    parseResponse<WeeklyPlanNote[]>(response),
-  );
+export const fetchWeeklyPlanNotes = ({
+  month,
+  year,
+}: { month?: number; year?: number } = {}) => {
+  const params = new URLSearchParams();
+  if (year) params.set("year", String(year));
+  if (month) params.set("month", String(month));
+  const query = params.toString();
+
+  return mobileApiFetch(
+    `/api/weekly-plan-notes${query ? `?${query}` : ""}`,
+  ).then((response) => parseResponse<WeeklyPlanNote[]>(response));
+};
 
 export const fetchWeeklyPlanNoteHeaders = () =>
   mobileApiFetch("/api/weekly-plan-note-headers").then((response) =>
