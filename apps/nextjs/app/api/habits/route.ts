@@ -15,9 +15,11 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 const habitFields = {
   name: z.string().trim().min(1),
+  color: z.string().regex(COLOR_REGEX).nullable().default(null),
   frequencyGoal: z.number().int().positive().nullable().default(null),
   period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
   repeatCadence: z
@@ -54,6 +56,11 @@ const updateSchema = z.object({
   id: z.string().uuid(),
   ...habitFields,
 });
+const updateColorSchema = z.object({
+  type: z.literal("updateColor"),
+  id: z.string().uuid(),
+  color: z.string().regex(COLOR_REGEX).nullable(),
+});
 const deleteManySchema = z.object({
   type: z.literal("deleteMany"),
   ids: z.array(z.string().uuid()).min(1),
@@ -62,6 +69,7 @@ const deleteManySchema = z.object({
 const bodySchema = z.discriminatedUnion("type", [
   createSchema,
   updateSchema,
+  updateColorSchema,
   deleteManySchema,
 ]);
 
@@ -70,6 +78,7 @@ const getDatabase = () => getDb() ?? null;
 const selectHabitShape = {
   id: habits.id,
   name: habits.name,
+  color: habits.color,
   frequencyGoal: habits.frequencyGoal,
   period: habits.period,
   repeatCadence: habits.repeatCadence,
@@ -399,6 +408,7 @@ export async function POST(request: Request) {
     ) => ({
       userId: user.id,
       name: d.name,
+      color: d.color,
       frequencyGoal: d.frequencyGoal,
       period: d.period,
       repeatCadence: d.repeatCadence,
@@ -424,6 +434,20 @@ export async function POST(request: Request) {
         : null,
       hidden: d.hidden,
     });
+
+    if (data.type === "updateColor") {
+      const [updated] = await db
+        .update(habits)
+        .set({ color: data.color, updatedAt: new Date() })
+        .where(and(eq(habits.id, data.id), eq(habits.userId, user.id)))
+        .returning({ id: habits.id });
+
+      if (!updated) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      return NextResponse.json(await getHabitById(db, user.id, data.id));
+    }
 
     if (data.type === "create") {
       const [category] = await db

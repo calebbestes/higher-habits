@@ -16,6 +16,26 @@ export const CALENDAR_TYPE_COLORS = {
   task: "#2D7DD2",
 } as const;
 
+export const CALENDAR_EVENT_COLORS = [
+  { label: "Default", color: null, foreground: null },
+  { label: "Sage", color: "#33B679", foreground: "#07171D" },
+  { label: "Flamingo", color: "#E67C73", foreground: "#1A090A" },
+  { label: "Mango", color: "#F09300", foreground: "#211203" },
+  { label: "Cobalt", color: "#4285F4", foreground: "#FFFFFF" },
+  { label: "Eucalyptus", color: "#009688", foreground: "#FFFFFF" },
+  { label: "Cherry Blossom", color: "#D81B60", foreground: "#FFFFFF" },
+] as const;
+
+export function getCalendarEventForeground(
+  color?: string | null,
+  fallback = "#FFFFFF",
+) {
+  return (
+    CALENDAR_EVENT_COLORS.find((option) => option.color === color)
+      ?.foreground ?? fallback
+  );
+}
+
 const GOOGLE_CALENDAR_COLORS: Record<string, string> = {
   "1": "#7986CB",
   "2": "#33B679",

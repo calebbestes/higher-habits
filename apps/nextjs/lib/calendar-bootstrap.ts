@@ -50,6 +50,7 @@ const getGoalLogsSnapshotForMonth = async (
   const periodicFields = {
     id: habits.id,
     name: habits.name,
+    color: habits.color,
     iconKey: habits.iconKey,
     categoryId: habits.categoryId,
     priority: habits.priority,
@@ -218,6 +219,7 @@ const getGoalLogsSnapshotForMonth = async (
       goals: (goalsByCategoryId[cat.id] ?? []).map((goal) => ({
         id: goal.id,
         name: goal.name,
+        color: goal.color,
         iconKey: goal.iconKey,
         categoryId: goal.categoryId,
         priority: goal.priority as "high" | "low",
@@ -236,6 +238,7 @@ const getGoalLogsSnapshotForMonth = async (
   const mapPeriodicGoal = (goal: (typeof periodicGoals)[number]) => ({
     id: goal.id,
     name: goal.name,
+    color: goal.color,
     iconKey: goal.iconKey,
     categoryId: goal.categoryId,
     priority: goal.priority as "high" | "low",

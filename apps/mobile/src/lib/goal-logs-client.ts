@@ -15,6 +15,7 @@ export type LinkedSharedGoal = {
 export type GoalInCategory = {
   id: string;
   name: string;
+  color?: string | null;
   iconKey: string;
   categoryId: string;
   goalId: string | null;
@@ -77,6 +78,7 @@ export type CategoryWithGoals = {
 export type PeriodicGoalInfo = {
   id: string;
   name: string;
+  color?: string | null;
   iconKey: string;
   categoryId: string;
   goalId: string | null;
@@ -172,6 +174,7 @@ function mapValues<T>(
 function normalizeGoal<T extends Record<string, unknown>>(goal: T) {
   return {
     ...goal,
+    color: typeof goal.color === "string" ? goal.color : null,
     audienceFriendIds: Array.isArray(goal.audienceFriendIds)
       ? goal.audienceFriendIds.filter((id) => typeof id === "string")
       : [],

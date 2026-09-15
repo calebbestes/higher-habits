@@ -21,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
+import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
 import { useTheme } from "@/hooks/use-theme";
 import { addCrashBreadcrumb, setCrashContext } from "@/lib/crash-reporting";
 import type { GoalLogStatus } from "@/lib/goal-logs-client";
@@ -140,6 +141,7 @@ function GoalActionsModalImpl({
   isUpdatingVisibility,
   isFutureDate = false,
   canPlan = isFutureDate,
+  color,
   plannedTime,
   completedCount,
   uploadingPhotoSource,
@@ -147,6 +149,8 @@ function GoalActionsModalImpl({
   onOpenNote,
   onSetVisibility,
   onSetStatus,
+  isUpdatingColor = false,
+  onSetColor,
   onDismiss,
   onShown,
 }: {
@@ -159,6 +163,9 @@ function GoalActionsModalImpl({
   status: GoalDateStatus;
   isUpdating: boolean;
   isUpdatingVisibility: boolean;
+  color?: string | null;
+  isUpdatingColor?: boolean;
+  onSetColor?: (color: string | null) => void;
   canPlan?: boolean;
   isFutureDate?: boolean;
   plannedTime?: {
@@ -833,6 +840,73 @@ function GoalActionsModalImpl({
                         </Text>
                       </Pressable>
                     ) : null}
+                  </View>
+                ) : null}
+
+                {onSetColor ? (
+                  <View
+                    style={[
+                      modalStyles.colorSection,
+                      {
+                        backgroundColor: theme.tabBar,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    <View style={modalStyles.colorSectionHeader}>
+                      <Text
+                        style={[
+                          modalStyles.colorSectionTitle,
+                          { color: theme.text },
+                        ]}
+                      >
+                        Color
+                      </Text>
+                      <Text
+                        style={[
+                          modalStyles.colorSectionValue,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {isUpdatingColor ? "Saving…" : "Choose a color"}
+                      </Text>
+                    </View>
+                    <View style={modalStyles.colorOptions}>
+                      {CALENDAR_EVENT_COLORS.map((option) => {
+                        const isSelected = color === option.color;
+                        const swatchColor = option.color ?? theme.primary;
+
+                        return (
+                          <ReliablePressable
+                            accessibilityLabel={`${option.label} color`}
+                            accessibilityRole="radio"
+                            accessibilityState={{
+                              checked: isSelected,
+                              disabled: isUpdatingColor,
+                            }}
+                            disabled={isUpdatingColor}
+                            key={option.label}
+                            onPress={() => onSetColor(option.color)}
+                            style={({ pressed }) => [
+                              modalStyles.colorOption,
+                              {
+                                borderColor: isSelected
+                                  ? theme.text
+                                  : "transparent",
+                              },
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                modalStyles.colorSwatch,
+                                { backgroundColor: swatchColor },
+                              ]}
+                            />
+                          </ReliablePressable>
+                        );
+                      })}
+                    </View>
                   </View>
                 ) : null}
 

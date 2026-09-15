@@ -42,7 +42,10 @@ import {
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
-import { getGoogleCalendarColor } from "@/constants/calendar-colors";
+import {
+  getCalendarEventForeground,
+  getGoogleCalendarColor,
+} from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
@@ -78,6 +81,7 @@ import {
   type HabitVisibility,
   createHabit,
   createCategory as createHabitCategory,
+  updateHabitColor,
 } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
@@ -121,6 +125,7 @@ import {
 
 type DayPlanEntry = {
   allDay: boolean;
+  calendarColor?: string | null;
   calendarBackgroundColor?: string | null;
   calendarColorId?: string | null;
   calendarForegroundColor?: string | null;
@@ -1935,6 +1940,34 @@ export function DayPlanScreen({
     }
   };
 
+  const setActiveHabitColor = async (color: string | null) => {
+    if (!activeHabit) return;
+
+    const habit = activeHabit;
+    setUpdatingKey(`color-${habit.id}`);
+    try {
+      const updatedHabit = await updateHabitColor(habit.id, color);
+      setActiveHabit((current) =>
+        current?.id === updatedHabit.id
+          ? { ...current, color: updatedHabit.color }
+          : current,
+      );
+      invalidateCurrentCaches({ snapshot: true });
+      if (!isMountedRef.current) return;
+      await load({ quiet: true });
+    } catch (updateError) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not update color",
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update this habit's color.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingKey(null);
+    }
+  };
+
   const saveNote = async (habitId: string, notes: string) => {
     await setHabitLogNote(habitId, dateKey, notes);
     invalidateCurrentCaches({ snapshot: true });
@@ -2874,6 +2907,10 @@ export function DayPlanScreen({
           canPlan={isTodayOrFutureDate(selectedDate)}
           isFutureDate={isFutureDate(selectedDate)}
           plannedTime={activePlannedTime}
+          color={activeHabit?.color ?? null}
+          isUpdatingColor={Boolean(
+            activeHabit?.id && updatingKey === `color-${activeHabit.id}`,
+          )}
           uploadingPhotoSource={uploadingPhotoSource}
           onAddPhoto={(source) => {
             if (!activeHabit) return;
@@ -2885,6 +2922,7 @@ export function DayPlanScreen({
             setActiveHabit(null);
           }}
           onSetVisibility={(visibility) => void setActiveVisibility(visibility)}
+          onSetColor={(color) => void setActiveHabitColor(color)}
           onSetStatus={(status, options) =>
             void setActiveStatus(status, options)
           }
@@ -4671,10 +4709,12 @@ function getEntryColors(
   const accentColor = isGoogleEntry
     ? (entry.calendarBackgroundColor ??
       getGoogleCalendarColor(entry.calendarColorId))
-    : theme.primary;
+    : (entry.calendarColor ?? theme.primary);
   const textColor = isGoogleEntry
     ? (entry.calendarForegroundColor ?? "#FFFFFF")
-    : "#FFFFFF";
+    : entry.calendarColor
+      ? getCalendarEventForeground(entry.calendarColor)
+      : theme.primaryForeground;
 
   return {
     accentColor,
@@ -4742,6 +4782,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
+        calendarColor: habit.color,
         categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: habit.period === "monthly" ? "Periodic habit" : null,
@@ -4775,6 +4816,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: true,
+        calendarColor: habit.color,
         categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: "Periodic habit",
@@ -4809,6 +4851,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
+        calendarColor: habit.color,
         categoryName: categoryNameById.get(habit.categoryId),
         description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
@@ -4860,6 +4903,7 @@ function plannedEventToEntry(
 
   return {
     allDay: !hasTimeRange,
+    calendarColor: habit?.color,
     categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
     completed,
     description:

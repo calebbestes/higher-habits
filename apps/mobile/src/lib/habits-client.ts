@@ -16,6 +16,7 @@ export type Category = {
 export type Habit = {
   id: string;
   name: string;
+  color?: string | null;
   frequencyGoal: number | null;
   period: HabitPeriod;
   repeatCadence: HabitPeriod | null;
@@ -45,6 +46,7 @@ export type Habit = {
 
 export type HabitInput = {
   name: string;
+  color?: string | null;
   frequencyGoal: number | null;
   period: HabitPeriod;
   repeatCadence: HabitPeriod | null;
@@ -127,6 +129,12 @@ export const updateHabit = (id: string, input: HabitInput) =>
   mobileApiFetch("/api/habits", {
     method: "POST",
     body: JSON.stringify({ type: "update", id, ...input }),
+  }).then((response) => parseResponse<Habit>(response));
+
+export const updateHabitColor = (id: string, color: string | null) =>
+  mobileApiFetch("/api/habits", {
+    method: "POST",
+    body: JSON.stringify({ type: "updateColor", id, color }),
   }).then((response) => parseResponse<Habit>(response));
 
 export const deleteHabit = (id: string) =>

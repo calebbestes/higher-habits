@@ -14,6 +14,7 @@ export type Category = {
 export type Habit = {
   id: string;
   name: string;
+  color: string | null;
   frequencyGoal: number | null;
   period: HabitPeriod;
   repeatCadence: HabitPeriod | null;
@@ -38,6 +39,7 @@ export type Habit = {
 
 export type HabitInput = {
   name: string;
+  color?: string | null;
   frequencyGoal: number | null;
   period: HabitPeriod;
   repeatCadence: HabitPeriod | null;

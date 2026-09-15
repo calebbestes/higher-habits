@@ -222,6 +222,7 @@ export async function GET(request: Request) {
         const periodicFields = {
             id: habits.id,
             name: habits.name,
+            color: habits.color,
             iconKey: habits.iconKey,
             categoryId: habits.categoryId,
             goalId: habits.goalId,
@@ -507,6 +508,7 @@ export async function GET(request: Request) {
                 (g) => ({
                     id: g.id,
                     name: g.name,
+                    color: g.color,
                     iconKey: g.iconKey,
                     categoryId: g.categoryId,
                     goalId: g.goalId ?? null,
@@ -543,6 +545,7 @@ export async function GET(request: Request) {
         const mapPeriodic = (g: (typeof periodicGoals)[number]) => ({
             id: g.id,
             name: g.name,
+            color: g.color,
             iconKey: g.iconKey,
             categoryId: g.categoryId,
             goalId: g.goalId ?? null,

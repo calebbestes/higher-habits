@@ -15,6 +15,7 @@ export type LinkedSharedGoal = {
 export type HabitInCategory = {
   id: string;
   name: string;
+  color?: string | null;
   iconKey: string;
   categoryId: string;
   goalId: string | null;
@@ -76,6 +77,7 @@ export type CategoryWithHabits = {
 export type PeriodicHabitInfo = {
   id: string;
   name: string;
+  color?: string | null;
   iconKey: string;
   categoryId: string;
   goalId: string | null;
@@ -188,6 +190,7 @@ function mapValues<T>(
 function normalizeHabit<T extends Record<string, unknown>>(habit: T) {
   return {
     ...habit,
+    color: typeof habit.color === "string" ? habit.color : null,
     audienceFriendIds: Array.isArray(habit.audienceFriendIds)
       ? habit.audienceFriendIds.filter((id) => typeof id === "string")
       : [],

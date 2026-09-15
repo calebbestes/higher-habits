@@ -570,6 +570,7 @@ export const habits = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    color: text("color"),
     frequencyGoal: integer("frequency_goal"),
     period: goalPeriodEnum("period").default("daily").notNull(),
     repeatCadence: goalPeriodEnum("repeat_cadence"),

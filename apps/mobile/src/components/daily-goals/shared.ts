@@ -592,6 +592,47 @@ export const modalStyles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "800",
   },
+  colorSection: {
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  colorSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  colorSectionTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  colorSectionValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  colorOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  colorOption: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderRadius: 17,
+  },
+  colorSwatch: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
   photoRow: {
     flexDirection: "row",
     gap: 10,
