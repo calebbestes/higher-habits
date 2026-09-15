@@ -32,6 +32,14 @@ export default function PlanReportScreen() {
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
+  const openDailyForDate = useCallback(
+    (dateKey: string) => {
+      setPlanReportDateKey(dateKey);
+      setPlanReportView("day-plan");
+      router.setParams({ date: dateKey, view: "day-plan" });
+    },
+    [router],
+  );
 
   useEffect(() => {
     const legacyHref = getLegacyCreateHref(view);
@@ -61,6 +69,7 @@ export default function PlanReportScreen() {
             <WeeklyPlanScreen
               initialDateKey={activeDateKey}
               onDateChange={setPlanReportDateKey}
+              onSelectDate={openDailyForDate}
             />
           </ComponentErrorBoundary>
         ) : null}

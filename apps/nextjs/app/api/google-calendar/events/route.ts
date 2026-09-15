@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import {
   createGoogleCalendarPrimaryEvent,
+  deleteGoogleCalendarPrimaryEvent,
   listGoogleCalendarPrimaryEventsForRange,
   updateGoogleCalendarPrimaryEvent,
 } from "@/lib/google-calendar";
@@ -34,6 +35,9 @@ const createEventSchema = z.object({
 const updateEventSchema = createEventSchema.extend({
   allDay: z.boolean().optional(),
   color: colorSchema.optional(),
+  eventId: z.string().min(1).max(1024),
+});
+const deleteEventSchema = z.object({
   eventId: z.string().min(1).max(1024),
 });
 
@@ -116,6 +120,32 @@ export async function PATCH(request: Request) {
       plannedStartTime: data.plannedStartTime,
       timeZone: data.plannedTimeZone ?? null,
       title: data.title,
+      userId: user.id,
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
+    const authErrorResponse = toAuthErrorResponse(error);
+    if (authErrorResponse) return authErrorResponse;
+
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await requireRequestUser(request);
+    const data = deleteEventSchema.parse(await request.json());
+
+    const result = await deleteGoogleCalendarPrimaryEvent({
+      eventId: data.eventId,
       userId: user.id,
     });
 

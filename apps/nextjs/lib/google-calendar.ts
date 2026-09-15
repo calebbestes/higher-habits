@@ -397,6 +397,25 @@ export async function deleteGoogleCalendarHabitPlan({
   return deleteGoogleCalendarPlannedEvent({ eventId, userId });
 }
 
+export async function deleteGoogleCalendarPrimaryEvent({
+  eventId,
+  userId,
+}: {
+  eventId: string;
+  userId: string;
+}): Promise<{
+  status:
+    | "deleted"
+    | "skipped"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+}> {
+  return deleteGoogleCalendarPlannedEvent({ eventId, userId });
+}
+
 export async function deleteGoogleCalendarPlannedEvent({
   eventId,
   userId,

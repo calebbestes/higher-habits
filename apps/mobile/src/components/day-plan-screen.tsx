@@ -59,6 +59,7 @@ import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
+  deleteGoogleCalendarEvent,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
   getLocalTimeZone,
@@ -2151,6 +2152,50 @@ export function DayPlanScreen({
     );
   };
 
+  const deleteActiveGoogleEvent = async () => {
+    if (!activeEntry?.sourceId || activeEntry.kind !== "google") return;
+
+    const entry = activeEntry;
+    const eventId = activeEntry.sourceId;
+    Alert.alert(
+      "Delete from Google Calendar?",
+      `"${entry.title}" will be permanently deleted from your Google Calendar.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setUpdatingKey(`${entry.kind}-${eventId}`);
+            try {
+              const response = await deleteGoogleCalendarEvent({ eventId });
+              if (response.status !== "deleted") {
+                throw new Error(
+                  getGoogleCalendarDeleteStatusMessage(response.status),
+                );
+              }
+              cancelEntryNotification(entry);
+              invalidateCurrentCaches({ google: true });
+              if (!isMountedRef.current) return;
+              setActiveEntry(null);
+              await load({ quiet: true });
+            } catch (deleteError) {
+              if (!isMountedRef.current) return;
+              Alert.alert(
+                "Could not delete Google Calendar event",
+                deleteError instanceof Error
+                  ? deleteError.message
+                  : "The Google Calendar event could not be deleted.",
+              );
+            } finally {
+              if (isMountedRef.current) setUpdatingKey(null);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const clearActiveEntryPlan = async () => {
     if (!activeEntry?.sourceId) return;
 
@@ -2974,6 +3019,7 @@ export function DayPlanScreen({
           onClearPlan={() => void clearActiveEntryPlan()}
           onClose={() => setActiveEntry(null)}
           onDelete={() => void deleteActiveEntry()}
+          onDeleteGoogleEvent={() => void deleteActiveGoogleEvent()}
           onOpenNote={openAttachmentForActiveEntry}
           onSaveTimeRange={(range, googleColor, preserveGoogleAllDay) =>
             void saveActiveEntryTimeRange(
@@ -3269,6 +3315,7 @@ function InternalEventActionsModal({
   onClearPlan,
   onClose,
   onDelete,
+  onDeleteGoogleEvent,
   onOpenNote,
   onSaveTimeRange,
   onSetVisibility,
@@ -3283,6 +3330,7 @@ function InternalEventActionsModal({
   onClearPlan: () => void;
   onClose: () => void;
   onDelete: () => void;
+  onDeleteGoogleEvent: () => void;
   onOpenNote: () => void;
   onSaveTimeRange: (
     range: PlanRange,
@@ -3499,12 +3547,7 @@ function InternalEventActionsModal({
                   </Text>
                 </Pressable>
 
-                <View
-                  style={[
-                    modalStyles.planTimeSection,
-                    { backgroundColor: theme.backgroundElement },
-                  ]}
-                >
+                <View style={styles.eventActionSection}>
                   <Text
                     style={[
                       modalStyles.planTimeSectionTitle,
@@ -3623,12 +3666,7 @@ function InternalEventActionsModal({
                   </View>
                 </View>
                 {isGoogleEvent ? (
-                  <View
-                    style={[
-                      modalStyles.planTimeSection,
-                      { backgroundColor: theme.backgroundElement },
-                    ]}
-                  >
+                  <View style={styles.eventActionSection}>
                     <CalendarColorPicker
                       disabled={isUpdating}
                       defaultHint="Default uses your Google Calendar color."
@@ -3773,6 +3811,27 @@ function InternalEventActionsModal({
                 />
                 <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
                   Delete event
+                </Text>
+              </Pressable>
+            ) : null}
+            {isGoogleEvent ? (
+              <Pressable
+                disabled={isUpdating}
+                onPress={() =>
+                  runPressAction("delete-google-event", onDeleteGoogleEvent)
+                }
+                style={({ pressed }) => [
+                  styles.eventActionDestructiveRow,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("trash.fill", "delete")}
+                  size={24}
+                  tintColor="#B84D54"
+                />
+                <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
+                  Delete from Google Calendar
                 </Text>
               </Pressable>
             ) : null}
@@ -5855,6 +5914,20 @@ function getGoogleCalendarStatusMessage(status: string) {
   }
 }
 
+function getGoogleCalendarDeleteStatusMessage(status: string) {
+  switch (status) {
+    case "not_connected":
+      return "Connect Google Calendar before deleting events.";
+    case "missing_scope":
+      return "Reconnect Google Calendar with calendar event permissions.";
+    case "not_configured":
+    case "auth_unavailable":
+      return "Google Calendar is not configured for this app.";
+    default:
+      return "The Google Calendar event could not be deleted.";
+  }
+}
+
 function getPlanTargetMeta(targetType: PlanTargetType) {
   switch (targetType) {
     case "dailyHabit":
@@ -6431,6 +6504,11 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 22,
   },
+  eventActionSection: {
+    gap: 10,
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+  },
   eventActionRow: {
     minHeight: 82,
     flexDirection: "row",
@@ -6438,6 +6516,13 @@ const styles = StyleSheet.create({
     gap: 22,
     borderRadius: 18,
     paddingHorizontal: 20,
+  },
+  eventActionDestructiveRow: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
+    paddingHorizontal: 2,
   },
   eventActionLabel: {
     flex: 1,

@@ -43,12 +43,6 @@ export function CalendarColorPicker({
               onPress={() => onChange(option.color)}
               style={({ pressed }) => [
                 styles.option,
-                {
-                  backgroundColor: selected
-                    ? theme.backgroundSelected
-                    : theme.backgroundElement,
-                  borderColor: selected ? theme.text : theme.tabBorder,
-                },
                 pressed && styles.pressed,
                 disabled && styles.disabled,
               ]}
@@ -58,7 +52,8 @@ export function CalendarColorPicker({
                   styles.swatch,
                   {
                     backgroundColor: swatchColor,
-                    borderColor: option.color ? swatchColor : theme.tabBorder,
+                    borderColor: selected ? theme.text : "transparent",
+                    borderWidth: selected ? 2 : 0,
                   },
                 ]}
               >
@@ -94,24 +89,21 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 13, fontWeight: "700" },
   value: { fontSize: 12, fontWeight: "600" },
-  options: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  options: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   option: {
     alignItems: "center",
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 7,
     minHeight: 40,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    minWidth: 92,
+    paddingVertical: 4,
   },
   swatch: {
     alignItems: "center",
     borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 22,
+    height: 28,
     justifyContent: "center",
-    width: 22,
+    width: 28,
   },
   checkmark: { fontSize: 14, fontWeight: "900", lineHeight: 16 },
   optionLabel: { fontSize: 11, fontWeight: "700" },

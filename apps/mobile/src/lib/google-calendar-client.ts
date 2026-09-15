@@ -51,6 +51,16 @@ export type CreateGoogleCalendarEventResponse = {
 };
 export type UpdateGoogleCalendarEventResponse =
   CreateGoogleCalendarEventResponse;
+export type DeleteGoogleCalendarEventResponse = {
+  status:
+    | "deleted"
+    | "skipped"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+};
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -141,6 +151,18 @@ export const updateGoogleCalendarEvent = ({
     }),
   }).then((response) =>
     parseResponse<UpdateGoogleCalendarEventResponse>(response),
+  );
+
+export const deleteGoogleCalendarEvent = ({
+  eventId,
+}: {
+  eventId: string;
+}): Promise<DeleteGoogleCalendarEventResponse> =>
+  mobileApiFetch("/api/google-calendar/events", {
+    method: "DELETE",
+    body: JSON.stringify({ eventId }),
+  }).then((response) =>
+    parseResponse<DeleteGoogleCalendarEventResponse>(response),
   );
 
 export function getLocalTimeZone(): string | null {

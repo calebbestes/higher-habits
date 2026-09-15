@@ -194,27 +194,8 @@ function formatCompactWeekRange(weekStart: Date): string {
 }
 
 function formatHour(hour: number): string {
-  if (hour === 12) return "12 PM";
-  if (hour > 12) return `${hour - 12} PM`;
-  return `${hour} AM`;
-}
-
-function formatEventTime(event: WeekEvent): string {
-  if (!event.startTime) return "All day";
-  const start = formatShortTime(event.startTime);
-  if (!event.endTime) return start;
-  return `${start}-${formatShortTime(event.endTime)}`;
-}
-
-function formatShortTime(value: string): string {
-  const [hourPart, minutePart] = value.split(":");
-  const hour = Number(hourPart);
-  const minute = Number(minutePart);
-  const suffix = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
-  return minute
-    ? `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`
-    : `${displayHour} ${suffix}`;
+  return `${displayHour}${hour >= 12 ? "p" : "a"}`;
 }
 
 function timeToMinutes(value: string | null): number | null {
@@ -222,6 +203,12 @@ function timeToMinutes(value: string | null): number | null {
   const [hour, minute] = value.split(":").map(Number);
   if (hour == null || minute == null) return null;
   return hour * 60 + minute;
+}
+
+function getWeeklyNowLineTop(now: Date): number | null {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (minutes < GRID_START_MINUTES || minutes > GRID_END_MINUTES) return null;
+  return ((minutes - GRID_START_MINUTES) / 60) * HOUR_HEIGHT;
 }
 
 function startOfDay(date: Date): Date {
@@ -471,9 +458,11 @@ function stripEditorText(html: string): string {
 export function WeeklyPlanScreen({
   initialDateKey,
   onDateChange,
+  onSelectDate,
 }: {
   initialDateKey?: string;
   onDateChange?: (dateKey: string) => void;
+  onSelectDate?: (dateKey: string) => void;
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -523,10 +512,13 @@ export function WeeklyPlanScreen({
   const [selectedHeaderIds, setSelectedHeaderIds] = useState<string[]>([]);
   const [editorFocused, setEditorFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<WeekEvent | null>(null);
 
-  const todayKey = useMemo(() => toDateKey(new Date()), []);
+  const [now, setNow] = useState(() => new Date());
+  const todayKey = toDateKey(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
+  const nowLineTop = getWeeklyNowLineTop(now);
   const weekEventsByDate = useMemo(() => {
     const map = new Map<string, WeekEvent[]>();
     for (const day of weekDays) map.set(toDateKey(day), []);
@@ -537,6 +529,10 @@ export function WeeklyPlanScreen({
     for (const bucket of map.values()) bucket.sort(compareEvents);
     return map;
   }, [weekEvents, weekDays]);
+  const hasAllDayEvents = useMemo(
+    () => weekEvents.some((event) => !event.startTime),
+    [weekEvents],
+  );
   const selectedDayEvents = weekEventsByDate.get(selectedDateKey) ?? [];
   const hasUnsavedNotes = normalizeEditorHtml(draftNotes) !== notes;
   const notesPreview = useMemo(() => stripEditorText(draftNotes), [draftNotes]);
@@ -609,6 +605,11 @@ export function WeeklyPlanScreen({
   useEffect(() => {
     onDateChange?.(selectedDateKey);
   }, [onDateChange, selectedDateKey]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(
     () => () => {
@@ -775,9 +776,14 @@ export function WeeklyPlanScreen({
     void load();
   }, [load]);
 
-  const selectDate = useCallback((date: Date) => {
-    setSelectedDateKey(toDateKey(date));
-  }, []);
+  const selectDate = useCallback(
+    (date: Date) => {
+      const dateKey = toDateKey(date);
+      setSelectedDateKey(dateKey);
+      onSelectDate?.(dateKey);
+    },
+    [onSelectDate],
+  );
 
   const navigateWeek = useCallback((delta: -1 | 1) => {
     setWeekStartDate((current) => {
@@ -1029,15 +1035,7 @@ export function WeeklyPlanScreen({
               </View>
             ) : null}
 
-            <View
-              style={[
-                styles.calendarCard,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderColor: theme.tabBorder,
-                },
-              ]}
-            >
+            <View style={[styles.calendarCard]}>
               <View
                 style={[
                   styles.weekControl,
@@ -1097,9 +1095,6 @@ export function WeeklyPlanScreen({
                           onPress={() => selectDate(date)}
                           style={({ pressed }) => [
                             styles.dayPill,
-                            isSelected && {
-                              backgroundColor: theme.backgroundSelected,
-                            },
                             pressed && styles.pressed,
                           ]}
                         >
@@ -1140,44 +1135,50 @@ export function WeeklyPlanScreen({
                 </View>
               </View>
 
-              <View
-                style={[
-                  styles.allDayRow,
-                  { borderBottomColor: theme.tabBorder },
-                ]}
-              >
-                <Text
-                  style={[styles.allDayLabel, { color: theme.textSecondary }]}
+              {hasAllDayEvents ? (
+                <View
+                  style={[
+                    styles.allDayRow,
+                    { borderBottomColor: theme.tabBorder },
+                  ]}
                 >
-                  All day
-                </Text>
-                <View style={styles.allDayColumns}>
-                  {weekDays.map((day) => {
-                    const dateKey = toDateKey(day);
-                    const allDayEvents =
-                      weekEventsByDate
-                        .get(dateKey)
-                        ?.filter((event) => !event.startTime) ?? [];
-                    return (
-                      <View key={dateKey} style={styles.allDayColumn}>
-                        {allDayEvents.slice(0, 1).map((event) => (
-                          <EventChip key={event.id} event={event} />
-                        ))}
-                        {allDayEvents.length > 1 ? (
-                          <Text
-                            style={[
-                              styles.allDayOverflow,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            +{allDayEvents.length - 1}
-                          </Text>
-                        ) : null}
-                      </View>
-                    );
-                  })}
+                  <Text
+                    style={[styles.allDayLabel, { color: theme.textSecondary }]}
+                  >
+                    All day
+                  </Text>
+                  <View style={styles.allDayColumns}>
+                    {weekDays.map((day) => {
+                      const dateKey = toDateKey(day);
+                      const allDayEvents =
+                        weekEventsByDate
+                          .get(dateKey)
+                          ?.filter((event) => !event.startTime) ?? [];
+                      return (
+                        <View key={dateKey} style={styles.allDayColumn}>
+                          {allDayEvents.slice(0, 1).map((event) => (
+                            <EventChip
+                              event={event}
+                              key={event.id}
+                              onPress={() => setSelectedEvent(event)}
+                            />
+                          ))}
+                          {allDayEvents.length > 1 ? (
+                            <Text
+                              style={[
+                                styles.allDayOverflow,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              +{allDayEvents.length - 1}
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
+              ) : null}
 
               <View style={styles.timeGrid}>
                 <View style={styles.timeLabels}>
@@ -1228,6 +1229,10 @@ export function WeeklyPlanScreen({
                         style={[
                           styles.dayColumn,
                           {
+                            backgroundColor:
+                              dateKey === selectedDateKey
+                                ? `${theme.backgroundSelected}55`
+                                : "transparent",
                             borderLeftColor:
                               dayIndex === 0 ? "transparent" : theme.tabBorder,
                           },
@@ -1240,9 +1245,22 @@ export function WeeklyPlanScreen({
                               event={event}
                               laneCount={laneCount}
                               laneIndex={laneIndex}
+                              onPress={() => setSelectedEvent(event)}
                             />
                           ),
                         )}
+                        {dateKey === todayKey && nowLineTop !== null ? (
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.weekNowIndicator,
+                              { top: nowLineTop },
+                            ]}
+                          >
+                            <View style={styles.weekNowDot} />
+                            <View style={styles.weekNowLine} />
+                          </View>
+                        ) : null}
                       </View>
                     );
                   })}
@@ -1290,6 +1308,10 @@ export function WeeklyPlanScreen({
           </View>
         </ScrollView>
       </SafeAreaView>
+      <WeeklyEventDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+      />
       <Modal
         animationType="slide"
         onRequestClose={closeNotesModal}
@@ -1561,20 +1583,35 @@ function compareEvents(left: WeekEvent, right: WeekEvent): number {
   );
 }
 
-function EventChip({ event }: { event: WeekEvent }) {
+function EventChip({
+  event,
+  onPress,
+}: {
+  event: WeekEvent;
+  onPress: () => void;
+}) {
   const theme = useTheme();
   const palette = eventPalette(event, theme);
 
   return (
-    <View style={[styles.eventChip, { backgroundColor: palette.bg }]}>
+    <Pressable
+      accessibilityLabel={event.title}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.eventChip,
+        { backgroundColor: palette.bg },
+        pressed && styles.pressed,
+      ]}
+    >
       <Text
-        ellipsizeMode="clip"
+        ellipsizeMode="tail"
         numberOfLines={1}
         style={[styles.eventChipText, { color: palette.text }]}
       >
         {event.title}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -1582,10 +1619,12 @@ function EventBlock({
   event,
   laneCount,
   laneIndex,
+  onPress,
 }: {
   event: WeekEvent;
   laneCount: number;
   laneIndex: number;
+  onPress: () => void;
 }) {
   const theme = useTheme();
   const palette = eventPalette(event, theme);
@@ -1593,14 +1632,17 @@ function EventBlock({
   const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + 3;
   const height = ((end - start) / 60) * HOUR_HEIGHT - 3;
   const laneWidth = 100 / laneCount;
+  const isVeryShort = end - start <= 30;
 
   return (
     <Pressable
+      accessibilityLabel={event.title}
       accessibilityRole="button"
+      onPress={onPress}
       style={({ pressed }) => [
         styles.eventBlock,
         {
-          backgroundColor: palette.bg,
+          backgroundColor: isVeryShort ? "transparent" : palette.bg,
           height: Math.max(height, 16),
           left: `${laneIndex * laneWidth}%`,
           top,
@@ -1609,24 +1651,164 @@ function EventBlock({
         pressed && styles.pressed,
       ]}
     >
-      <Text
-        ellipsizeMode="clip"
-        numberOfLines={height >= 30 ? 2 : 1}
-        style={[styles.eventTitle, { color: palette.text }]}
-      >
-        {event.title}
-      </Text>
-      {height >= 34 && laneWidth >= 50 ? (
+      {isVeryShort ? (
+        <View style={styles.eventCompactRow}>
+          <View style={[styles.eventDot, { backgroundColor: palette.bg }]} />
+          <Text
+            ellipsizeMode="tail"
+            numberOfLines={1}
+            style={[styles.eventTitle, { color: theme.text }]}
+          >
+            {event.title}
+          </Text>
+        </View>
+      ) : (
         <Text
-          ellipsizeMode="clip"
+          ellipsizeMode="tail"
           numberOfLines={1}
-          style={[styles.eventTime, { color: palette.text }]}
+          style={[styles.eventTitle, { color: palette.text }]}
         >
-          {formatEventTime(event)}
+          {event.title}
         </Text>
-      ) : null}
+      )}
     </Pressable>
   );
+}
+
+function WeeklyEventDetailModal({
+  event,
+  onClose,
+}: {
+  event: WeekEvent | null;
+  onClose: () => void;
+}) {
+  const theme = useTheme();
+
+  if (!event) return null;
+
+  const palette = eventPalette(event, theme);
+
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible>
+      <View style={styles.eventDetailsOverlay}>
+        <Pressable
+          accessibilityLabel="Close event details"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[
+            styles.eventDetailsSheet,
+            { backgroundColor: theme.background },
+          ]}
+        >
+          <View
+            style={[
+              styles.eventDetailsHeader,
+              { borderBottomColor: theme.tabBorder },
+            ]}
+          >
+            <View style={styles.eventDetailsTitleBlock}>
+              <Text
+                numberOfLines={2}
+                style={[styles.eventDetailsTitle, { color: theme.text }]}
+              >
+                {event.title}
+              </Text>
+              <Text
+                style={[
+                  styles.eventDetailsSubtitle,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                {getWeekEventSourceLabel(event)}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close event details"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.eventDetailsClose,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={sym("xmark", "close")}
+                size={15}
+                tintColor={theme.textSecondary}
+                weight="bold"
+              />
+            </Pressable>
+          </View>
+          <View style={styles.eventDetailsContent}>
+            <View style={styles.eventDetailsInfoRow}>
+              <View
+                style={[
+                  styles.eventDetailsSwatch,
+                  { backgroundColor: palette.bg },
+                ]}
+              />
+              <View>
+                <Text style={[styles.eventDetailsDate, { color: theme.text }]}>
+                  {formatWeekEventDate(event.date)}
+                </Text>
+                <Text
+                  style={[
+                    styles.eventDetailsTime,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {formatWeekEventTime(event)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+function formatWeekEventDate(dateKey: string): string {
+  const date = dateFromKey(dateKey);
+  return `${DAY_NAMES[date.getDay()]}, ${MONTH_ABBRS[date.getMonth()]} ${date.getDate()}`;
+}
+
+function formatWeekEventTime(event: WeekEvent): string {
+  if (!event.startTime) return "All day";
+  const start = formatShortTime(event.startTime);
+  if (!event.endTime) return start;
+  return `${start} – ${formatShortTime(event.endTime)}`;
+}
+
+function formatShortTime(value: string): string {
+  const [hourPart, minutePart] = value.split(":");
+  const hour = Number(hourPart);
+  const minute = Number(minutePart);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return minute
+    ? `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`
+    : `${displayHour} ${suffix}`;
+}
+
+function getWeekEventSourceLabel(event: WeekEvent): string {
+  switch (event.sourceType) {
+    case "google":
+      return "Google Calendar";
+    case "goal_checkpoint":
+      return "Goal checkpoint";
+    case "habit_instance":
+      return "Habit";
+    case "other_event":
+      return "Planned event";
+    case "task":
+      return "Task";
+  }
 }
 
 function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
@@ -1690,9 +1872,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   calendarCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
+    overflow: "visible",
   },
   calendarEmptyDescription: {
     fontSize: 14,
@@ -1811,6 +1991,82 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     position: "absolute",
   },
+  eventDetailsClose: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  eventDetailsContent: {
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  eventDetailsDate: {
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
+  eventDetailsHeader: {
+    alignItems: "flex-start",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 18,
+  },
+  eventDetailsInfoRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+  },
+  eventDetailsOverlay: {
+    backgroundColor: "#00000033",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  eventDetailsSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  eventDetailsSubtitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  eventDetailsSwatch: {
+    borderRadius: 999,
+    height: 14,
+    width: 14,
+  },
+  eventDetailsTime: {
+    fontSize: 15,
+    fontWeight: "600",
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  eventDetailsTitle: {
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 29,
+  },
+  eventDetailsTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  eventCompactRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 3,
+    minWidth: 0,
+  },
   eventChip: {
     borderRadius: 5,
     paddingHorizontal: 4,
@@ -1821,13 +2077,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 10,
   },
-  eventTime: {
-    fontSize: 8.5,
-    fontWeight: "600",
-    lineHeight: 10,
-    opacity: 0.82,
+  eventDot: {
+    borderRadius: 999,
+    flexShrink: 0,
+    height: 6,
+    width: 6,
   },
   eventTitle: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 10,
     fontWeight: "700",
     lineHeight: 11,
@@ -2093,6 +2351,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     lineHeight: 18,
+  },
+  weekNowDot: {
+    backgroundColor: "#EA4335",
+    borderRadius: 4,
+    height: 7,
+    marginLeft: -3,
+    width: 7,
+  },
+  weekNowIndicator: {
+    alignItems: "center",
+    flexDirection: "row",
+    height: 2,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    zIndex: 20,
+  },
+  weekNowLine: {
+    backgroundColor: "#EA4335",
+    flex: 1,
+    height: 2,
   },
   toolbar: {
     borderRadius: 12,
