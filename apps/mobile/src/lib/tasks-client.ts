@@ -4,6 +4,7 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type Task = {
   id: string;
   name: string;
+  color: string | null;
   importance: string;
   dueDate: string | null;
   completedAt: string | null;
@@ -19,6 +20,7 @@ export type Task = {
 
 export type TaskInput = {
   name: string;
+  color: string | null;
   importance: string;
   dueDate: string | null;
   completedAt: string | null;
@@ -279,6 +281,7 @@ export function getNextRecurringTaskDueDate(
 export function taskToInput(task: Task): TaskInput {
   return {
     name: task.name,
+    color: task.color ?? null,
     importance: task.importance,
     dueDate: task.dueDate,
     completedAt: task.completedAt,

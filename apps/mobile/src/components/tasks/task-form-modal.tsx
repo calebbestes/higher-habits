@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { CalendarColorPicker } from "@/components/calendar-color-picker";
 import { DatePartPicker } from "@/components/date-part-picker";
 import { useTheme } from "@/hooks/use-theme";
 import { playSelectionHaptic } from "@/lib/haptics";
@@ -31,10 +32,10 @@ import {
   type TaskRecurrence,
   getNextMonthDaysDateKey,
   getNextWeekdaysDateKey,
-  getTaskRecurrenceMonthDays,
-  getTaskRecurrenceWeekdays,
   getTaskDateMonthDay,
   getTaskDateWeekday,
+  getTaskRecurrenceMonthDays,
+  getTaskRecurrenceWeekdays,
   isValidTaskDateKey,
   todayDateKey,
 } from "@/lib/tasks-client";
@@ -307,6 +308,12 @@ export function TaskFormModal({
                 placeholder="What needs to get done?"
                 returnKeyType="done"
                 value={form.name}
+              />
+              <CalendarColorPicker
+                value={form.color}
+                onChange={(color) =>
+                  setForm((current) => ({ ...current, color }))
+                }
               />
             </FormSection>
 

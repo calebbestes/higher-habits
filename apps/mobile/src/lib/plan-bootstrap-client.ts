@@ -33,9 +33,11 @@ export const fetchDayPlanBootstrap = (
 export const fetchWeekPlanBootstrap = (
   startDateKey: string,
   endDateKey: string,
-): Promise<Pick<PlanBootstrapData, "plannedEvents">> =>
+): Promise<Pick<PlanBootstrapData, "plannedEvents" | "tasks" | "planGoals">> =>
   mobileApiFetch(
     `/api/plan-bootstrap?view=week&startDateKey=${encodeURIComponent(startDateKey)}&endDateKey=${encodeURIComponent(endDateKey)}`,
   ).then((response) =>
-    parseResponse<Pick<PlanBootstrapData, "plannedEvents">>(response),
+    parseResponse<
+      Pick<PlanBootstrapData, "plannedEvents" | "tasks" | "planGoals">
+    >(response),
   );

@@ -7,12 +7,18 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { deletePlannedEventsForSources } from "@/lib/planned-events";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const colorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/)
+  .nullable()
+  .default(null);
 const recurrenceSchema = z.enum(["none", "daily", "weekly", "monthly"]);
 const recurrenceWeekdaySchema = z.number().int().min(0).max(6);
 const recurrenceMonthDaySchema = z.number().int().min(1).max(31);
 
 const taskFields = {
   name: z.string().trim().min(1),
+  color: colorSchema,
   importance: z.string().default(""),
   dueDate: dateKeySchema.nullable().default(null),
   completedAt: dateKeySchema.nullable().default(null),
@@ -234,6 +240,7 @@ export async function POST(request: Request) {
       return {
         userId: user.id,
         name: d.name,
+        color: d.color,
         importance: d.importance,
         dueDate: d.dueDate,
         completedAt: d.completedAt,
@@ -275,6 +282,7 @@ export async function POST(request: Request) {
             userId: user.id,
             projectId: updated.projectId,
             name: updated.name,
+            color: updated.color,
             importance: updated.importance,
             dueDate,
             completedAt: null,

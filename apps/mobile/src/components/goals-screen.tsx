@@ -21,6 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { CalendarColorPicker } from "@/components/calendar-color-picker";
 import {
   CelebrationOverlay,
   confettiSource,
@@ -2173,6 +2174,7 @@ export function GoalFormModal({
 }) {
   const theme = useTheme();
   const [title, setTitle] = useState("");
+  const [color, setColor] = useState<string | null>(null);
   const [timing, setTiming] = useState<GoalTiming>("current");
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -2181,6 +2183,7 @@ export function GoalFormModal({
   useEffect(() => {
     if (!isOpen) return;
     setTitle(goal?.title ?? initialValues?.title ?? "");
+    setColor(goal?.color ?? initialValues?.color ?? null);
     setTiming(goal?.timing ?? initialValues?.timing ?? "current");
     setCheckpoints(
       goal?.checkpoints.length
@@ -2249,6 +2252,7 @@ export function GoalFormModal({
     try {
       await onSave({
         title: trimmedTitle,
+        color,
         timing,
         checkpoints: checkpointInput.map((checkpoint) => ({
           title: checkpoint.title,
@@ -2377,6 +2381,7 @@ export function GoalFormModal({
                     value={title}
                   />
                 </View>
+                <CalendarColorPicker value={color} onChange={setColor} />
                 <View style={styles.inputField}>
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>
                     Timing

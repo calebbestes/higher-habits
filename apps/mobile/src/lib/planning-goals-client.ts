@@ -1,10 +1,11 @@
 import type { GoalVisibility } from "@/lib/goals-client";
-import { mobileApiFetch } from "@/lib/mobile-api";
 import { recordReviewMilestone } from "@/lib/in-app-review";
+import { mobileApiFetch } from "@/lib/mobile-api";
 
 export type Goal = {
   id: string;
   title: string;
+  color: string | null;
   timing: GoalTiming;
   sortOrder: number;
   checkpoints: GoalCheckpoint[];
@@ -35,6 +36,7 @@ export type GoalCheckpointInput = {
 
 export type GoalInput = {
   title: string;
+  color: string | null;
   timing: GoalTiming;
   checkpoints: GoalCheckpointInput[];
 };

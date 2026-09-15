@@ -94,6 +94,7 @@ type GoogleCalendarEventBody = {
 };
 
 type GoogleCalendarDirectEventBody = {
+  colorId?: string;
   summary: string;
   description?: string;
   start: { date: string } | { dateTime: string; timeZone: string };
@@ -627,6 +628,8 @@ export async function createGoogleCalendarPrimaryEvent({
 }
 
 export async function updateGoogleCalendarPrimaryEvent({
+  allDay,
+  color,
   dateKey,
   description,
   eventId,
@@ -636,6 +639,8 @@ export async function updateGoogleCalendarPrimaryEvent({
   title,
   userId,
 }: {
+  allDay?: boolean;
+  color?: string | null;
   dateKey: string;
   description?: string | null;
   eventId: string;
@@ -661,15 +666,32 @@ export async function updateGoogleCalendarPrimaryEvent({
     }
 
     const trimmedDescription = description?.trim();
+    const colorId =
+      color === undefined
+        ? undefined
+        : color === null
+          ? ""
+          : await resolveGoogleCalendarEventColorId(token.accessToken, color);
+    if (color !== undefined && color !== null && !colorId) {
+      throw new Error("That color is not available in Google Calendar.");
+    }
     const body: GoogleCalendarDirectEventBody = {
       summary: title,
       ...(trimmedDescription ? { description: trimmedDescription } : {}),
-      ...buildGoogleCalendarEventTime({
-        dateKey,
-        plannedEndTime,
-        plannedStartTime,
-        timeZone,
-      }),
+      ...(colorId == null ? {} : { colorId }),
+      ...(allDay
+        ? buildGoogleCalendarEventTime({
+            dateKey,
+            plannedEndTime: null,
+            plannedStartTime: null,
+            timeZone,
+          })
+        : buildGoogleCalendarEventTime({
+            dateKey,
+            plannedEndTime,
+            plannedStartTime,
+            timeZone,
+          })),
     };
     const response = await googleCalendarFetch(
       `/calendars/primary/events/${encodeURIComponent(eventId)}`,
@@ -687,7 +709,12 @@ export async function updateGoogleCalendarPrimaryEvent({
 
     return {
       status: "synced",
-      event: updated ? normalizeGoogleCalendarEvent(updated) : null,
+      event: updated
+        ? await normalizeGoogleCalendarEventWithColors(
+            token.accessToken,
+            updated,
+          )
+        : null,
     };
   } catch (error) {
     console.error("Google Calendar event update failed", error);
@@ -843,6 +870,38 @@ async function getGoogleCalendarColors(accessToken: string): Promise<{
   } catch {
     return null;
   }
+}
+
+async function resolveGoogleCalendarEventColorId(
+  accessToken: string,
+  backgroundColor: string,
+): Promise<string | null> {
+  const colors = await getGoogleCalendarColors(accessToken);
+  if (!colors) return null;
+
+  const targetColor = backgroundColor.trim().toLowerCase();
+  return (
+    Object.entries(colors.event).find(
+      ([, definition]) =>
+        definition.background?.trim().toLowerCase() === targetColor,
+    )?.[0] ?? null
+  );
+}
+
+async function normalizeGoogleCalendarEventWithColors(
+  accessToken: string,
+  event: GoogleCalendarApiEvent,
+): Promise<GoogleCalendarEvent | null> {
+  const [colors, primaryCalendar] = await Promise.all([
+    getGoogleCalendarColors(accessToken),
+    getGoogleCalendarPrimaryCalendar(accessToken),
+  ]);
+
+  return normalizeGoogleCalendarEvent(
+    event,
+    colors?.event,
+    resolveGoogleCalendarPrimaryColor(primaryCalendar, colors?.calendar),
+  );
 }
 
 async function getGoogleCalendarPrimaryCalendar(

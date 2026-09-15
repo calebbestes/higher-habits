@@ -1,3 +1,4 @@
+import { CalendarColorPicker } from "@/components/calendar-color-picker";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -1454,7 +1455,14 @@ export function DayPlanScreen({
     },
     [dateKey],
   );
-  const saveMovedEntry = async (entry: DayPlanEntry, range: PlanRange) => {
+  const saveMovedEntry = async (
+    entry: DayPlanEntry,
+    range: PlanRange,
+    options?: { googleAllDay?: boolean; googleColor?: string | null },
+  ): Promise<{
+    googleEvent: GoogleCalendarDayEvent | null;
+    success: boolean;
+  }> => {
     const startTime = formatPlanApiTime(range.startMinutes);
     const endTime = formatPlanApiTime(range.endMinutes);
     let notificationEntry = entry;
@@ -1537,6 +1545,8 @@ export function DayPlanScreen({
       } else if (entry.kind === "google") {
         const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
+          allDay: options?.googleAllDay,
+          color: options?.googleColor,
           dateKey,
           description: entry.description ?? null,
           endTime,
@@ -1553,15 +1563,18 @@ export function DayPlanScreen({
           { ...entry, sourceId: response.event?.id ?? eventId },
           startTime,
         );
+        return { googleEvent: response.event ?? null, success: true };
       }
+      return { googleEvent: null, success: true };
     } catch (moveError) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) return { googleEvent: null, success: false };
       Alert.alert(
         "Could not move event",
         moveError instanceof Error
           ? moveError.message
           : "The event could not be moved.",
       );
+      return { googleEvent: null, success: false };
     } finally {
       if (isMountedRef.current) setUpdatingKey(null);
     }
@@ -2167,14 +2180,29 @@ export function DayPlanScreen({
     }
   };
 
-  const saveActiveEntryTimeRange = async (range: PlanRange) => {
+  const saveActiveEntryTimeRange = async (
+    range: PlanRange,
+    googleColor?: string | null,
+    preserveGoogleAllDay = false,
+  ) => {
     if (!activeEntry) return;
     const entry = activeEntry;
-    await saveMovedEntry(entry, range);
+    const saveResult = await saveMovedEntry(entry, range, {
+      googleAllDay: preserveGoogleAllDay,
+      googleColor,
+    });
     if (!isMountedRef.current) return;
+    if (!saveResult.success) return;
     setActiveEntry({
       ...entry,
-      endMinutes: range.endMinutes,
+      ...(saveResult.googleEvent
+        ? {
+            calendarBackgroundColor: saveResult.googleEvent.backgroundColor,
+            calendarColorId: saveResult.googleEvent.colorId,
+            calendarForegroundColor: saveResult.googleEvent.foregroundColor,
+          }
+        : {}),
+      endMinutes: preserveGoogleAllDay ? MINUTES_IN_DAY : range.endMinutes,
       startMinutes: range.startMinutes,
     });
   };
@@ -2947,7 +2975,13 @@ export function DayPlanScreen({
           onClose={() => setActiveEntry(null)}
           onDelete={() => void deleteActiveEntry()}
           onOpenNote={openAttachmentForActiveEntry}
-          onSaveTimeRange={(range) => void saveActiveEntryTimeRange(range)}
+          onSaveTimeRange={(range, googleColor, preserveGoogleAllDay) =>
+            void saveActiveEntryTimeRange(
+              range,
+              googleColor,
+              preserveGoogleAllDay,
+            )
+          }
           onSetVisibility={(visibility) =>
             void setActiveCheckpointVisibility(visibility)
           }
@@ -3250,7 +3284,11 @@ function InternalEventActionsModal({
   onClose: () => void;
   onDelete: () => void;
   onOpenNote: () => void;
-  onSaveTimeRange: (range: PlanRange) => void;
+  onSaveTimeRange: (
+    range: PlanRange,
+    googleColor?: string | null,
+    preserveGoogleAllDay?: boolean,
+  ) => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
   onToggleComplete: () => void;
@@ -3272,12 +3310,21 @@ function InternalEventActionsModal({
     Boolean(entry?.sourceId) && (isOtherEvent || isHabitEvent || isGoogleEvent);
   const currentStartTime = formatPlanApiTime(entry?.startMinutes ?? 9 * 60);
   const currentEndTime = formatPlanApiTime(entry?.endMinutes ?? 10 * 60);
+  const currentGoogleColor =
+    isGoogleEvent && entry?.calendarColorId
+      ? (entry.calendarBackgroundColor ??
+        getGoogleCalendarColor(entry.calendarColorId))
+      : null;
+  const [googleColor, setGoogleColor] = useState<string | null>(null);
   const nextStartTime = normalizePlanTimeInput(planStartTime, planStartPeriod);
   const nextEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
   const nextStartMinutes = timeToMinutes(nextStartTime);
   const nextEndMinutes = timeToMinutes(nextEndTime);
   const hasTimeRangeChanges =
     nextStartTime !== currentStartTime || nextEndTime !== currentEndTime;
+  const hasGoogleColorChanges =
+    isGoogleEvent && googleColor !== currentGoogleColor;
+  const hasSaveChanges = hasTimeRangeChanges || hasGoogleColorChanges;
   const canSaveTimeRange =
     nextStartMinutes !== null &&
     nextEndMinutes !== null &&
@@ -3301,7 +3348,14 @@ function InternalEventActionsModal({
     setPlanStartPeriod(start.period);
     setPlanEndTime(end.time || DEFAULT_PLAN_START_TIME);
     setPlanEndPeriod(end.period);
-  }, [currentEndTime, currentStartTime, entry, isEditablePlannedBlock]);
+    setGoogleColor(currentGoogleColor);
+  }, [
+    currentEndTime,
+    currentGoogleColor,
+    currentStartTime,
+    entry,
+    isEditablePlannedBlock,
+  ]);
 
   if (!entry) return null;
 
@@ -3383,22 +3437,26 @@ function InternalEventActionsModal({
                   disabled={
                     isUpdating ||
                     (hasTimeRangeChanges && !canSaveTimeRange) ||
-                    (!hasTimeRangeChanges && isGoogleEvent)
+                    (!hasSaveChanges && isGoogleEvent)
                   }
                   onPress={() =>
                     runPressAction("save-or-clear", () => {
                       if (
-                        hasTimeRangeChanges &&
+                        hasSaveChanges &&
                         nextStartMinutes !== null &&
                         nextEndMinutes !== null
                       ) {
-                        onSaveTimeRange({
-                          endMinutes: normalizeEndMinutes(
-                            nextStartMinutes,
-                            nextEndMinutes,
-                          ),
-                          startMinutes: nextStartMinutes,
-                        });
+                        onSaveTimeRange(
+                          {
+                            endMinutes: normalizeEndMinutes(
+                              nextStartMinutes,
+                              nextEndMinutes,
+                            ),
+                            startMinutes: nextStartMinutes,
+                          },
+                          isGoogleEvent ? googleColor : undefined,
+                          isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
+                        );
                         return;
                       }
 
@@ -3420,23 +3478,23 @@ function InternalEventActionsModal({
                   ) : (
                     <SymbolView
                       name={
-                        hasTimeRangeChanges
+                        hasSaveChanges
                           ? sym("calendar.badge.plus", "event_available")
                           : sym("calendar.badge.minus", "event_busy")
                       }
                       size={26}
                       tintColor={
-                        hasTimeRangeChanges
-                          ? theme.primary
-                          : theme.textSecondary
+                        hasSaveChanges ? theme.primary : theme.textSecondary
                       }
                     />
                   )}
                   <Text
                     style={[styles.eventActionLabel, { color: theme.text }]}
                   >
-                    {hasTimeRangeChanges || isGoogleEvent
-                      ? "Save plan"
+                    {hasSaveChanges || isGoogleEvent
+                      ? hasSaveChanges
+                        ? "Save changes"
+                        : "Save plan"
                       : "Clear plan"}
                   </Text>
                 </Pressable>
@@ -3564,6 +3622,21 @@ function InternalEventActionsModal({
                     </View>
                   </View>
                 </View>
+                {isGoogleEvent ? (
+                  <View
+                    style={[
+                      modalStyles.planTimeSection,
+                      { backgroundColor: theme.backgroundElement },
+                    ]}
+                  >
+                    <CalendarColorPicker
+                      disabled={isUpdating}
+                      defaultHint="Default uses your Google Calendar color."
+                      onChange={setGoogleColor}
+                      value={googleColor}
+                    />
+                  </View>
+                ) : null}
               </>
             ) : null}
             {!isEditablePlannedBlock ? (
@@ -4900,10 +4973,16 @@ function plannedEventToEntry(
         ? false
         : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
   const habit = habitId ? habitById.get(habitId) : null;
+  const task =
+    event.sourceType === "task" ? taskById.get(event.sourceId) : null;
+  const goal =
+    event.sourceType === "goal_checkpoint"
+      ? checkpointById.get(event.sourceId)?.goal
+      : null;
 
   return {
     allDay: !hasTimeRange,
-    calendarColor: habit?.color,
+    calendarColor: habit?.color ?? task?.color ?? goal?.color,
     categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
     completed,
     description:

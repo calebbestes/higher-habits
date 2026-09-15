@@ -11,17 +11,22 @@ import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { notifyFriendsOfVisibleCheckpointPost } from "@/lib/friend-post-notifications";
-import { notifyPlanGoalCompletionEvents } from "@/lib/notification-events";
 import {
   getAcceptedFriendIds,
   syncContentMentionsAndNotify,
 } from "@/lib/mentions";
+import { notifyPlanGoalCompletionEvents } from "@/lib/notification-events";
 import {
   deletePlannedEventsForSources,
   upsertPlannedEvent,
 } from "@/lib/planned-events";
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const colorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/)
+  .nullable()
+  .default(null);
 
 const checkpointSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -31,6 +36,7 @@ const checkpointSchema = z.object({
 
 const goalFields = {
   title: z.string().trim().min(1).max(200),
+  color: colorSchema,
   timing: z.enum(["current", "later"]).default("current"),
   checkpoints: z.array(checkpointSchema).default([]),
 };
@@ -68,6 +74,7 @@ const bodySchema = z.discriminatedUnion("type", [
 const selectGoalShape = {
   id: goals.id,
   title: goals.title,
+  color: goals.color,
   timing: goals.timing,
   sortOrder: goals.sortOrder,
   createdAt: goals.createdAt,
@@ -122,13 +129,20 @@ function serializeCheckpoint(row: CheckpointRow) {
 function serializeGoal(
   goal: Pick<
     GoalRow,
-    "id" | "title" | "timing" | "sortOrder" | "createdAt" | "updatedAt"
+    | "id"
+    | "title"
+    | "color"
+    | "timing"
+    | "sortOrder"
+    | "createdAt"
+    | "updatedAt"
   >,
   checkpoints: CheckpointRow[],
 ) {
   return {
     id: goal.id,
     title: goal.title,
+    color: goal.color ?? null,
     timing: goal.timing === "later" ? "later" : "current",
     sortOrder: goal.sortOrder,
     checkpoints: checkpoints.map(serializeCheckpoint),
@@ -320,6 +334,7 @@ export async function POST(request: Request) {
         .values({
           userId: user.id,
           title: data.title,
+          color: data.color,
           timing: data.timing,
           sortOrder: Number(orderRow?.nextSortOrder ?? 0),
         })
@@ -339,6 +354,7 @@ export async function POST(request: Request) {
         .update(goals)
         .set({
           title: data.title,
+          color: data.color,
           timing: data.timing,
           updatedAt: new Date(),
         })

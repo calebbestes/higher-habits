@@ -10,6 +10,7 @@ export function sym(ios: string, android: string): SymbolName {
 
 export const EMPTY_TASK: TaskInput = {
   name: "",
+  color: null,
   importance: "Medium",
   dueDate: null,
   completedAt: null,

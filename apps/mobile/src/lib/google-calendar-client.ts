@@ -40,6 +40,8 @@ export type CreateGoogleCalendarEventInput = {
   title: string;
 };
 export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
+  allDay?: boolean;
+  color?: string | null;
   eventId: string;
 };
 
@@ -114,6 +116,8 @@ export const createGoogleCalendarEvent = ({
   );
 
 export const updateGoogleCalendarEvent = ({
+  allDay,
+  color,
   dateKey,
   description,
   endTime,
@@ -128,6 +132,8 @@ export const updateGoogleCalendarEvent = ({
       dateKey,
       description: description ?? null,
       eventId,
+      ...(allDay === undefined ? {} : { allDay }),
+      ...(color === undefined ? {} : { color }),
       plannedStartTime: startTime ?? null,
       plannedEndTime: endTime ?? null,
       plannedTimeZone: timeZone ?? null,

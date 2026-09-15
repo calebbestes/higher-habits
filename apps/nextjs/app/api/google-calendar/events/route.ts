@@ -19,6 +19,10 @@ const timeSchema = z
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
   .nullable()
   .default(null);
+const colorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/)
+  .nullable();
 const createEventSchema = z.object({
   dateKey: dateKeySchema,
   description: z.string().trim().max(20_000).nullable().optional(),
@@ -28,6 +32,8 @@ const createEventSchema = z.object({
   title: z.string().trim().min(1).max(200),
 });
 const updateEventSchema = createEventSchema.extend({
+  allDay: z.boolean().optional(),
+  color: colorSchema.optional(),
   eventId: z.string().min(1).max(1024),
 });
 
@@ -101,6 +107,8 @@ export async function PATCH(request: Request) {
     const data = updateEventSchema.parse(await request.json());
 
     const result = await updateGoogleCalendarPrimaryEvent({
+      allDay: data.allDay,
+      color: data.color,
       dateKey: data.dateKey,
       description: data.description ?? null,
       eventId: data.eventId,

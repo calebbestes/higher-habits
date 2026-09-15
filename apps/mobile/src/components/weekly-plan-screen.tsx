@@ -28,6 +28,10 @@ import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
+import {
+  getCalendarEventForeground,
+  getGoogleCalendarColor,
+} from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -55,6 +59,7 @@ import type {
   PlannedEvent,
   PlannedEventSourceType,
 } from "@/lib/planned-events-client";
+import type { Task } from "@/lib/tasks-client";
 import {
   type WeeklyPlanNoteHeader,
   fetchWeeklyPlanNote,
@@ -68,6 +73,10 @@ type WeekEvent = Pick<
   PlannedEvent,
   "date" | "endTime" | "id" | "startTime" | "title"
 > & {
+  calendarBackgroundColor?: string | null;
+  calendarColor?: string | null;
+  calendarColorId?: string | null;
+  calendarForegroundColor?: string | null;
   sourceType: WeekEventSourceType;
 };
 
@@ -233,6 +242,9 @@ function googleEventToWeekEvent(
   dateKey: string,
 ): WeekEvent {
   return {
+    calendarBackgroundColor: event.backgroundColor,
+    calendarColorId: event.colorId,
+    calendarForegroundColor: event.foregroundColor,
     date: dateKey,
     endTime: event.allDay ? null : dateTimeToTime(event.end.dateTime),
     id: `google-${event.id}`,
@@ -252,6 +264,32 @@ function dedupeWeekEvents(events: WeekEvent[]): WeekEvent[] {
     deduped.push(event);
   }
   return deduped;
+}
+
+function plannedEventToWeekEvent(
+  event: PlannedEvent,
+  taskById: Map<string, Task>,
+  goalColorByCheckpointId: Map<string, string | null>,
+  habitColorById: Map<string, string | null>,
+): WeekEvent {
+  const calendarColor =
+    event.sourceType === "task"
+      ? (taskById.get(event.sourceId)?.color ?? null)
+      : event.sourceType === "goal_checkpoint"
+        ? (goalColorByCheckpointId.get(event.sourceId) ?? null)
+        : event.sourceType === "habit_instance"
+          ? (habitColorById.get(event.sourceParentId ?? event.sourceId) ?? null)
+          : null;
+
+  return {
+    calendarColor,
+    date: event.date,
+    endTime: event.endTime,
+    id: event.id,
+    sourceType: event.sourceType,
+    startTime: event.startTime,
+    title: event.title,
+  };
 }
 
 function dateTimeToTime(value?: string): string | null {
@@ -320,12 +358,17 @@ function snapshotHabitEventsForWeek({
   snapshot: HabitLogsSnapshot;
   weekDateKeys: string[];
 }): WeekEvent[] {
-  const habitNames = new Map<string, string>();
+  const habitsById = new Map<string, { color: string | null; name: string }>();
   for (const category of snapshot.categories) {
-    for (const habit of category.habits) habitNames.set(habit.id, habit.name);
+    for (const habit of category.habits) {
+      habitsById.set(habit.id, {
+        color: habit.color ?? null,
+        name: habit.name,
+      });
+    }
   }
   for (const habit of snapshot.periodicHabits) {
-    habitNames.set(habit.id, habit.name);
+    habitsById.set(habit.id, { color: habit.color ?? null, name: habit.name });
   }
 
   const events: WeekEvent[] = [];
@@ -336,8 +379,8 @@ function snapshotHabitEventsForWeek({
     )) {
       if (!key.endsWith(`_${dateKey}`)) continue;
       const habitId = key.slice(0, -dateKey.length - 1);
-      const title = habitNames.get(habitId);
-      if (!title) continue;
+      const habit = habitsById.get(habitId);
+      if (!habit) continue;
       seen.add(`${habitId}_${dateKey}`);
       events.push({
         date: dateKey,
@@ -345,7 +388,8 @@ function snapshotHabitEventsForWeek({
         id: `habit-snapshot-${habitId}-${dateKey}`,
         sourceType: "habit_instance",
         startTime: plannedTime.startTime,
-        title,
+        title: habit.name,
+        calendarColor: habit.color,
       });
     }
 
@@ -357,15 +401,16 @@ function snapshotHabitEventsForWeek({
         continue;
       }
       if (seen.has(`${habitId}_${dateKey}`)) continue;
-      const title = habitNames.get(habitId);
-      if (!title) continue;
+      const habit = habitsById.get(habitId);
+      if (!habit) continue;
       events.push({
         date: dateKey,
         endTime: plan.endTime,
         id: `habit-repeat-${habitId}-${dateKey}`,
         sourceType: "habit_instance",
         startTime: plan.startTime,
-        title,
+        title: habit.name,
+        calendarColor: habit.color,
       });
     }
   }
@@ -625,10 +670,10 @@ export function WeeklyPlanScreen({
         ]);
 
         if (!mountedRef.current || requestId !== requestIdRef.current) return;
-        const plannedWeekEvents =
+        const plannedBootstrap =
           plannedResult[0]?.status === "fulfilled"
-            ? plannedResult[0].value.plannedEvents
-            : [];
+            ? plannedResult[0].value
+            : null;
         const googleWeekEvents = googleResults.flatMap((result, index) =>
           result.status === "fulfilled"
             ? result.value.events.map((event) =>
@@ -652,6 +697,37 @@ export function WeeklyPlanScreen({
               })
             : [],
         );
+        const habitColorById = new Map<string, string | null>();
+        for (const result of snapshotResults) {
+          if (result.status !== "fulfilled") continue;
+          for (const category of result.value.categories) {
+            for (const habit of category.habits) {
+              habitColorById.set(habit.id, habit.color ?? null);
+            }
+          }
+          for (const habit of result.value.periodicHabits) {
+            habitColorById.set(habit.id, habit.color ?? null);
+          }
+        }
+        const taskById = new Map(
+          (plannedBootstrap?.tasks ?? []).map((task) => [task.id, task]),
+        );
+        const goalColorByCheckpointId = new Map<string, string | null>();
+        for (const goal of plannedBootstrap?.planGoals ?? []) {
+          for (const checkpoint of goal.checkpoints) {
+            goalColorByCheckpointId.set(checkpoint.id, goal.color ?? null);
+          }
+        }
+        const plannedWeekEvents = plannedBootstrap
+          ? plannedBootstrap.plannedEvents.map((event) =>
+              plannedEventToWeekEvent(
+                event,
+                taskById,
+                goalColorByCheckpointId,
+                habitColorById,
+              ),
+            )
+          : [];
         const nextWeekEvents = dedupeWeekEvents([
           ...plannedWeekEvents,
           ...googleWeekEvents,
@@ -1487,7 +1563,7 @@ function compareEvents(left: WeekEvent, right: WeekEvent): number {
 
 function EventChip({ event }: { event: WeekEvent }) {
   const theme = useTheme();
-  const palette = eventPalette(event.sourceType, theme);
+  const palette = eventPalette(event, theme);
 
   return (
     <View style={[styles.eventChip, { backgroundColor: palette.bg }]}>
@@ -1512,7 +1588,7 @@ function EventBlock({
   laneIndex: number;
 }) {
   const theme = useTheme();
-  const palette = eventPalette(event.sourceType, theme);
+  const palette = eventPalette(event, theme);
   const { end, start } = getEventMinutes(event);
   const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + 3;
   const height = ((end - start) / 60) * HOUR_HEIGHT - 3;
@@ -1553,19 +1629,26 @@ function EventBlock({
   );
 }
 
-function eventPalette(
-  sourceType: WeekEventSourceType,
-  theme: ReturnType<typeof useTheme>,
-) {
-  if (sourceType === "google") {
-    return { bg: "#5F6368", text: "#FFFFFF" };
+function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
+  if (event.sourceType === "google") {
+    return {
+      bg:
+        event.calendarBackgroundColor ??
+        getGoogleCalendarColor(event.calendarColorId),
+      text: event.calendarForegroundColor ?? "#FFFFFF",
+    };
   }
   if (
-    sourceType === "task" ||
-    sourceType === "goal_checkpoint" ||
-    sourceType === "habit_instance"
+    event.sourceType === "task" ||
+    event.sourceType === "goal_checkpoint" ||
+    event.sourceType === "habit_instance"
   ) {
-    return { bg: theme.primary, text: "#07171D" };
+    return {
+      bg: event.calendarColor ?? theme.primary,
+      text: event.calendarColor
+        ? getCalendarEventForeground(event.calendarColor)
+        : theme.primaryForeground,
+    };
   }
   return { bg: "#8E8E93", text: "#FFFFFF" };
 }

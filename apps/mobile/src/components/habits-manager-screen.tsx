@@ -21,6 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { CalendarColorPicker } from "@/components/calendar-color-picker";
 import { CreateHeaderMenu } from "@/components/create-header-menu";
 import { EXPO_SYMBOL_ICON_OPTIONS, GoalIcon } from "@/components/goal-icon";
 import { MaxContentWidth } from "@/constants/theme";
@@ -130,6 +131,7 @@ const PRIORITY_ORDER: Record<string, number> = {
 
 const EMPTY_HABIT: HabitInput = {
   name: "",
+  color: null,
   frequencyGoal: null,
   period: "daily",
   repeatCadence: "daily",
@@ -208,6 +210,7 @@ function toInput(habit: Habit): HabitInput {
   const cadence = habit.repeatCadence ?? habit.period;
   return {
     name: habit.name,
+    color: habit.color ?? null,
     frequencyGoal: habit.frequencyGoal,
     period: habit.period,
     repeatCadence: cadence,
@@ -1479,6 +1482,12 @@ export function HabitFormModal({
                 placeholder="What habit do you want to build?"
                 returnKeyType="done"
                 value={form.name}
+              />
+              <CalendarColorPicker
+                value={form.color}
+                onChange={(color) =>
+                  setForm((current) => ({ ...current, color }))
+                }
               />
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
                 Choose an icon

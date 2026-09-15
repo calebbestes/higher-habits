@@ -62,6 +62,7 @@ export async function GET(request: Request) {
       planGoals?: Array<{
         id: string;
         title: string;
+        color: string | null;
         timing: "current" | "later";
         sortOrder: number;
         checkpoints: Array<{
@@ -84,20 +85,22 @@ export async function GET(request: Request) {
       plannedEvents: plannedRows.map(serializePlannedEvent),
     };
 
-    if (query.view === "day") {
+    if (query.view === "day" || query.view === "week") {
       const [taskRows, categoryRows, goalRows, checkpointRows] =
         await Promise.all([
           db
             .select()
             .from(tasks)
             .where(
-              and(
-                eq(tasks.userId, user.id),
-                or(
-                  isNull(tasks.completedAt),
-                  eq(tasks.completedAt, query.dateKey),
-                ),
-              ),
+              query.view === "day"
+                ? and(
+                    eq(tasks.userId, user.id),
+                    or(
+                      isNull(tasks.completedAt),
+                      eq(tasks.completedAt, query.dateKey),
+                    ),
+                  )
+                : eq(tasks.userId, user.id),
             )
             .orderBy(desc(tasks.createdAt)),
           db
@@ -125,6 +128,7 @@ export async function GET(request: Request) {
       response.planGoals = goalRows.map((goal) => ({
         id: goal.id,
         title: goal.title,
+        color: goal.color ?? null,
         timing: goal.timing === "later" ? "later" : "current",
         sortOrder: goal.sortOrder,
         checkpoints: checkpointRows

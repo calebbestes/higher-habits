@@ -377,6 +377,7 @@ export const tasks = pgTable(
       onDelete: "set null",
     }),
     name: text("name").notNull(),
+    color: text("color"),
     importance: text("importance").default("").notNull(),
     dueDate: date("due_date", { mode: "string" }),
     completedAt: date("completed_at", { mode: "string" }),
@@ -429,6 +430,7 @@ export const goals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    color: text("color"),
     timing: text("timing").default("current").notNull(),
     sortOrder: integer("sort_order").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
