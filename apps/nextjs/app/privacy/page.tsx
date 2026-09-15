@@ -103,11 +103,15 @@ export default function PrivacyPage() {
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
               calendar.events
             </code>{" "}
-            scope to read events from your primary calendar and create, update,
-            or delete events created by Higher Habits. This lets you see your
-            calendar alongside your plan and schedule habits, goals, and tasks.
-            Higher Habits does not access your Gmail, Google Drive, contacts, or
-            other Google services.
+            and{" "}
+            <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+              calendar.calendarlist.readonly
+            </code>{" "}
+            scopes to read events from your primary calendar, read its display
+            color, and create, update, or delete events created by Higher
+            Habits. This lets you see your calendar alongside your plan and
+            schedule habits, goals, and tasks. Higher Habits does not access
+            your Gmail, Google Drive, contacts, or other Google services.
           </p>
           <p>
             Google user data is shared, transferred, or disclosed only to the
@@ -155,7 +159,11 @@ export default function PrivacyPage() {
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
               calendar.events
             </code>{" "}
-            scope. Our hosting, database, and storage providers use encryption
+            and{" "}
+            <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+              calendar.calendarlist.readonly
+            </code>{" "}
+            scopes. Our hosting, database, and storage providers use encryption
             at rest and access controls for stored data. When you disconnect
             Google Calendar, Higher Habits revokes the Google token and removes
             the connection from your account. Account deletion removes the

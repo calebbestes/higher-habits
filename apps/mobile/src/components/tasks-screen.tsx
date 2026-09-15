@@ -237,6 +237,10 @@ export function TasksScreen() {
       return true;
     });
   }, [selectedProjectId, tasks]);
+  const createTaskInitialValues = useMemo(
+    () => ({ projectId: selectedProjectId }),
+    [selectedProjectId],
+  );
 
   useEffect(() => {
     const selectedProject = selectedProjectId
@@ -602,6 +606,7 @@ export function TasksScreen() {
       </SafeAreaView>
 
       <TaskFormModal
+        initialValues={createTaskInitialValues}
         isOpen={formOpen}
         task={editingTask}
         projects={projects}

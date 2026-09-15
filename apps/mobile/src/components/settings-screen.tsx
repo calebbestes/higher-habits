@@ -730,11 +730,14 @@ export function SettingsScreen() {
       : "Connecting"
     : googleCalendarStatus
       ? googleCalendarStatus.configured
-        ? googleCalendarStatus.connected
+        ? googleCalendarStatus.connected &&
+          googleCalendarStatus.hasCalendarListReadScope
           ? "Connected"
-          : googleCalendarStatus.hasGoogleAccount
-            ? "Reconnect"
-            : "Connect"
+          : googleCalendarStatus.connected
+            ? "Reconnect for colors"
+            : googleCalendarStatus.hasGoogleAccount
+              ? "Reconnect"
+              : "Connect"
         : "Not configured"
       : "Checking";
   const submenuCopy: Record<

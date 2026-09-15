@@ -731,7 +731,7 @@ export function WeeklyPlanScreen({
         return;
       }
 
-      if (!status.connected) {
+      if (!status.connected || !status.hasCalendarListReadScope) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
