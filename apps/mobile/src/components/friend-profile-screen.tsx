@@ -130,6 +130,7 @@ function createPrivateProfilePreview({
       lastOpenedAt: null,
     },
     stats: {
+      daysUntilBirthday: 0,
       friendCount: 0,
       goalCompletions: 0,
       habitCompletions: 0,
@@ -677,8 +678,8 @@ export function FriendProfileScreen({
                     value={profile.stats.longestStreak}
                   />
                   <ProfileStat
-                    label="incentives earned"
-                    value={profile.stats.incentivesEarned}
+                    label="days until birthday"
+                    value={profile.stats.daysUntilBirthday}
                   />
                   <ProfileStat
                     label="incentives given"

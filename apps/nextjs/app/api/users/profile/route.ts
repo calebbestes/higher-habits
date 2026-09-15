@@ -13,7 +13,10 @@ import { NextResponse } from "next/server";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { countCompletedIncentives } from "@/lib/incentive-progress";
-import { getLongestProfileStreak } from "@/lib/profile-metrics";
+import {
+  getDaysUntilBirthday,
+  getLongestProfileStreak,
+} from "@/lib/profile-metrics";
 
 function mountainDateKey(date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -54,6 +57,7 @@ export async function GET(request: Request) {
         name: users.name,
         email: users.email,
         image: users.image,
+        birthday: users.birthday,
         createdAt: users.createdAt,
         lastOpenedAt: users.lastOpenedAt,
       })
@@ -249,6 +253,7 @@ export async function GET(request: Request) {
       },
       stats: {
         friendCount: friendRows.length,
+        daysUntilBirthday: getDaysUntilBirthday(me.birthday),
         goalCompletions: completedCheckpointRows.length,
         habitCompletions: completedHabitRows.length,
         incentivesEarned,

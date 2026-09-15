@@ -106,6 +106,7 @@ export type FriendProfile = {
     lastOpenedAt: string | null;
   };
   stats: {
+    daysUntilBirthday: number;
     friendCount: number;
     goalCompletions: number;
     habitCompletions: number;
@@ -331,6 +332,7 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
     },
     stats: isRecord(value.stats)
       ? {
+          daysUntilBirthday: numberOrFallback(value.stats.daysUntilBirthday),
           friendCount: numberOrFallback(value.stats.friendCount),
           goalCompletions: numberOrFallback(value.stats.goalCompletions),
           habitCompletions: numberOrFallback(value.stats.habitCompletions),
@@ -340,6 +342,7 @@ function normalizeFriendProfile(value: unknown): FriendProfile | null {
           taskCompletions: numberOrFallback(value.stats.taskCompletions),
         }
       : {
+          daysUntilBirthday: 0,
           friendCount: 0,
           goalCompletions: 0,
           habitCompletions: 0,
@@ -963,6 +966,7 @@ async function fetchFriendProfileFromExistingData(lookup: {
       lastOpenedAt: friend.lastOpenedAt,
     },
     stats: {
+      daysUntilBirthday: 0,
       friendCount: 0,
       goalCompletions: feed.filter(
         (entry) =>

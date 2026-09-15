@@ -23,8 +23,12 @@ function mountainDateKey(date = new Date()): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function dateKeyToUtcDate(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00Z`);
+}
+
 function addDays(dateKey: string, days: number) {
-  const date = new Date(`${dateKey}T12:00:00Z`);
+  const date = dateKeyToUtcDate(dateKey);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
@@ -85,4 +89,34 @@ export function getLongestProfileStreak(
   }
 
   return longestStreak;
+}
+
+export function getDaysUntilBirthday(birthday: string | null | undefined) {
+  if (!birthday || !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return 0;
+
+  const todayKey = mountainDateKey();
+  const today = dateKeyToUtcDate(todayKey);
+  const [, birthMonth, birthDay] = birthday.split("-").map(Number);
+
+  let nextBirthday = new Date(
+    Date.UTC(today.getUTCFullYear(), (birthMonth ?? 1) - 1, birthDay ?? 1, 12),
+  );
+
+  if (nextBirthday < today) {
+    nextBirthday = new Date(
+      Date.UTC(
+        today.getUTCFullYear() + 1,
+        (birthMonth ?? 1) - 1,
+        birthDay ?? 1,
+        12,
+      ),
+    );
+  }
+
+  return Math.max(
+    0,
+    Math.round(
+      (nextBirthday.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+    ),
+  );
 }

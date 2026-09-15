@@ -21,7 +21,10 @@ import {
   countCompletedIncentives,
   getIncentiveProgress,
 } from "@/lib/incentive-progress";
-import { getLongestProfileStreak } from "@/lib/profile-metrics";
+import {
+  getDaysUntilBirthday,
+  getLongestProfileStreak,
+} from "@/lib/profile-metrics";
 import { sendPushToUser } from "@/lib/push";
 
 const createFriendSchema = z
@@ -268,6 +271,7 @@ async function getFriendProfile(
       name: users.name,
       email: users.email,
       image: users.image,
+      birthday: users.birthday,
       lastOpenedAt: users.lastOpenedAt,
     })
     .from(users)
@@ -430,6 +434,7 @@ async function getFriendProfile(
     },
     stats: {
       friendCount: friendRows.length,
+      daysUntilBirthday: getDaysUntilBirthday(friend.birthday),
       goalCompletions: completedCheckpointRows.length,
       habitCompletions: completedHabitRows.length,
       incentivesEarned,
