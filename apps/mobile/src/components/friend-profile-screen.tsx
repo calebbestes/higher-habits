@@ -48,14 +48,26 @@ import {
   setHabitLog,
   setHabitLogNote,
   setHabitLogVisibility,
+  toDateKey,
 } from "@/lib/habit-logs-client";
 import type { HabitVisibility } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { richTextToPlainText } from "@/lib/rich-text";
+import {
+  type WeeklyPlanNote,
+  fetchWeeklyPlanNotes,
+} from "@/lib/weekly-plan-notes-client";
 
 type SymbolName = SymbolViewProps["name"];
-type ProfileBodySection = "posts" | "daily" | "periodic";
-type ProfilePostFilter = "all" | "reflections" | `goal:${string}`;
+type ProfileBodySection = "posts" | "notes" | "daily" | "periodic";
+type ProfileNoteFilter = "weekly" | "daily" | "monthly";
+type ProfilePostFilter =
+  | "all"
+  | "private"
+  | "select_friends"
+  | "all_friends"
+  | "reflections"
+  | `goal:${string}`;
 type ActiveHabitDay = { dateKey: string; habit: FriendProfileHabit };
 
 const PROFILE_BODY_SECTIONS: Array<{
@@ -63,8 +75,15 @@ const PROFILE_BODY_SECTIONS: Array<{
   label: string;
 }> = [
   { key: "posts", label: "Posts" },
-  { key: "daily", label: "Daily habits" },
-  { key: "periodic", label: "Periodic habits" },
+  { key: "notes", label: "Notes" },
+  { key: "daily", label: "Daily" },
+  { key: "periodic", label: "Periodic" },
+];
+
+const PROFILE_NOTE_FILTERS: Array<{ key: ProfileNoteFilter; label: string }> = [
+  { key: "weekly", label: "Weekly" },
+  { key: "daily", label: "Daily" },
+  { key: "monthly", label: "Monthly" },
 ];
 
 function sym(ios: string, android: string): SymbolName {
@@ -111,6 +130,32 @@ function createPrivateProfilePreview({
   };
 }
 
+function startOfWeek(date: Date) {
+  const weekStart = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return weekStart;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatProfileWeekRange(weekStartDate: string) {
+  const start = dateFromProfileKey(weekStartDate);
+  const end = addDays(start, 6);
+  const month = new Intl.DateTimeFormat("en-US", { month: "short" });
+  if (start.getMonth() === end.getMonth()) {
+    return `${month.format(start)} ${start.getDate()}-${end.getDate()}`;
+  }
+  return `${month.format(start)} ${start.getDate()}-${month.format(end)} ${end.getDate()}`;
+}
+
 export function FriendProfileScreen({
   friendId,
   friendshipId,
@@ -139,6 +184,7 @@ export function FriendProfileScreen({
   const [profile, setProfile] = useState<FriendProfile | null>(null);
   const [posts, setPosts] = useState<FriendFeedEntry[]>([]);
   const [friends, setFriends] = useState<FriendRow[]>([]);
+  const [weeklyPlanNotes, setWeeklyPlanNotes] = useState<WeeklyPlanNote[]>([]);
   const [isFriendsSheetOpen, setIsFriendsSheetOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [arePostsLoading, setArePostsLoading] = useState(true);
@@ -148,6 +194,7 @@ export function FriendProfileScreen({
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
+  const [noteFilter, setNoteFilter] = useState<ProfileNoteFilter>("weekly");
   const [activeHabitDay, setActiveHabitDay] = useState<ActiveHabitDay | null>(
     null,
   );
@@ -173,6 +220,7 @@ export function FriendProfileScreen({
         );
         setPosts([]);
         setFriends([]);
+        setWeeklyPlanNotes([]);
         setIsLoading(false);
         setArePostsLoading(false);
         setIsRefreshing(false);
@@ -202,10 +250,13 @@ export function FriendProfileScreen({
           setProfile(nextProfile);
           setIsLoading(false);
 
-          const [myPosts, nextFriends] = await Promise.all([
-            fetchMyPosts().catch(() => []),
-            fetchFriends().catch(() => []),
-          ]);
+          const [myPosts, nextFriends, nextWeeklyPlanNotes] = await Promise.all(
+            [
+              fetchMyPosts().catch(() => []),
+              fetchFriends().catch(() => []),
+              fetchWeeklyPlanNotes().catch(() => []),
+            ],
+          );
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
@@ -223,6 +274,7 @@ export function FriendProfileScreen({
               .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
+          setWeeklyPlanNotes(nextWeeklyPlanNotes);
           setArePostsLoading(false);
         } else {
           const nextProfile = friendId
@@ -235,6 +287,7 @@ export function FriendProfileScreen({
 
           setProfile(nextProfile);
           setFriends([]);
+          setWeeklyPlanNotes([]);
           setIsLoading(false);
 
           const feedPage = nextProfile.friend.friendshipId
@@ -267,6 +320,7 @@ export function FriendProfileScreen({
           );
           setProfile(null);
           setPosts([]);
+          setWeeklyPlanNotes([]);
           setArePostsLoading(false);
         }
       } finally {
@@ -638,6 +692,13 @@ export function FriendProfileScreen({
                     })
                   }
                 />
+              ) : activeBodySection === "notes" ? (
+                <ProfileNotesSection
+                  activeFilter={noteFilter}
+                  self={self}
+                  weeklyNotes={weeklyPlanNotes}
+                  onChangeFilter={setNoteFilter}
+                />
               ) : activeBodySection === "daily" ? (
                 <ProfileDailyHabits
                   dateKeys={profile.dateKeys}
@@ -788,9 +849,11 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
   const label =
     section === "posts"
       ? "Posts"
-      : section === "daily"
-        ? "Daily habits"
-        : "Periodic habits";
+      : section === "notes"
+        ? "Notes"
+        : section === "daily"
+          ? "Daily habits"
+          : "Periodic habits";
 
   return (
     <View style={styles.privateSection}>
@@ -813,6 +876,109 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
       <Text style={[styles.privateText, { color: theme.textSecondary }]}>
         Add them as a friend to see shared activity.
       </Text>
+    </View>
+  );
+}
+
+function ProfileNotesSection({
+  activeFilter,
+  onChangeFilter,
+  self,
+  weeklyNotes,
+}: {
+  activeFilter: ProfileNoteFilter;
+  onChangeFilter: (filter: ProfileNoteFilter) => void;
+  self: boolean;
+  weeklyNotes: WeeklyPlanNote[];
+}) {
+  const theme = useTheme();
+  const currentWeekLabel = formatProfileWeekRange(
+    toDateKey(startOfWeek(new Date())),
+  );
+  const visibleWeeklyNotes = weeklyNotes
+    .map((note) => ({
+      ...note,
+      text: richTextToPlainText(note.notes).trim(),
+    }))
+    .filter((note) => note.text.length > 0);
+
+  return (
+    <View style={styles.notesSection}>
+      <View style={styles.notesFilterRow}>
+        {PROFILE_NOTE_FILTERS.map((filter) => {
+          const isActive = filter.key === activeFilter;
+          return (
+            <Pressable
+              key={filter.key}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
+              onPress={() => onChangeFilter(filter.key)}
+              style={({ pressed }) => [
+                styles.notesFilterButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.notesFilterText,
+                  { color: isActive ? theme.text : theme.textSecondary },
+                ]}
+              >
+                {filter.label}
+              </Text>
+              <View
+                style={[
+                  styles.notesFilterIndicator,
+                  {
+                    backgroundColor: isActive ? theme.primary : "transparent",
+                  },
+                ]}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {activeFilter === "weekly" ? (
+        visibleWeeklyNotes.length > 0 ? (
+          <View style={styles.noteList}>
+            {visibleWeeklyNotes.map((note) => (
+              <View key={note.weekStartDate} style={styles.notePreviewBlock}>
+                <Text style={[styles.noteDateLabel, { color: theme.primary }]}>
+                  {formatProfileWeekRange(note.weekStartDate)}
+                </Text>
+                <Text style={[styles.noteBody, { color: theme.text }]}>
+                  {note.text}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.notesEmptyState}>
+            <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
+              {self ? "No weekly note yet" : "No shared weekly notes"}
+            </Text>
+            <Text
+              style={[styles.notesEmptyText, { color: theme.textSecondary }]}
+            >
+              {self
+                ? `Weekly notes from ${currentWeekLabel} will show up here.`
+                : "Notes this friend shares will show up here."}
+            </Text>
+          </View>
+        )
+      ) : (
+        <View style={styles.notesEmptyState}>
+          <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
+            {activeFilter === "daily"
+              ? "Daily notes are not set up yet"
+              : "Monthly notes are not set up yet"}
+          </Text>
+          <Text style={[styles.notesEmptyText, { color: theme.textSecondary }]}>
+            For now, profile notes come from Weekly notes.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -856,6 +1022,29 @@ function ProfilePostsGrid({
       },
     ];
 
+    if (self) {
+      actions.push(
+        {
+          id: "private",
+          image: "lock.fill",
+          state: filter === "private" ? "on" : undefined,
+          title: "Private posts",
+        },
+        {
+          id: "select_friends",
+          image: "person.2.fill",
+          state: filter === "select_friends" ? "on" : undefined,
+          title: "Select friends",
+        },
+        {
+          id: "all_friends",
+          image: "globe",
+          state: filter === "all_friends" ? "on" : undefined,
+          title: "All friends",
+        },
+      );
+    }
+
     if (hasReflections) {
       actions.push({
         id: "reflections",
@@ -878,16 +1067,31 @@ function ProfilePostsGrid({
     }
 
     return actions;
-  }, [filter, goalOptions, hasReflections]);
+  }, [filter, goalOptions, hasReflections, self]);
   const selectedFilterLabel =
     filter === "all"
       ? "All posts"
-      : filter === "reflections"
-        ? "Daily reflections"
-        : (goalOptions.find((goal) => filter === `goal:${goal.id}`)?.name ??
-          "All posts");
+      : filter === "private"
+        ? "Private posts"
+        : filter === "select_friends"
+          ? "Select friends"
+          : filter === "all_friends"
+            ? "All friends"
+            : filter === "reflections"
+              ? "Daily reflections"
+              : (goalOptions.find((goal) => filter === `goal:${goal.id}`)
+                  ?.name ?? "All posts");
   const filteredPosts = useMemo(() => {
     if (filter === "all") return posts;
+    if (filter === "private") {
+      return posts.filter((post) => post.visibility === "only_me");
+    }
+    if (filter === "select_friends") {
+      return posts.filter((post) => post.visibility === "goal_friends");
+    }
+    if (filter === "all_friends") {
+      return posts.filter((post) => post.visibility === "all_friends");
+    }
     if (filter === "reflections") {
       return posts.filter((post) => post.kind === "reflection");
     }
@@ -900,6 +1104,9 @@ function ProfilePostsGrid({
   useEffect(() => {
     if (
       filter !== "all" &&
+      filter !== "private" &&
+      filter !== "select_friends" &&
+      filter !== "all_friends" &&
       filter !== "reflections" &&
       !goalOptions.some((goal) => filter === `goal:${goal.id}`)
     ) {
@@ -908,7 +1115,15 @@ function ProfilePostsGrid({
     if (filter === "reflections" && !hasReflections) {
       onChangeFilter("all");
     }
-  }, [filter, goalOptions, hasReflections, onChangeFilter]);
+    if (
+      !self &&
+      (filter === "private" ||
+        filter === "select_friends" ||
+        filter === "all_friends")
+    ) {
+      onChangeFilter("all");
+    }
+  }, [filter, goalOptions, hasReflections, onChangeFilter, self]);
 
   if (posts.length > 0) {
     return (
@@ -917,7 +1132,13 @@ function ProfilePostsGrid({
           actions={filterActions}
           value={selectedFilterLabel}
           onSelect={(event) => {
-            if (event === "all" || event === "reflections") {
+            if (
+              event === "all" ||
+              event === "private" ||
+              event === "select_friends" ||
+              event === "all_friends" ||
+              event === "reflections"
+            ) {
               onChangeFilter(event);
             } else if (event.startsWith("goal:")) {
               onChangeFilter(event as ProfilePostFilter);
@@ -1222,12 +1443,16 @@ function ProfileStat({
       <Text style={[styles.statValue, { color: theme.text }]}>
         {safeValue.toLocaleString()}
       </Text>
-      <Text
-        numberOfLines={2}
-        style={[styles.statLabel, { color: theme.textSecondary }]}
-      >
-        {label}
-      </Text>
+      <View style={styles.statLabelWrap}>
+        {label.split(" ").map((word) => (
+          <Text
+            key={word}
+            style={[styles.statLabel, { color: theme.textSecondary }]}
+          >
+            {word}
+          </Text>
+        ))}
+      </View>
     </>
   );
 
@@ -1679,13 +1904,20 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "700",
   },
-  statLabel: {
-    maxWidth: "100%",
+  statLabelWrap: {
+    width: "100%",
     marginTop: 2,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    columnGap: 3,
+    rowGap: 0,
+  },
+  statLabel: {
+    flexShrink: 0,
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "400",
-    textAlign: "center",
   },
   profileName: {
     marginTop: 10,
@@ -1780,6 +2012,62 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   mutedText: { fontSize: 14, fontWeight: "700", textAlign: "center" },
+  notesSection: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+  notesFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 22,
+    marginBottom: 22,
+  },
+  notesFilterButton: {
+    minHeight: 34,
+    justifyContent: "center",
+  },
+  notesFilterText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  notesFilterIndicator: {
+    height: 2,
+    marginTop: 5,
+    borderRadius: 999,
+  },
+  noteList: {
+    gap: 24,
+  },
+  notePreviewBlock: {
+    gap: 9,
+  },
+  noteDateLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  noteBody: {
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "500",
+  },
+  notesEmptyState: {
+    alignItems: "flex-start",
+    gap: 5,
+    paddingTop: 8,
+  },
+  notesEmptyTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
+  notesEmptyText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
   habitRow: {
     minHeight: 30,
     flexDirection: "row",

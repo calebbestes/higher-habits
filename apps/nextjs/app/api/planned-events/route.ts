@@ -21,6 +21,11 @@ const timeSchema = z
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
   .nullable()
   .default(null);
+const calendarColorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/)
+  .nullable()
+  .optional();
 
 const querySchema = z.object({
   dateKey: dateKeySchema.optional(),
@@ -33,6 +38,7 @@ const upsertSchema = z.object({
   sourceId: z.string().uuid().optional(),
   sourceParentId: z.string().uuid().nullable().optional(),
   title: z.string().trim().min(1).max(200).optional(),
+  calendarColor: calendarColorSchema,
   dateKey: dateKeySchema,
   plannedStartTime: timeSchema,
   plannedEndTime: timeSchema,
@@ -167,6 +173,7 @@ export async function POST(request: Request) {
       sourceType: data.sourceType as PlannedEventSourceType,
       timeZone: data.plannedTimeZone ?? null,
       title: data.title?.trim() || sourceTitle,
+      calendarColor: data.calendarColor,
       userId: user.id,
     });
 

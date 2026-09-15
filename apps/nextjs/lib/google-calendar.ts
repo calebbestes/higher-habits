@@ -83,6 +83,7 @@ let googleCalendarColorsCache: {
 } | null = null;
 
 type GoogleCalendarEventBody = {
+  colorId?: string;
   summary: string;
   description: string;
   start: { date: string } | { dateTime: string; timeZone: string };
@@ -262,6 +263,7 @@ export async function upsertGoogleCalendarHabitPlan({
 }
 
 export async function upsertGoogleCalendarPlannedEvent({
+  color,
   dateKey,
   description,
   existingEventId,
@@ -275,6 +277,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   userId,
   extraPrivateProperties,
 }: {
+  color?: string | null;
   dateKey: string;
   description?: string | null;
   existingEventId?: string | null;
@@ -303,7 +306,18 @@ export async function upsertGoogleCalendarPlannedEvent({
       return { status: token.status };
     }
 
+    const colorId =
+      color === undefined
+        ? undefined
+        : color === null
+          ? ""
+          : await resolveGoogleCalendarEventColorId(token.accessToken, color);
+    if (color !== undefined && color !== null && !colorId) {
+      throw new Error("That color is not available in Google Calendar.");
+    }
+
     const updateBody = buildGoogleCalendarEvent({
+      colorId,
       dateKey,
       description,
       plannedEndTime,
@@ -347,6 +361,7 @@ export async function upsertGoogleCalendarPlannedEvent({
     }
 
     const insertBody = buildGoogleCalendarEvent({
+      colorId,
       dateKey,
       description,
       plannedEndTime,
@@ -793,6 +808,7 @@ function parseGoogleTokenScopes(token: {
 }
 
 function buildGoogleCalendarEvent({
+  colorId,
   dateKey,
   description,
   extraPrivateProperties,
@@ -804,6 +820,7 @@ function buildGoogleCalendarEvent({
   title,
   timeZone,
 }: {
+  colorId?: string | null;
   dateKey: string;
   description?: string | null;
   extraPrivateProperties?: Record<string, string>;
@@ -816,6 +833,7 @@ function buildGoogleCalendarEvent({
   timeZone?: string | null;
 }): GoogleCalendarEventBody {
   return {
+    ...(colorId == null ? {} : { colorId }),
     summary: title,
     description: buildGoogleCalendarEventDescription(description),
     ...buildGoogleCalendarEventTime({

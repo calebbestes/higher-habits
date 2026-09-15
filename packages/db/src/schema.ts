@@ -382,6 +382,7 @@ export const tasks = pgTable(
     dueDate: date("due_date", { mode: "string" }),
     completedAt: date("completed_at", { mode: "string" }),
     timeRequired: text("time_required").default("").notNull(),
+    planOnCalendar: boolean("plan_on_calendar").default(false).notNull(),
     recurrence: text("recurrence").default("none").notNull(),
     recurrenceWeekday: integer("recurrence_weekday"),
     recurrenceMonthDay: integer("recurrence_month_day"),
@@ -432,6 +433,7 @@ export const goals = pgTable(
     title: text("title").notNull(),
     color: text("color"),
     timing: text("timing").default("current").notNull(),
+    planOnCalendar: boolean("plan_on_calendar").default(false).notNull(),
     sortOrder: integer("sort_order").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -488,6 +490,7 @@ export const plannedEvents = pgTable(
     sourceId: uuid("source_id").notNull(),
     sourceParentId: uuid("source_parent_id"),
     title: text("title").notNull(),
+    calendarColor: text("calendar_color"),
     date: date("date", { mode: "string" }).notNull(),
     plannedStartTime: text("planned_start_time"),
     plannedEndTime: text("planned_end_time"),
@@ -1376,10 +1379,10 @@ export const userSettings = pgTable("user_settings", {
     .default(true),
   notifyMonthlyGoalToday: boolean("notify_monthly_goal_today")
     .notNull()
-    .default(false),
+    .default(true),
   notifyTasksDueToday: boolean("notify_tasks_due_today")
     .notNull()
-    .default(false),
+    .default(true),
   notifyInactivityReminder: boolean("notify_inactivity_reminder")
     .notNull()
     .default(true),
@@ -1395,9 +1398,9 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .default(false),
   // Friends & social.
-  notifyPostProps: boolean("notify_post_props").notNull().default(false),
+  notifyPostProps: boolean("notify_post_props").notNull().default(true),
   notifyPostComments: boolean("notify_post_comments").notNull().default(true),
-  notifyFriendPosts: boolean("notify_friend_posts").notNull().default(false),
+  notifyFriendPosts: boolean("notify_friend_posts").notNull().default(true),
   notifyFriendNudges: boolean("notify_friend_nudges").notNull().default(true),
   notifyFriendRequestAccepted: boolean("notify_friend_request_accepted")
     .notNull()
@@ -1420,10 +1423,10 @@ export const userSettings = pgTable("user_settings", {
     .default(false),
   notifyIncentiveEarned: boolean("notify_incentive_earned")
     .notNull()
-    .default(false),
+    .default(true),
   // Planning & recap.
-  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(false),
-  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(false),
+  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(true),
+  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(true),
   notifyScheduleEvents: boolean("notify_schedule_events")
     .notNull()
     .default(true),

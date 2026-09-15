@@ -1472,9 +1472,8 @@ export function HabitFormModal({
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
-            <FormSection title="Habit">
+            <FormSection showTitle={false} title="Habit">
               <LabeledInput
-                autoFocus
                 label="Name"
                 onChangeText={(name) =>
                   setForm((current) => ({ ...current, name }))
@@ -1482,12 +1481,6 @@ export function HabitFormModal({
                 placeholder="What habit do you want to build?"
                 returnKeyType="done"
                 value={form.name}
-              />
-              <CalendarColorPicker
-                value={form.color}
-                onChange={(color) =>
-                  setForm((current) => ({ ...current, color }))
-                }
               />
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
                 Choose an icon
@@ -1498,159 +1491,9 @@ export function HabitFormModal({
                   setForm((current) => ({ ...current, iconKey }))
                 }
               />
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Group with
-              </Text>
-              {categories.length ? (
-                <View style={styles.choiceWrap}>
-                  {categories.map((category) => (
-                    <Choice
-                      key={category.id}
-                      label={category.name}
-                      selected={form.categoryId === category.id}
-                      onPress={() =>
-                        setForm((current) => ({
-                          ...current,
-                          categoryId: category.id,
-                        }))
-                      }
-                    />
-                  ))}
-                </View>
-              ) : null}
-              {selectedCategory && (onUpdateCategory || onDeleteCategory) ? (
-                <View style={styles.categoryActions}>
-                  {onUpdateCategory ? (
-                    <SmallButton
-                      label="Rename group"
-                      onPress={() => {
-                        setAddingCategory(false);
-                        setEditingCategory(selectedCategory);
-                        setCategoryName(selectedCategory.name);
-                        setCategoryIcon(selectedCategory.icon);
-                      }}
-                    />
-                  ) : null}
-                  {onDeleteCategory ? (
-                    <SmallButton
-                      label="Delete category"
-                      onPress={() => confirmDeleteCategory(selectedCategory)}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
-              {editingCategory ? (
-                <View
-                  style={[
-                    styles.newCategory,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <LabeledInput
-                    label="Group name"
-                    onChangeText={setCategoryName}
-                    placeholder="e.g. Fitness, Spiritual, Work"
-                    value={categoryName}
-                  />
-                  <IconSearchPicker
-                    value={categoryIcon}
-                    onChange={setCategoryIcon}
-                  />
-                  <View style={styles.inlineActions}>
-                    <SmallButton
-                      label="Cancel"
-                      onPress={() => {
-                        setEditingCategory(null);
-                        setCategoryName("");
-                      }}
-                    />
-                    <SmallButton
-                      primary
-                      disabled={!categoryName.trim() || isSaving}
-                      label="Save group"
-                      onPress={() => void saveCategoryEdit()}
-                    />
-                  </View>
-                </View>
-              ) : addingCategory ? (
-                <View
-                  style={[
-                    styles.newCategory,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  <LabeledInput
-                    label="New habit group"
-                    onChangeText={setCategoryName}
-                    placeholder="e.g. Fitness, Spiritual, Work"
-                    value={categoryName}
-                  />
-                  <IconSearchPicker
-                    value={categoryIcon}
-                    onChange={setCategoryIcon}
-                  />
-                  <View style={styles.inlineActions}>
-                    <SmallButton
-                      label="Cancel"
-                      onPress={() => setAddingCategory(false)}
-                    />
-                    <SmallButton
-                      primary
-                      disabled={!categoryName.trim() || isSaving}
-                      label="Save group"
-                      onPress={() => void saveCategory()}
-                    />
-                  </View>
-                </View>
-              ) : (
-                <Pressable
-                  onPress={() => {
-                    setEditingCategory(null);
-                    setAddingCategory(true);
-                  }}
-                  style={({ pressed }) => [
-                    styles.inlineAdd,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <SymbolView
-                    name={symbol("plus.circle", "add_circle")}
-                    size={18}
-                    tintColor={theme.primary}
-                  />
-                  <Text
-                    style={[styles.inlineAddLabel, { color: theme.primary }]}
-                  >
-                    Add a new habit group
-                  </Text>
-                </Pressable>
-              )}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                Priority
-              </Text>
-              <View style={styles.choiceWrap}>
-                {PRIORITIES.map((priority) => (
-                  <Choice
-                    key={priority}
-                    label={capitalize(priority)}
-                    selected={form.priority === priority}
-                    onPress={() =>
-                      setForm((current) => ({ ...current, priority }))
-                    }
-                  />
-                ))}
-              </View>
             </FormSection>
 
-            <FormSection title="Schedule">
+            <FormSection showTitle={false} title="Schedule">
               <View style={styles.scheduleSentence}>
                 <Text
                   style={[styles.scheduleSentenceLabel, { color: theme.text }]}
@@ -2103,7 +1946,161 @@ export function HabitFormModal({
               </View>
             </FormSection>
 
-            <FormSection title="Options">
+            <FormSection showTitle={false} title="Priority">
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Priority
+              </Text>
+              <View style={styles.choiceWrap}>
+                {PRIORITIES.map((priority) => (
+                  <Choice
+                    key={priority}
+                    label={capitalize(priority)}
+                    selected={form.priority === priority}
+                    onPress={() =>
+                      setForm((current) => ({ ...current, priority }))
+                    }
+                  />
+                ))}
+              </View>
+            </FormSection>
+
+            <FormSection showTitle={false} title="Group with">
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                Group with
+              </Text>
+              {categories.length ? (
+                <View style={styles.choiceWrap}>
+                  {categories.map((category) => (
+                    <Choice
+                      key={category.id}
+                      label={category.name}
+                      selected={form.categoryId === category.id}
+                      onPress={() =>
+                        setForm((current) => ({
+                          ...current,
+                          categoryId: category.id,
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {selectedCategory && (onUpdateCategory || onDeleteCategory) ? (
+                <View style={styles.categoryActions}>
+                  {onUpdateCategory ? (
+                    <SmallButton
+                      label="Rename group"
+                      onPress={() => {
+                        setAddingCategory(false);
+                        setEditingCategory(selectedCategory);
+                        setCategoryName(selectedCategory.name);
+                        setCategoryIcon(selectedCategory.icon);
+                      }}
+                    />
+                  ) : null}
+                  {onDeleteCategory ? (
+                    <SmallButton
+                      label="Delete category"
+                      onPress={() => confirmDeleteCategory(selectedCategory)}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+              {editingCategory ? (
+                <View
+                  style={[
+                    styles.newCategory,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <LabeledInput
+                    label="Group name"
+                    onChangeText={setCategoryName}
+                    placeholder="e.g. Fitness, Spiritual, Work"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => {
+                        setEditingCategory(null);
+                        setCategoryName("");
+                      }}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Save group"
+                      onPress={() => void saveCategoryEdit()}
+                    />
+                  </View>
+                </View>
+              ) : addingCategory ? (
+                <View
+                  style={[
+                    styles.newCategory,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <LabeledInput
+                    label="New habit group"
+                    onChangeText={setCategoryName}
+                    placeholder="e.g. Fitness, Spiritual, Work"
+                    value={categoryName}
+                  />
+                  <IconSearchPicker
+                    value={categoryIcon}
+                    onChange={setCategoryIcon}
+                  />
+                  <View style={styles.inlineActions}>
+                    <SmallButton
+                      label="Cancel"
+                      onPress={() => setAddingCategory(false)}
+                    />
+                    <SmallButton
+                      primary
+                      disabled={!categoryName.trim() || isSaving}
+                      label="Save group"
+                      onPress={() => void saveCategory()}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    setEditingCategory(null);
+                    setAddingCategory(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.inlineAdd,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("plus.circle", "add_circle")}
+                    size={18}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={[styles.inlineAddLabel, { color: theme.primary }]}
+                  >
+                    Add a new habit group
+                  </Text>
+                </Pressable>
+              )}
+            </FormSection>
+
+            <FormSection showTitle={false} title="Visibility">
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
                 Visibility
               </Text>
@@ -2272,6 +2269,15 @@ export function HabitFormModal({
                   </View>
                 </Pressable>
               ) : null}
+            </FormSection>
+
+            <FormSection showTitle={false} title="Color">
+              <CalendarColorPicker
+                value={form.color}
+                onChange={(color) =>
+                  setForm((current) => ({ ...current, color }))
+                }
+              />
             </FormSection>
           </ScrollView>
         </SafeAreaView>
@@ -2511,17 +2517,21 @@ function HabitAudiencePickerModal({
 
 function FormSection({
   children,
+  showTitle = true,
   title,
 }: {
   children: React.ReactNode;
+  showTitle?: boolean;
   title: string;
 }) {
   const theme = useTheme();
   return (
     <View style={styles.formSection}>
-      <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        {title}
-      </Text>
+      {showTitle ? (
+        <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+          {title}
+        </Text>
+      ) : null}
       <View style={styles.sectionSurface}>{children}</View>
     </View>
   );

@@ -1,5 +1,5 @@
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   type StyleProp,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -63,6 +64,8 @@ export function TaskFormModal({
 }) {
   const theme = useTheme();
   const [form, setForm] = useState<TaskInput>(EMPTY_TASK);
+  const [createdProject, setCreatedProject] = useState<Project | null>(null);
+  const plannerToggleTouchedRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
@@ -70,7 +73,19 @@ export function TaskFormModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setForm(task ? toInput(task) : { ...EMPTY_TASK, ...initialValues });
+    plannerToggleTouchedRef.current = false;
+    setCreatedProject(null);
+    setForm(
+      task
+        ? toInput(task)
+        : {
+            ...EMPTY_TASK,
+            ...initialValues,
+            planOnCalendar:
+              initialValues?.planOnCalendar ??
+              initialValues?.importance === "High",
+          },
+    );
     setError(null);
     setNewProjectName("");
   }, [initialValues, isOpen, task]);
@@ -82,6 +97,7 @@ export function TaskFormModal({
     setError(null);
     try {
       const created = await onCreateProject(name);
+      setCreatedProject(created);
       setForm((current) => ({ ...current, projectId: created.id }));
       setNewProjectName("");
     } catch (createError) {
@@ -103,6 +119,11 @@ export function TaskFormModal({
       project.totalTasks > project.completedTasks ||
       project.id === form.projectId,
   );
+  const projectOptions =
+    createdProject &&
+    !activeProjects.some((project) => project.id === createdProject.id)
+      ? [createdProject, ...activeProjects]
+      : activeProjects;
 
   const setDueDate = (dueDate: string | null) => {
     const weekday = getTaskDateWeekday(dueDate);
@@ -309,12 +330,6 @@ export function TaskFormModal({
                 returnKeyType="done"
                 value={form.name}
               />
-              <CalendarColorPicker
-                value={form.color}
-                onChange={(color) =>
-                  setForm((current) => ({ ...current, color }))
-                }
-              />
             </FormSection>
 
             <FormSection title="Priority">
@@ -327,11 +342,94 @@ export function TaskFormModal({
                     key={importance}
                     label={importance}
                     selected={form.importance === importance}
+                    onPress={() => {
+                      setForm((current) => ({
+                        ...current,
+                        importance,
+                        ...(!task && !plannerToggleTouchedRef.current
+                          ? { planOnCalendar: importance === "High" }
+                          : {}),
+                      }));
+                    }}
+                  />
+                ))}
+              </View>
+            </FormSection>
+
+            <FormSection title="Project">
+              <View style={styles.choiceWrap}>
+                <Choice
+                  label="None"
+                  selected={!form.projectId}
+                  onPress={() =>
+                    setForm((current) => ({ ...current, projectId: null }))
+                  }
+                />
+                {projectOptions.map((project) => (
+                  <Choice
+                    key={project.id}
+                    label={project.name}
+                    selected={form.projectId === project.id}
                     onPress={() =>
-                      setForm((current) => ({ ...current, importance }))
+                      setForm((current) => ({
+                        ...current,
+                        projectId: project.id,
+                      }))
                     }
                   />
                 ))}
+              </View>
+              <View style={styles.newProjectRow}>
+                <TextInput
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  onChangeText={setNewProjectName}
+                  onSubmitEditing={() => void addProject()}
+                  placeholder="New project name"
+                  placeholderTextColor={theme.textSecondary}
+                  returnKeyType="done"
+                  selectionColor={theme.primary}
+                  style={[
+                    styles.newProjectInput,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      color: theme.text,
+                    },
+                  ]}
+                  value={newProjectName}
+                />
+                <Pressable
+                  accessibilityLabel="Add project"
+                  disabled={!newProjectName.trim() || isCreatingProject}
+                  onPress={() => void addProject()}
+                  style={[
+                    styles.newProjectButton,
+                    {
+                      backgroundColor: newProjectName.trim()
+                        ? theme.primary
+                        : theme.backgroundElement,
+                    },
+                  ]}
+                >
+                  {isCreatingProject ? (
+                    <ActivityIndicator
+                      color={theme.primaryForeground}
+                      size="small"
+                    />
+                  ) : (
+                    <SymbolView
+                      name={sym("plus", "add")}
+                      size={18}
+                      weight="semibold"
+                      tintColor={
+                        newProjectName.trim()
+                          ? theme.primaryForeground
+                          : theme.textSecondary
+                      }
+                    />
+                  )}
+                </Pressable>
               </View>
             </FormSection>
 
@@ -420,83 +518,51 @@ export function TaskFormModal({
                   ))}
                 </View>
               </View>
+              <View
+                style={[
+                  styles.switchRow,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
+                <View style={styles.switchCopy}>
+                  <Text style={[styles.switchTitle, { color: theme.text }]}>
+                    Add to calendar planner
+                  </Text>
+                  <Text
+                    style={[
+                      styles.switchDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Show this task in the unscheduled area so you can drag it
+                    onto your plan.
+                  </Text>
+                </View>
+                <Switch
+                  onValueChange={(planOnCalendar) => {
+                    playSelectionHaptic();
+                    plannerToggleTouchedRef.current = true;
+                    setForm((current) => ({ ...current, planOnCalendar }));
+                  }}
+                  trackColor={{
+                    false: theme.backgroundSelected,
+                    true: theme.primary,
+                  }}
+                  value={form.planOnCalendar}
+                />
+              </View>
             </FormSection>
 
-            <FormSection title="Project">
-              <View style={styles.choiceWrap}>
-                <Choice
-                  label="None"
-                  selected={!form.projectId}
-                  onPress={() =>
-                    setForm((current) => ({ ...current, projectId: null }))
-                  }
-                />
-                {activeProjects.map((project) => (
-                  <Choice
-                    key={project.id}
-                    label={project.name}
-                    selected={form.projectId === project.id}
-                    onPress={() =>
-                      setForm((current) => ({
-                        ...current,
-                        projectId: project.id,
-                      }))
-                    }
-                  />
-                ))}
-              </View>
-              <View style={styles.newProjectRow}>
-                <TextInput
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  onChangeText={setNewProjectName}
-                  onSubmitEditing={() => void addProject()}
-                  placeholder="New project name"
-                  placeholderTextColor={theme.textSecondary}
-                  returnKeyType="done"
-                  selectionColor={theme.primary}
-                  style={[
-                    styles.newProjectInput,
-                    {
-                      backgroundColor: theme.backgroundElement,
-                      borderColor: theme.tabBorder,
-                      color: theme.text,
-                    },
-                  ]}
-                  value={newProjectName}
-                />
-                <Pressable
-                  accessibilityLabel="Add project"
-                  disabled={!newProjectName.trim() || isCreatingProject}
-                  onPress={() => void addProject()}
-                  style={[
-                    styles.newProjectButton,
-                    {
-                      backgroundColor: newProjectName.trim()
-                        ? theme.primary
-                        : theme.backgroundElement,
-                    },
-                  ]}
-                >
-                  {isCreatingProject ? (
-                    <ActivityIndicator
-                      color={theme.primaryForeground}
-                      size="small"
-                    />
-                  ) : (
-                    <SymbolView
-                      name={sym("plus", "add")}
-                      size={18}
-                      weight="semibold"
-                      tintColor={
-                        newProjectName.trim()
-                          ? theme.primaryForeground
-                          : theme.textSecondary
-                      }
-                    />
-                  )}
-                </Pressable>
-              </View>
+            <FormSection title="Color">
+              <CalendarColorPicker
+                value={form.color}
+                onChange={(color) =>
+                  setForm((current) => ({ ...current, color }))
+                }
+              />
             </FormSection>
 
             {error ? <Text style={styles.formError}>{error}</Text> : null}
@@ -697,6 +763,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   choiceLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+  },
+  switchCopy: { flex: 1, gap: 2 },
+  switchTitle: { fontSize: 14, lineHeight: 19, fontWeight: "800" },
+  switchDescription: { fontSize: 12, lineHeight: 17, fontWeight: "500" },
   newProjectRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   newProjectInput: {
     flex: 1,

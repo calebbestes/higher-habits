@@ -69,7 +69,7 @@ import {
 
 type SymbolName = SymbolViewProps["name"];
 type WeekEventSourceType = PlannedEventSourceType | "google";
-type WeekEvent = Pick<
+export type WeekEvent = Pick<
   PlannedEvent,
   "date" | "endTime" | "id" | "startTime" | "title"
 > & {
@@ -77,6 +77,8 @@ type WeekEvent = Pick<
   calendarColor?: string | null;
   calendarColorId?: string | null;
   calendarForegroundColor?: string | null;
+  plannedEventId?: string;
+  sourceId?: string;
   sourceType: WeekEventSourceType;
 };
 
@@ -215,13 +217,21 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function getDayRange(date: Date) {
-  const start = startOfDay(date);
-  const end = addDays(start, 1);
+function getWeekRange(weekStart: Date) {
+  const start = startOfDay(weekStart);
+  const end = addDays(start, 7);
   return {
     timeMax: end.toISOString(),
     timeMin: start.toISOString(),
   };
+}
+
+function getGoogleEventDateKey(event: GoogleCalendarDayEvent) {
+  if (event.start.date) return event.start.date;
+  if (!event.start.dateTime) return null;
+
+  const date = new Date(event.start.dateTime);
+  return Number.isNaN(date.getTime()) ? null : toDateKey(date);
 }
 
 function googleEventToWeekEvent(
@@ -235,6 +245,7 @@ function googleEventToWeekEvent(
     date: dateKey,
     endTime: event.allDay ? null : dateTimeToTime(event.end.dateTime),
     id: `google-${event.id}`,
+    sourceId: event.id,
     sourceType: "google",
     startTime: event.allDay ? null : dateTimeToTime(event.start.dateTime),
     title: event.title,
@@ -260,19 +271,22 @@ function plannedEventToWeekEvent(
   habitColorById: Map<string, string | null>,
 ): WeekEvent {
   const calendarColor =
-    event.sourceType === "task"
+    event.calendarColor ??
+    (event.sourceType === "task"
       ? (taskById.get(event.sourceId)?.color ?? null)
       : event.sourceType === "goal_checkpoint"
         ? (goalColorByCheckpointId.get(event.sourceId) ?? null)
         : event.sourceType === "habit_instance"
           ? (habitColorById.get(event.sourceParentId ?? event.sourceId) ?? null)
-          : null;
+          : null);
 
   return {
     calendarColor,
     date: event.date,
     endTime: event.endTime,
     id: event.id,
+    plannedEventId: event.id,
+    sourceId: event.sourceId,
     sourceType: event.sourceType,
     startTime: event.startTime,
     title: event.title,
@@ -373,6 +387,7 @@ function snapshotHabitEventsForWeek({
         date: dateKey,
         endTime: plannedTime.endTime,
         id: `habit-snapshot-${habitId}-${dateKey}`,
+        sourceId: habitId,
         sourceType: "habit_instance",
         startTime: plannedTime.startTime,
         title: habit.name,
@@ -394,6 +409,7 @@ function snapshotHabitEventsForWeek({
         date: dateKey,
         endTime: plan.endTime,
         id: `habit-repeat-${habitId}-${dateKey}`,
+        sourceId: habitId,
         sourceType: "habit_instance",
         startTime: plan.startTime,
         title: habit.name,
@@ -458,10 +474,12 @@ function stripEditorText(html: string): string {
 export function WeeklyPlanScreen({
   initialDateKey,
   onDateChange,
+  onSelectEvent,
   onSelectDate,
 }: {
   initialDateKey?: string;
   onDateChange?: (dateKey: string) => void;
+  onSelectEvent?: (event: WeekEvent) => void;
   onSelectDate?: (dateKey: string) => void;
 }) {
   const theme = useTheme();
@@ -512,8 +530,6 @@ export function WeeklyPlanScreen({
   const [selectedHeaderIds, setSelectedHeaderIds] = useState<string[]>([]);
   const [editorFocused, setEditorFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<WeekEvent | null>(null);
-
   const [now, setNow] = useState(() => new Date());
   const todayKey = toDateKey(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
@@ -645,52 +661,53 @@ export function WeeklyPlanScreen({
 
       try {
         const weekDateKeys = weekDays.map((day) => toDateKey(day));
-        const plannedResult = await Promise.allSettled([
+        const monthKeys = [...new Set(weekDays.map((day) => getMonthKey(day)))];
+        const weekRange = getWeekRange(weekStartDate);
+        const [
+          plannedResult,
+          googleResult,
+          snapshotResultsResult,
+          noteResult,
+          headersResult,
+        ] = await Promise.allSettled([
           fetchWeekPlanBootstrap(
             weekDateKeys[0] ?? weekStartKey,
             weekDateKeys.at(-1) ?? weekStartKey,
           ),
-        ]);
-        const googleResults = await Promise.allSettled(
-          weekDays.map((day) => {
-            const range = getDayRange(day);
-            return fetchGoogleCalendarEvents({
-              timeMax: range.timeMax,
-              timeMin: range.timeMin,
-              timeZone,
-            });
+          fetchGoogleCalendarEvents({
+            timeMax: weekRange.timeMax,
+            timeMin: weekRange.timeMin,
+            timeZone,
           }),
-        );
-        const monthKeys = [...new Set(weekDays.map((day) => getMonthKey(day)))];
-        const snapshotResults = await Promise.allSettled(
-          monthKeys.map((monthKey) => fetchHabitLogsSnapshot(monthKey)),
-        );
-        const [noteResult, headersResult] = await Promise.allSettled([
+          Promise.allSettled(
+            monthKeys.map((monthKey) => fetchHabitLogsSnapshot(monthKey)),
+          ),
           fetchWeeklyPlanNote(weekStartKey),
           fetchWeeklyPlanNoteHeaders(),
         ]);
 
         if (!mountedRef.current || requestId !== requestIdRef.current) return;
         const plannedBootstrap =
-          plannedResult[0]?.status === "fulfilled"
-            ? plannedResult[0].value
-            : null;
-        const googleWeekEvents = googleResults.flatMap((result, index) =>
-          result.status === "fulfilled"
-            ? result.value.events.map((event) =>
-                googleEventToWeekEvent(event, weekDateKeys[index]),
-              )
-            : [],
-        );
+          plannedResult.status === "fulfilled" ? plannedResult.value : null;
+        const weekDateKeySet = new Set(weekDateKeys);
+        const googleWeekEvents =
+          googleResult.status === "fulfilled"
+            ? googleResult.value.events.flatMap((event) => {
+                const dateKey = getGoogleEventDateKey(event);
+                return dateKey && weekDateKeySet.has(dateKey)
+                  ? [googleEventToWeekEvent(event, dateKey)]
+                  : [];
+              })
+            : [];
         const googleStatus =
-          googleResults.find(
-            (result) =>
-              result.status === "fulfilled" && result.value.status === "synced",
-          )?.status === "fulfilled"
-            ? "synced"
-            : (googleResults.find((result) => result.status === "fulfilled")
-                ?.value.status ?? "error");
-        const habitWeekEvents = snapshotResults.flatMap((result) =>
+          googleResult.status === "fulfilled"
+            ? googleResult.value.status
+            : "error";
+        const fulfilledSnapshots =
+          snapshotResultsResult.status === "fulfilled"
+            ? snapshotResultsResult.value
+            : [];
+        const habitWeekEvents = fulfilledSnapshots.flatMap((result) =>
           result.status === "fulfilled"
             ? snapshotHabitEventsForWeek({
                 snapshot: result.value,
@@ -699,7 +716,7 @@ export function WeeklyPlanScreen({
             : [],
         );
         const habitColorById = new Map<string, string | null>();
-        for (const result of snapshotResults) {
+        for (const result of fulfilledSnapshots) {
           if (result.status !== "fulfilled") continue;
           for (const category of result.value.categories) {
             for (const habit of category.habits) {
@@ -769,7 +786,7 @@ export function WeeklyPlanScreen({
         }
       }
     },
-    [timeZone, weekDays, weekStartKey],
+    [timeZone, weekDays, weekStartDate, weekStartKey],
   );
 
   useEffect(() => {
@@ -1160,7 +1177,7 @@ export function WeeklyPlanScreen({
                             <EventChip
                               event={event}
                               key={event.id}
-                              onPress={() => setSelectedEvent(event)}
+                              onPress={() => onSelectEvent?.(event)}
                             />
                           ))}
                           {allDayEvents.length > 1 ? (
@@ -1245,7 +1262,7 @@ export function WeeklyPlanScreen({
                               event={event}
                               laneCount={laneCount}
                               laneIndex={laneIndex}
-                              onPress={() => setSelectedEvent(event)}
+                              onPress={() => onSelectEvent?.(event)}
                             />
                           ),
                         )}
@@ -1308,10 +1325,6 @@ export function WeeklyPlanScreen({
           </View>
         </ScrollView>
       </SafeAreaView>
-      <WeeklyEventDetailModal
-        event={selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-      />
       <Modal
         animationType="slide"
         onRequestClose={closeNotesModal}
@@ -1443,7 +1456,11 @@ export function WeeklyPlanScreen({
             </KeyboardAvoidingView>
           </SafeAreaView>
           {headersModalOpen ? (
-            <View style={styles.headerPickerOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              keyboardVerticalOffset={0}
+              style={styles.headerPickerOverlay}
+            >
               <Pressable
                 accessibilityLabel="Close saved headers"
                 style={styles.headerPickerBackdrop}
@@ -1567,7 +1584,7 @@ export function WeeklyPlanScreen({
                   )}
                 </ScrollView>
               </View>
-            </View>
+            </KeyboardAvoidingView>
           ) : null}
         </View>
       </Modal>
@@ -1604,11 +1621,7 @@ function EventChip({
         pressed && styles.pressed,
       ]}
     >
-      <Text
-        ellipsizeMode="tail"
-        numberOfLines={1}
-        style={[styles.eventChipText, { color: palette.text }]}
-      >
+      <Text style={[styles.eventChipText, { color: palette.text }]}>
         {event.title}
       </Text>
     </Pressable>
@@ -1632,8 +1645,6 @@ function EventBlock({
   const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + 3;
   const height = ((end - start) / 60) * HOUR_HEIGHT - 3;
   const laneWidth = 100 / laneCount;
-  const isVeryShort = end - start <= 30;
-
   return (
     <Pressable
       accessibilityLabel={event.title}
@@ -1642,8 +1653,8 @@ function EventBlock({
       style={({ pressed }) => [
         styles.eventBlock,
         {
-          backgroundColor: isVeryShort ? "transparent" : palette.bg,
-          height: Math.max(height, 16),
+          backgroundColor: palette.bg,
+          height: Math.max(height, 24),
           left: `${laneIndex * laneWidth}%`,
           top,
           width: `${laneWidth}%`,
@@ -1651,164 +1662,11 @@ function EventBlock({
         pressed && styles.pressed,
       ]}
     >
-      {isVeryShort ? (
-        <View style={styles.eventCompactRow}>
-          <View style={[styles.eventDot, { backgroundColor: palette.bg }]} />
-          <Text
-            ellipsizeMode="tail"
-            numberOfLines={1}
-            style={[styles.eventTitle, { color: theme.text }]}
-          >
-            {event.title}
-          </Text>
-        </View>
-      ) : (
-        <Text
-          ellipsizeMode="tail"
-          numberOfLines={1}
-          style={[styles.eventTitle, { color: palette.text }]}
-        >
-          {event.title}
-        </Text>
-      )}
+      <Text style={[styles.eventTitle, { color: palette.text }]}>
+        {event.title}
+      </Text>
     </Pressable>
   );
-}
-
-function WeeklyEventDetailModal({
-  event,
-  onClose,
-}: {
-  event: WeekEvent | null;
-  onClose: () => void;
-}) {
-  const theme = useTheme();
-
-  if (!event) return null;
-
-  const palette = eventPalette(event, theme);
-
-  return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible>
-      <View style={styles.eventDetailsOverlay}>
-        <Pressable
-          accessibilityLabel="Close event details"
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <SafeAreaView
-          edges={["bottom"]}
-          style={[
-            styles.eventDetailsSheet,
-            { backgroundColor: theme.background },
-          ]}
-        >
-          <View
-            style={[
-              styles.eventDetailsHeader,
-              { borderBottomColor: theme.tabBorder },
-            ]}
-          >
-            <View style={styles.eventDetailsTitleBlock}>
-              <Text
-                numberOfLines={2}
-                style={[styles.eventDetailsTitle, { color: theme.text }]}
-              >
-                {event.title}
-              </Text>
-              <Text
-                style={[
-                  styles.eventDetailsSubtitle,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                {getWeekEventSourceLabel(event)}
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel="Close event details"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={onClose}
-              style={({ pressed }) => [
-                styles.eventDetailsClose,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("xmark", "close")}
-                size={15}
-                tintColor={theme.textSecondary}
-                weight="bold"
-              />
-            </Pressable>
-          </View>
-          <View style={styles.eventDetailsContent}>
-            <View style={styles.eventDetailsInfoRow}>
-              <View
-                style={[
-                  styles.eventDetailsSwatch,
-                  { backgroundColor: palette.bg },
-                ]}
-              />
-              <View>
-                <Text style={[styles.eventDetailsDate, { color: theme.text }]}>
-                  {formatWeekEventDate(event.date)}
-                </Text>
-                <Text
-                  style={[
-                    styles.eventDetailsTime,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  {formatWeekEventTime(event)}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </SafeAreaView>
-      </View>
-    </Modal>
-  );
-}
-
-function formatWeekEventDate(dateKey: string): string {
-  const date = dateFromKey(dateKey);
-  return `${DAY_NAMES[date.getDay()]}, ${MONTH_ABBRS[date.getMonth()]} ${date.getDate()}`;
-}
-
-function formatWeekEventTime(event: WeekEvent): string {
-  if (!event.startTime) return "All day";
-  const start = formatShortTime(event.startTime);
-  if (!event.endTime) return start;
-  return `${start} – ${formatShortTime(event.endTime)}`;
-}
-
-function formatShortTime(value: string): string {
-  const [hourPart, minutePart] = value.split(":");
-  const hour = Number(hourPart);
-  const minute = Number(minutePart);
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour % 12 || 12;
-  return minute
-    ? `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`
-    : `${displayHour} ${suffix}`;
-}
-
-function getWeekEventSourceLabel(event: WeekEvent): string {
-  switch (event.sourceType) {
-    case "google":
-      return "Google Calendar";
-    case "goal_checkpoint":
-      return "Goal checkpoint";
-    case "habit_instance":
-      return "Habit";
-    case "other_event":
-      return "Planned event";
-    case "task":
-      return "Task";
-  }
 }
 
 function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
@@ -1823,7 +1681,8 @@ function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
   if (
     event.sourceType === "task" ||
     event.sourceType === "goal_checkpoint" ||
-    event.sourceType === "habit_instance"
+    event.sourceType === "habit_instance" ||
+    event.sourceType === "other_event"
   ) {
     return {
       bg: event.calendarColor ?? theme.primary,
@@ -1988,84 +1847,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     overflow: "hidden",
     paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingVertical: 1,
     position: "absolute",
-  },
-  eventDetailsClose: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  eventDetailsContent: {
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-  },
-  eventDetailsDate: {
-    fontSize: 17,
-    fontWeight: "800",
-    lineHeight: 22,
-  },
-  eventDetailsHeader: {
-    alignItems: "flex-start",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 18,
-  },
-  eventDetailsInfoRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 14,
-  },
-  eventDetailsOverlay: {
-    backgroundColor: "#00000033",
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  eventDetailsSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-    elevation: 12,
-  },
-  eventDetailsSubtitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 4,
-  },
-  eventDetailsSwatch: {
-    borderRadius: 999,
-    height: 14,
-    width: 14,
-  },
-  eventDetailsTime: {
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 20,
-    marginTop: 2,
-  },
-  eventDetailsTitle: {
-    fontSize: 24,
-    fontWeight: "900",
-    lineHeight: 29,
-  },
-  eventDetailsTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  eventCompactRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 3,
-    minWidth: 0,
   },
   eventChip: {
     borderRadius: 5,
@@ -2076,12 +1859,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
     lineHeight: 10,
-  },
-  eventDot: {
-    borderRadius: 999,
-    flexShrink: 0,
-    height: 6,
-    width: 6,
   },
   eventTitle: {
     flex: 1,

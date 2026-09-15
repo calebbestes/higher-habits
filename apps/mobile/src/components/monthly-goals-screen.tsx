@@ -539,7 +539,9 @@ export function MonthlyGoalsScreen({
   );
 
   const openHabitMenu = (goal: PeriodicHabitInfo) => {
-    Alert.alert(goal.name, undefined, [
+    const selectedStatus =
+      logsByHabitDateRef.current[`${goal.id}_${selectedDateKey}`];
+    const actions: Parameters<typeof Alert.alert>[2] = [
       { text: "Edit habit", onPress: () => openEdit(goal) },
       {
         text: "Delete habit",
@@ -547,7 +549,21 @@ export function MonthlyGoalsScreen({
         onPress: () => confirmDelete(goal),
       },
       { text: "Cancel", style: "cancel" },
-    ]);
+    ];
+
+    if (selectedStatus !== "complete") {
+      actions.unshift({
+        text: "Complete",
+        onPress: () =>
+          void handleSetStatus(goal.id, "complete", {
+            endTime: null,
+            startTime: null,
+            timeZone: getLocalTimeZone(),
+          }),
+      });
+    }
+
+    Alert.alert(goal.name, undefined, actions);
   };
 
   const calendarDays = useMemo(

@@ -64,6 +64,7 @@ export async function GET(request: Request) {
         title: string;
         color: string | null;
         timing: "current" | "later";
+        planOnCalendar: boolean;
         sortOrder: number;
         checkpoints: Array<{
           id: string;
@@ -130,6 +131,7 @@ export async function GET(request: Request) {
         title: goal.title,
         color: goal.color ?? null,
         timing: goal.timing === "later" ? "later" : "current",
+        planOnCalendar: goal.planOnCalendar,
         sortOrder: goal.sortOrder,
         checkpoints: checkpointRows
           .filter((checkpoint) => checkpoint.goalId === goal.id)

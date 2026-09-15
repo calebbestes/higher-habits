@@ -225,6 +225,7 @@ export async function GET(request: Request) {
         goalName: habits.name,
         goalIcon: habits.iconKey,
         dateKey: goalLogs.date,
+        visibility: goalLogs.visibility,
         notes: goalLogs.notes,
         updatedAt: goalLogs.updatedAt,
       })
@@ -269,6 +270,7 @@ export async function GET(request: Request) {
         checkpointTitle: goalCheckpoints.title,
         notes: goalCheckpoints.notes,
         completedAt: goalCheckpoints.completedAt,
+        visibility: goalCheckpoints.visibility,
         updatedAt: goalCheckpoints.updatedAt,
       })
       .from(goalCheckpoints)
@@ -328,6 +330,7 @@ export async function GET(request: Request) {
       friend: { id: string; name: string; image: string | null };
       goal: { id: string; name: string; icon: string };
       dateKey: string;
+      visibility: "only_me" | "goal_friends" | "all_friends";
       notes: string;
       reflectionPrompt: string | null;
       updatedAt: string;
@@ -355,6 +358,7 @@ export async function GET(request: Request) {
           icon: row.goalIcon || "mdi:circle",
         },
         dateKey: row.dateKey,
+        visibility: row.visibility,
         notes: row.notes,
         reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
@@ -384,6 +388,7 @@ export async function GET(request: Request) {
           icon: "checkmark.seal.fill",
         },
         dateKey: row.completedAt.toISOString().slice(0, 10),
+        visibility: row.visibility,
         notes: row.notes ?? "",
         reflectionPrompt: null,
         updatedAt: row.updatedAt.toISOString(),
@@ -402,6 +407,7 @@ export async function GET(request: Request) {
         entryId: dailyReflectionPosts.id,
         prompt: dailyReflectionPosts.prompt,
         body: dailyReflectionPosts.body,
+        visibility: dailyReflectionPosts.visibility,
         dateKey: dailyReflectionPosts.date,
         updatedAt: dailyReflectionPosts.updatedAt,
       })
@@ -518,6 +524,7 @@ export async function GET(request: Request) {
           icon: "sparkles",
         },
         dateKey: row.dateKey,
+        visibility: row.visibility,
         notes: row.body,
         reflectionPrompt: row.prompt,
         updatedAt: row.updatedAt.toISOString(),

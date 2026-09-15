@@ -31,6 +31,7 @@ export function serializePlannedEvent(row: PlannedEventRow) {
     sourceId: row.sourceId,
     sourceParentId: row.sourceParentId ?? null,
     title: row.title,
+    calendarColor: row.calendarColor ?? null,
     date: row.date,
     startTime: row.plannedStartTime ?? null,
     endTime: row.plannedEndTime ?? null,
@@ -207,6 +208,7 @@ export async function upsertPlannedEvent(
     sourceType,
     timeZone,
     title,
+    calendarColor,
     userId,
   }: {
     dateKey: string;
@@ -217,6 +219,7 @@ export async function upsertPlannedEvent(
     sourceType: PlannedEventSourceType;
     timeZone?: string | null;
     title: string;
+    calendarColor?: string | null;
     userId: string;
   },
 ) {
@@ -241,6 +244,7 @@ export async function upsertPlannedEvent(
     sourceType,
     title,
     timeZone,
+    color: calendarColor,
     userId,
   });
 
@@ -252,6 +256,7 @@ export async function upsertPlannedEvent(
       sourceId,
       sourceParentId: sourceParentId ?? null,
       title,
+      calendarColor: calendarColor ?? null,
       date: dateKey,
       plannedStartTime,
       plannedEndTime,
@@ -271,6 +276,7 @@ export async function upsertPlannedEvent(
         title,
         date: dateKey,
         sourceParentId: sourceParentId ?? null,
+        calendarColor: calendarColor ?? null,
         plannedStartTime,
         plannedEndTime,
         googleCalendarEventId:

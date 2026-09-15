@@ -807,6 +807,7 @@ function toSharedGoalInviteEntry(goal: SharedGoalSnapshot): FriendFeedEntry {
     },
     category: null,
     dateKey: goal.startsOn ?? todayKey(),
+    visibility: "all_friends",
     notes: "",
     reflectionPrompt: null,
     updatedAt: new Date().toISOString(),

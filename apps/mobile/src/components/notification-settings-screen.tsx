@@ -234,24 +234,24 @@ const TIME_ITEMS: TimeItem[] = [
   {
     key: "dailyNotificationTime",
     icon: sym("bell.and.waves.left.and.right.fill", "notifications_active"),
-    title: "Daily reminders",
-    description: "Planning and end-of-day nudges.",
+    title: "Daily plan reminder",
+    description: "Review today and set up tomorrow.",
   },
   {
     key: "weeklyNotificationTime",
     dayKey: "weeklyNotificationDay",
     dayOptions: WEEKLY_DAY_ACTIONS,
     icon: sym("calendar.badge.clock", "event_available"),
-    title: "Weekly recap",
-    description: "Progress recap.",
+    title: "Weekly plan reminder",
+    description: "Review and plan your week.",
   },
   {
     key: "monthlyNotificationTime",
     dayKey: "monthlyNotificationDay",
     dayOptions: MONTHLY_DAY_ACTIONS,
     icon: sym("calendar", "event"),
-    title: "Monthly reminders",
-    description: "Monthly and periodic habits.",
+    title: "Monthly plan reminder",
+    description: "Review and plan your month.",
   },
 ];
 

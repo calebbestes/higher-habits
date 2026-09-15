@@ -7,6 +7,7 @@ export type Goal = {
   title: string;
   color: string | null;
   timing: GoalTiming;
+  planOnCalendar: boolean;
   sortOrder: number;
   checkpoints: GoalCheckpoint[];
   createdAt: string;
@@ -38,6 +39,7 @@ export type GoalInput = {
   title: string;
   color: string | null;
   timing: GoalTiming;
+  planOnCalendar: boolean;
   checkpoints: GoalCheckpointInput[];
 };
 

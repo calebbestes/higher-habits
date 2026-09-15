@@ -38,6 +38,7 @@ const goalFields = {
   title: z.string().trim().min(1).max(200),
   color: colorSchema,
   timing: z.enum(["current", "later"]).default("current"),
+  planOnCalendar: z.boolean().default(false),
   checkpoints: z.array(checkpointSchema).default([]),
 };
 
@@ -76,6 +77,7 @@ const selectGoalShape = {
   title: goals.title,
   color: goals.color,
   timing: goals.timing,
+  planOnCalendar: goals.planOnCalendar,
   sortOrder: goals.sortOrder,
   createdAt: goals.createdAt,
   updatedAt: goals.updatedAt,
@@ -133,6 +135,7 @@ function serializeGoal(
     | "title"
     | "color"
     | "timing"
+    | "planOnCalendar"
     | "sortOrder"
     | "createdAt"
     | "updatedAt"
@@ -144,6 +147,7 @@ function serializeGoal(
     title: goal.title,
     color: goal.color ?? null,
     timing: goal.timing === "later" ? "later" : "current",
+    planOnCalendar: goal.planOnCalendar,
     sortOrder: goal.sortOrder,
     checkpoints: checkpoints.map(serializeCheckpoint),
     createdAt: goal.createdAt.toISOString(),
@@ -336,6 +340,7 @@ export async function POST(request: Request) {
           title: data.title,
           color: data.color,
           timing: data.timing,
+          planOnCalendar: data.planOnCalendar,
           sortOrder: Number(orderRow?.nextSortOrder ?? 0),
         })
         .returning(selectGoalShape);
@@ -356,6 +361,7 @@ export async function POST(request: Request) {
           title: data.title,
           color: data.color,
           timing: data.timing,
+          planOnCalendar: data.planOnCalendar,
           updatedAt: new Date(),
         })
         .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)))

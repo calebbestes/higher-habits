@@ -245,12 +245,25 @@ const MONTH_NAMES = [
 ];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+export type DayPlanEventTarget = {
+  dateKey: string;
+  entryId: string;
+};
+
 export function DayPlanScreen({
   initialDateKey,
+  initialEventTarget,
+  modalOnly = false,
   onDateChange,
+  onEventOverlayDismiss,
+  onInitialEventOpened,
 }: {
   initialDateKey?: string;
+  initialEventTarget?: DayPlanEventTarget | null;
+  modalOnly?: boolean;
   onDateChange?: (dateKey: string) => void;
+  onEventOverlayDismiss?: () => void;
+  onInitialEventOpened?: () => void;
 }) {
   const theme = useTheme();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -311,6 +324,7 @@ export function DayPlanScreen({
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const [activeHabit, setActiveHabit] = useState<ActionHabit | null>(null);
   const [activeEntry, setActiveEntry] = useState<DayPlanEntry | null>(null);
+  const openedInitialEventTargetRef = useRef<string | null>(null);
   const [noteHabit, setNoteHabit] = useState<ActionHabit | null>(null);
   const [noteCheckpoint, setNoteCheckpoint] =
     useState<CheckpointNoteTarget | null>(null);
@@ -999,7 +1013,9 @@ export function DayPlanScreen({
       buildSuggestedPlanEntries({
         allDayEntries,
         dateKey,
+        planGoals,
         scheduledHabitCounts,
+        scheduledCheckpointIds,
         scheduledTaskIds,
         snapshot,
         tasks,
@@ -1007,7 +1023,9 @@ export function DayPlanScreen({
     [
       allDayEntries,
       dateKey,
+      planGoals,
       scheduledHabitCounts,
+      scheduledCheckpointIds,
       scheduledTaskIds,
       snapshot,
       tasks,
@@ -1435,12 +1453,17 @@ export function DayPlanScreen({
     [dateKey],
   );
   const scheduleEntryNotification = useCallback(
-    (entry: DayPlanEntry, startTime: string | null) => {
+    (
+      entry: DayPlanEntry,
+      startTime: string | null,
+      endTime = entry.allDay ? null : formatPlanApiTime(entry.endMinutes),
+    ) => {
       const eventId = getScheduleNotificationEventId(entry, dateKey);
       if (!eventId) return;
 
       void scheduleScheduleEventNotificationAsync({
         dateKey,
+        endTime,
         eventId,
         startTime,
         title: entry.title,
@@ -1459,7 +1482,11 @@ export function DayPlanScreen({
   const saveMovedEntry = async (
     entry: DayPlanEntry,
     range: PlanRange,
-    options?: { googleAllDay?: boolean; googleColor?: string | null },
+    options?: {
+      calendarColor?: string | null;
+      googleAllDay?: boolean;
+      googleColor?: string | null;
+    },
   ): Promise<{
     googleEvent: GoogleCalendarDayEvent | null;
     success: boolean;
@@ -1519,7 +1546,7 @@ export function DayPlanScreen({
             patchHabitPlanTime(entry.habitId, startTime, endTime);
           }
         }
-        scheduleEntryNotification(notificationEntry, startTime);
+        scheduleEntryNotification(notificationEntry, startTime, endTime);
       } else if (
         entry.kind === "task" ||
         entry.kind === "goal" ||
@@ -1540,9 +1567,11 @@ export function DayPlanScreen({
           startTime,
           timeZone,
           title: entry.title,
+          calendarColor:
+            entry.kind === "other" ? options?.calendarColor : undefined,
         });
         patchPlannedEvent(response.event);
-        scheduleEntryNotification(entry, startTime);
+        scheduleEntryNotification(entry, startTime, endTime);
       } else if (entry.kind === "google") {
         const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
@@ -1563,6 +1592,7 @@ export function DayPlanScreen({
         scheduleEntryNotification(
           { ...entry, sourceId: response.event?.id ?? eventId },
           startTime,
+          endTime,
         );
         return { googleEvent: response.event ?? null, success: true };
       }
@@ -1865,6 +1895,62 @@ export function DayPlanScreen({
       setActiveEntry(entry);
     }
   };
+
+  useEffect(() => {
+    if (!initialEventTarget) {
+      openedInitialEventTargetRef.current = null;
+      return;
+    }
+
+    const targetKey = `${initialEventTarget.dateKey}:${initialEventTarget.entryId}`;
+    if (
+      initialEventTarget.dateKey !== dateKey ||
+      isLoading ||
+      openedInitialEventTargetRef.current === targetKey
+    ) {
+      return;
+    }
+
+    const entry = entries.find(
+      (candidate) => candidate.id === initialEventTarget.entryId,
+    );
+    if (!entry) return;
+
+    openedInitialEventTargetRef.current = targetKey;
+    if (entry.kind === "habit" && entry.habitId && !entry.sourceId) {
+      setActiveHabit(habitById.get(entry.habitId) ?? null);
+    } else {
+      setActiveEntry(entry);
+    }
+    onInitialEventOpened?.();
+  }, [
+    dateKey,
+    entries,
+    habitById,
+    initialEventTarget,
+    isLoading,
+    onInitialEventOpened,
+  ]);
+
+  useEffect(() => {
+    if (
+      !modalOnly ||
+      !initialEventTarget ||
+      !openedInitialEventTargetRef.current ||
+      activeEntry ||
+      activeHabit
+    ) {
+      return;
+    }
+
+    onEventOverlayDismiss?.();
+  }, [
+    activeEntry,
+    activeHabit,
+    initialEventTarget,
+    modalOnly,
+    onEventOverlayDismiss,
+  ]);
 
   const setActiveStatus = async (
     status: HabitLogStatus,
@@ -2227,14 +2313,15 @@ export function DayPlanScreen({
 
   const saveActiveEntryTimeRange = async (
     range: PlanRange,
-    googleColor?: string | null,
+    eventColor?: string | null,
     preserveGoogleAllDay = false,
   ) => {
     if (!activeEntry) return;
     const entry = activeEntry;
     const saveResult = await saveMovedEntry(entry, range, {
+      calendarColor: eventColor,
       googleAllDay: preserveGoogleAllDay,
-      googleColor,
+      googleColor: eventColor,
     });
     if (!isMountedRef.current) return;
     if (!saveResult.success) return;
@@ -2247,6 +2334,7 @@ export function DayPlanScreen({
             calendarForegroundColor: saveResult.googleEvent.foregroundColor,
           }
         : {}),
+      ...(entry.kind === "other" ? { calendarColor: eventColor ?? null } : {}),
       endMinutes: preserveGoogleAllDay ? MINUTES_IN_DAY : range.endMinutes,
       startMinutes: range.startMinutes,
     });
@@ -2405,7 +2493,10 @@ export function DayPlanScreen({
     await load({ quiet: true });
   };
 
-  const saveOtherEvent = async (title: string) => {
+  const saveOtherEvent = async (
+    title: string,
+    calendarColor: string | null = null,
+  ) => {
     if (!otherEventRange || isCreatingOtherEvent) return;
 
     setIsCreatingOtherEvent(true);
@@ -2417,6 +2508,7 @@ export function DayPlanScreen({
         startTime: formatPlanApiTime(otherEventRange.startMinutes),
         timeZone,
         title,
+        calendarColor,
       });
 
       if (!isMountedRef.current) return;
@@ -2433,6 +2525,7 @@ export function DayPlanScreen({
           sourceId: response.event.sourceId,
           startMinutes: otherEventRange.startMinutes,
           title,
+          calendarColor,
         },
         formatPlanApiTime(otherEventRange.startMinutes),
       );
@@ -2592,8 +2685,18 @@ export function DayPlanScreen({
 
   return (
     <ComponentErrorBoundary name="DayPlanScreen">
-      <View style={[styles.screen, { backgroundColor: theme.background }]}>
-        <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+      <View
+        style={[
+          styles.screen,
+          modalOnly && styles.overlayOnlyScreen,
+          { backgroundColor: modalOnly ? "transparent" : theme.background },
+        ]}
+      >
+        <SafeAreaView
+          edges={["top", "left", "right"]}
+          pointerEvents={modalOnly ? "none" : "auto"}
+          style={[styles.safeArea, modalOnly && styles.hiddenOverlayContent]}
+        >
           <ScrollView
             canCancelContentTouches
             contentContainerStyle={[
@@ -2723,7 +2826,8 @@ export function DayPlanScreen({
                           { color: theme.textSecondary },
                         ]}
                       >
-                        Click and drag boxes onto the calendar to schedule.
+                        Calendar Planner: click and drag boxes onto the calendar
+                        to schedule.
                       </Text>
                     </View>
                   ) : null}
@@ -3021,10 +3125,10 @@ export function DayPlanScreen({
           onDelete={() => void deleteActiveEntry()}
           onDeleteGoogleEvent={() => void deleteActiveGoogleEvent()}
           onOpenNote={openAttachmentForActiveEntry}
-          onSaveTimeRange={(range, googleColor, preserveGoogleAllDay) =>
+          onSaveTimeRange={(range, eventColor, preserveGoogleAllDay) =>
             void saveActiveEntryTimeRange(
               range,
-              googleColor,
+              eventColor,
               preserveGoogleAllDay,
             )
           }
@@ -3057,7 +3161,9 @@ export function DayPlanScreen({
           isSaving={isCreatingOtherEvent}
           range={otherEventRange}
           onClose={() => setOtherEventRange(null)}
-          onSave={(title) => void saveOtherEvent(title)}
+          onSave={(title, calendarColor) =>
+            void saveOtherEvent(title, calendarColor)
+          }
         />
         <TaskFormModal
           isOpen={creatingTargetType === "task"}
@@ -3363,16 +3469,19 @@ function InternalEventActionsModal({
       ? (entry.calendarBackgroundColor ??
         getGoogleCalendarColor(entry.calendarColorId))
       : null;
-  const [googleColor, setGoogleColor] = useState<string | null>(null);
+  const currentEventColor = isOtherEvent
+    ? (entry?.calendarColor ?? null)
+    : currentGoogleColor;
+  const [eventColor, setEventColor] = useState<string | null>(null);
   const nextStartTime = normalizePlanTimeInput(planStartTime, planStartPeriod);
   const nextEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
   const nextStartMinutes = timeToMinutes(nextStartTime);
   const nextEndMinutes = timeToMinutes(nextEndTime);
   const hasTimeRangeChanges =
     nextStartTime !== currentStartTime || nextEndTime !== currentEndTime;
-  const hasGoogleColorChanges =
-    isGoogleEvent && googleColor !== currentGoogleColor;
-  const hasSaveChanges = hasTimeRangeChanges || hasGoogleColorChanges;
+  const hasEventColorChanges =
+    (isGoogleEvent || isOtherEvent) && eventColor !== currentEventColor;
+  const hasSaveChanges = hasTimeRangeChanges || hasEventColorChanges;
   const canSaveTimeRange =
     nextStartMinutes !== null &&
     nextEndMinutes !== null &&
@@ -3396,10 +3505,10 @@ function InternalEventActionsModal({
     setPlanStartPeriod(start.period);
     setPlanEndTime(end.time || DEFAULT_PLAN_START_TIME);
     setPlanEndPeriod(end.period);
-    setGoogleColor(currentGoogleColor);
+    setEventColor(currentEventColor);
   }, [
     currentEndTime,
-    currentGoogleColor,
+    currentEventColor,
     currentStartTime,
     entry,
     isEditablePlannedBlock,
@@ -3502,7 +3611,9 @@ function InternalEventActionsModal({
                             ),
                             startMinutes: nextStartMinutes,
                           },
-                          isGoogleEvent ? googleColor : undefined,
+                          isGoogleEvent || isOtherEvent
+                            ? eventColor
+                            : undefined,
                           isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
                         );
                         return;
@@ -3665,13 +3776,17 @@ function InternalEventActionsModal({
                     </View>
                   </View>
                 </View>
-                {isGoogleEvent ? (
+                {isGoogleEvent || isOtherEvent ? (
                   <View style={styles.eventActionSection}>
                     <CalendarColorPicker
                       disabled={isUpdating}
-                      defaultHint="Default uses your Google Calendar color."
-                      onChange={setGoogleColor}
-                      value={googleColor}
+                      defaultHint={
+                        isGoogleEvent
+                          ? "Default uses your Google Calendar color."
+                          : "Default uses your app primary color."
+                      }
+                      onChange={setEventColor}
+                      value={eventColor}
                     />
                   </View>
                 ) : null}
@@ -4129,15 +4244,19 @@ function OtherEventFormModal({
 }: {
   isSaving: boolean;
   onClose: () => void;
-  onSave: (title: string) => void;
+  onSave: (title: string, calendarColor: string | null) => void;
   range: PlanRange | null;
 }) {
   const theme = useTheme();
   const submitLockRef = useRef(false);
   const [title, setTitle] = useState("");
+  const [calendarColor, setCalendarColor] = useState<string | null>(null);
 
   useEffect(() => {
-    if (range) setTitle("");
+    if (range) {
+      setTitle("");
+      setCalendarColor(null);
+    }
   }, [range]);
 
   useEffect(() => {
@@ -4151,7 +4270,7 @@ function OtherEventFormModal({
     if (!trimmedTitle || isSaving || submitLockRef.current) return;
 
     submitLockRef.current = true;
-    onSave(trimmedTitle);
+    onSave(trimmedTitle, calendarColor);
   };
 
   return (
@@ -4222,6 +4341,11 @@ function OtherEventFormModal({
               ]}
               value={title}
               onSubmitEditing={submit}
+            />
+            <CalendarColorPicker
+              disabled={isSaving}
+              onChange={setCalendarColor}
+              value={calendarColor}
             />
             <Pressable
               disabled={!trimmedTitle || isSaving}
@@ -5041,7 +5165,8 @@ function plannedEventToEntry(
 
   return {
     allDay: !hasTimeRange,
-    calendarColor: habit?.color ?? task?.color ?? goal?.color,
+    calendarColor:
+      event.calendarColor ?? habit?.color ?? task?.color ?? goal?.color,
     categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
     completed,
     description:
@@ -5247,14 +5372,18 @@ function isExplicitDatePlannedEntry(
 function buildSuggestedPlanEntries({
   allDayEntries,
   dateKey,
+  planGoals,
   scheduledHabitCounts,
+  scheduledCheckpointIds,
   scheduledTaskIds,
   snapshot,
   tasks,
 }: {
   allDayEntries: DayPlanEntry[];
   dateKey: string;
+  planGoals: Goal[];
   scheduledHabitCounts: Map<string, number>;
+  scheduledCheckpointIds: Set<string>;
   scheduledTaskIds: Set<string>;
   snapshot: HabitLogsSnapshot | null;
   tasks: Task[];
@@ -5353,7 +5482,7 @@ function buildSuggestedPlanEntries({
   const taskEntries = tasks
     .filter(
       (task) =>
-        task.importance === "High" &&
+        task.planOnCalendar &&
         !task.completedAt &&
         !scheduledTaskIds.has(task.id),
     )
@@ -5369,6 +5498,7 @@ function buildSuggestedPlanEntries({
     })
     .map((task) =>
       suggestedEntry({
+        defaultDurationMinutes: getTaskDurationMinutes(task.timeRequired),
         description: [
           task.dueDate ? formatDisplayDate(task.dueDate) : null,
           task.importance,
@@ -5382,16 +5512,59 @@ function buildSuggestedPlanEntries({
       }),
     );
 
+  const goalEntries = planGoals.flatMap((goal) =>
+    goal.planOnCalendar
+      ? goal.checkpoints
+          .filter(
+            (checkpoint) =>
+              !checkpoint.completed &&
+              !scheduledCheckpointIds.has(checkpoint.id),
+          )
+          .map((checkpoint) =>
+            suggestedEntry({
+              calendarColor: goal.color,
+              defaultDurationMinutes: DEFAULT_UNSCHEDULED_DROP_MINUTES,
+              description: [
+                goal.title,
+                checkpoint.targetDate
+                  ? formatDisplayDate(checkpoint.targetDate)
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+              id: `suggested-goal-${checkpoint.id}`,
+              kind: "goal",
+              sourceId: checkpoint.id,
+              title: checkpoint.title,
+            }),
+          )
+      : [],
+  );
+
   return [
     ...periodicEntries,
     ...recurringEntries,
     ...dailyHabitEntries,
     ...taskEntries,
+    ...goalEntries,
   ];
 }
 
 function getHabitPriorityScore(priority: ActionHabit["priority"] | undefined) {
   return priority === "high" ? 1 : 0;
+}
+
+function getTaskDurationMinutes(timeRequired: string) {
+  switch (timeRequired) {
+    case "~30 min":
+      return 30;
+    case "~1 hr":
+      return 60;
+    case "Multiple hours":
+      return 180;
+    default:
+      return DEFAULT_UNSCHEDULED_DROP_MINUTES;
+  }
 }
 
 function countHabitCompletionsInLastDays(
@@ -5412,7 +5585,9 @@ function countHabitCompletionsInLastDays(
 }
 
 function suggestedEntry({
+  calendarColor,
   categoryName,
+  defaultDurationMinutes,
   description,
   habitId,
   id,
@@ -5420,7 +5595,9 @@ function suggestedEntry({
   sourceId,
   title,
 }: {
+  calendarColor?: string | null;
   categoryName?: string | null;
+  defaultDurationMinutes?: number;
   description?: string | null;
   habitId?: string;
   id: string;
@@ -5430,7 +5607,9 @@ function suggestedEntry({
 }): SuggestedPlanEntry {
   return {
     allDay: true,
+    calendarColor,
     categoryName,
+    defaultDurationMinutes,
     description,
     endMinutes: MINUTES_IN_DAY,
     habitId,
@@ -5969,6 +6148,12 @@ function sym(ios: string, android: string): SymbolViewProps["name"] {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  hiddenOverlayContent: { opacity: 0 },
+  overlayOnlyScreen: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "transparent",
+    zIndex: 20,
+  },
   safeArea: { flex: 1 },
   content: {
     width: "100%",

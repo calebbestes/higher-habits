@@ -14,6 +14,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -2176,6 +2177,7 @@ export function GoalFormModal({
   const [title, setTitle] = useState("");
   const [color, setColor] = useState<string | null>(null);
   const [timing, setTiming] = useState<GoalTiming>("current");
+  const [planOnCalendar, setPlanOnCalendar] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2185,6 +2187,9 @@ export function GoalFormModal({
     setTitle(goal?.title ?? initialValues?.title ?? "");
     setColor(goal?.color ?? initialValues?.color ?? null);
     setTiming(goal?.timing ?? initialValues?.timing ?? "current");
+    setPlanOnCalendar(
+      goal?.planOnCalendar ?? initialValues?.planOnCalendar ?? false,
+    );
     setCheckpoints(
       goal?.checkpoints.length
         ? goal.checkpoints.map((checkpoint) => ({
@@ -2254,6 +2259,7 @@ export function GoalFormModal({
         title: trimmedTitle,
         color,
         timing,
+        planOnCalendar,
         checkpoints: checkpointInput.map((checkpoint) => ({
           title: checkpoint.title,
           targetDate: checkpoint.targetDate || null,
@@ -2427,6 +2433,41 @@ export function GoalFormModal({
                       );
                     })}
                   </View>
+                </View>
+                <View
+                  style={[
+                    styles.switchRow,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  <View style={styles.switchCopy}>
+                    <Text style={[styles.switchTitle, { color: theme.text }]}>
+                      Add to calendar planner
+                    </Text>
+                    <Text
+                      style={[
+                        styles.switchDescription,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Show this goal's incomplete checkpoints as draggable items
+                      when planning your schedule.
+                    </Text>
+                  </View>
+                  <Switch
+                    onValueChange={(value) => {
+                      playSelectionHaptic();
+                      setPlanOnCalendar(value);
+                    }}
+                    trackColor={{
+                      false: theme.backgroundSelected,
+                      true: theme.primary,
+                    }}
+                    value={planOnCalendar}
+                  />
                 </View>
               </View>
             </View>
@@ -3134,6 +3175,17 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   inputField: { gap: 7 },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 14,
+  },
+  switchCopy: { flex: 1, gap: 2 },
+  switchTitle: { fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  switchDescription: { fontSize: 11, lineHeight: 16, fontWeight: "500" },
   fieldLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
   input: {
     minHeight: 49,

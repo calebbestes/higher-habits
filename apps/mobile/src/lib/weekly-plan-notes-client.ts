@@ -28,6 +28,11 @@ export const fetchWeeklyPlanNote = (weekStartDate: string) =>
     `/api/weekly-plan-notes?weekStartDate=${encodeURIComponent(weekStartDate)}`,
   ).then((response) => parseResponse<WeeklyPlanNote>(response));
 
+export const fetchWeeklyPlanNotes = () =>
+  mobileApiFetch("/api/weekly-plan-notes").then((response) =>
+    parseResponse<WeeklyPlanNote[]>(response),
+  );
+
 export const fetchWeeklyPlanNoteHeaders = () =>
   mobileApiFetch("/api/weekly-plan-note-headers").then((response) =>
     parseResponse<WeeklyPlanNoteHeader[]>(response),

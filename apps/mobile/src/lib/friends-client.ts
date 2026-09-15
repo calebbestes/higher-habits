@@ -503,6 +503,12 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
         }
       : null,
     dateKey: stringOrFallback(value.dateKey),
+    visibility:
+      value.visibility === "only_me" ||
+      value.visibility === "goal_friends" ||
+      value.visibility === "all_friends"
+        ? value.visibility
+        : "all_friends",
     notes: stringOrFallback(value.notes),
     reflectionPrompt: nullableString(value.reflectionPrompt),
     updatedAt: stringOrFallback(value.updatedAt),
@@ -667,6 +673,7 @@ export type FriendFeedEntry = {
     icon: string;
   } | null;
   dateKey: string;
+  visibility: "only_me" | "goal_friends" | "all_friends";
   notes: string;
   reflectionPrompt: string | null;
   updatedAt: string;

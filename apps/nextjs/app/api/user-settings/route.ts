@@ -49,16 +49,16 @@ type DaySettingKey = (typeof DAY_SETTING_KEYS)[number];
 // push notification. Existing saved preferences are never overwritten.
 const DEFAULTS: Record<NotificationKey, boolean> = {
   notifyFriendRequests: true,
-  notifyMonthlyGoalToday: false,
-  notifyTasksDueToday: false,
+  notifyMonthlyGoalToday: true,
+  notifyTasksDueToday: true,
   notifyInactivityReminder: true,
   notifySharedGoalInvites: true,
   notifyStreakAtRisk: false,
   notifyStreakMilestone: false,
   notifyEndOfDayNudge: false,
-  notifyPostProps: false,
+  notifyPostProps: true,
   notifyPostComments: true,
-  notifyFriendPosts: false,
+  notifyFriendPosts: true,
   notifyFriendNudges: true,
   notifyFriendRequestAccepted: true,
   notifyFriendMilestone: false,
@@ -66,9 +66,9 @@ const DEFAULTS: Record<NotificationKey, boolean> = {
   notifyLastToComplete: false,
   notifySharedGoalEnding: false,
   notifyStakesReminder: false,
-  notifyIncentiveEarned: false,
-  notifyPlanTomorrow: false,
-  notifyWeeklyRecap: false,
+  notifyIncentiveEarned: true,
+  notifyPlanTomorrow: true,
+  notifyWeeklyRecap: true,
   notifyScheduleEvents: true,
 };
 const TIME_DEFAULTS = {

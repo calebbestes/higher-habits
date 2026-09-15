@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 
 import { type Habit, fetchHabits } from "@/lib/habits-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
+import { formatPlanMinutesDisplay } from "@/lib/plan-time";
 import {
   fetchNotificationSettings,
   updateUserSettings,
@@ -85,6 +86,22 @@ function parseReminderTime(reminderTime: string | null) {
   return { hour, minute };
 }
 
+function formatScheduleNotificationBody(
+  startTime: string | null,
+  endTime: string | null,
+) {
+  const start = parseReminderTime(startTime);
+  const end = parseReminderTime(endTime);
+
+  if (!start) {
+    if (!end) return "All day";
+    return formatPlanMinutesDisplay(end.hour * 60 + end.minute);
+  }
+  if (!end) return formatPlanMinutesDisplay(start.hour * 60 + start.minute);
+
+  return `${formatPlanMinutesDisplay(start.hour * 60 + start.minute)} – ${formatPlanMinutesDisplay(end.hour * 60 + end.minute)}`;
+}
+
 function parseDateTime(dateKey: string, time: string | null) {
   if (!time) return null;
 
@@ -146,11 +163,13 @@ export async function cancelAllScheduleEventNotificationsAsync() {
 export async function scheduleScheduleEventNotificationAsync({
   dateKey,
   eventId,
+  endTime,
   startTime,
   title,
 }: {
   dateKey: string;
   eventId: string;
+  endTime: string | null;
   startTime: string | null;
   title: string;
 }) {
@@ -172,7 +191,7 @@ export async function scheduleScheduleEventNotificationAsync({
     identifier: scheduleEventIdentifier(eventId),
     content: {
       title,
-      body: "Starting now on your daily plan.",
+      body: formatScheduleNotificationBody(startTime, endTime),
       data: { dateKey, eventId, type: "schedule-event" },
     },
     trigger: {

@@ -1,11 +1,17 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
-import { DayPlanScreen } from "@/components/day-plan-screen";
+import {
+  type DayPlanEventTarget,
+  DayPlanScreen,
+} from "@/components/day-plan-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
-import { WeeklyPlanScreen } from "@/components/weekly-plan-screen";
+import {
+  type WeekEvent,
+  WeeklyPlanScreen,
+} from "@/components/weekly-plan-screen";
 import {
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
@@ -32,14 +38,33 @@ export default function PlanReportScreen() {
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
+  const [pendingEventTarget, setPendingEventTarget] =
+    useState<DayPlanEventTarget | null>(null);
   const openDailyForDate = useCallback(
     (dateKey: string) => {
+      setPendingEventTarget(null);
       setPlanReportDateKey(dateKey);
       setPlanReportView("day-plan");
       router.setParams({ date: dateKey, view: "day-plan" });
     },
     [router],
   );
+  const openDailyForEvent = useCallback((event: WeekEvent) => {
+    const entryId =
+      event.sourceType === "google"
+        ? event.id
+        : event.plannedEventId
+          ? `planned-${event.plannedEventId}`
+          : event.sourceType === "habit_instance" && event.sourceId
+            ? `habit-${event.sourceId}`
+            : null;
+
+    if (!entryId) {
+      return;
+    }
+
+    setPendingEventTarget({ dateKey: event.date, entryId });
+  }, []);
 
   useEffect(() => {
     const legacyHref = getLegacyCreateHref(view);
@@ -60,6 +85,7 @@ export default function PlanReportScreen() {
           <ComponentErrorBoundary name="DayPlanScreen">
             <DayPlanScreen
               initialDateKey={activeDateKey}
+              initialEventTarget={pendingEventTarget}
               onDateChange={setPlanReportDateKey}
             />
           </ComponentErrorBoundary>
@@ -69,8 +95,17 @@ export default function PlanReportScreen() {
             <WeeklyPlanScreen
               initialDateKey={activeDateKey}
               onDateChange={setPlanReportDateKey}
+              onSelectEvent={openDailyForEvent}
               onSelectDate={openDailyForDate}
             />
+            {pendingEventTarget ? (
+              <DayPlanScreen
+                initialDateKey={pendingEventTarget.dateKey}
+                initialEventTarget={pendingEventTarget}
+                modalOnly
+                onEventOverlayDismiss={() => setPendingEventTarget(null)}
+              />
+            ) : null}
           </ComponentErrorBoundary>
         ) : null}
         {activeView === "monthly-plan" ? (

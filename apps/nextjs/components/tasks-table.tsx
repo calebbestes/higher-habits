@@ -102,6 +102,7 @@ const EMPTY_FORM: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
+  planOnCalendar: false,
   recurrence: "none",
   recurrenceWeekday: null,
   recurrenceMonthDay: null,

@@ -9,6 +9,7 @@ export type Task = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  planOnCalendar: boolean;
   recurrence: TaskRecurrence;
   recurrenceWeekday: number | null;
   recurrenceMonthDay: number | null;
@@ -25,6 +26,7 @@ export type TaskInput = {
   dueDate: string | null;
   completedAt: string | null;
   timeRequired: string;
+  planOnCalendar: boolean;
   recurrence: TaskRecurrence;
   recurrenceWeekday: number | null;
   recurrenceMonthDay: number | null;
@@ -286,6 +288,7 @@ export function taskToInput(task: Task): TaskInput {
     dueDate: task.dueDate,
     completedAt: task.completedAt,
     timeRequired: task.timeRequired,
+    planOnCalendar: task.planOnCalendar,
     recurrence: task.recurrence,
     recurrenceWeekday: task.recurrenceWeekday,
     recurrenceMonthDay: task.recurrenceMonthDay,

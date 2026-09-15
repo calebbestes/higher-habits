@@ -20,16 +20,16 @@ type Database = NonNullable<ReturnType<typeof getDb>>;
 const DEFAULT_TIME_ZONE = "America/Denver";
 const DEFAULTS: Record<NotificationPreference, boolean> = {
   notifyFriendRequests: true,
-  notifyMonthlyGoalToday: false,
-  notifyTasksDueToday: false,
+  notifyMonthlyGoalToday: true,
+  notifyTasksDueToday: true,
   notifyInactivityReminder: true,
   notifySharedGoalInvites: true,
   notifyStreakAtRisk: false,
   notifyStreakMilestone: false,
   notifyEndOfDayNudge: false,
-  notifyPostProps: false,
+  notifyPostProps: true,
   notifyPostComments: true,
-  notifyFriendPosts: false,
+  notifyFriendPosts: true,
   notifyFriendNudges: true,
   notifyFriendRequestAccepted: true,
   notifyFriendMilestone: false,
@@ -37,9 +37,9 @@ const DEFAULTS: Record<NotificationPreference, boolean> = {
   notifyLastToComplete: false,
   notifySharedGoalEnding: false,
   notifyStakesReminder: false,
-  notifyIncentiveEarned: false,
-  notifyPlanTomorrow: false,
-  notifyWeeklyRecap: false,
+  notifyIncentiveEarned: true,
+  notifyPlanTomorrow: true,
+  notifyWeeklyRecap: true,
   notifyScheduleEvents: true,
 };
 

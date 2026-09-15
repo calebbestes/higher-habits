@@ -1,5 +1,5 @@
 import { getDb, weeklyPlanNoteHeaders, weeklyPlanNotes } from "@habit/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -55,9 +55,28 @@ export async function GET(request: Request) {
     }
 
     const url = new URL(request.url);
-    const weekStartDate = dateKeySchema.parse(
-      url.searchParams.get("weekStartDate"),
-    );
+    const weekStartDateParam = url.searchParams.get("weekStartDate");
+
+    if (!weekStartDateParam) {
+      const rows = await db
+        .select({
+          notes: weeklyPlanNotes.notes,
+          weekStartDate: weeklyPlanNotes.weekStartDate,
+        })
+        .from(weeklyPlanNotes)
+        .where(
+          and(
+            eq(weeklyPlanNotes.userId, user.id),
+            ne(weeklyPlanNotes.notes, ""),
+          ),
+        )
+        .orderBy(desc(weeklyPlanNotes.weekStartDate))
+        .limit(52);
+
+      return NextResponse.json(rows);
+    }
+
+    const weekStartDate = dateKeySchema.parse(weekStartDateParam);
 
     const [row] = await db
       .select({
