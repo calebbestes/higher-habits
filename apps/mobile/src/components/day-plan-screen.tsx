@@ -42,11 +42,7 @@ import {
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
-import {
-  getCalendarCategoryColor,
-  getCalendarTypeColor,
-  getGoogleCalendarColor,
-} from "@/constants/calendar-colors";
+import { getGoogleCalendarColor } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
@@ -125,7 +121,9 @@ import {
 
 type DayPlanEntry = {
   allDay: boolean;
+  calendarBackgroundColor?: string | null;
   calendarColorId?: string | null;
+  calendarForegroundColor?: string | null;
   categoryName?: string | null;
   completed?: boolean;
   description?: string | null;
@@ -4280,7 +4278,7 @@ function EntryChip({
                 borderColor: accentColor,
               },
             ]
-          : { backgroundColor, borderLeftColor: accentColor },
+          : { backgroundColor },
       ]}
     >
       {metaLabel ? (
@@ -4534,7 +4532,7 @@ function TimedEntryBlock({
             borderColor: accentColor,
           },
         ]
-      : { backgroundColor, borderLeftColor: accentColor },
+      : { backgroundColor },
   ];
   const top = (entry.startMinutes / 60) * hourHeight;
   const naturalHeight =
@@ -4669,17 +4667,19 @@ function getEntryColors(
   entry: DayPlanEntry,
   theme: ReturnType<typeof useTheme>,
 ) {
-  const accentColor =
-    entry.kind === "google"
-      ? getGoogleCalendarColor(entry.calendarColorId)
-      : entry.categoryName
-        ? getCalendarCategoryColor(entry.categoryName)
-        : getCalendarTypeColor(entry.kind);
+  const isGoogleEntry = entry.kind === "google";
+  const accentColor = isGoogleEntry
+    ? (entry.calendarBackgroundColor ??
+      getGoogleCalendarColor(entry.calendarColorId))
+    : theme.primary;
+  const textColor = isGoogleEntry
+    ? (entry.calendarForegroundColor ?? "#FFFFFF")
+    : "#FFFFFF";
 
   return {
     accentColor,
-    backgroundColor: withHexAlpha(accentColor, entry.completed ? "18" : "2A"),
-    color: entry.completed ? theme.textSecondary : theme.text,
+    backgroundColor: withHexAlpha(accentColor, entry.completed ? "B8" : "FF"),
+    color: textColor,
   };
 }
 
@@ -4894,8 +4894,10 @@ function googleEventToEntry(
   if (event.allDay) {
     return {
       allDay: true,
+      calendarBackgroundColor: event.backgroundColor,
       description: event.description,
       calendarColorId: event.colorId,
+      calendarForegroundColor: event.foregroundColor,
       endMinutes: MINUTES_IN_DAY,
       id: `google-${event.id}`,
       kind: "google",
@@ -4935,7 +4937,9 @@ function googleEventToEntry(
 
   return {
     allDay: false,
+    calendarBackgroundColor: event.backgroundColor,
     calendarColorId: event.colorId,
+    calendarForegroundColor: event.foregroundColor,
     description: event.description,
     endMinutes: normalizeEndMinutes(startMinutes, endMinutes),
     id: `google-${event.id}`,
@@ -6176,7 +6180,6 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
     borderRadius: 8,
-    borderLeftWidth: 3,
     paddingHorizontal: 8,
     paddingVertical: 5,
   },

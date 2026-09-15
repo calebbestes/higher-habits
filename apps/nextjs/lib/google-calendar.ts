@@ -32,6 +32,15 @@ type GoogleCalendarEventsListResponse = {
   items?: GoogleCalendarApiEvent[];
 };
 
+type GoogleCalendarColorDefinition = {
+  background?: string;
+  foreground?: string;
+};
+
+type GoogleCalendarColorsResponse = {
+  event?: Record<string, GoogleCalendarColorDefinition>;
+};
+
 type GoogleCalendarApiEvent = {
   colorId?: string;
   id?: string;
@@ -46,7 +55,9 @@ type GoogleCalendarApiEvent = {
 };
 
 export type GoogleCalendarEvent = {
+  backgroundColor?: string | null;
   colorId?: string | null;
+  foregroundColor?: string | null;
   id: string;
   title: string;
   description: string | null;
@@ -54,6 +65,12 @@ export type GoogleCalendarEvent = {
   end: { date?: string; dateTime?: string; timeZone?: string };
   allDay: boolean;
 };
+
+const GOOGLE_CALENDAR_COLORS_CACHE_MS = 60 * 60 * 1000;
+let googleCalendarEventColorsCache: {
+  colors: Record<string, GoogleCalendarColorDefinition>;
+  expiresAt: number;
+} | null = null;
 
 type GoogleCalendarEventBody = {
   summary: string;
@@ -492,11 +509,14 @@ export async function listGoogleCalendarPrimaryEventsForRange({
     });
     if (timeZone) params.set("timeZone", timeZone);
 
-    const response = await googleCalendarFetch(
-      `/calendars/primary/events?${params.toString()}`,
-      token.accessToken,
-      { method: "GET" },
-    );
+    const [response, eventColors] = await Promise.all([
+      googleCalendarFetch(
+        `/calendars/primary/events?${params.toString()}`,
+        token.accessToken,
+        { method: "GET" },
+      ),
+      getGoogleCalendarEventColors(token.accessToken),
+    ]);
     await throwIfGoogleCalendarError(response);
 
     const body = (await response
@@ -505,7 +525,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
     const events = (body?.items ?? [])
       .filter((event) => event.status !== "cancelled")
       .filter((event) => !isHigherHabitsCalendarEvent(event))
-      .map(normalizeGoogleCalendarEvent)
+      .map((event) => normalizeGoogleCalendarEvent(event, eventColors))
       .filter((event): event is GoogleCalendarEvent => Boolean(event));
 
     return { status: "synced", events };
@@ -764,8 +784,41 @@ function isHigherHabitsCalendarEvent(event: GoogleCalendarApiEvent) {
   );
 }
 
+async function getGoogleCalendarEventColors(
+  accessToken: string,
+): Promise<Record<string, GoogleCalendarColorDefinition> | null> {
+  const now = Date.now();
+  const cache = googleCalendarEventColorsCache;
+  if (cache && cache.expiresAt > now) {
+    return cache.colors;
+  }
+
+  try {
+    const response = await googleCalendarFetch("/colors", accessToken, {
+      method: "GET",
+    });
+    if (!response.ok) return null;
+
+    const body = (await response
+      .json()
+      .catch(() => null)) as GoogleCalendarColorsResponse | null;
+    const colors = body?.event ?? null;
+    if (colors) {
+      googleCalendarEventColorsCache = {
+        colors,
+        expiresAt: now + GOOGLE_CALENDAR_COLORS_CACHE_MS,
+      };
+    }
+
+    return colors;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeGoogleCalendarEvent(
   event: GoogleCalendarApiEvent,
+  eventColors?: Record<string, GoogleCalendarColorDefinition> | null,
 ): GoogleCalendarEvent | null {
   const id = event.id;
   const start = event.start;
@@ -773,8 +826,12 @@ function normalizeGoogleCalendarEvent(
 
   if (!id || !start || !end) return null;
 
+  const color = event.colorId ? eventColors?.[event.colorId] : undefined;
+
   return {
+    backgroundColor: color?.background ?? null,
     colorId: event.colorId ?? null,
+    foregroundColor: color?.foreground ?? null,
     id,
     title: event.summary?.trim() || "Untitled event",
     description: event.description?.trim() || null,
