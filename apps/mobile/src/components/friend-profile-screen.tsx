@@ -85,6 +85,20 @@ const PROFILE_NOTE_FILTERS: Array<{ key: ProfileNoteFilter; label: string }> = [
   { key: "daily", label: "Daily" },
   { key: "monthly", label: "Monthly" },
 ];
+const NOTE_MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 const NOTE_MONTH_LABELS = [
   "Jan",
   "Feb",
@@ -186,13 +200,14 @@ function formatProfileMonthLabel(monthKey: string) {
   return `${NOTE_MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-function getRecentProfileMonthKeys(count: number) {
-  const start = new Date();
-  return Array.from({ length: count }, (_, index) =>
-    getProfileMonthKey(
-      new Date(start.getFullYear(), start.getMonth() - index, 1),
-    ),
-  );
+type ProfileNoteMonthFilter = number | "all";
+type ProfileNoteYearFilter = number | "all";
+
+function getProfileNotesFilterKey(
+  month: ProfileNoteMonthFilter,
+  year: ProfileNoteYearFilter,
+) {
+  return `${month}:${year}`;
 }
 
 export function FriendProfileScreen({
@@ -950,22 +965,18 @@ function ProfileNotesSection({
   weeklyNotes: WeeklyPlanNote[];
 }) {
   const theme = useTheme();
-  const currentMonthKey = getProfileMonthKey(new Date());
-  const [selectedMonthKey, setSelectedMonthKey] = useState(currentMonthKey);
-  const [notesByMonthKey, setNotesByMonthKey] = useState<
+  const currentDate = new Date();
+  const currentMonth = currentDate.getMonth() + 1;
+  const currentYear = currentDate.getFullYear();
+  const [selectedMonth, setSelectedMonth] =
+    useState<ProfileNoteMonthFilter>(currentMonth);
+  const [selectedYear, setSelectedYear] =
+    useState<ProfileNoteYearFilter>(currentYear);
+  const [notesByFilterKey, setNotesByFilterKey] = useState<
     Record<string, WeeklyPlanNote[]>
   >({});
-  const [loadingMonthKey, setLoadingMonthKey] = useState<string | null>(null);
-  const [selectedArchiveYear, setSelectedArchiveYear] = useState<number | null>(
-    null,
-  );
-  const recentMonthKeys = useMemo(() => getRecentProfileMonthKeys(12), []);
-  const currentMonthStartMs = useMemo(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  }, []);
+  const [loadingFilterKey, setLoadingFilterKey] = useState<string | null>(null);
   const yearOptions = useMemo(() => {
-    const currentYear = new Date().getFullYear();
     const createdAt = accountCreatedAt ? new Date(accountCreatedAt) : null;
     const createdYear =
       createdAt && !Number.isNaN(createdAt.getTime())
@@ -983,7 +994,7 @@ function ProfileNotesSection({
     const noteYears = new Set<number>();
     for (const note of [
       ...weeklyNotes,
-      ...Object.values(notesByMonthKey).flat(),
+      ...Object.values(notesByFilterKey).flat(),
     ]) {
       const year = dateFromProfileKey(note.weekStartDate).getFullYear();
       if (!Number.isNaN(year)) noteYears.add(year);
@@ -992,16 +1003,24 @@ function ProfileNotesSection({
     return noteYears.size > 0
       ? [...noteYears].sort((left, right) => right - left)
       : [currentYear];
-  }, [accountCreatedAt, notesByMonthKey, weeklyNotes]);
+  }, [accountCreatedAt, currentYear, notesByFilterKey, weeklyNotes]);
+  const selectedFilterKey = getProfileNotesFilterKey(
+    selectedMonth,
+    selectedYear,
+  );
   const selectedMonthNotes =
-    notesByMonthKey[selectedMonthKey] ??
-    (selectedMonthKey === currentMonthKey ? weeklyNotes : []);
+    notesByFilterKey[selectedFilterKey] ??
+    (selectedMonth === currentMonth && selectedYear === currentYear
+      ? weeklyNotes
+      : []);
   const visibleWeeklyNotes = selectedMonthNotes
-    .filter(
-      (note) =>
-        getProfileMonthKey(dateFromProfileKey(note.weekStartDate)) ===
-        selectedMonthKey,
-    )
+    .filter((note) => {
+      const date = dateFromProfileKey(note.weekStartDate);
+      return (
+        (selectedMonth === "all" || date.getMonth() + 1 === selectedMonth) &&
+        (selectedYear === "all" || date.getFullYear() === selectedYear)
+      );
+    })
     .map((note) => ({
       ...note,
       text: richTextToPlainText(note.notes).trim(),
@@ -1009,35 +1028,91 @@ function ProfileNotesSection({
     .filter((note) => note.text.length > 0);
 
   useEffect(() => {
-    setNotesByMonthKey((current) => ({
+    const currentFilterKey = getProfileNotesFilterKey(
+      currentMonth,
+      currentYear,
+    );
+    setNotesByFilterKey((current) => ({
       ...current,
-      [currentMonthKey]: weeklyNotes,
+      [currentFilterKey]: weeklyNotes,
     }));
-  }, [currentMonthKey, weeklyNotes]);
+  }, [currentMonth, currentYear, weeklyNotes]);
 
-  const loadMonthNotes = useCallback(
-    async (monthKey: string) => {
-      setSelectedMonthKey(monthKey);
-      const date = dateFromProfileMonthKey(monthKey);
-      if (notesByMonthKey[monthKey]) return;
+  const loadNotesForFilter = useCallback(
+    async (month: ProfileNoteMonthFilter, year: ProfileNoteYearFilter) => {
+      const filterKey = getProfileNotesFilterKey(month, year);
+      if (notesByFilterKey[filterKey]) return;
 
-      setLoadingMonthKey(monthKey);
+      setLoadingFilterKey(filterKey);
       try {
         const notes = await fetchWeeklyPlanNotes({
-          month: date.getMonth() + 1,
-          year: date.getFullYear(),
+          month: month === "all" ? undefined : month,
+          year: year === "all" ? undefined : year,
         });
-        setNotesByMonthKey((current) => ({ ...current, [monthKey]: notes }));
+        setNotesByFilterKey((current) => ({ ...current, [filterKey]: notes }));
       } catch {
-        setNotesByMonthKey((current) => ({ ...current, [monthKey]: [] }));
+        setNotesByFilterKey((current) => ({ ...current, [filterKey]: [] }));
       } finally {
-        setLoadingMonthKey((current) =>
-          current === monthKey ? null : current,
+        setLoadingFilterKey((current) =>
+          current === filterKey ? null : current,
         );
       }
     },
-    [notesByMonthKey],
+    [notesByFilterKey],
   );
+
+  const selectNotesFilter = useCallback(
+    (month: ProfileNoteMonthFilter, year: ProfileNoteYearFilter) => {
+      setSelectedMonth(month);
+      setSelectedYear(year);
+      void loadNotesForFilter(month, year);
+    },
+    [loadNotesForFilter],
+  );
+  const monthActions = useMemo<MenuAction[]>(
+    () => [
+      {
+        id: "all",
+        state: selectedMonth === "all" ? "on" : undefined,
+        title: "All months",
+      },
+      ...NOTE_MONTH_NAMES.map((name, index) => ({
+        id: String(index + 1),
+        state: selectedMonth === index + 1 ? ("on" as const) : undefined,
+        title: name,
+      })),
+    ],
+    [selectedMonth],
+  );
+  const yearActions = useMemo<MenuAction[]>(
+    () => [
+      {
+        id: "all",
+        state: selectedYear === "all" ? "on" : undefined,
+        title: "All years",
+      },
+      ...yearOptions.map((year) => ({
+        id: String(year),
+        state: selectedYear === year ? ("on" as const) : undefined,
+        title: String(year),
+      })),
+    ],
+    [selectedYear, yearOptions],
+  );
+  const selectedMonthLabel =
+    selectedMonth === "all" ? "All" : NOTE_MONTH_NAMES[selectedMonth - 1];
+  const selectedYearLabel =
+    selectedYear === "all" ? "All" : String(selectedYear);
+  const selectedNotesLabel =
+    selectedMonth === "all" && selectedYear === "all"
+      ? "All notes"
+      : selectedMonth === "all"
+        ? String(selectedYear)
+        : selectedYear === "all"
+          ? selectedMonthLabel
+          : formatProfileMonthLabel(
+              `${selectedYear}-${String(selectedMonth).padStart(2, "0")}`,
+            );
 
   return (
     <View style={styles.notesSection}>
@@ -1080,9 +1155,9 @@ function ProfileNotesSection({
         <>
           <View style={styles.noteMonthHeader}>
             <Text style={[styles.noteMonthTitle, { color: theme.text }]}>
-              {formatProfileMonthLabel(selectedMonthKey)}
+              {selectedNotesLabel}
             </Text>
-            {loadingMonthKey === selectedMonthKey ? (
+            {loadingFilterKey === selectedFilterKey ? (
               <Text
                 style={[styles.noteMonthStatus, { color: theme.textSecondary }]}
               >
@@ -1115,131 +1190,35 @@ function ProfileNotesSection({
                 style={[styles.notesEmptyText, { color: theme.textSecondary }]}
               >
                 {self
-                  ? `${formatProfileMonthLabel(selectedMonthKey)} does not have saved weekly notes yet.`
+                  ? `${selectedNotesLabel} does not have saved weekly notes yet.`
                   : "Notes this friend shares will show up here."}
               </Text>
             </View>
           )}
 
-          <ScrollView
-            horizontal
-            contentContainerStyle={styles.noteMonthScroller}
-            showsHorizontalScrollIndicator={false}
-          >
-            {recentMonthKeys.map((monthKey) => {
-              const isSelected = monthKey === selectedMonthKey;
-              return (
-                <Pressable
-                  key={monthKey}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  onPress={() => {
-                    setSelectedArchiveYear(null);
-                    void loadMonthNotes(monthKey);
-                  }}
-                  style={({ pressed }) => [
-                    styles.noteMonthChip,
-                    {
-                      backgroundColor: isSelected
-                        ? `${theme.primary}1F`
-                        : theme.backgroundElement,
-                    },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.noteMonthChipText,
-                      { color: isSelected ? theme.primary : theme.text },
-                    ]}
-                  >
-                    {formatProfileMonthLabel(monthKey)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <View style={styles.noteArchive}>
-            <Text
-              style={[styles.noteArchiveLabel, { color: theme.textSecondary }]}
-            >
-              Browse by year
-            </Text>
-            <View style={styles.noteYearRow}>
-              {yearOptions.map((year) => {
-                const isSelected = year === selectedArchiveYear;
-                return (
-                  <Pressable
-                    key={year}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                    onPress={() =>
-                      setSelectedArchiveYear(isSelected ? null : year)
-                    }
-                    style={({ pressed }) => [
-                      styles.noteYearButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.noteYearText,
-                        {
-                          color: isSelected ? theme.text : theme.textSecondary,
-                        },
-                      ]}
-                    >
-                      {year}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {selectedArchiveYear ? (
-              <View style={styles.noteMonthGrid}>
-                {NOTE_MONTH_LABELS.map((label, index) => {
-                  const monthKey = `${selectedArchiveYear}-${String(index + 1).padStart(2, "0")}`;
-                  const isSelected = monthKey === selectedMonthKey;
-                  const isFuture =
-                    dateFromProfileMonthKey(monthKey).getTime() >
-                    currentMonthStartMs;
-                  return (
-                    <Pressable
-                      key={monthKey}
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        disabled: isFuture,
-                        selected: isSelected,
-                      }}
-                      disabled={isFuture}
-                      onPress={() => void loadMonthNotes(monthKey)}
-                      style={({ pressed }) => [
-                        styles.noteArchiveMonthButton,
-                        {
-                          opacity: isFuture ? 0.35 : 1,
-                          backgroundColor: isSelected
-                            ? `${theme.primary}1F`
-                            : "transparent",
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.noteArchiveMonthText,
-                          {
-                            color: isSelected ? theme.primary : theme.text,
-                          },
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
+          <View style={styles.noteFilterDropdownRow}>
+            <ProfileNotesFilterMenu
+              actions={monthActions}
+              label="Month"
+              value={selectedMonthLabel}
+              onSelect={(event) => {
+                const month = event === "all" ? "all" : Number(event);
+                if (month === "all" || (month >= 1 && month <= 12)) {
+                  selectNotesFilter(month, selectedYear);
+                }
+              }}
+            />
+            <ProfileNotesFilterMenu
+              actions={yearActions}
+              label="Year"
+              value={selectedYearLabel}
+              onSelect={(event) => {
+                const year = event === "all" ? "all" : Number(event);
+                if (year === "all" || yearOptions.includes(year)) {
+                  selectNotesFilter(selectedMonth, year);
+                }
+              }}
+            />
           </View>
         </>
       ) : (
@@ -1513,6 +1492,57 @@ function ProfilePostFilterButton({
         <SymbolView
           name={sym("chevron.down", "expand_more")}
           size={13}
+          tintColor={theme.textSecondary}
+        />
+      </View>
+    </MenuView>
+  );
+}
+
+function ProfileNotesFilterMenu({
+  actions,
+  label,
+  onSelect,
+  value,
+}: {
+  actions: MenuAction[];
+  label: string;
+  onSelect: (event: string) => void;
+  value: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <MenuView
+      actions={actions}
+      onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
+      style={styles.noteFilterMenu}
+      title={`Filter notes by ${label.toLowerCase()}`}
+    >
+      <View
+        accessible
+        accessibilityLabel={`${label} filter. Currently ${value}`}
+        accessibilityRole="button"
+        style={[
+          styles.noteFilterButton,
+          {
+            backgroundColor: theme.background,
+            borderColor: theme.tabBorder,
+          },
+        ]}
+      >
+        <Text style={[styles.noteFilterLabel, { color: theme.textSecondary }]}>
+          {label}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={[styles.noteFilterValue, { color: theme.text }]}
+        >
+          {value}
+        </Text>
+        <SymbolView
+          name={sym("chevron.down", "expand_more")}
+          size={14}
           tintColor={theme.textSecondary}
         />
       </View>
@@ -2362,60 +2392,31 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "600",
   },
-  noteMonthScroller: {
-    gap: 9,
-    paddingTop: 22,
-    paddingRight: 20,
-    paddingBottom: 4,
-  },
-  noteMonthChip: {
-    minHeight: 36,
-    justifyContent: "center",
-    borderRadius: 999,
-    paddingHorizontal: 15,
-  },
-  noteMonthChipText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-  },
-  noteArchive: {
-    gap: 12,
-    marginTop: 26,
-  },
-  noteArchiveLabel: {
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  noteYearRow: {
+  noteFilterDropdownRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 15,
+    alignItems: "center",
+    gap: 10,
+    marginTop: 22,
   },
-  noteYearButton: {
-    minHeight: 30,
-    justifyContent: "center",
+  noteFilterMenu: {
+    flex: 1,
   },
-  noteYearText: {
-    fontSize: 15,
-    lineHeight: 19,
+  noteFilterButton: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  noteFilterLabel: {
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "800",
   },
-  noteMonthGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    columnGap: 8,
-    rowGap: 8,
-  },
-  noteArchiveMonthButton: {
-    minHeight: 34,
-    justifyContent: "center",
-    borderRadius: 999,
-    paddingHorizontal: 13,
-  },
-  noteArchiveMonthText: {
+  noteFilterValue: {
+    flex: 1,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "800",

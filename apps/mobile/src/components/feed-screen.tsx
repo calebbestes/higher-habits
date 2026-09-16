@@ -35,6 +35,7 @@ import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { GoalIcon } from "@/components/goal-icon";
 import { MentionInput } from "@/components/mention-input";
 import {
   type ImageNaturalSize,
@@ -61,6 +62,7 @@ import {
   getDailyReflectionPrompt,
 } from "@/lib/daily-reflection-prompts";
 import {
+  type CreateFeedPostLink,
   type FeedMention,
   type FeedRepostSourceType,
   type FriendFeedComment,
@@ -73,6 +75,7 @@ import {
   addSocialPostComment,
   archiveFriend,
   createDailyReflection,
+  createFeedPost,
   deleteFeedComment,
   deleteReflectionComment,
   deleteSocialPostComment,
@@ -119,6 +122,7 @@ import {
   inviteSharedGoalParticipants,
   respondToSharedGoal,
 } from "@/lib/shared-goals-client";
+import { type Task, fetchTasks } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
 type ActiveFeedPhoto = {
@@ -138,6 +142,13 @@ const POST_DOUBLE_TAP_DELAY_MS = 260;
 type FeedFilters = {
   groupIds: string[];
   categoryIds: string[];
+};
+
+type CreatePostStep = 1 | 2;
+type PostVisibility = "only_me" | "goal_friends" | "all_friends";
+type CreatePostLinkOption = CreateFeedPostLink & {
+  name: string;
+  icon: string;
 };
 
 type FeedRenderItem =
@@ -190,7 +201,11 @@ function getFeedRepostSource(entry: FriendFeedEntry): {
   if (entry.kind === "reflection") {
     return { sourceType: "reflection_post", sourceId: entry.id };
   }
-  if (entry.kind === "shared_goal" || entry.kind === "incentive") {
+  if (
+    entry.kind === "shared_goal" ||
+    entry.kind === "incentive" ||
+    entry.kind === "post"
+  ) {
     return { sourceType: "social_feed_post", sourceId: entry.id };
   }
   return null;
@@ -512,6 +527,7 @@ export function FeedScreen() {
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [personalPlanGoals, setPersonalPlanGoals] = useState<PlanGoal[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
     groupIds: [],
@@ -584,6 +600,24 @@ export function FeedScreen() {
     [],
   );
   const [isSubmittingReflection, setIsSubmittingReflection] = useState(false);
+  const [isCreatePostOpen, setIsCreatePostOpen] = useState(false);
+  const [createPostStep, setCreatePostStep] = useState<CreatePostStep>(1);
+  const [createPostCaption, setCreatePostCaption] = useState("");
+  const [createPostPhotos, setCreatePostPhotos] = useState<GoalPhotoUpload[]>(
+    [],
+  );
+  const [createPostLink, setCreatePostLink] =
+    useState<CreatePostLinkOption | null>(null);
+  const [createPostVisibility, setCreatePostVisibility] =
+    useState<PostVisibility>("all_friends");
+  const [createPostAudienceFriendIds, setCreatePostAudienceFriendIds] =
+    useState<string[]>([]);
+  const [createPostAudienceGroupIds, setCreatePostAudienceGroupIds] = useState<
+    string[]
+  >([]);
+  const [isCreatePostAudienceOpen, setIsCreatePostAudienceOpen] =
+    useState(false);
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [dailyReflectionPrompt, setDailyReflectionPrompt] =
     useState<DailyReflectionPrompt>(() => getDailyReflectionPrompt());
   const isMountedRef = useRef(true);
@@ -636,6 +670,7 @@ export function FeedScreen() {
         groups,
         nextFriends,
         nextPersonalGoals,
+        nextTasks,
         sharedGoals,
         myPosts,
       ] = await Promise.all([
@@ -643,6 +678,7 @@ export function FeedScreen() {
         fetchFriendGroups().catch(() => []),
         fetchFriends().catch(() => []),
         fetchGoals().catch(() => []),
+        fetchTasks().catch(() => []),
         fetchSharedGoals().catch(() => []),
         fetchMyPosts().catch(() => []),
       ]);
@@ -660,6 +696,7 @@ export function FeedScreen() {
       setFriendGroups(groups);
       setFriends(nextFriends);
       setPersonalGoals(nextPersonalGoals);
+      setTasks(nextTasks);
       setJoinedGoalKeys(
         new Set(
           feedPage.items
@@ -778,7 +815,7 @@ export function FeedScreen() {
       try {
         if (entry.kind === "reflection") {
           await toggleReflectionProp(sourceId);
-        } else if (entry.kind === "shared_goal") {
+        } else if (entry.kind === "shared_goal" || entry.kind === "post") {
           await toggleSocialPostProp(sourceId);
         } else {
           await toggleFeedProp(sourceId);
@@ -875,7 +912,7 @@ export function FeedScreen() {
             body,
             replyTarget?.id ?? null,
           );
-        } else if (entry?.kind === "shared_goal") {
+        } else if (entry?.kind === "shared_goal" || entry?.kind === "post") {
           await addSocialPostComment(
             entry.sourceId ?? entryId,
             body,
@@ -923,7 +960,7 @@ export function FeedScreen() {
             : null);
         if (entry?.kind === "reflection") {
           await deleteReflectionComment(entry.sourceId ?? entryId, commentId);
-        } else if (entry?.kind === "shared_goal") {
+        } else if (entry?.kind === "shared_goal" || entry?.kind === "post") {
           await deleteSocialPostComment(entry.sourceId ?? entryId, commentId);
         } else {
           await deleteFeedComment(entry?.sourceId ?? entryId, commentId);
@@ -961,6 +998,94 @@ export function FeedScreen() {
     },
     [],
   );
+
+  const openReflectionPicker = useCallback(() => {
+    playSelectionHaptic();
+    setIsReflectionPickerOpen(true);
+  }, []);
+
+  const openCreatePost = useCallback(() => {
+    playSelectionHaptic();
+    setCreatePostStep(1);
+    setCreatePostCaption("");
+    setCreatePostPhotos([]);
+    setCreatePostLink(null);
+    setCreatePostVisibility("all_friends");
+    setCreatePostAudienceFriendIds([]);
+    setCreatePostAudienceGroupIds([]);
+    setIsCreatePostOpen(true);
+  }, []);
+
+  const closeCreatePost = useCallback(() => {
+    if (isSubmittingPost) return;
+    setIsCreatePostOpen(false);
+  }, [isSubmittingPost]);
+
+  const addCreatePostPhoto = useCallback(async (source: GoalPhotoSource) => {
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+      playSelectionHaptic();
+      setCreatePostPhotos((current) =>
+        current.length >= 4 ? current : [...current, photo],
+      );
+    } catch (err) {
+      Alert.alert(
+        "Could not add photo",
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+  }, []);
+
+  const submitCreatePost = useCallback(async () => {
+    if (
+      !createPostLink ||
+      isSubmittingPost ||
+      (!createPostCaption.trim() && createPostPhotos.length === 0)
+    ) {
+      return;
+    }
+
+    setIsSubmittingPost(true);
+    try {
+      await createFeedPost({
+        caption: createPostCaption,
+        link: { id: createPostLink.id, type: createPostLink.type },
+        photos: createPostPhotos,
+        visibility: createPostVisibility,
+        audienceFriendIds: createPostAudienceFriendIds,
+        audienceGroupIds: createPostAudienceGroupIds,
+      });
+      playSuccessHaptic();
+      if (!isMountedRef.current) return;
+      setIsCreatePostOpen(false);
+      setCreatePostStep(1);
+      setCreatePostCaption("");
+      setCreatePostPhotos([]);
+      setCreatePostLink(null);
+      setCreatePostVisibility("all_friends");
+      setCreatePostAudienceFriendIds([]);
+      setCreatePostAudienceGroupIds([]);
+      await load(true);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not create post",
+        err instanceof Error ? err.message : undefined,
+      );
+    } finally {
+      if (isMountedRef.current) setIsSubmittingPost(false);
+    }
+  }, [
+    createPostCaption,
+    createPostAudienceFriendIds,
+    createPostAudienceGroupIds,
+    createPostLink,
+    createPostPhotos,
+    createPostVisibility,
+    isSubmittingPost,
+    load,
+  ]);
 
   const addReflectionPhoto = useCallback(async (source: GoalPhotoSource) => {
     try {
@@ -1837,61 +1962,78 @@ export function FeedScreen() {
           <PageHeaderTitle title="Collab" />
           <CollabSectionHeaderTabs currentSection="feed" />
         </View>
-        <Pressable
-          accessibilityLabel="Filter feed"
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={() => {
-            playSelectionHaptic();
-            setIsFilterOpen(true);
-          }}
-          style={({ pressed }) => [
-            styles.filterButton,
-            {
-              backgroundColor:
-                activeFilterCount > 0 ? `${theme.primary}18` : "transparent",
-              borderColor:
-                activeFilterCount > 0 ? theme.primary : theme.tabBorder,
-            },
-            pressed && styles.pressed,
-          ]}
-        >
-          <SymbolView
-            name={sym("line.3.horizontal.decrease.circle", "tune")}
-            size={22}
-            weight="semibold"
-            tintColor={theme.primary}
-          />
-          {activeFilterCount > 0 ? (
-            <View
-              style={[
-                styles.filterBadge,
-                {
-                  backgroundColor: theme.primary,
-                  borderColor: theme.background,
-                },
-              ]}
-            >
-              <Text
+        <View style={styles.pageHeaderActions}>
+          <Pressable
+            accessibilityLabel="Filter feed"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => {
+              playSelectionHaptic();
+              setIsFilterOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.filterButton,
+              {
+                backgroundColor:
+                  activeFilterCount > 0 ? `${theme.primary}18` : "transparent",
+                borderColor:
+                  activeFilterCount > 0 ? theme.primary : theme.tabBorder,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("line.3.horizontal.decrease.circle", "tune")}
+              size={22}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+            {activeFilterCount > 0 ? (
+              <View
                 style={[
-                  styles.filterBadgeText,
-                  { color: theme.primaryForeground },
+                  styles.filterBadge,
+                  {
+                    backgroundColor: theme.primary,
+                    borderColor: theme.background,
+                  },
                 ]}
               >
-                {activeFilterCount}
-              </Text>
-            </View>
-          ) : null}
-        </Pressable>
+                <Text
+                  style={[
+                    styles.filterBadgeText,
+                    { color: theme.primaryForeground },
+                  ]}
+                >
+                  {activeFilterCount}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Create post"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={openCreatePost}
+            style={({ pressed }) => [
+              styles.feedAddButton,
+              { borderColor: theme.tabBorder },
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("plus", "add")}
+              size={22}
+              weight="semibold"
+              tintColor={theme.primary}
+            />
+          </Pressable>
+        </View>
       </View>
 
       {myDailyReflectionEntry ? null : (
         <DailyReflectionCard
           prompt={dailyReflectionPrompt}
-          onChoosePrompt={() => {
-            playSelectionHaptic();
-            setIsReflectionPickerOpen(true);
-          }}
+          onChoosePrompt={openReflectionPicker}
           onUsePrompt={() => openReflectionComposer(dailyReflectionPrompt)}
         />
       )}
@@ -2252,6 +2394,34 @@ export function FeedScreen() {
           saveFeedFilters({ ...feedFilters, groupIds })
         }
       />
+      <CreatePostModal
+        audienceCount={
+          createPostAudienceFriendIds.length + createPostAudienceGroupIds.length
+        }
+        caption={createPostCaption}
+        habits={personalGoals}
+        isSubmitting={isSubmittingPost}
+        link={createPostLink}
+        photos={createPostPhotos}
+        step={createPostStep}
+        tasks={tasks}
+        visible={isCreatePostOpen}
+        onAddPhoto={addCreatePostPhoto}
+        onBack={() => setCreatePostStep(1)}
+        onCaptionChange={setCreatePostCaption}
+        onClose={closeCreatePost}
+        onNext={() => setCreatePostStep(2)}
+        onOpenAudience={() => setIsCreatePostAudienceOpen(true)}
+        onRemovePhoto={(index) =>
+          setCreatePostPhotos((current) =>
+            current.filter((_, photoIndex) => photoIndex !== index),
+          )
+        }
+        onSelectLink={setCreatePostLink}
+        onSubmit={() => void submitCreatePost()}
+        onVisibilityChange={setCreatePostVisibility}
+        visibility={createPostVisibility}
+      />
       <ReflectionPromptPickerModal
         dailyPrompt={dailyReflectionPrompt}
         answerCounts={reflectionPromptAnswerCounts}
@@ -2301,6 +2471,20 @@ export function FeedScreen() {
           setReflectionAudienceGroupIds(groupIds);
           setReflectionVisibility("goal_friends");
           setIsReflectionAudienceOpen(false);
+        }}
+      />
+      <ReflectionAudiencePickerModal
+        friends={friends.filter((friend) => friend.status === "accepted")}
+        groups={friendGroups}
+        selectedFriendIds={createPostAudienceFriendIds}
+        selectedGroupIds={createPostAudienceGroupIds}
+        visible={isCreatePostAudienceOpen}
+        onClose={() => setIsCreatePostAudienceOpen(false)}
+        onSave={({ friendIds, groupIds }) => {
+          setCreatePostAudienceFriendIds(friendIds);
+          setCreatePostAudienceGroupIds(groupIds);
+          setCreatePostVisibility("goal_friends");
+          setIsCreatePostAudienceOpen(false);
         }}
       />
     </View>
@@ -2398,6 +2582,440 @@ function DailyReflectionCard({
         </View>
       </View>
     </View>
+  );
+}
+
+function CreatePostModal({
+  audienceCount,
+  caption,
+  habits,
+  isSubmitting,
+  link,
+  onAddPhoto,
+  onBack,
+  onCaptionChange,
+  onClose,
+  onNext,
+  onOpenAudience,
+  onRemovePhoto,
+  onSelectLink,
+  onSubmit,
+  onVisibilityChange,
+  photos,
+  step,
+  tasks,
+  visible,
+  visibility,
+}: {
+  audienceCount: number;
+  caption: string;
+  habits: Goal[];
+  isSubmitting: boolean;
+  link: CreatePostLinkOption | null;
+  onAddPhoto: (source: GoalPhotoSource) => void;
+  onBack: () => void;
+  onCaptionChange: (caption: string) => void;
+  onClose: () => void;
+  onNext: () => void;
+  onOpenAudience: () => void;
+  onRemovePhoto: (index: number) => void;
+  onSelectLink: (link: CreatePostLinkOption) => void;
+  onSubmit: () => void;
+  onVisibilityChange: (value: PostVisibility) => void;
+  photos: GoalPhotoUpload[];
+  step: CreatePostStep;
+  tasks: Task[];
+  visible: boolean;
+  visibility: PostVisibility;
+}) {
+  const theme = useTheme();
+  const hasContent = Boolean(caption.trim() || photos.length > 0);
+  const availableHabits = habits.filter((habit) => !habit.hidden);
+  const hasAudience = visibility !== "goal_friends" || audienceCount > 0;
+  const canPost = Boolean(link) && hasContent && hasAudience && !isSubmitting;
+  const canContinue = hasContent && hasAudience;
+
+  const renderLinkRow = (option: CreatePostLinkOption) => {
+    const selected = link?.type === option.type && link.id === option.id;
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        key={`${option.type}:${option.id}`}
+        onPress={() => {
+          playSelectionHaptic();
+          onSelectLink(option);
+        }}
+        style={({ pressed }) => [
+          styles.createPostLinkRow,
+          {
+            backgroundColor: selected ? `${theme.primary}12` : theme.tabBar,
+            borderColor: selected ? theme.primary : `${theme.tabBorder}8C`,
+          },
+          pressed && styles.pressed,
+        ]}
+      >
+        <View
+          style={[
+            styles.createPostLinkIcon,
+            {
+              backgroundColor: selected
+                ? `${theme.primary}20`
+                : theme.secondary,
+            },
+          ]}
+        >
+          {option.type === "habit" ? (
+            <GoalIcon
+              color={selected ? theme.primary : theme.secondaryForeground}
+              iconKey={option.icon}
+              size={18}
+            />
+          ) : (
+            <SymbolView
+              name={sym("checkmark.square", "check_box")}
+              size={18}
+              weight="semibold"
+              tintColor={selected ? theme.primary : theme.secondaryForeground}
+            />
+          )}
+        </View>
+        <View style={styles.createPostLinkCopy}>
+          <Text
+            numberOfLines={1}
+            style={[styles.createPostLinkName, { color: theme.text }]}
+          >
+            {option.name}
+          </Text>
+          <Text
+            style={[styles.createPostLinkType, { color: theme.textSecondary }]}
+          >
+            {option.type === "habit" ? "Habit" : "Task"}
+          </Text>
+        </View>
+        {selected ? (
+          <SymbolView
+            name={sym("checkmark.circle.fill", "check_circle")}
+            size={21}
+            tintColor={theme.primary}
+          />
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="pageSheet"
+      visible={visible}
+    >
+      <View
+        style={[styles.createPostScreen, { backgroundColor: theme.background }]}
+      >
+        <SafeAreaView style={styles.createPostSafeArea}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.keyboardView}
+          >
+            <View
+              style={[
+                styles.filterModalHeader,
+                { borderBottomColor: theme.tabBorder },
+              ]}
+            >
+              <Pressable
+                accessibilityLabel={step === 1 ? "Cancel post" : "Back"}
+                disabled={isSubmitting}
+                hitSlop={12}
+                onPress={step === 1 ? onClose : onBack}
+              >
+                <Text
+                  style={[styles.filterModalAction, { color: theme.primary }]}
+                >
+                  {step === 1 ? "Cancel" : "Back"}
+                </Text>
+              </Pressable>
+              <Text style={[styles.filterModalTitle, { color: theme.text }]}>
+                {step === 1 ? "New post" : "Link post"}
+              </Text>
+              <Pressable
+                accessibilityLabel={
+                  step === 1 ? "Continue to link post" : "Post"
+                }
+                accessibilityRole="button"
+                disabled={step === 1 ? !canContinue : !canPost}
+                hitSlop={12}
+                onPress={step === 1 ? onNext : onSubmit}
+              >
+                <Text
+                  style={[
+                    styles.filterModalAction,
+                    {
+                      color: (step === 1 ? canContinue : canPost)
+                        ? theme.primary
+                        : theme.textSecondary,
+                    },
+                  ]}
+                >
+                  {step === 1 ? "Next" : isSubmitting ? "Posting…" : "Post"}
+                </Text>
+              </Pressable>
+            </View>
+
+            {step === 1 ? (
+              <ScrollView
+                contentContainerStyle={styles.createPostContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text
+                  style={[
+                    styles.createPostIntro,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Add a caption, a photo, or both.
+                </Text>
+                <TextInput
+                  accessibilityLabel="Post caption"
+                  multiline
+                  onChangeText={onCaptionChange}
+                  placeholder="What do you want to share?"
+                  placeholderTextColor={theme.textSecondary}
+                  style={[
+                    styles.createPostCaptionInput,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: `${theme.tabBorder}8C`,
+                      color: theme.text,
+                    },
+                  ]}
+                  textAlignVertical="top"
+                  value={caption}
+                />
+
+                {photos.length > 0 ? (
+                  <ScrollView
+                    contentContainerStyle={styles.createPostPhotoList}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                  >
+                    {photos.map((photo, index) => (
+                      <View
+                        key={`${photo.uri}-${index}`}
+                        style={styles.createPostPhotoWrap}
+                      >
+                        <Image
+                          contentFit="cover"
+                          source={{ uri: photo.uri }}
+                          style={styles.createPostPhoto}
+                        />
+                        <Pressable
+                          accessibilityLabel={`Remove photo ${index + 1}`}
+                          accessibilityRole="button"
+                          hitSlop={6}
+                          onPress={() => onRemovePhoto(index)}
+                          style={styles.createPostRemovePhoto}
+                        >
+                          <SymbolView
+                            name={sym("xmark", "close")}
+                            size={13}
+                            weight="bold"
+                            tintColor="#FFFFFF"
+                          />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
+
+                <View style={styles.createPostPhotoActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={photos.length >= 4}
+                    onPress={() => onAddPhoto("camera")}
+                    style={({ pressed }) => [
+                      styles.createPostPhotoButton,
+                      {
+                        backgroundColor: theme.tabBar,
+                        borderColor: `${theme.tabBorder}8C`,
+                      },
+                      photos.length >= 4 && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("camera.fill", "photo_camera")}
+                      size={17}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.createPostPhotoButtonText,
+                        { color: theme.text },
+                      ]}
+                    >
+                      Take photo
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={photos.length >= 4}
+                    onPress={() => onAddPhoto("library")}
+                    style={({ pressed }) => [
+                      styles.createPostPhotoButton,
+                      {
+                        backgroundColor: theme.tabBar,
+                        borderColor: `${theme.tabBorder}8C`,
+                      },
+                      photos.length >= 4 && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("photo.fill", "image")}
+                      size={17}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.createPostPhotoButtonText,
+                        { color: theme.text },
+                      ]}
+                    >
+                      Add photo
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text
+                  style={[
+                    styles.createPostPhotoHint,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Add up to 4 photos.
+                </Text>
+                <View style={styles.createPostVisibilitySection}>
+                  <Text
+                    style={[
+                      styles.createPostVisibilityTitle,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Visibility
+                  </Text>
+                  <View style={styles.reflectionVisibilityRow}>
+                    <VisibilityChip
+                      active={visibility === "all_friends"}
+                      label="All friends"
+                      onPress={() => onVisibilityChange("all_friends")}
+                    />
+                    <VisibilityChip
+                      active={visibility === "goal_friends"}
+                      label={
+                        audienceCount > 0
+                          ? `Select friends (${audienceCount})`
+                          : "Select friends"
+                      }
+                      onPress={onOpenAudience}
+                    />
+                    <VisibilityChip
+                      active={visibility === "only_me"}
+                      label="Only me"
+                      onPress={() => onVisibilityChange("only_me")}
+                    />
+                  </View>
+                  {visibility === "goal_friends" && audienceCount === 0 ? (
+                    <Text
+                      style={[
+                        styles.createPostVisibilityHint,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      Select at least one friend or group.
+                    </Text>
+                  ) : null}
+                </View>
+              </ScrollView>
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.createPostContent}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text
+                  style={[
+                    styles.createPostLinkIntro,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  Choose the habit or task this post is about.
+                </Text>
+
+                <View style={styles.createPostLinkSection}>
+                  <Text
+                    style={[
+                      styles.createPostLinkSectionTitle,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Habits
+                  </Text>
+                  {availableHabits.map((habit) =>
+                    renderLinkRow({
+                      id: habit.id,
+                      icon: habit.iconKey,
+                      name: habit.name,
+                      type: "habit",
+                    }),
+                  )}
+                  {availableHabits.length === 0 ? (
+                    <Text
+                      style={[
+                        styles.createPostEmptyText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      No active habits available.
+                    </Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.createPostLinkSection}>
+                  <Text
+                    style={[
+                      styles.createPostLinkSectionTitle,
+                      { color: theme.text },
+                    ]}
+                  >
+                    Tasks
+                  </Text>
+                  {tasks.map((task) =>
+                    renderLinkRow({
+                      id: task.id,
+                      icon: "checkmark.square",
+                      name: task.name,
+                      type: "task",
+                    }),
+                  )}
+                  {tasks.length === 0 ? (
+                    <Text
+                      style={[
+                        styles.createPostEmptyText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      No tasks available.
+                    </Text>
+                  ) : null}
+                </View>
+              </ScrollView>
+            )}
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
+    </Modal>
   );
 }
 
@@ -3725,7 +4343,8 @@ export function FeedCard({
   const canUseSocialActions =
     entry.kind === "habit" ||
     entry.kind === "reflection" ||
-    entry.kind === "shared_goal";
+    entry.kind === "shared_goal" ||
+    entry.kind === "post";
   const canUseGoalActions =
     entry.kind === "habit" || entry.kind === "shared_goal";
   const isSharedGoalInvite =
@@ -5180,6 +5799,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   pageHeaderText: { flex: 1, minWidth: 0, gap: 1 },
+  pageHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   filterButton: {
     width: 36,
     height: 36,
@@ -5188,6 +5812,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     position: "relative",
+  },
+  feedAddButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   filterBadge: {
     position: "absolute",
@@ -5264,6 +5896,143 @@ const styles = StyleSheet.create({
   },
   filterModalAction: { fontSize: 16, fontWeight: "800" },
   filterModalTitle: { fontSize: 17, fontWeight: "900" },
+  createPostScreen: { flex: 1 },
+  createPostSafeArea: { flex: 1 },
+  createPostContent: {
+    gap: 18,
+    padding: 18,
+    paddingBottom: 36,
+  },
+  createPostIntro: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  createPostCaptionInput: {
+    minHeight: 160,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 14,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: "700",
+  },
+  createPostPhotoList: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  createPostPhotoWrap: {
+    width: 116,
+    height: 116,
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 15,
+  },
+  createPostPhoto: {
+    width: "100%",
+    height: "100%",
+  },
+  createPostRemovePhoto: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+    backgroundColor: "rgba(0,0,0,0.58)",
+  },
+  createPostPhotoActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  createPostPhotoButton: {
+    minHeight: 48,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+  },
+  createPostPhotoButtonText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  createPostPhotoHint: {
+    marginTop: -8,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  createPostVisibilitySection: {
+    gap: 10,
+    marginTop: 2,
+  },
+  createPostVisibilityTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+  createPostVisibilityHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  createPostLinkIntro: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  createPostLinkSection: {
+    gap: 9,
+  },
+  createPostLinkSectionTitle: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+  createPostLinkRow: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  createPostLinkIcon: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+  },
+  createPostLinkCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  createPostLinkName: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  createPostLinkType: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  createPostEmptyText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
   filterModalContent: {
     gap: 22,
     paddingHorizontal: 18,

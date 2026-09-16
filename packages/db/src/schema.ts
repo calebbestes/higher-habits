@@ -988,6 +988,9 @@ export const socialFeedPosts = pgTable(
     kind: text("kind").notNull(),
     sourceType: text("source_type").notNull(),
     sourceId: uuid("source_id").notNull(),
+    visibility: text("visibility"),
+    linkedType: text("linked_type"),
+    linkedId: uuid("linked_id"),
     title: text("title").notNull(),
     body: text("body").default("").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1003,6 +1006,91 @@ export const socialFeedPosts = pgTable(
     index("social_feed_posts_user_id_idx").on(table.userId),
     index("social_feed_posts_target_user_id_idx").on(table.targetUserId),
     index("social_feed_posts_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const socialFeedPostPhotos = pgTable(
+  "social_feed_post_photos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    storagePath: text("storage_path").notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("social_feed_post_photos_post_id_idx").on(table.socialFeedPostId),
+    index("social_feed_post_photos_user_id_idx").on(table.userId),
+    unique("social_feed_post_photos_storage_path_uidx").on(table.storagePath),
+  ],
+);
+
+export const socialFeedPostAudienceFriends = pgTable(
+  "social_feed_post_audience_friends",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    friendUserId: text("friend_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("social_feed_post_audience_friends_post_id_idx").on(
+      table.socialFeedPostId,
+    ),
+    index("social_feed_post_audience_friends_user_id_idx").on(table.userId),
+    index("social_feed_post_audience_friends_friend_user_id_idx").on(
+      table.friendUserId,
+    ),
+    unique("social_feed_post_audience_friends_post_friend_uidx").on(
+      table.socialFeedPostId,
+      table.friendUserId,
+    ),
+  ],
+);
+
+export const socialFeedPostAudienceGroups = pgTable(
+  "social_feed_post_audience_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => friendGroups.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("social_feed_post_audience_groups_post_id_idx").on(
+      table.socialFeedPostId,
+    ),
+    index("social_feed_post_audience_groups_user_id_idx").on(table.userId),
+    index("social_feed_post_audience_groups_group_id_idx").on(table.groupId),
+    unique("social_feed_post_audience_groups_post_group_uidx").on(
+      table.socialFeedPostId,
+      table.groupId,
+    ),
   ],
 );
 
@@ -1274,6 +1362,16 @@ export type FeedComment = typeof feedComments.$inferSelect;
 export type NewFeedComment = typeof feedComments.$inferInsert;
 export type SocialFeedPost = typeof socialFeedPosts.$inferSelect;
 export type NewSocialFeedPost = typeof socialFeedPosts.$inferInsert;
+export type SocialFeedPostPhoto = typeof socialFeedPostPhotos.$inferSelect;
+export type NewSocialFeedPostPhoto = typeof socialFeedPostPhotos.$inferInsert;
+export type SocialFeedPostAudienceFriend =
+  typeof socialFeedPostAudienceFriends.$inferSelect;
+export type NewSocialFeedPostAudienceFriend =
+  typeof socialFeedPostAudienceFriends.$inferInsert;
+export type SocialFeedPostAudienceGroup =
+  typeof socialFeedPostAudienceGroups.$inferSelect;
+export type NewSocialFeedPostAudienceGroup =
+  typeof socialFeedPostAudienceGroups.$inferInsert;
 export type SocialFeedPostProp = typeof socialFeedPostProps.$inferSelect;
 export type NewSocialFeedPostProp = typeof socialFeedPostProps.$inferInsert;
 export type SocialFeedPostComment = typeof socialFeedPostComments.$inferSelect;

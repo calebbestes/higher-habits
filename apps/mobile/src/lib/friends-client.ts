@@ -482,9 +482,11 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
             ? "birthday"
             : value.kind === "shared_goal"
               ? "shared_goal"
-              : value.kind === "incentive"
-                ? "incentive"
-                : "habit",
+              : value.kind === "post"
+                ? "post"
+                : value.kind === "incentive"
+                  ? "incentive"
+                  : "habit",
     friend: isRecord(value.friend)
       ? {
           id: stringOrFallback(value.friend.id),
@@ -660,7 +662,8 @@ export type FriendFeedEntry = {
     | "reflection"
     | "birthday"
     | "shared_goal"
-    | "incentive";
+    | "incentive"
+    | "post";
   friend: {
     id: string;
     name: string;
@@ -1238,6 +1241,50 @@ export const createDailyReflection = (payload: {
       void recordReviewMilestone("post");
       return post;
     });
+
+export type CreateFeedPostLink = {
+  type: "habit" | "task";
+  id: string;
+};
+
+export async function createFeedPost({
+  caption,
+  link,
+  photos,
+  visibility,
+  audienceFriendIds,
+  audienceGroupIds,
+}: {
+  caption: string;
+  link: CreateFeedPostLink;
+  photos: GoalPhotoUpload[];
+  visibility: "only_me" | "goal_friends" | "all_friends";
+  audienceFriendIds: string[];
+  audienceGroupIds: string[];
+}): Promise<{ id: string }> {
+  const formData = new FormData();
+  formData.append("caption", caption);
+  formData.append("linkedType", link.type);
+  formData.append("linkedId", link.id);
+  formData.append("visibility", visibility);
+  formData.append("audienceFriendIds", JSON.stringify(audienceFriendIds));
+  formData.append("audienceGroupIds", JSON.stringify(audienceGroupIds));
+
+  for (const photo of photos) {
+    const blob = photo.file ?? (await uriToBlob(photo.uri));
+    formData.append("files", blob, photo.name);
+  }
+
+  return mobileApiFetch("/api/friends/feed/posts", {
+    method: "POST",
+    body: formData,
+  })
+    .then((response) => parseResponse<{ id: string }>(response))
+    .then((post) => {
+      void recordReviewMilestone("post");
+      return post;
+    });
+}
 
 function uriToBlob(uri: string): Promise<Blob> {
   return new Promise((resolve, reject) => {

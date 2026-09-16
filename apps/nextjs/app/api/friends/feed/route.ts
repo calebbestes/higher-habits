@@ -20,9 +20,13 @@ import {
   habits,
   sharedGoalParticipants,
   sharedGoals,
+  socialFeedPostAudienceFriends,
+  socialFeedPostAudienceGroups,
   socialFeedPostComments,
+  socialFeedPostPhotos,
   socialFeedPostProps,
   socialFeedPosts,
+  tasks,
   users,
 } from "@habit/db";
 import {
@@ -479,8 +483,38 @@ export async function GET(request: Request) {
       friendRows.map((friend) => [friend.id, friend]),
     );
     const friendIds = [...friendsById.keys()];
+    const [currentUser] = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        image: users.image,
+        phoneNumber: users.phoneNumber,
+      })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+    const socialAuthorById = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        image: string | null;
+        phoneNumber: string | null;
+      }
+    >();
+    for (const friend of friendRows) {
+      socialAuthorById.set(friend.id, {
+        id: friend.id,
+        name: friend.name,
+        image: friend.image,
+        phoneNumber: friend.phoneNumber,
+      });
+    }
+    if (currentUser) socialAuthorById.set(currentUser.id, currentUser);
+    const socialOwnerIds = [...new Set([...friendIds, user.id])];
+    const socialAuthorIds = profilePostsOnly ? friendIds : socialOwnerIds;
 
-    if (friendIds.length === 0) {
+    if (friendIds.length === 0 && !currentUser) {
       return NextResponse.json({ items: [], nextCursor: null });
     }
 
@@ -718,7 +752,8 @@ export async function GET(request: Request) {
           | "reflection"
           | "birthday"
           | "shared_goal"
-          | "incentive";
+          | "incentive"
+          | "post";
         friend: {
           id: string;
           name: string;
@@ -1264,92 +1299,160 @@ export async function GET(request: Request) {
       });
     }
 
-    const socialRows = profilePostsOnly
-      ? []
-      : await db
-          .select({
-            entryId: socialFeedPosts.id,
-            friendId: socialFeedPosts.userId,
-            targetUserId: socialFeedPosts.targetUserId,
-            kind: socialFeedPosts.kind,
-            title: socialFeedPosts.title,
-            body: socialFeedPosts.body,
-            sourceId: socialFeedPosts.sourceId,
-            createdAt: socialFeedPosts.createdAt,
-            sharedGoalId: sharedGoals.id,
-            sharedGoalName: sharedGoals.name,
-            sharedGoalMode: sharedGoals.mode,
-            sharedGoalScoringType: sharedGoals.scoringType,
-            sharedGoalTarget: sharedGoals.target,
-            sharedGoalStartsOn: sharedGoals.startsOn,
-            sharedGoalEndsOn: sharedGoals.endsOn,
-            sharedGoalOpenInvite: sharedGoals.openInvite,
-            sharedGoalStatus: sharedGoals.status,
-          })
-          .from(socialFeedPosts)
-          .leftJoin(sharedGoals, eq(socialFeedPosts.sourceId, sharedGoals.id))
-          .where(
+    const socialRows = await db
+      .select({
+        entryId: socialFeedPosts.id,
+        friendId: socialFeedPosts.userId,
+        targetUserId: socialFeedPosts.targetUserId,
+        kind: socialFeedPosts.kind,
+        title: socialFeedPosts.title,
+        body: socialFeedPosts.body,
+        sourceId: socialFeedPosts.sourceId,
+        visibility: socialFeedPosts.visibility,
+        linkedType: socialFeedPosts.linkedType,
+        linkedId: socialFeedPosts.linkedId,
+        createdAt: socialFeedPosts.createdAt,
+        sharedGoalId: sharedGoals.id,
+        sharedGoalName: sharedGoals.name,
+        sharedGoalMode: sharedGoals.mode,
+        sharedGoalScoringType: sharedGoals.scoringType,
+        sharedGoalTarget: sharedGoals.target,
+        sharedGoalStartsOn: sharedGoals.startsOn,
+        sharedGoalEndsOn: sharedGoals.endsOn,
+        sharedGoalOpenInvite: sharedGoals.openInvite,
+        sharedGoalStatus: sharedGoals.status,
+        linkedHabitName: habits.name,
+        linkedHabitIcon: habits.iconKey,
+        linkedTaskName: tasks.name,
+      })
+      .from(socialFeedPosts)
+      .leftJoin(sharedGoals, eq(socialFeedPosts.sourceId, sharedGoals.id))
+      .leftJoin(
+        habits,
+        and(
+          eq(socialFeedPosts.linkedType, "habit"),
+          eq(socialFeedPosts.linkedId, habits.id),
+        ),
+      )
+      .leftJoin(
+        tasks,
+        and(
+          eq(socialFeedPosts.linkedType, "task"),
+          eq(socialFeedPosts.linkedId, tasks.id),
+        ),
+      )
+      .where(
+        and(
+          inArray(socialFeedPosts.userId, socialAuthorIds),
+          profilePostsOnly ? eq(socialFeedPosts.kind, "post") : undefined,
+          or(
+            eq(socialFeedPosts.userId, user.id),
             and(
-              inArray(socialFeedPosts.userId, friendIds),
               or(
-                eq(socialFeedPosts.userId, user.id),
+                isNull(socialFeedPosts.visibility),
+                eq(socialFeedPosts.visibility, "all_friends"),
+              ),
+              or(
                 eq(socialFeedPosts.targetUserId, user.id),
                 isNull(socialFeedPosts.targetUserId),
               ),
-              cursorDate
-                ? cursorHasUuid
-                  ? repostSocialPostIds.length > 0
-                    ? or(
-                        or(
-                          lt(socialFeedPosts.createdAt, cursorDate),
-                          and(
-                            eq(socialFeedPosts.createdAt, cursorDate),
-                            lt(socialFeedPosts.id, cursorId),
-                          ),
-                        ),
-                        inArray(socialFeedPosts.id, repostSocialPostIds),
-                      )
-                    : or(
-                        lt(socialFeedPosts.createdAt, cursorDate),
-                        and(
-                          eq(socialFeedPosts.createdAt, cursorDate),
-                          lt(socialFeedPosts.id, cursorId),
-                        ),
-                      )
-                  : repostSocialPostIds.length > 0
-                    ? or(
-                        lt(socialFeedPosts.createdAt, cursorDate),
-                        inArray(socialFeedPosts.id, repostSocialPostIds),
-                      )
-                    : lt(socialFeedPosts.createdAt, cursorDate)
-                : repostSocialPostIds.length > 0
-                  ? inArray(socialFeedPosts.id, repostSocialPostIds)
-                  : undefined,
+            ),
+            and(
+              eq(socialFeedPosts.kind, "post"),
+              eq(socialFeedPosts.visibility, "goal_friends"),
               or(
-                ne(socialFeedPosts.kind, "shared_goal"),
                 exists(
                   db
-                    .select({ id: sharedGoalParticipants.id })
-                    .from(sharedGoalParticipants)
+                    .select({ id: socialFeedPostAudienceFriends.id })
+                    .from(socialFeedPostAudienceFriends)
                     .where(
                       and(
                         eq(
-                          sharedGoalParticipants.sharedGoalId,
-                          socialFeedPosts.sourceId,
+                          socialFeedPostAudienceFriends.socialFeedPostId,
+                          socialFeedPosts.id,
                         ),
-                        eq(sharedGoalParticipants.userId, user.id),
-                        or(
-                          eq(sharedGoalParticipants.status, "invited"),
-                          eq(sharedGoalParticipants.status, "accepted"),
+                        eq(socialFeedPostAudienceFriends.friendUserId, user.id),
+                      ),
+                    ),
+                ),
+                exists(
+                  db
+                    .select({ id: socialFeedPostAudienceGroups.id })
+                    .from(socialFeedPostAudienceGroups)
+                    .innerJoin(
+                      friendGroupMembers,
+                      eq(
+                        socialFeedPostAudienceGroups.groupId,
+                        friendGroupMembers.groupId,
+                      ),
+                    )
+                    .where(
+                      and(
+                        eq(
+                          socialFeedPostAudienceGroups.socialFeedPostId,
+                          socialFeedPosts.id,
                         ),
+                        eq(friendGroupMembers.memberUserId, user.id),
                       ),
                     ),
                 ),
               ),
             ),
-          )
-          .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
-          .limit(candidateLimit + repostSocialPostIds.length);
+          ),
+          cursorDate
+            ? cursorHasUuid
+              ? repostSocialPostIds.length > 0
+                ? or(
+                    or(
+                      lt(socialFeedPosts.createdAt, cursorDate),
+                      and(
+                        eq(socialFeedPosts.createdAt, cursorDate),
+                        lt(socialFeedPosts.id, cursorId),
+                      ),
+                    ),
+                    inArray(socialFeedPosts.id, repostSocialPostIds),
+                  )
+                : or(
+                    lt(socialFeedPosts.createdAt, cursorDate),
+                    and(
+                      eq(socialFeedPosts.createdAt, cursorDate),
+                      lt(socialFeedPosts.id, cursorId),
+                    ),
+                  )
+              : repostSocialPostIds.length > 0
+                ? or(
+                    lt(socialFeedPosts.createdAt, cursorDate),
+                    inArray(socialFeedPosts.id, repostSocialPostIds),
+                  )
+                : lt(socialFeedPosts.createdAt, cursorDate)
+            : repostSocialPostIds.length > 0
+              ? inArray(socialFeedPosts.id, repostSocialPostIds)
+              : undefined,
+          or(
+            ne(socialFeedPosts.kind, "shared_goal"),
+            exists(
+              db
+                .select({ id: sharedGoalParticipants.id })
+                .from(sharedGoalParticipants)
+                .where(
+                  and(
+                    eq(
+                      sharedGoalParticipants.sharedGoalId,
+                      socialFeedPosts.sourceId,
+                    ),
+                    eq(sharedGoalParticipants.userId, user.id),
+                    or(
+                      eq(sharedGoalParticipants.status, "invited"),
+                      eq(sharedGoalParticipants.status, "accepted"),
+                    ),
+                  ),
+                ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
+      .limit(candidateLimit + repostSocialPostIds.length);
 
     const socialSharedGoalIds = [
       ...new Set(
@@ -1402,10 +1505,62 @@ export async function GET(request: Request) {
       participantsBySharedGoalId.set(participant.sharedGoalId, participants);
     }
 
+    const socialPostIds = socialRows
+      .filter((row) => row.kind === "shared_goal" || row.kind === "post")
+      .map((row) => row.entryId);
+    const socialPhotoRows =
+      socialPostIds.length > 0
+        ? await db
+            .select({
+              entryId: socialFeedPostPhotos.socialFeedPostId,
+              photoId: socialFeedPostPhotos.id,
+              storagePath: socialFeedPostPhotos.storagePath,
+              contentType: socialFeedPostPhotos.contentType,
+              photoCreatedAt: socialFeedPostPhotos.createdAt,
+            })
+            .from(socialFeedPostPhotos)
+            .where(
+              inArray(socialFeedPostPhotos.socialFeedPostId, socialPostIds),
+            )
+            .orderBy(asc(socialFeedPostPhotos.createdAt))
+        : [];
+    const signedSocialPhotoRows = await Promise.all(
+      socialPhotoRows.map(async (photo) => ({
+        ...photo,
+        url: await createSignedPhotoUrl(photo.storagePath),
+      })),
+    );
+    const socialPhotosByPostId = signedSocialPhotoRows.reduce<
+      Map<
+        string,
+        Array<{
+          id: string;
+          url: string;
+          contentType: string;
+          createdAt: string;
+        }>
+      >
+    >((photosByPostId, photo) => {
+      const photos = photosByPostId.get(photo.entryId) ?? [];
+      photos.push({
+        id: photo.photoId,
+        url: photo.url,
+        contentType: photo.contentType,
+        createdAt: photo.photoCreatedAt.toISOString(),
+      });
+      photosByPostId.set(photo.entryId, photos);
+      return photosByPostId;
+    }, new Map());
+
     for (const row of socialRows) {
-      const friend = friendsById.get(row.friendId);
+      const friend = socialAuthorById.get(row.friendId);
       if (!friend || row.kind === "repost") continue;
-      const kind = row.kind === "incentive" ? "incentive" : "shared_goal";
+      const isUserPost = row.kind === "post";
+      const kind = isUserPost
+        ? "post"
+        : row.kind === "incentive"
+          ? "incentive"
+          : "shared_goal";
       const createdAt = row.createdAt.toISOString();
       const sharedGoalParticipantsForPost = row.sharedGoalId
         ? (participantsBySharedGoalId.get(row.sharedGoalId) ?? [])
@@ -1419,10 +1574,19 @@ export async function GET(request: Request) {
         kind,
         friend,
         goal: {
-          id: row.sharedGoalId ?? row.entryId,
-          name: row.sharedGoalName ?? row.title,
-          icon:
-            kind === "incentive"
+          id: isUserPost
+            ? (row.linkedId ?? row.entryId)
+            : (row.sharedGoalId ?? row.entryId),
+          name: isUserPost
+            ? row.linkedType === "task"
+              ? (row.linkedTaskName ?? row.title)
+              : (row.linkedHabitName ?? row.title)
+            : (row.sharedGoalName ?? row.title),
+          icon: isUserPost
+            ? row.linkedType === "task"
+              ? "checkmark.square"
+              : (row.linkedHabitIcon ?? "mdi:target")
+            : kind === "incentive"
               ? "gift.fill"
               : "person.2.badge.gearshape.fill",
         },
@@ -1434,7 +1598,13 @@ export async function GET(request: Request) {
         canDeletePhotos: false,
         postType: "journal",
         highlights: [
-          kind === "incentive" ? "Incentive challenge" : "Shared goal",
+          isUserPost
+            ? row.linkedType === "task"
+              ? "Task post"
+              : "Habit post"
+            : kind === "incentive"
+              ? "Incentive challenge"
+              : "Shared goal",
         ],
         props: { count: 0, hasPropped: false },
         sourceType: "social_feed_post",
@@ -1461,13 +1631,10 @@ export async function GET(request: Request) {
             : undefined,
         mentions: [],
         comments: [],
-        photos: [],
+        photos: socialPhotosByPostId.get(row.entryId) ?? [],
       });
     }
 
-    const socialPostIds = socialRows
-      .filter((row) => row.kind === "shared_goal")
-      .map((row) => row.entryId);
     if (socialPostIds.length > 0) {
       const [socialPropRows, socialCommentRows] = await Promise.all([
         db
@@ -1583,7 +1750,11 @@ export async function GET(request: Request) {
       if (entry.kind === "habit") return "goal_log" as const;
       if (entry.kind === "goal_checkpoint") return "goal_checkpoint" as const;
       if (entry.kind === "reflection") return "reflection_post" as const;
-      if (entry.kind === "shared_goal" || entry.kind === "incentive") {
+      if (
+        entry.kind === "shared_goal" ||
+        entry.kind === "incentive" ||
+        entry.kind === "post"
+      ) {
         return "social_feed_post" as const;
       }
       return null;

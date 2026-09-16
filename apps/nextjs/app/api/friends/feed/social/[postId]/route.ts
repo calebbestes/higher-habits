@@ -1,8 +1,11 @@
 import {
+  friendGroupMembers,
   friends,
   getDb,
   sharedGoalParticipants,
   sharedGoals,
+  socialFeedPostAudienceFriends,
+  socialFeedPostAudienceGroups,
   socialFeedPostComments,
   socialFeedPostProps,
   socialFeedPosts,
@@ -37,21 +40,65 @@ async function findAccessibleSocialPost(
     .select({
       id: socialFeedPosts.id,
       ownerId: socialFeedPosts.userId,
+      kind: socialFeedPosts.kind,
+      visibility: socialFeedPosts.visibility,
       sharedGoalId: sharedGoals.id,
     })
     .from(socialFeedPosts)
     .leftJoin(sharedGoals, eq(socialFeedPosts.sourceId, sharedGoals.id))
-    .where(
-      and(
-        eq(socialFeedPosts.id, postId),
-        eq(socialFeedPosts.kind, "shared_goal"),
-        eq(socialFeedPosts.sourceType, "shared_goal"),
-      ),
-    )
+    .where(eq(socialFeedPosts.id, postId))
     .limit(1);
 
-  if (!post?.sharedGoalId) return null;
+  if (!post) return null;
   if (post.ownerId === userId) return post;
+
+  if (post.kind === "post") {
+    const [friendship] = await db
+      .select({ id: friends.id })
+      .from(friends)
+      .where(
+        and(
+          eq(friends.status, "accepted"),
+          or(
+            and(eq(friends.userId1, userId), eq(friends.userId2, post.ownerId)),
+            and(eq(friends.userId2, userId), eq(friends.userId1, post.ownerId)),
+          ),
+        ),
+      )
+      .limit(1);
+    if (!friendship || post.visibility === "only_me") return null;
+    if (post.visibility !== "goal_friends") return post;
+
+    const [directAudience, groupAudience] = await Promise.all([
+      db
+        .select({ id: socialFeedPostAudienceFriends.id })
+        .from(socialFeedPostAudienceFriends)
+        .where(
+          and(
+            eq(socialFeedPostAudienceFriends.socialFeedPostId, post.id),
+            eq(socialFeedPostAudienceFriends.friendUserId, userId),
+          ),
+        )
+        .limit(1),
+      db
+        .select({ id: socialFeedPostAudienceGroups.id })
+        .from(socialFeedPostAudienceGroups)
+        .innerJoin(
+          friendGroupMembers,
+          eq(socialFeedPostAudienceGroups.groupId, friendGroupMembers.groupId),
+        )
+        .where(
+          and(
+            eq(socialFeedPostAudienceGroups.socialFeedPostId, post.id),
+            eq(friendGroupMembers.memberUserId, userId),
+          ),
+        )
+        .limit(1),
+    ]);
+    return directAudience.length > 0 || groupAudience.length > 0 ? post : null;
+  }
+
+  if (post.kind !== "shared_goal" || !post.sharedGoalId) return null;
 
   const [membership] = await db
     .select({ id: sharedGoalParticipants.id })

@@ -1,15 +1,13 @@
 import { getDb, weeklyPlanNoteHeaders, weeklyPlanNotes } from "@habit/db";
-import { and, desc, eq, gte, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gte, lt, ne, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const monthQuerySchema = z.object({
-  month: z.coerce.number().int().min(1).max(12),
-  year: z.coerce.number().int().min(2000).max(2100),
-});
+const monthQueryValueSchema = z.coerce.number().int().min(1).max(12);
+const yearQueryValueSchema = z.coerce.number().int().min(2000).max(2100);
 
 const bodySchema = z.object({
   weekStartDate: dateKeySchema,
@@ -63,16 +61,29 @@ export async function GET(request: Request) {
     const yearParam = url.searchParams.get("year");
     const monthParam = url.searchParams.get("month");
 
-    if (yearParam && monthParam) {
-      const { month, year } = monthQuerySchema.parse({
-        month: monthParam,
-        year: yearParam,
-      });
-      const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-      const endDate =
-        month === 12
-          ? `${year + 1}-01-01`
-          : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    if (yearParam || monthParam) {
+      const year = yearParam
+        ? yearQueryValueSchema.parse(yearParam)
+        : undefined;
+      const month = monthParam
+        ? monthQueryValueSchema.parse(monthParam)
+        : undefined;
+      const conditions = [
+        eq(weeklyPlanNotes.userId, user.id),
+        ne(weeklyPlanNotes.notes, ""),
+      ];
+
+      if (year !== undefined) {
+        conditions.push(
+          gte(weeklyPlanNotes.weekStartDate, `${year}-01-01`),
+          lt(weeklyPlanNotes.weekStartDate, `${year + 1}-01-01`),
+        );
+      }
+      if (month !== undefined && year === undefined) {
+        conditions.push(
+          sql`EXTRACT(MONTH FROM ${weeklyPlanNotes.weekStartDate}) = ${month}`,
+        );
+      }
 
       const rows = await db
         .select({
@@ -80,14 +91,7 @@ export async function GET(request: Request) {
           weekStartDate: weeklyPlanNotes.weekStartDate,
         })
         .from(weeklyPlanNotes)
-        .where(
-          and(
-            eq(weeklyPlanNotes.userId, user.id),
-            ne(weeklyPlanNotes.notes, ""),
-            gte(weeklyPlanNotes.weekStartDate, startDate),
-            lt(weeklyPlanNotes.weekStartDate, endDate),
-          ),
-        )
+        .where(and(...conditions))
         .orderBy(desc(weeklyPlanNotes.weekStartDate));
 
       return NextResponse.json(rows);
@@ -106,8 +110,7 @@ export async function GET(request: Request) {
             ne(weeklyPlanNotes.notes, ""),
           ),
         )
-        .orderBy(desc(weeklyPlanNotes.weekStartDate))
-        .limit(52);
+        .orderBy(desc(weeklyPlanNotes.weekStartDate));
 
       return NextResponse.json(rows);
     }
