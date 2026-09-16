@@ -601,17 +601,6 @@ export async function GET(request: Request) {
           inArray(goalLogs.userId, friendIds),
           eq(goalLogs.status, "complete"),
           eq(habits.userId, goalLogs.userId),
-          profilePostsOnly
-            ? or(
-                ne(goalLogs.notes, ""),
-                exists(
-                  db
-                    .select({ id: goalLogPhotos.id })
-                    .from(goalLogPhotos)
-                    .where(eq(goalLogPhotos.goalLogId, goalLogs.id)),
-                ),
-              )
-            : undefined,
           cursorDate
             ? cursorHasUuid
               ? repostGoalLogIds.length > 0
@@ -982,19 +971,6 @@ export async function GET(request: Request) {
           isNotNull(goalCheckpoints.completedAt),
           eq(goalCheckpoints.visibility, "all_friends"),
           eq(goals.userId, goalCheckpoints.userId),
-          profilePostsOnly
-            ? or(
-                ne(goalCheckpoints.notes, ""),
-                exists(
-                  db
-                    .select({ id: goalCheckpointPhotos.id })
-                    .from(goalCheckpointPhotos)
-                    .where(
-                      eq(goalCheckpointPhotos.checkpointId, goalCheckpoints.id),
-                    ),
-                ),
-              )
-            : undefined,
           cursorDate
             ? cursorHasUuid
               ? repostCheckpointIds.length > 0
@@ -1128,7 +1104,6 @@ export async function GET(request: Request) {
             eq(dailyReflectionPosts.visibility, "all_friends"),
             eq(dailyReflectionPosts.visibility, "goal_friends"),
           ),
-          profilePostsOnly ? ne(dailyReflectionPosts.body, "") : undefined,
           cursorDate
             ? cursorHasUuid
               ? repostReflectionIds.length > 0
