@@ -45,8 +45,8 @@ const DAY_SETTING_KEYS = [
 type TimeSettingKey = (typeof TIME_SETTING_KEYS)[number];
 type DaySettingKey = (typeof DAY_SETTING_KEYS)[number];
 
-// Keep the first-run experience useful without turning every activity into a
-// push notification. Existing saved preferences are never overwritten.
+// Enable notifications by default except for the Streaks & progress section.
+// Existing saved preferences are never overwritten.
 const DEFAULTS: Record<NotificationKey, boolean> = {
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
@@ -61,14 +61,14 @@ const DEFAULTS: Record<NotificationKey, boolean> = {
   notifyFriendPosts: true,
   notifyFriendNudges: true,
   notifyFriendRequestAccepted: true,
-  notifyFriendMilestone: false,
+  notifyFriendMilestone: true,
   notifySharedGoalResponses: true,
-  notifyLastToComplete: false,
-  notifySharedGoalEnding: false,
-  notifyStakesReminder: false,
+  notifyLastToComplete: true,
+  notifySharedGoalEnding: true,
+  notifyStakesReminder: true,
   notifyIncentiveEarned: true,
-  notifyPlanTomorrow: true,
-  notifyWeeklyRecap: true,
+  notifyPlanTomorrow: false,
+  notifyWeeklyRecap: false,
   notifyScheduleEvents: true,
 };
 const TIME_DEFAULTS = {

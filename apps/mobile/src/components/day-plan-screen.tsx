@@ -45,7 +45,6 @@ import {
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import {
   DEFAULT_GOOGLE_CALENDAR_COLOR,
-  getCalendarEventForeground,
   getGoogleCalendarEventColor,
 } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
@@ -252,8 +251,15 @@ export type DayPlanEventTarget = {
   entryId: string;
 };
 
+export type DayPlanCreateRange = {
+  dateKey: string;
+  endMinutes: number;
+  startMinutes: number;
+};
+
 export function DayPlanScreen({
   initialDateKey,
+  initialCreateRange,
   initialEventTarget,
   modalOnly = false,
   onDateChange,
@@ -261,6 +267,7 @@ export function DayPlanScreen({
   onInitialEventOpened,
 }: {
   initialDateKey?: string;
+  initialCreateRange?: DayPlanCreateRange | null;
   initialEventTarget?: DayPlanEventTarget | null;
   modalOnly?: boolean;
   onDateChange?: (dateKey: string) => void;
@@ -327,6 +334,7 @@ export function DayPlanScreen({
   const [activeHabit, setActiveHabit] = useState<ActionHabit | null>(null);
   const [activeEntry, setActiveEntry] = useState<DayPlanEntry | null>(null);
   const openedInitialEventTargetRef = useRef<string | null>(null);
+  const openedInitialCreateRangeRef = useRef<string | null>(null);
   const [noteHabit, setNoteHabit] = useState<ActionHabit | null>(null);
   const [noteCheckpoint, setNoteCheckpoint] =
     useState<CheckpointNoteTarget | null>(null);
@@ -1941,12 +1949,40 @@ export function DayPlanScreen({
   ]);
 
   useEffect(() => {
+    if (!initialCreateRange) {
+      openedInitialCreateRangeRef.current = null;
+      return;
+    }
+
+    const targetKey = `${initialCreateRange.dateKey}:${initialCreateRange.startMinutes}:${initialCreateRange.endMinutes}`;
+    if (
+      initialCreateRange.dateKey !== dateKey ||
+      isLoading ||
+      openedInitialCreateRangeRef.current === targetKey
+    ) {
+      return;
+    }
+
+    openedInitialCreateRangeRef.current = targetKey;
+    setDraftPlanRange({
+      endMinutes: initialCreateRange.endMinutes,
+      startMinutes: initialCreateRange.startMinutes,
+    });
+  }, [dateKey, initialCreateRange, isLoading]);
+
+  useEffect(() => {
     if (
       !modalOnly ||
-      !initialEventTarget ||
-      !openedInitialEventTargetRef.current ||
+      (!initialEventTarget && !initialCreateRange) ||
+      (initialEventTarget && !openedInitialEventTargetRef.current) ||
+      (initialCreateRange && !openedInitialCreateRangeRef.current) ||
       activeEntry ||
-      activeHabit
+      activeHabit ||
+      draftPlanRange ||
+      otherEventRange ||
+      creatingTargetType ||
+      isCreatingPlan ||
+      isCreatingOtherEvent
     ) {
       return;
     }
@@ -1955,8 +1991,14 @@ export function DayPlanScreen({
   }, [
     activeEntry,
     activeHabit,
+    creatingTargetType,
+    draftPlanRange,
+    initialCreateRange,
     initialEventTarget,
+    isCreatingOtherEvent,
+    isCreatingPlan,
     modalOnly,
+    otherEventRange,
     onEventOverlayDismiss,
   ]);
 
@@ -4989,11 +5031,7 @@ function getEntryColors(
         entry.calendarBackgroundColor,
       )
     : (entry.calendarColor ?? theme.primary);
-  const textColor = isGoogleEntry
-    ? (entry.calendarForegroundColor ?? "#FFFFFF")
-    : entry.calendarColor
-      ? getCalendarEventForeground(entry.calendarColor)
-      : theme.primaryForeground;
+  const textColor = "#FFFFFF";
 
   return {
     accentColor,

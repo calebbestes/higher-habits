@@ -4633,14 +4633,9 @@ export function FeedCard({
               name={sym("message.fill", "message")}
               size={17}
               weight="semibold"
-              tintColor={theme.primaryForeground}
+              tintColor="#FFFFFF"
             />
-            <Text
-              style={[
-                styles.birthdayMessageText,
-                { color: theme.primaryForeground },
-              ]}
-            >
+            <Text style={[styles.birthdayMessageText, { color: "#FFFFFF" }]}>
               Message {entry.friend.name.split(" ")[0] || "friend"}
             </Text>
           </Pressable>

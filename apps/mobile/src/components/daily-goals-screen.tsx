@@ -986,12 +986,7 @@ export function DailyGoalsScreen({
                     { backgroundColor: theme.primary },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.todayBadgeText,
-                      { color: theme.primaryForeground },
-                    ]}
-                  >
+                  <Text style={[styles.todayBadgeText, { color: "#FFFFFF" }]}>
                     Today
                   </Text>
                 </View>

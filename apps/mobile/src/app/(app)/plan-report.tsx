@@ -4,12 +4,14 @@ import { StyleSheet, View } from "react-native";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
 import {
+  type DayPlanCreateRange,
   type DayPlanEventTarget,
   DayPlanScreen,
 } from "@/components/day-plan-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
 import {
   type WeekEvent,
+  type WeeklyCreateRange,
   WeeklyPlanScreen,
 } from "@/components/weekly-plan-screen";
 import {
@@ -40,9 +42,12 @@ export default function PlanReportScreen() {
     : (rememberedDateKey ?? undefined);
   const [pendingEventTarget, setPendingEventTarget] =
     useState<DayPlanEventTarget | null>(null);
+  const [pendingCreateRange, setPendingCreateRange] =
+    useState<DayPlanCreateRange | null>(null);
   const openDailyForDate = useCallback(
     (dateKey: string) => {
       setPendingEventTarget(null);
+      setPendingCreateRange(null);
       setPlanReportDateKey(dateKey);
       setPlanReportView("day-plan");
       router.setParams({ date: dateKey, view: "day-plan" });
@@ -64,6 +69,11 @@ export default function PlanReportScreen() {
     }
 
     setPendingEventTarget({ dateKey: event.date, entryId });
+  }, []);
+  const openCreateRange = useCallback((range: WeeklyCreateRange) => {
+    setPendingEventTarget(null);
+    setPendingCreateRange(range);
+    setPlanReportDateKey(range.dateKey);
   }, []);
 
   useEffect(() => {
@@ -94,6 +104,7 @@ export default function PlanReportScreen() {
           <ComponentErrorBoundary name="WeeklyPlanScreen">
             <WeeklyPlanScreen
               initialDateKey={activeDateKey}
+              onCreateRange={openCreateRange}
               onDateChange={setPlanReportDateKey}
               onSelectEvent={openDailyForEvent}
               onSelectDate={openDailyForDate}
@@ -104,6 +115,14 @@ export default function PlanReportScreen() {
                 initialEventTarget={pendingEventTarget}
                 modalOnly
                 onEventOverlayDismiss={() => setPendingEventTarget(null)}
+              />
+            ) : null}
+            {pendingCreateRange ? (
+              <DayPlanScreen
+                initialCreateRange={pendingCreateRange}
+                initialDateKey={pendingCreateRange.dateKey}
+                modalOnly
+                onEventOverlayDismiss={() => setPendingCreateRange(null)}
               />
             ) : null}
           </ComponentErrorBoundary>

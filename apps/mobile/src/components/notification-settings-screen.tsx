@@ -55,6 +55,7 @@ type TimeItem = {
   dayOptions?: MenuAction[];
   icon: SymbolName;
   key: NotificationTimeKey;
+  notificationKey: NotificationToggleKey;
   title: string;
   description: string;
 };
@@ -87,22 +88,10 @@ const SECTIONS: ToggleSection[] = [
         description: "A reminder when an event on your daily plan starts.",
       },
       {
-        key: "notifyMonthlyGoalToday",
-        icon: sym("calendar", "event"),
-        title: "Periodic habit today",
-        description: "A reminder for periodic habits planned for today.",
-      },
-      {
         key: "notifyTasksDueToday",
         icon: sym("checklist", "checklist"),
         title: "Tasks due today",
         description: "A daily reminder of tasks due today.",
-      },
-      {
-        key: "notifyPlanTomorrow",
-        icon: sym("moon.stars.fill", "bedtime"),
-        title: "Plan tomorrow",
-        description: "An evening nudge to set up tomorrow's goals.",
       },
       {
         key: "notifyInactivityReminder",
@@ -132,12 +121,6 @@ const SECTIONS: ToggleSection[] = [
         icon: sym("sun.haze.fill", "wb_twilight"),
         title: "End-of-day nudge",
         description: "How many high-priority goals are still open today.",
-      },
-      {
-        key: "notifyWeeklyRecap",
-        icon: sym("chart.bar.fill", "bar_chart"),
-        title: "Weekly recap",
-        description: "A summary of how your week went.",
       },
     ],
   },
@@ -234,6 +217,7 @@ const TIME_ITEMS: TimeItem[] = [
   {
     key: "dailyNotificationTime",
     icon: sym("bell.and.waves.left.and.right.fill", "notifications_active"),
+    notificationKey: "notifyPlanTomorrow",
     title: "Daily plan reminder",
     description: "Review today and set up tomorrow.",
   },
@@ -242,6 +226,7 @@ const TIME_ITEMS: TimeItem[] = [
     dayKey: "weeklyNotificationDay",
     dayOptions: WEEKLY_DAY_ACTIONS,
     icon: sym("calendar.badge.clock", "event_available"),
+    notificationKey: "notifyWeeklyRecap",
     title: "Weekly plan reminder",
     description: "Review and plan your week.",
   },
@@ -250,6 +235,7 @@ const TIME_ITEMS: TimeItem[] = [
     dayKey: "monthlyNotificationDay",
     dayOptions: MONTHLY_DAY_ACTIONS,
     icon: sym("calendar", "event"),
+    notificationKey: "notifyMonthlyGoalToday",
     title: "Monthly plan reminder",
     description: "Review and plan your month.",
   },
@@ -294,16 +280,20 @@ function formatTimeValue({
 
 function TimeSettingRow({
   dayValue,
+  enabled,
   item,
   onDayChange,
   onChange,
+  onToggle,
   showDivider,
   value,
 }: {
   dayValue?: string;
+  enabled: boolean;
   item: TimeItem;
   onDayChange?: (value: string) => void;
   onChange: (value: string) => void;
+  onToggle: (value: boolean) => void;
   showDivider: boolean;
   value: string;
 }) {
@@ -369,6 +359,12 @@ function TimeSettingRow({
               {item.description}
             </Text>
           </View>
+          <Switch
+            accessibilityLabel={`${enabled ? "Turn off" : "Turn on"} ${item.title}`}
+            value={enabled}
+            onValueChange={onToggle}
+            trackColor={{ true: theme.primary }}
+          />
         </View>
         <View style={styles.timeControls}>
           {dayActions && onDayChange && dayLabel ? (
@@ -556,7 +552,7 @@ export function NotificationSettingsModal({
                 <Text
                   style={[styles.groupTitle, { color: theme.textSecondary }]}
                 >
-                  Timing
+                  Planning
                 </Text>
                 <View
                   style={[
@@ -571,6 +567,7 @@ export function NotificationSettingsModal({
                     <TimeSettingRow
                       key={item.key}
                       dayValue={item.dayKey ? settings[item.dayKey] : undefined}
+                      enabled={settings[item.notificationKey]}
                       item={item}
                       onDayChange={
                         item.dayKey
@@ -582,6 +579,7 @@ export function NotificationSettingsModal({
                           : undefined
                       }
                       onChange={(value) => updateTime(item.key, value)}
+                      onToggle={(value) => toggle(item.notificationKey, value)}
                       showDivider={index < TIME_ITEMS.length - 1}
                       value={settings[item.key]}
                     />

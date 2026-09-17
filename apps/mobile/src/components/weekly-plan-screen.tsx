@@ -2,6 +2,7 @@ import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  type GestureResponderEvent,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -28,10 +29,7 @@ import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
-import {
-  getCalendarEventForeground,
-  getGoogleCalendarEventColor,
-} from "@/constants/calendar-colors";
+import { getGoogleCalendarEventColor } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
@@ -105,6 +103,8 @@ const TIME_LABEL_WIDTH = 44;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
 const GRID_START_MINUTES = HOURS[0] * 60;
 const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
+const WEEKLY_CREATE_SNAP_MINUTES = 15;
+const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
 const EDITOR_ACTIONS = [
   actions.heading1,
   actions.setBold,
@@ -132,6 +132,12 @@ type WeeklyPlanCacheEntry = {
   headers: WeeklyPlanNoteHeader[];
   notes: string;
   updatedAt: number;
+};
+
+export type WeeklyCreateRange = {
+  dateKey: string;
+  endMinutes: number;
+  startMinutes: number;
 };
 
 const WEEKLY_PLAN_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
@@ -313,6 +319,36 @@ function getEventMinutes(event: WeekEvent) {
   };
 }
 
+function snapWeeklyCreateMinutes(locationY: number) {
+  const rawMinutes = GRID_START_MINUTES + (locationY / HOUR_HEIGHT) * 60;
+  return Math.min(
+    GRID_END_MINUTES,
+    Math.max(
+      GRID_START_MINUTES,
+      Math.round(rawMinutes / WEEKLY_CREATE_SNAP_MINUTES) *
+        WEEKLY_CREATE_SNAP_MINUTES,
+    ),
+  );
+}
+
+function getWeeklyCreateRange(startMinutes: number, currentMinutes: number) {
+  let start = Math.min(startMinutes, currentMinutes);
+  let end = Math.max(startMinutes, currentMinutes);
+
+  if (end - start < WEEKLY_CREATE_MIN_DURATION_MINUTES) {
+    end = start + WEEKLY_CREATE_MIN_DURATION_MINUTES;
+  }
+  if (end > GRID_END_MINUTES) {
+    end = GRID_END_MINUTES;
+    start = Math.max(
+      GRID_START_MINUTES,
+      end - WEEKLY_CREATE_MIN_DURATION_MINUTES,
+    );
+  }
+
+  return { endMinutes: end, startMinutes: start };
+}
+
 function layoutWeekDayEvents(events: WeekEvent[]): LaidOutWeekEvent[] {
   const timed = [...events].sort((left, right) => {
     const leftMinutes = getEventMinutes(left);
@@ -475,11 +511,13 @@ function stripEditorText(html: string): string {
 
 export function WeeklyPlanScreen({
   initialDateKey,
+  onCreateRange,
   onDateChange,
   onSelectEvent,
   onSelectDate,
 }: {
   initialDateKey?: string;
+  onCreateRange?: (range: WeeklyCreateRange) => void;
   onDateChange?: (dateKey: string) => void;
   onSelectEvent?: (event: WeekEvent) => void;
   onSelectDate?: (dateKey: string) => void;
@@ -527,6 +565,15 @@ export function WeeklyPlanScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const [isSyncingGoogleCalendar, setIsSyncingGoogleCalendar] = useState(false);
+  const weeklyCreateGestureRef = useRef<{
+    dateKey: string;
+    startMinutes: number;
+  } | null>(null);
+  const weeklyCreatePreviewRef = useRef<WeeklyCreateRange | null>(null);
+  const [weeklyCreatePreview, setWeeklyCreatePreview] =
+    useState<WeeklyCreateRange | null>(null);
+  const [isWeeklyCreateGestureActive, setIsWeeklyCreateGestureActive] =
+    useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [headersModalOpen, setHeadersModalOpen] = useState(false);
   const [selectedHeaderIds, setSelectedHeaderIds] = useState<string[]>([]);
@@ -818,6 +865,60 @@ export function WeeklyPlanScreen({
     setSelectedDateKey(toDateKey(today));
   }, []);
 
+  const handleWeeklyCreateStart = useCallback(
+    (dateKey: string, event: GestureResponderEvent) => {
+      if (!onCreateRange || event.nativeEvent.touches.length !== 1) return;
+
+      const startMinutes = snapWeeklyCreateMinutes(event.nativeEvent.locationY);
+      weeklyCreateGestureRef.current = { dateKey, startMinutes };
+      const preview = {
+        dateKey,
+        ...getWeeklyCreateRange(startMinutes, startMinutes),
+      };
+      weeklyCreatePreviewRef.current = preview;
+      setWeeklyCreatePreview(preview);
+    },
+    [onCreateRange],
+  );
+
+  const handleWeeklyCreateMove = useCallback((event: GestureResponderEvent) => {
+    const gesture = weeklyCreateGestureRef.current;
+    if (!gesture) return;
+
+    const currentMinutes = snapWeeklyCreateMinutes(event.nativeEvent.locationY);
+    const preview = {
+      dateKey: gesture.dateKey,
+      ...getWeeklyCreateRange(gesture.startMinutes, currentMinutes),
+    };
+    weeklyCreatePreviewRef.current = preview;
+    setWeeklyCreatePreview(preview);
+  }, []);
+
+  const handleWeeklyCreateTouchStart = useCallback(
+    (dateKey: string, event: GestureResponderEvent) => {
+      if (!onCreateRange || event.nativeEvent.touches.length !== 1) return;
+      setIsWeeklyCreateGestureActive(true);
+      handleWeeklyCreateStart(dateKey, event);
+    },
+    [handleWeeklyCreateStart, onCreateRange],
+  );
+
+  const finishWeeklyCreate = useCallback(() => {
+    const preview = weeklyCreatePreviewRef.current;
+    weeklyCreateGestureRef.current = null;
+    weeklyCreatePreviewRef.current = null;
+    setWeeklyCreatePreview(null);
+    setIsWeeklyCreateGestureActive(false);
+    if (preview) onCreateRange?.(preview);
+  }, [onCreateRange]);
+
+  const cancelWeeklyCreate = useCallback(() => {
+    weeklyCreateGestureRef.current = null;
+    weeklyCreatePreviewRef.current = null;
+    setWeeklyCreatePreview(null);
+    setIsWeeklyCreateGestureActive(false);
+  }, []);
+
   const syncGoogleCalendar = useCallback(async () => {
     if (isSyncingGoogleCalendar) return;
 
@@ -984,6 +1085,7 @@ export function WeeklyPlanScreen({
               onRefresh={() => void load(true)}
             />
           }
+          scrollEnabled={!isWeeklyCreateGestureActive}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>
@@ -1261,6 +1363,21 @@ export function WeeklyPlanScreen({
                           },
                         ]}
                       >
+                        <View
+                          onMoveShouldSetResponderCapture={() =>
+                            Boolean(onCreateRange)
+                          }
+                          onStartShouldSetResponderCapture={() =>
+                            Boolean(onCreateRange)
+                          }
+                          onTouchCancel={cancelWeeklyCreate}
+                          onTouchEnd={finishWeeklyCreate}
+                          onTouchMove={handleWeeklyCreateMove}
+                          onTouchStart={(event) =>
+                            handleWeeklyCreateTouchStart(dateKey, event)
+                          }
+                          style={styles.weeklyCreateSurface}
+                        />
                         {laidOutEvents.map(
                           ({ event, laneCount, laneIndex }) => (
                             <EventBlock
@@ -1272,6 +1389,28 @@ export function WeeklyPlanScreen({
                             />
                           ),
                         )}
+                        {weeklyCreatePreview?.dateKey === dateKey ? (
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              styles.weeklyCreatePreview,
+                              {
+                                backgroundColor: `${theme.primary}55`,
+                                borderColor: theme.primary,
+                                height:
+                                  ((weeklyCreatePreview.endMinutes -
+                                    weeklyCreatePreview.startMinutes) /
+                                    60) *
+                                  HOUR_HEIGHT,
+                                top:
+                                  ((weeklyCreatePreview.startMinutes -
+                                    GRID_START_MINUTES) /
+                                    60) *
+                                  HOUR_HEIGHT,
+                              },
+                            ]}
+                          />
+                        ) : null}
                         {dateKey === todayKey && nowLineTop !== null ? (
                           <View
                             pointerEvents="none"
@@ -1682,7 +1821,7 @@ function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
         event.calendarColorId,
         event.calendarBackgroundColor,
       ),
-      text: event.calendarForegroundColor ?? "#FFFFFF",
+      text: "#FFFFFF",
     };
   }
   if (
@@ -1693,9 +1832,7 @@ function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
   ) {
     return {
       bg: event.calendarColor ?? theme.primary,
-      text: event.calendarColor
-        ? getCalendarEventForeground(event.calendarColor)
-        : theme.primaryForeground,
+      text: "#FFFFFF",
     };
   }
   return { bg: "#8E8E93", text: "#FFFFFF" };
@@ -1794,6 +1931,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     height: GRID_HEIGHT,
     position: "relative",
+  },
+  weeklyCreatePreview: {
+    borderRadius: 6,
+    borderWidth: 1.5,
+    left: 2,
+    position: "absolute",
+    right: 2,
+    zIndex: 3,
+  },
+  weeklyCreateSurface: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 0,
   },
   dayName: {
     fontSize: 10,

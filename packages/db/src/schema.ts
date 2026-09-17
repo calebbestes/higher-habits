@@ -1505,26 +1505,26 @@ export const userSettings = pgTable("user_settings", {
     .default(true),
   notifyFriendMilestone: boolean("notify_friend_milestone")
     .notNull()
-    .default(false),
+    .default(true),
   // Shared goals & incentives.
   notifySharedGoalResponses: boolean("notify_shared_goal_responses")
     .notNull()
     .default(true),
   notifyLastToComplete: boolean("notify_last_to_complete")
     .notNull()
-    .default(false),
+    .default(true),
   notifySharedGoalEnding: boolean("notify_shared_goal_ending")
     .notNull()
-    .default(false),
+    .default(true),
   notifyStakesReminder: boolean("notify_stakes_reminder")
     .notNull()
-    .default(false),
+    .default(true),
   notifyIncentiveEarned: boolean("notify_incentive_earned")
     .notNull()
     .default(true),
   // Planning & recap.
-  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(true),
-  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(true),
+  notifyPlanTomorrow: boolean("notify_plan_tomorrow").notNull().default(false),
+  notifyWeeklyRecap: boolean("notify_weekly_recap").notNull().default(false),
   notifyScheduleEvents: boolean("notify_schedule_events")
     .notNull()
     .default(true),
