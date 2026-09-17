@@ -66,6 +66,23 @@
                     "color": "#FF4655"
                 }
             ],
+            [
+                "expo-widgets",
+                {
+                    "widgets": [
+                        {
+                            "name": "TodayPlanWidget",
+                            "displayName": "Today's Plan",
+                            "description": "See today's plan at a glance.",
+                            "ios": {
+                                "supportedFamilies": [
+                                    "systemMedium"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
             "@sentry/react-native/expo"
         ],
         "experiments": {

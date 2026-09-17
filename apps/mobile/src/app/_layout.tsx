@@ -36,6 +36,7 @@ import {
   getColorThemePreference,
   getThemePreference,
 } from "@/lib/theme-preference";
+import { syncTodayPlanWidgetAsync } from "@/lib/today-plan-widget";
 import { recordAppOpened } from "@/lib/user-activity-client";
 import { fetchUserSettings } from "@/lib/user-settings-client";
 
@@ -165,8 +166,12 @@ function AuthNavigator() {
 
     record();
     void syncHabitRemindersFromServerAsync();
+    void syncTodayPlanWidgetAsync();
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") record();
+      if (state === "active") {
+        record();
+        void syncTodayPlanWidgetAsync();
+      }
     });
 
     return () => subscription.remove();
