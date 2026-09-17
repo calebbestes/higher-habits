@@ -8,6 +8,8 @@ export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events";
 export const GOOGLE_CALENDAR_LIST_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
+  "https://www.googleapis.com/auth/calendar.calendars.readonly";
 
 const GOOGLE_CALENDAR_WRITE_SCOPES = new Set([
   "https://www.googleapis.com/auth/calendar",
@@ -44,6 +46,17 @@ type GoogleCalendarColorsResponse = {
   event?: Record<string, GoogleCalendarColorDefinition>;
 };
 
+type GoogleCalendarEventLabel = {
+  backgroundColor?: string;
+  id?: string;
+};
+
+type GoogleCalendarResourceResponse = {
+  labelProperties?: {
+    eventLabels?: GoogleCalendarEventLabel[];
+  };
+};
+
 type GoogleCalendarListEntryResponse = {
   backgroundColor?: string;
   colorId?: string;
@@ -51,7 +64,10 @@ type GoogleCalendarListEntryResponse = {
 };
 
 type GoogleCalendarApiEvent = {
+  backgroundColor?: string;
   colorId?: string;
+  eventLabelId?: string;
+  foregroundColor?: string;
   id?: string;
   status?: string;
   summary?: string;
@@ -66,6 +82,7 @@ type GoogleCalendarApiEvent = {
 export type GoogleCalendarEvent = {
   backgroundColor?: string | null;
   colorId?: string | null;
+  eventLabelId?: string | null;
   foregroundColor?: string | null;
   id: string;
   title: string;
@@ -76,6 +93,19 @@ export type GoogleCalendarEvent = {
 };
 
 const GOOGLE_CALENDAR_COLORS_CACHE_MS = 60 * 60 * 1000;
+const GOOGLE_MODERN_EVENT_COLOR_IDS: Record<string, string> = {
+  "#7986cb": "1",
+  "#33b679": "2",
+  "#8e24aa": "3",
+  "#e67c73": "4",
+  "#f6bf26": "5",
+  "#f4511e": "6",
+  "#039be5": "7",
+  "#616161": "8",
+  "#3f51b5": "9",
+  "#0b8043": "10",
+  "#d50000": "11",
+};
 let googleCalendarColorsCache: {
   calendar: Record<string, GoogleCalendarColorDefinition>;
   event: Record<string, GoogleCalendarColorDefinition>;
@@ -96,6 +126,7 @@ type GoogleCalendarEventBody = {
 
 type GoogleCalendarDirectEventBody = {
   colorId?: string;
+  eventLabelId?: string;
   summary: string;
   description?: string;
   start: { date: string } | { dateTime: string; timeZone: string };
@@ -134,6 +165,7 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       configured,
       connected: false,
       hasGoogleAccount: false,
+      hasCalendarMetadataReadScope: false,
       hasCalendarListReadScope: false,
       scopes: [] as string[],
     };
@@ -152,6 +184,9 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       configured &&
       Boolean(account?.refreshToken) &&
       hasGoogleCalendarWriteScope(scopes),
+    hasCalendarMetadataReadScope: scopes.includes(
+      GOOGLE_CALENDAR_METADATA_READ_SCOPE,
+    ),
     hasCalendarListReadScope: scopes.includes(GOOGLE_CALENDAR_LIST_READ_SCOPE),
     hasGoogleAccount: Boolean(account),
     scopes,
@@ -556,7 +591,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
     });
     if (timeZone) params.set("timeZone", timeZone);
 
-    const [response, colors, primaryCalendar] = await Promise.all([
+    const [response, colors, primaryCalendar, eventLabels] = await Promise.all([
       googleCalendarFetch(
         `/calendars/primary/events?${params.toString()}`,
         token.accessToken,
@@ -564,6 +599,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
       ),
       getGoogleCalendarColors(token.accessToken),
       getGoogleCalendarPrimaryCalendar(token.accessToken),
+      getGoogleCalendarEventLabels(token.accessToken),
     ]);
     await throwIfGoogleCalendarError(response);
 
@@ -583,6 +619,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
           event,
           colors?.event,
           primaryCalendarColor,
+          eventLabels,
         ),
       )
       .filter((event): event is GoogleCalendarEvent => Boolean(event));
@@ -666,6 +703,7 @@ export async function updateGoogleCalendarPrimaryEvent({
   color,
   dateKey,
   description,
+  eventLabelId,
   eventId,
   plannedEndTime,
   plannedStartTime,
@@ -677,6 +715,7 @@ export async function updateGoogleCalendarPrimaryEvent({
   color?: string | null;
   dateKey: string;
   description?: string | null;
+  eventLabelId?: string | null;
   eventId: string;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
@@ -700,19 +739,30 @@ export async function updateGoogleCalendarPrimaryEvent({
     }
 
     const trimmedDescription = description?.trim();
-    const colorId =
+    const colorSelection =
       color === undefined
         ? undefined
         : color === null
-          ? ""
-          : await resolveGoogleCalendarEventColorId(token.accessToken, color);
-    if (color !== undefined && color !== null && !colorId) {
+          ? eventLabelId
+            ? { eventLabelId: "" }
+            : { colorId: "" }
+          : await resolveGoogleCalendarEventColorSelection(
+              token.accessToken,
+              color,
+            );
+    if (color !== undefined && color !== null && !colorSelection) {
       throw new Error("That color is not available in Google Calendar.");
     }
+    const usesEventLabels = colorSelection?.eventLabelId !== undefined;
     const body: GoogleCalendarDirectEventBody = {
       summary: title,
       ...(trimmedDescription ? { description: trimmedDescription } : {}),
-      ...(colorId == null ? {} : { colorId }),
+      ...(colorSelection?.colorId === undefined
+        ? {}
+        : { colorId: colorSelection.colorId }),
+      ...(colorSelection?.eventLabelId === undefined
+        ? {}
+        : { eventLabelId: colorSelection.eventLabelId }),
       ...(allDay
         ? buildGoogleCalendarEventTime({
             dateKey,
@@ -728,7 +778,9 @@ export async function updateGoogleCalendarPrimaryEvent({
           })),
     };
     const response = await googleCalendarFetch(
-      `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      `/calendars/primary/events/${encodeURIComponent(eventId)}${
+        usesEventLabels ? "?eventLabelVersion=1" : ""
+      }`,
       token.accessToken,
       {
         body: JSON.stringify(body),
@@ -917,6 +969,9 @@ async function resolveGoogleCalendarEventColorId(
   if (!colors) return null;
 
   const targetColor = backgroundColor.trim().toLowerCase();
+  const modernColorId = GOOGLE_MODERN_EVENT_COLOR_IDS[targetColor];
+  if (modernColorId && colors.event[modernColorId]) return modernColorId;
+
   return (
     Object.entries(colors.event).find(
       ([, definition]) =>
@@ -925,19 +980,40 @@ async function resolveGoogleCalendarEventColorId(
   );
 }
 
+async function resolveGoogleCalendarEventColorSelection(
+  accessToken: string,
+  backgroundColor: string,
+): Promise<{ colorId?: string; eventLabelId?: string } | null> {
+  const targetColor = backgroundColor.trim().toLowerCase();
+  const eventLabels = await getGoogleCalendarEventLabels(accessToken);
+  const eventLabelId = Object.entries(eventLabels).find(
+    ([, definition]) =>
+      definition.background?.trim().toLowerCase() === targetColor,
+  )?.[0];
+  if (eventLabelId) return { eventLabelId };
+
+  const colorId = await resolveGoogleCalendarEventColorId(
+    accessToken,
+    backgroundColor,
+  );
+  return colorId ? { colorId } : null;
+}
+
 async function normalizeGoogleCalendarEventWithColors(
   accessToken: string,
   event: GoogleCalendarApiEvent,
 ): Promise<GoogleCalendarEvent | null> {
-  const [colors, primaryCalendar] = await Promise.all([
+  const [colors, primaryCalendar, eventLabels] = await Promise.all([
     getGoogleCalendarColors(accessToken),
     getGoogleCalendarPrimaryCalendar(accessToken),
+    getGoogleCalendarEventLabels(accessToken),
   ]);
 
   return normalizeGoogleCalendarEvent(
     event,
     colors?.event,
     resolveGoogleCalendarPrimaryColor(primaryCalendar, colors?.calendar),
+    eventLabels,
   );
 }
 
@@ -960,6 +1036,35 @@ async function getGoogleCalendarPrimaryCalendar(
   }
 }
 
+async function getGoogleCalendarEventLabels(
+  accessToken: string,
+): Promise<Record<string, GoogleCalendarColorDefinition>> {
+  try {
+    const response = await googleCalendarFetch(
+      "/calendars/primary",
+      accessToken,
+      { method: "GET" },
+    );
+    if (!response.ok) return {};
+
+    const body = (await response
+      .json()
+      .catch(() => null)) as GoogleCalendarResourceResponse | null;
+    return Object.fromEntries(
+      (body?.labelProperties?.eventLabels ?? [])
+        .filter((label): label is GoogleCalendarEventLabel & { id: string } =>
+          Boolean(label.id && label.backgroundColor),
+        )
+        .map((label) => [
+          label.id,
+          { background: label.backgroundColor, foreground: "#1D1D1D" },
+        ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 function resolveGoogleCalendarPrimaryColor(
   calendar: GoogleCalendarListEntryResponse | null,
   calendarColors?: Record<string, GoogleCalendarColorDefinition>,
@@ -979,6 +1084,7 @@ function normalizeGoogleCalendarEvent(
   event: GoogleCalendarApiEvent,
   eventColors?: Record<string, GoogleCalendarColorDefinition> | null,
   primaryCalendarColor?: GoogleCalendarColorDefinition | null,
+  eventLabels?: Record<string, GoogleCalendarColorDefinition> | null,
 ): GoogleCalendarEvent | null {
   const id = event.id;
   const start = event.start;
@@ -986,13 +1092,24 @@ function normalizeGoogleCalendarEvent(
 
   if (!id || !start || !end) return null;
 
-  const color = event.colorId
-    ? (eventColors?.[event.colorId] ?? primaryCalendarColor)
-    : primaryCalendarColor;
+  const directColor =
+    (event.eventLabelId || event.colorId) &&
+    (event.backgroundColor || event.foregroundColor)
+      ? {
+          background: event.backgroundColor,
+          foreground: event.foregroundColor,
+        }
+      : null;
+  const color = event.eventLabelId
+    ? (directColor ?? eventLabels?.[event.eventLabelId] ?? null)
+    : event.colorId
+      ? (directColor ?? eventColors?.[event.colorId] ?? primaryCalendarColor)
+      : null;
 
   return {
     backgroundColor: color?.background ?? null,
     colorId: event.colorId ?? null,
+    eventLabelId: event.eventLabelId ?? null,
     foregroundColor: color?.foreground ?? null,
     id,
     title: event.summary?.trim() || "Untitled event",

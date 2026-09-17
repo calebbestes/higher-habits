@@ -122,7 +122,6 @@ import {
   inviteSharedGoalParticipants,
   respondToSharedGoal,
 } from "@/lib/shared-goals-client";
-import { type Task, fetchTasks } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
 type ActiveFeedPhoto = {
@@ -527,7 +526,6 @@ export function FeedScreen() {
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [personalPlanGoals, setPersonalPlanGoals] = useState<PlanGoal[]>([]);
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({
     groupIds: [],
@@ -670,7 +668,7 @@ export function FeedScreen() {
         groups,
         nextFriends,
         nextPersonalGoals,
-        nextTasks,
+        nextPersonalPlanGoals,
         sharedGoals,
         myPosts,
       ] = await Promise.all([
@@ -678,7 +676,7 @@ export function FeedScreen() {
         fetchFriendGroups().catch(() => []),
         fetchFriends().catch(() => []),
         fetchGoals().catch(() => []),
-        fetchTasks().catch(() => []),
+        fetchPlanGoals().catch(() => []),
         fetchSharedGoals().catch(() => []),
         fetchMyPosts().catch(() => []),
       ]);
@@ -696,7 +694,7 @@ export function FeedScreen() {
       setFriendGroups(groups);
       setFriends(nextFriends);
       setPersonalGoals(nextPersonalGoals);
-      setTasks(nextTasks);
+      setPersonalPlanGoals(nextPersonalPlanGoals);
       setJoinedGoalKeys(
         new Set(
           feedPage.items
@@ -2009,26 +2007,26 @@ export function FeedScreen() {
               </View>
             ) : null}
           </Pressable>
-          <Pressable
-            accessibilityLabel="Create post"
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={openCreatePost}
-            style={({ pressed }) => [
-              styles.feedAddButton,
-              { borderColor: theme.tabBorder },
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("plus", "add")}
-              size={22}
-              weight="semibold"
-              tintColor={theme.primary}
-            />
-          </Pressable>
         </View>
       </View>
+
+      <Pressable
+        accessibilityLabel="Add entry"
+        accessibilityRole="button"
+        onPress={openCreatePost}
+        style={({ pressed }) => [
+          styles.addEntryButton,
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.tabBorder,
+          },
+          pressed && styles.pressed,
+        ]}
+      >
+        <Text style={[styles.addEntryButtonText, { color: theme.primary }]}>
+          {"Add Entry"}
+        </Text>
+      </Pressable>
 
       {myDailyReflectionEntry ? null : (
         <DailyReflectionCard
@@ -2399,13 +2397,13 @@ export function FeedScreen() {
           createPostAudienceFriendIds.length + createPostAudienceGroupIds.length
         }
         caption={createPostCaption}
+        goals={personalPlanGoals}
         habits={personalGoals}
         isSubmitting={isSubmittingPost}
         link={createPostLink}
         photos={createPostPhotos}
         step={createPostStep}
-        tasks={tasks}
-        visible={isCreatePostOpen}
+        visible={isCreatePostOpen && !isCreatePostAudienceOpen}
         onAddPhoto={addCreatePostPhoto}
         onBack={() => setCreatePostStep(1)}
         onCaptionChange={setCreatePostCaption}
@@ -2432,6 +2430,7 @@ export function FeedScreen() {
         onToggleFavorite={toggleReflectionFavorite}
       />
       <ReflectionComposerModal
+        audiencePickerOpen={isReflectionAudienceOpen}
         audienceCount={
           reflectionAudienceFriendIds.length + reflectionAudienceGroupIds.length
         }
@@ -2588,6 +2587,7 @@ function DailyReflectionCard({
 function CreatePostModal({
   audienceCount,
   caption,
+  goals,
   habits,
   isSubmitting,
   link,
@@ -2603,12 +2603,12 @@ function CreatePostModal({
   onVisibilityChange,
   photos,
   step,
-  tasks,
   visible,
   visibility,
 }: {
   audienceCount: number;
   caption: string;
+  goals: PlanGoal[];
   habits: Goal[];
   isSubmitting: boolean;
   link: CreatePostLinkOption | null;
@@ -2624,16 +2624,27 @@ function CreatePostModal({
   onVisibilityChange: (value: PostVisibility) => void;
   photos: GoalPhotoUpload[];
   step: CreatePostStep;
-  tasks: Task[];
   visible: boolean;
   visibility: PostVisibility;
 }) {
   const theme = useTheme();
+  const [linkSearch, setLinkSearch] = useState("");
   const hasContent = Boolean(caption.trim() || photos.length > 0);
   const availableHabits = habits.filter((habit) => !habit.hidden);
+  const normalizedLinkSearch = linkSearch.trim().toLocaleLowerCase();
+  const filteredHabits = availableHabits.filter((habit) =>
+    habit.name.toLocaleLowerCase().includes(normalizedLinkSearch),
+  );
+  const filteredGoals = goals.filter((goal) =>
+    goal.title.toLocaleLowerCase().includes(normalizedLinkSearch),
+  );
   const hasAudience = visibility !== "goal_friends" || audienceCount > 0;
   const canPost = Boolean(link) && hasContent && hasAudience && !isSubmitting;
   const canContinue = hasContent && hasAudience;
+
+  useEffect(() => {
+    if (!visible || step !== 2) setLinkSearch("");
+  }, [step, visible]);
 
   const renderLinkRow = (option: CreatePostLinkOption) => {
     const selected = link?.type === option.type && link.id === option.id;
@@ -2673,7 +2684,7 @@ function CreatePostModal({
             />
           ) : (
             <SymbolView
-              name={sym("checkmark.square", "check_box")}
+              name={sym("target", "target")}
               size={18}
               weight="semibold"
               tintColor={selected ? theme.primary : theme.secondaryForeground}
@@ -2690,7 +2701,7 @@ function CreatePostModal({
           <Text
             style={[styles.createPostLinkType, { color: theme.textSecondary }]}
           >
-            {option.type === "habit" ? "Habit" : "Task"}
+            {option.type === "habit" ? "Habit" : "Goal"}
           </Text>
         </View>
         {selected ? (
@@ -2942,15 +2953,45 @@ function CreatePostModal({
             ) : (
               <ScrollView
                 contentContainerStyle={styles.createPostContent}
+                keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
+                <View
+                  style={[
+                    styles.createPostLinkSearch,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: `${theme.tabBorder}8C`,
+                    },
+                  ]}
+                >
+                  <SymbolView
+                    name={sym("magnifyingglass", "search")}
+                    size={18}
+                    tintColor={theme.textSecondary}
+                  />
+                  <TextInput
+                    accessibilityLabel="Search habits and goals"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onChangeText={setLinkSearch}
+                    placeholder="Search habits and goals"
+                    placeholderTextColor={theme.textSecondary}
+                    returnKeyType="search"
+                    style={[
+                      styles.createPostLinkSearchInput,
+                      { color: theme.text },
+                    ]}
+                    value={linkSearch}
+                  />
+                </View>
                 <Text
                   style={[
                     styles.createPostLinkIntro,
                     { color: theme.textSecondary },
                   ]}
                 >
-                  Choose the habit or task this post is about.
+                  Choose the habit or goal this post is about.
                 </Text>
 
                 <View style={styles.createPostLinkSection}>
@@ -2962,7 +3003,7 @@ function CreatePostModal({
                   >
                     Habits
                   </Text>
-                  {availableHabits.map((habit) =>
+                  {filteredHabits.map((habit) =>
                     renderLinkRow({
                       id: habit.id,
                       icon: habit.iconKey,
@@ -2970,14 +3011,16 @@ function CreatePostModal({
                       type: "habit",
                     }),
                   )}
-                  {availableHabits.length === 0 ? (
+                  {filteredHabits.length === 0 ? (
                     <Text
                       style={[
                         styles.createPostEmptyText,
                         { color: theme.textSecondary },
                       ]}
                     >
-                      No active habits available.
+                      {availableHabits.length === 0
+                        ? "No active habits available."
+                        : "No habits match your search."}
                     </Text>
                   ) : null}
                 </View>
@@ -2989,24 +3032,26 @@ function CreatePostModal({
                       { color: theme.text },
                     ]}
                   >
-                    Tasks
+                    Goals
                   </Text>
-                  {tasks.map((task) =>
+                  {filteredGoals.map((goal) =>
                     renderLinkRow({
-                      id: task.id,
-                      icon: "checkmark.square",
-                      name: task.name,
-                      type: "task",
+                      id: goal.id,
+                      icon: "target",
+                      name: goal.title,
+                      type: "goal",
                     }),
                   )}
-                  {tasks.length === 0 ? (
+                  {filteredGoals.length === 0 ? (
                     <Text
                       style={[
                         styles.createPostEmptyText,
                         { color: theme.textSecondary },
                       ]}
                     >
-                      No tasks available.
+                      {goals.length === 0
+                        ? "No goals available."
+                        : "No goals match your search."}
                     </Text>
                   ) : null}
                 </View>
@@ -3263,6 +3308,7 @@ function PromptRow({
 }
 
 function ReflectionComposerModal({
+  audiencePickerOpen,
   audienceCount,
   body,
   mentionFriends,
@@ -3278,6 +3324,7 @@ function ReflectionComposerModal({
   prompt,
   visibility,
 }: {
+  audiencePickerOpen: boolean;
   audienceCount: number;
   body: string;
   mentionFriends: Array<{
@@ -3310,7 +3357,7 @@ function ReflectionComposerModal({
       animationType="slide"
       onRequestClose={onClose}
       presentationStyle="pageSheet"
-      visible={prompt !== null}
+      visible={prompt !== null && !audiencePickerOpen}
     >
       <View
         style={[
@@ -5813,13 +5860,19 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     position: "relative",
   },
-  feedAddButton: {
-    width: 36,
-    height: 36,
+  addEntryButton: {
+    minHeight: 42,
     alignItems: "center",
+    alignSelf: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+  },
+  addEntryButtonText: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
   },
   filterBadge: {
     position: "absolute",
@@ -5987,6 +6040,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
+  },
+  createPostLinkSearch: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+  },
+  createPostLinkSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 0,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   createPostLinkSection: {
     gap: 9,

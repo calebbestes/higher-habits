@@ -1243,7 +1243,7 @@ export const createDailyReflection = (payload: {
     });
 
 export type CreateFeedPostLink = {
-  type: "habit" | "task";
+  type: "habit" | "goal";
   id: string;
 };
 

@@ -67,3 +67,20 @@ export function getGoogleCalendarColor(colorId?: string | null) {
     ? (GOOGLE_CALENDAR_COLORS[colorId] ?? DEFAULT_GOOGLE_CALENDAR_COLOR)
     : DEFAULT_GOOGLE_CALENDAR_COLOR;
 }
+
+export function getGoogleCalendarEventColor(
+  colorId?: string | null,
+  backgroundColor?: string | null,
+) {
+  const normalizedBackground = backgroundColor?.trim().toLowerCase();
+  const matchingAppColor = CALENDAR_EVENT_COLORS.find(
+    (option) => option.color?.toLowerCase() === normalizedBackground,
+  )?.color;
+
+  // Prefer Google's modern RGB value when it matches a color shown in Float.
+  if (matchingAppColor) return matchingAppColor;
+
+  return colorId && GOOGLE_CALENDAR_COLORS[colorId]
+    ? GOOGLE_CALENDAR_COLORS[colorId]
+    : (backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR);
+}

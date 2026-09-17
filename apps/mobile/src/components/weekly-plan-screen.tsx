@@ -30,7 +30,7 @@ import {
 } from "@/components/section-header-tabs";
 import {
   getCalendarEventForeground,
-  getGoogleCalendarColor,
+  getGoogleCalendarEventColor,
 } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -76,6 +76,7 @@ export type WeekEvent = Pick<
   calendarBackgroundColor?: string | null;
   calendarColor?: string | null;
   calendarColorId?: string | null;
+  calendarEventLabelId?: string | null;
   calendarForegroundColor?: string | null;
   plannedEventId?: string;
   sourceId?: string;
@@ -241,6 +242,7 @@ function googleEventToWeekEvent(
   return {
     calendarBackgroundColor: event.backgroundColor,
     calendarColorId: event.colorId,
+    calendarEventLabelId: event.eventLabelId,
     calendarForegroundColor: event.foregroundColor,
     date: dateKey,
     endTime: event.allDay ? null : dateTimeToTime(event.end.dateTime),
@@ -830,7 +832,11 @@ export function WeeklyPlanScreen({
         return;
       }
 
-      if (!status.connected || !status.hasCalendarListReadScope) {
+      if (
+        !status.connected ||
+        !status.hasCalendarMetadataReadScope ||
+        !status.hasCalendarListReadScope
+      ) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
@@ -1672,9 +1678,10 @@ function EventBlock({
 function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
   if (event.sourceType === "google") {
     return {
-      bg:
-        event.calendarBackgroundColor ??
-        getGoogleCalendarColor(event.calendarColorId),
+      bg: getGoogleCalendarEventColor(
+        event.calendarColorId,
+        event.calendarBackgroundColor,
+      ),
       text: event.calendarForegroundColor ?? "#FFFFFF",
     };
   }

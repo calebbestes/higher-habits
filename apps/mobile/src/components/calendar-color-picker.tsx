@@ -4,11 +4,15 @@ import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
 import { useTheme } from "@/hooks/use-theme";
 
 export function CalendarColorPicker({
+  defaultColor,
+  defaultForeground,
   defaultHint = "Default follows your app primary color.",
   disabled = false,
   value,
   onChange,
 }: {
+  defaultColor?: string;
+  defaultForeground?: string;
   defaultHint?: string;
   disabled?: boolean;
   value?: string | null;
@@ -30,8 +34,9 @@ export function CalendarColorPicker({
       <View style={styles.options}>
         {CALENDAR_EVENT_COLORS.map((option) => {
           const selected = value === option.color;
-          const swatchColor = option.color ?? theme.primary;
-          const swatchForeground = option.foreground ?? theme.primaryForeground;
+          const swatchColor = option.color ?? defaultColor ?? theme.primary;
+          const swatchForeground =
+            option.foreground ?? defaultForeground ?? theme.primaryForeground;
 
           return (
             <Pressable

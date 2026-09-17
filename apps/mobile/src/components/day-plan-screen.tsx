@@ -44,8 +44,9 @@ import {
 } from "@/components/section-header-tabs";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import {
+  DEFAULT_GOOGLE_CALENDAR_COLOR,
   getCalendarEventForeground,
-  getGoogleCalendarColor,
+  getGoogleCalendarEventColor,
 } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -130,6 +131,7 @@ type DayPlanEntry = {
   calendarColor?: string | null;
   calendarBackgroundColor?: string | null;
   calendarColorId?: string | null;
+  calendarEventLabelId?: string | null;
   calendarForegroundColor?: string | null;
   categoryName?: string | null;
   completed?: boolean;
@@ -757,7 +759,11 @@ export function DayPlanScreen({
         return;
       }
 
-      if (!status.connected || !status.hasCalendarListReadScope) {
+      if (
+        !status.connected ||
+        !status.hasCalendarMetadataReadScope ||
+        !status.hasCalendarListReadScope
+      ) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
@@ -1485,6 +1491,7 @@ export function DayPlanScreen({
     options?: {
       calendarColor?: string | null;
       googleAllDay?: boolean;
+      googleEventLabelId?: string | null;
       googleColor?: string | null;
     },
   ): Promise<{
@@ -1581,6 +1588,7 @@ export function DayPlanScreen({
           description: entry.description ?? null,
           endTime,
           eventId,
+          eventLabelId: options?.googleEventLabelId,
           startTime,
           timeZone,
           title: entry.title,
@@ -2321,6 +2329,7 @@ export function DayPlanScreen({
     const saveResult = await saveMovedEntry(entry, range, {
       calendarColor: eventColor,
       googleAllDay: preserveGoogleAllDay,
+      googleEventLabelId: entry.calendarEventLabelId,
       googleColor: eventColor,
     });
     if (!isMountedRef.current) return;
@@ -2331,6 +2340,7 @@ export function DayPlanScreen({
         ? {
             calendarBackgroundColor: saveResult.googleEvent.backgroundColor,
             calendarColorId: saveResult.googleEvent.colorId,
+            calendarEventLabelId: saveResult.googleEvent.eventLabelId,
             calendarForegroundColor: saveResult.googleEvent.foregroundColor,
           }
         : {}),
@@ -3465,9 +3475,14 @@ function InternalEventActionsModal({
   const currentStartTime = formatPlanApiTime(entry?.startMinutes ?? 9 * 60);
   const currentEndTime = formatPlanApiTime(entry?.endMinutes ?? 10 * 60);
   const currentGoogleColor =
-    isGoogleEvent && entry?.calendarColorId
-      ? (entry.calendarBackgroundColor ??
-        getGoogleCalendarColor(entry.calendarColorId))
+    isGoogleEvent &&
+    (entry?.calendarColorId ||
+      entry?.calendarEventLabelId ||
+      entry?.calendarBackgroundColor)
+      ? getGoogleCalendarEventColor(
+          entry?.calendarColorId,
+          entry?.calendarBackgroundColor,
+        )
       : null;
   const currentEventColor = isOtherEvent
     ? (entry?.calendarColor ?? null)
@@ -3779,10 +3794,16 @@ function InternalEventActionsModal({
                 {isGoogleEvent || isOtherEvent ? (
                   <View style={styles.eventActionSection}>
                     <CalendarColorPicker
+                      defaultColor={
+                        isGoogleEvent
+                          ? DEFAULT_GOOGLE_CALENDAR_COLOR
+                          : undefined
+                      }
+                      defaultForeground={isGoogleEvent ? "#FFFFFF" : undefined}
                       disabled={isUpdating}
                       defaultHint={
                         isGoogleEvent
-                          ? "Default uses your Google Calendar color."
+                          ? "Default uses Google's default event color."
                           : "Default uses your app primary color."
                       }
                       onChange={setEventColor}
@@ -4963,8 +4984,10 @@ function getEntryColors(
 ) {
   const isGoogleEntry = entry.kind === "google";
   const accentColor = isGoogleEntry
-    ? (entry.calendarBackgroundColor ??
-      getGoogleCalendarColor(entry.calendarColorId))
+    ? getGoogleCalendarEventColor(
+        entry.calendarColorId,
+        entry.calendarBackgroundColor,
+      )
     : (entry.calendarColor ?? theme.primary);
   const textColor = isGoogleEntry
     ? (entry.calendarForegroundColor ?? "#FFFFFF")
@@ -5204,6 +5227,7 @@ function googleEventToEntry(
       calendarBackgroundColor: event.backgroundColor,
       description: event.description,
       calendarColorId: event.colorId,
+      calendarEventLabelId: event.eventLabelId,
       calendarForegroundColor: event.foregroundColor,
       endMinutes: MINUTES_IN_DAY,
       id: `google-${event.id}`,
@@ -5246,6 +5270,7 @@ function googleEventToEntry(
     allDay: false,
     calendarBackgroundColor: event.backgroundColor,
     calendarColorId: event.colorId,
+    calendarEventLabelId: event.eventLabelId,
     calendarForegroundColor: event.foregroundColor,
     description: event.description,
     endMinutes: normalizeEndMinutes(startMinutes, endMinutes),

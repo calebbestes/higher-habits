@@ -118,6 +118,12 @@ function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
 
+function hasProfileGridContent(post: FriendFeedEntry) {
+  return (
+    post.photos.length > 0 || richTextToPlainText(post.notes).trim().length > 0
+  );
+}
+
 function createPrivateProfilePreview({
   friendId,
   initialImage,
@@ -331,9 +337,9 @@ export function FriendProfileScreen({
               ),
           );
           setPosts(
-            myPosts.sort((left, right) =>
-              right.dateKey.localeCompare(left.dateKey),
-            ),
+            myPosts
+              .filter(hasProfileGridContent)
+              .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
           setWeeklyPlanNotes(nextWeeklyPlanNotes);
           setArePostsLoading(false);
@@ -367,6 +373,7 @@ export function FriendProfileScreen({
           setPosts(
             feedPage.items
               .filter((entry) => entry.friend.id === nextProfile.friend.id)
+              .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
           setArePostsLoading(false);
@@ -1433,8 +1440,8 @@ function ProfilePostsGrid({
         title={self ? "No posts yet" : "No visible posts yet"}
         description={
           self
-            ? "Completed habits and posts will show up here."
-            : "Posts and completed habits this friend shares with you will appear here."
+            ? "Completed habits with a note or photo will show up here."
+            : "Posts this friend shares with you will appear here."
         }
       />
     </View>

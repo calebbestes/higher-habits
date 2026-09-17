@@ -601,6 +601,15 @@ export async function GET(request: Request) {
           inArray(goalLogs.userId, friendIds),
           eq(goalLogs.status, "complete"),
           eq(habits.userId, goalLogs.userId),
+          or(
+            ne(goalLogs.notes, ""),
+            exists(
+              db
+                .select({ id: goalLogPhotos.id })
+                .from(goalLogPhotos)
+                .where(eq(goalLogPhotos.goalLogId, goalLogs.id)),
+            ),
+          ),
           cursorDate
             ? cursorHasUuid
               ? repostGoalLogIds.length > 0
@@ -971,6 +980,17 @@ export async function GET(request: Request) {
           isNotNull(goalCheckpoints.completedAt),
           eq(goalCheckpoints.visibility, "all_friends"),
           eq(goals.userId, goalCheckpoints.userId),
+          or(
+            ne(goalCheckpoints.notes, ""),
+            exists(
+              db
+                .select({ id: goalCheckpointPhotos.id })
+                .from(goalCheckpointPhotos)
+                .where(
+                  eq(goalCheckpointPhotos.checkpointId, goalCheckpoints.id),
+                ),
+            ),
+          ),
           cursorDate
             ? cursorHasUuid
               ? repostCheckpointIds.length > 0
@@ -1103,6 +1123,20 @@ export async function GET(request: Request) {
           or(
             eq(dailyReflectionPosts.visibility, "all_friends"),
             eq(dailyReflectionPosts.visibility, "goal_friends"),
+          ),
+          or(
+            ne(dailyReflectionPosts.body, ""),
+            exists(
+              db
+                .select({ id: dailyReflectionPhotos.id })
+                .from(dailyReflectionPhotos)
+                .where(
+                  eq(
+                    dailyReflectionPhotos.reflectionPostId,
+                    dailyReflectionPosts.id,
+                  ),
+                ),
+            ),
           ),
           cursorDate
             ? cursorHasUuid
@@ -1299,6 +1333,7 @@ export async function GET(request: Request) {
         linkedHabitName: habits.name,
         linkedHabitIcon: habits.iconKey,
         linkedTaskName: tasks.name,
+        linkedGoalName: goals.title,
       })
       .from(socialFeedPosts)
       .leftJoin(sharedGoals, eq(socialFeedPosts.sourceId, sharedGoals.id))
@@ -1316,10 +1351,29 @@ export async function GET(request: Request) {
           eq(socialFeedPosts.linkedId, tasks.id),
         ),
       )
+      .leftJoin(
+        goals,
+        and(
+          eq(socialFeedPosts.linkedType, "goal"),
+          eq(socialFeedPosts.linkedId, goals.id),
+        ),
+      )
       .where(
         and(
           inArray(socialFeedPosts.userId, socialAuthorIds),
           profilePostsOnly ? eq(socialFeedPosts.kind, "post") : undefined,
+          or(
+            ne(socialFeedPosts.kind, "post"),
+            ne(socialFeedPosts.body, ""),
+            exists(
+              db
+                .select({ id: socialFeedPostPhotos.id })
+                .from(socialFeedPostPhotos)
+                .where(
+                  eq(socialFeedPostPhotos.socialFeedPostId, socialFeedPosts.id),
+                ),
+            ),
+          ),
           or(
             eq(socialFeedPosts.userId, user.id),
             and(
@@ -1553,14 +1607,18 @@ export async function GET(request: Request) {
             ? (row.linkedId ?? row.entryId)
             : (row.sharedGoalId ?? row.entryId),
           name: isUserPost
-            ? row.linkedType === "task"
-              ? (row.linkedTaskName ?? row.title)
-              : (row.linkedHabitName ?? row.title)
+            ? row.linkedType === "goal"
+              ? (row.linkedGoalName ?? row.title)
+              : row.linkedType === "task"
+                ? (row.linkedTaskName ?? row.title)
+                : (row.linkedHabitName ?? row.title)
             : (row.sharedGoalName ?? row.title),
           icon: isUserPost
-            ? row.linkedType === "task"
-              ? "checkmark.square"
-              : (row.linkedHabitIcon ?? "mdi:target")
+            ? row.linkedType === "goal"
+              ? "mdi:target"
+              : row.linkedType === "task"
+                ? "checkmark.square"
+                : (row.linkedHabitIcon ?? "mdi:target")
             : kind === "incentive"
               ? "gift.fill"
               : "person.2.badge.gearshape.fill",
@@ -1574,9 +1632,11 @@ export async function GET(request: Request) {
         postType: "journal",
         highlights: [
           isUserPost
-            ? row.linkedType === "task"
-              ? "Task post"
-              : "Habit post"
+            ? row.linkedType === "goal"
+              ? "Goal post"
+              : row.linkedType === "task"
+                ? "Task post"
+                : "Habit post"
             : kind === "incentive"
               ? "Incentive challenge"
               : "Shared goal",

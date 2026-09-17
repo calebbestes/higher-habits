@@ -3,6 +3,7 @@ import { mobileApiFetch } from "@/lib/mobile-api";
 export type GoogleCalendarStatus = {
   configured: boolean;
   connected: boolean;
+  hasCalendarMetadataReadScope: boolean;
   hasCalendarListReadScope: boolean;
   hasGoogleAccount: boolean;
   scopes: string[];
@@ -11,6 +12,7 @@ export type GoogleCalendarStatus = {
 export type GoogleCalendarDayEvent = {
   backgroundColor?: string | null;
   colorId?: string | null;
+  eventLabelId?: string | null;
   foregroundColor?: string | null;
   id: string;
   title: string;
@@ -42,6 +44,7 @@ export type CreateGoogleCalendarEventInput = {
 export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
   allDay?: boolean;
   color?: string | null;
+  eventLabelId?: string | null;
   eventId: string;
 };
 
@@ -131,6 +134,7 @@ export const updateGoogleCalendarEvent = ({
   dateKey,
   description,
   endTime,
+  eventLabelId,
   eventId,
   startTime,
   timeZone,
@@ -144,6 +148,7 @@ export const updateGoogleCalendarEvent = ({
       eventId,
       ...(allDay === undefined ? {} : { allDay }),
       ...(color === undefined ? {} : { color }),
+      ...(eventLabelId === undefined ? {} : { eventLabelId }),
       plannedStartTime: startTime ?? null,
       plannedEndTime: endTime ?? null,
       plannedTimeZone: timeZone ?? null,

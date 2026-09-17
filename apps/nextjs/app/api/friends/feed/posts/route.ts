@@ -2,12 +2,12 @@ import {
   friendGroups,
   friends,
   getDb,
+  goals,
   habits,
   socialFeedPostAudienceFriends,
   socialFeedPostAudienceGroups,
   socialFeedPostPhotos,
   socialFeedPosts,
-  tasks,
 } from "@habit/db";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -34,7 +34,7 @@ const createPostSchema = z.object({
     .default("all_friends"),
   audienceFriendIds: z.array(z.string().min(1)).max(100).default([]),
   audienceGroupIds: z.array(z.string().uuid()).max(50).default([]),
-  linkedType: z.enum(["habit", "task"]),
+  linkedType: z.enum(["habit", "goal"]),
   linkedId: z.string().uuid(),
 });
 
@@ -183,16 +183,16 @@ export async function POST(request: Request) {
             )
             .limit(1)
         : await db
-            .select({ id: tasks.id, name: tasks.name })
-            .from(tasks)
-            .where(and(eq(tasks.id, data.linkedId), eq(tasks.userId, user.id)))
+            .select({ id: goals.id, name: goals.title })
+            .from(goals)
+            .where(and(eq(goals.id, data.linkedId), eq(goals.userId, user.id)))
             .limit(1);
     const item = linkedItem[0];
 
     if (!item) {
       return NextResponse.json(
         {
-          error: `${data.linkedType === "habit" ? "Habit" : "Task"} not found.`,
+          error: `${data.linkedType === "habit" ? "Habit" : "Goal"} not found.`,
         },
         { status: 404 },
       );

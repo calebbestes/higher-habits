@@ -731,6 +731,7 @@ export function SettingsScreen() {
     : googleCalendarStatus
       ? googleCalendarStatus.configured
         ? googleCalendarStatus.connected &&
+          googleCalendarStatus.hasCalendarMetadataReadScope &&
           googleCalendarStatus.hasCalendarListReadScope
           ? "Connected"
           : googleCalendarStatus.connected
