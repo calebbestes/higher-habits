@@ -57,19 +57,6 @@ export async function getPlannedEventsForUser(
     userId: string;
   },
 ) {
-  if (dateKey) {
-    await ensureGoalCheckpointPlansForDate(db, { dateKey, userId });
-  } else if (startDateKey && endDateKey) {
-    let currentDateKey = startDateKey;
-    while (currentDateKey <= endDateKey) {
-      await ensureGoalCheckpointPlansForDate(db, {
-        dateKey: currentDateKey,
-        userId,
-      });
-      currentDateKey = addDaysToDateKey(currentDateKey, 1);
-    }
-  }
-
   const filters = [eq(plannedEvents.userId, userId)];
   if (dateKey) filters.push(eq(plannedEvents.date, dateKey));
   if (startDateKey) filters.push(gte(plannedEvents.date, startDateKey));
@@ -85,66 +72,6 @@ export async function getPlannedEventsForUser(
       asc(plannedEvents.plannedStartTime),
       asc(plannedEvents.createdAt),
     )) as PlannedEventRow[];
-}
-
-function addDaysToDateKey(dateKey: string, days: number) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return date.toISOString().slice(0, 10);
-}
-
-async function ensureGoalCheckpointPlansForDate(
-  db: Database,
-  { dateKey, userId }: { dateKey: string; userId: string },
-) {
-  const checkpointRows = (await db
-    .select({
-      id: goalCheckpoints.id,
-      title: goalCheckpoints.title,
-      targetDate: goalCheckpoints.targetDate,
-    })
-    .from(goalCheckpoints)
-    .where(
-      and(
-        eq(goalCheckpoints.userId, userId),
-        eq(goalCheckpoints.targetDate, dateKey),
-      ),
-    )) as Array<{ id: string; title: string; targetDate: string | null }>;
-
-  if (checkpointRows.length === 0) return;
-
-  const existingRows = (await db
-    .select({ sourceId: plannedEvents.sourceId })
-    .from(plannedEvents)
-    .where(
-      and(
-        eq(plannedEvents.userId, userId),
-        eq(plannedEvents.sourceType, "goal_checkpoint"),
-        inArray(
-          plannedEvents.sourceId,
-          checkpointRows.map((checkpoint) => checkpoint.id),
-        ),
-      ),
-    )) as Array<{ sourceId: string }>;
-  const existingSourceIds = new Set(existingRows.map((row) => row.sourceId));
-  const missingCheckpoints = checkpointRows.filter(
-    (checkpoint) => !existingSourceIds.has(checkpoint.id),
-  );
-
-  await Promise.all(
-    missingCheckpoints.map((checkpoint) =>
-      upsertPlannedEvent(db, {
-        dateKey,
-        plannedEndTime: null,
-        plannedStartTime: null,
-        sourceId: checkpoint.id,
-        sourceType: "goal_checkpoint",
-        title: checkpoint.title,
-        timeZone: null,
-        userId,
-      }),
-    ),
-  );
 }
 
 export async function resolvePlannedEventSourceTitle(

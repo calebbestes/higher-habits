@@ -1067,9 +1067,11 @@ export function DayPlanScreen({
     activeEntry?.kind === "goal" && activeEntry.sourceId
       ? (checkpointById.get(activeEntry.sourceId) ?? null)
       : null;
-  const activeRepeatingPlan = activeHabit
-    ? snapshot?.repeatingPlansByHabit[activeHabit.id]
-    : undefined;
+  const activeRepeatingPlan =
+    activeHabit &&
+    !snapshot?.explicitPlanDatesByHabit[activeHabit.id]?.includes(dateKey)
+      ? snapshot?.repeatingPlansByHabit[activeHabit.id]
+      : undefined;
   const activePlannedTime = activeKey
     ? (snapshot?.plannedTimesByHabitDate[activeKey] ??
       (activeRepeatingPlan && dateKey >= activeRepeatingPlan.originDate
