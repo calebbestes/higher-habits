@@ -3,6 +3,15 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
 import { useTheme } from "@/hooks/use-theme";
 
+const RAINBOW_COLORS = [
+  "#F44336",
+  "#FF9800",
+  "#FFEB3B",
+  "#4CAF50",
+  "#2196F3",
+  "#9C27B0",
+];
+
 export function CalendarColorPicker({
   defaultColor,
   defaultForeground,
@@ -56,12 +65,25 @@ export function CalendarColorPicker({
                 style={[
                   styles.swatch,
                   {
-                    backgroundColor: swatchColor,
+                    backgroundColor: option.color ? swatchColor : "transparent",
                     borderColor: selected ? theme.text : "transparent",
                     borderWidth: selected ? 2 : 0,
                   },
                 ]}
               >
+                {!option.color ? (
+                  <View style={styles.rainbowSwatch}>
+                    {RAINBOW_COLORS.map((color) => (
+                      <View
+                        key={color}
+                        style={[
+                          styles.rainbowStripe,
+                          { backgroundColor: color },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                ) : null}
                 {selected ? (
                   <Text style={[styles.checkmark, { color: swatchForeground }]}>
                     ✓
@@ -110,6 +132,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
+  rainbowSwatch: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    borderRadius: 999,
+    flexDirection: "row",
+    overflow: "hidden",
+  },
+  rainbowStripe: { flex: 1 },
   checkmark: { fontSize: 14, fontWeight: "900", lineHeight: 16 },
   optionLabel: { fontSize: 11, fontWeight: "700" },
   hint: { fontSize: 11, fontWeight: "600" },

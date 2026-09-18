@@ -109,11 +109,11 @@ export default function PrivacyPage() {
             zones, status, recurrence, and display colors. We request only the
             access you grant through the
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
-              calendar.events
+              calendar.events.owned
             </code>{" "}
             and{" "}
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
-              calendar.calendarlist.readonly
+              calendar.calendars.readonly
             </code>{" "}
             scopes. Higher Habits uses those permissions to read events from
             your primary calendar, read calendar and event display colors, and
@@ -204,11 +204,11 @@ export default function PrivacyPage() {
             <li>
               Google Calendar access uses the least-privilege
               <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
-                calendar.events
+                calendar.events.owned
               </code>{" "}
               and{" "}
               <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
-                calendar.calendarlist.readonly
+                calendar.calendars.readonly
               </code>{" "}
               scopes.
             </li>

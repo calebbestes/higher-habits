@@ -767,11 +767,7 @@ export function DayPlanScreen({
         return;
       }
 
-      if (
-        !status.connected ||
-        !status.hasCalendarMetadataReadScope ||
-        !status.hasCalendarListReadScope
-      ) {
+      if (!status.connected || !status.hasCalendarMetadataReadScope) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
@@ -1503,6 +1499,7 @@ export function DayPlanScreen({
       googleAllDay?: boolean;
       googleEventLabelId?: string | null;
       googleColor?: string | null;
+      title?: string;
     },
   ): Promise<{
     googleEvent: GoogleCalendarDayEvent | null;
@@ -1583,12 +1580,16 @@ export function DayPlanScreen({
                 : "goal_checkpoint",
           startTime,
           timeZone,
-          title: entry.title,
+          title: options?.title?.trim() || entry.title,
           calendarColor:
             entry.kind === "other" ? options?.calendarColor : undefined,
         });
         patchPlannedEvent(response.event);
-        scheduleEntryNotification(entry, startTime, endTime);
+        notificationEntry = {
+          ...entry,
+          title: options?.title?.trim() || entry.title,
+        };
+        scheduleEntryNotification(notificationEntry, startTime, endTime);
       } else if (entry.kind === "google") {
         const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
@@ -1601,14 +1602,18 @@ export function DayPlanScreen({
           eventLabelId: options?.googleEventLabelId,
           startTime,
           timeZone,
-          title: entry.title,
+          title: options?.title?.trim() || entry.title,
         });
         if (response.status !== "synced") {
           throw new Error(getGoogleCalendarStatusMessage(response.status));
         }
         if (response.event) patchGoogleEvent(eventId, response.event);
         scheduleEntryNotification(
-          { ...entry, sourceId: response.event?.id ?? eventId },
+          {
+            ...entry,
+            sourceId: response.event?.id ?? eventId,
+            title: options?.title?.trim() || entry.title,
+          },
           startTime,
           endTime,
         );
@@ -2296,7 +2301,7 @@ export function DayPlanScreen({
     const entry = activeEntry;
     const eventId = activeEntry.sourceId;
     Alert.alert(
-      "Delete from Google Calendar?",
+      "Delete event?",
       `"${entry.title}" will be permanently deleted from your Google Calendar.`,
       [
         { text: "Cancel", style: "cancel" },
@@ -2367,6 +2372,7 @@ export function DayPlanScreen({
     range: PlanRange,
     eventColor?: string | null,
     preserveGoogleAllDay = false,
+    title?: string,
   ) => {
     if (!activeEntry) return;
     const entry = activeEntry;
@@ -2375,6 +2381,7 @@ export function DayPlanScreen({
       googleAllDay: preserveGoogleAllDay,
       googleEventLabelId: entry.calendarEventLabelId,
       googleColor: eventColor,
+      title,
     });
     if (!isMountedRef.current) return;
     if (!saveResult.success) return;
@@ -2389,6 +2396,9 @@ export function DayPlanScreen({
           }
         : {}),
       ...(entry.kind === "other" ? { calendarColor: eventColor ?? null } : {}),
+      ...(title?.trim() && (entry.kind === "google" || entry.kind === "other")
+        ? { title: title.trim() }
+        : {}),
       endMinutes: preserveGoogleAllDay ? MINUTES_IN_DAY : range.endMinutes,
       startMinutes: range.startMinutes,
     });
@@ -3179,11 +3189,12 @@ export function DayPlanScreen({
           onDelete={() => void deleteActiveEntry()}
           onDeleteGoogleEvent={() => void deleteActiveGoogleEvent()}
           onOpenNote={openAttachmentForActiveEntry}
-          onSaveTimeRange={(range, eventColor, preserveGoogleAllDay) =>
+          onSaveTimeRange={(range, eventColor, preserveGoogleAllDay, title) =>
             void saveActiveEntryTimeRange(
               range,
               eventColor,
               preserveGoogleAllDay,
+              title,
             )
           }
           onSetVisibility={(visibility) =>
@@ -3496,6 +3507,7 @@ function InternalEventActionsModal({
     range: PlanRange,
     googleColor?: string | null,
     preserveGoogleAllDay?: boolean,
+    title?: string,
   ) => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
@@ -3511,9 +3523,11 @@ function InternalEventActionsModal({
     useState<PlanPeriod>(DEFAULT_PLAN_PERIOD);
   const [planEndPeriod, setPlanEndPeriod] =
     useState<PlanPeriod>(DEFAULT_PLAN_PERIOD);
+  const [eventTitle, setEventTitle] = useState(entry?.title ?? "");
   const isOtherEvent = entry?.kind === "other";
   const isHabitEvent = entry?.kind === "habit";
   const isGoogleEvent = entry?.kind === "google";
+  const isTitleEditable = isOtherEvent || isGoogleEvent;
   const isEditablePlannedBlock =
     Boolean(entry?.sourceId) && (isOtherEvent || isHabitEvent || isGoogleEvent);
   const currentStartTime = formatPlanApiTime(entry?.startMinutes ?? 9 * 60);
@@ -3540,11 +3554,15 @@ function InternalEventActionsModal({
     nextStartTime !== currentStartTime || nextEndTime !== currentEndTime;
   const hasEventColorChanges =
     (isGoogleEvent || isOtherEvent) && eventColor !== currentEventColor;
-  const hasSaveChanges = hasTimeRangeChanges || hasEventColorChanges;
+  const hasEventTitleChanges =
+    isTitleEditable && eventTitle.trim() !== (entry?.title ?? "");
+  const hasSaveChanges =
+    hasTimeRangeChanges || hasEventColorChanges || hasEventTitleChanges;
   const canSaveTimeRange =
     nextStartMinutes !== null &&
     nextEndMinutes !== null &&
     normalizeEndMinutes(nextStartMinutes, nextEndMinutes) > nextStartMinutes;
+  const canSaveEventTitle = !isTitleEditable || eventTitle.trim().length > 0;
   const runPressAction = (key: string, action: () => void) => {
     if (pressLocksRef.current.has(key)) return;
 
@@ -3565,6 +3583,7 @@ function InternalEventActionsModal({
     setPlanEndTime(end.time || DEFAULT_PLAN_START_TIME);
     setPlanEndPeriod(end.period);
     setEventColor(currentEventColor);
+    setEventTitle(entry.title);
   }, [
     currentEndTime,
     currentEventColor,
@@ -3599,12 +3618,30 @@ function InternalEventActionsModal({
             ]}
           >
             <View style={styles.eventActionTitleBlock}>
-              <Text
-                numberOfLines={2}
-                style={[styles.eventActionTitle, { color: theme.text }]}
-              >
-                {entry.title}
-              </Text>
+              {isTitleEditable ? (
+                <TextInput
+                  autoCapitalize="sentences"
+                  editable={!isUpdating}
+                  maxLength={200}
+                  onChangeText={setEventTitle}
+                  placeholder="Event name"
+                  placeholderTextColor={theme.textSecondary}
+                  returnKeyType="done"
+                  style={[
+                    styles.eventActionTitle,
+                    styles.eventActionTitleInput,
+                    { color: theme.text },
+                  ]}
+                  value={eventTitle}
+                />
+              ) : (
+                <Text
+                  numberOfLines={2}
+                  style={[styles.eventActionTitle, { color: theme.text }]}
+                >
+                  {entry.title}
+                </Text>
+              )}
               <Text
                 style={[
                   styles.eventActionSubtitle,
@@ -3653,6 +3690,7 @@ function InternalEventActionsModal({
                   disabled={
                     isUpdating ||
                     (hasTimeRangeChanges && !canSaveTimeRange) ||
+                    !canSaveEventTitle ||
                     (!hasSaveChanges && isGoogleEvent)
                   }
                   onPress={() =>
@@ -3674,6 +3712,7 @@ function InternalEventActionsModal({
                             ? eventColor
                             : undefined,
                           isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
+                          isTitleEditable ? eventTitle.trim() : undefined,
                         );
                         return;
                       }
@@ -3684,6 +3723,7 @@ function InternalEventActionsModal({
                   }
                   style={({ pressed }) => [
                     styles.eventActionRow,
+                    styles.eventActionRowCompact,
                     { backgroundColor: theme.backgroundElement },
                     hasTimeRangeChanges &&
                       !canSaveTimeRange &&
@@ -3707,7 +3747,11 @@ function InternalEventActionsModal({
                     />
                   )}
                   <Text
-                    style={[styles.eventActionLabel, { color: theme.text }]}
+                    style={[
+                      styles.eventActionLabel,
+                      styles.eventActionLabelCompact,
+                      { color: theme.text },
+                    ]}
                   >
                     {hasSaveChanges || isGoogleEvent
                       ? hasSaveChanges
@@ -3990,7 +4034,7 @@ function InternalEventActionsModal({
                   tintColor="#B84D54"
                 />
                 <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
-                  Delete event
+                  Delete
                 </Text>
               </Pressable>
             ) : null}
@@ -4011,7 +4055,7 @@ function InternalEventActionsModal({
                   tintColor="#B84D54"
                 />
                 <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
-                  Delete from Google Calendar
+                  Delete
                 </Text>
               </Pressable>
             ) : null}
@@ -6736,6 +6780,10 @@ const styles = StyleSheet.create({
     lineHeight: 31,
     fontWeight: "900",
   },
+  eventActionTitleInput: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
   eventActionSubtitle: {
     fontSize: 16,
     lineHeight: 20,
@@ -6767,11 +6815,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 20,
   },
+  eventActionRowCompact: {
+    minHeight: 64,
+    gap: 16,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+  },
   eventActionDestructiveRow: {
-    minHeight: 60,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
+    gap: 14,
     paddingHorizontal: 2,
   },
   eventActionLabel: {
@@ -6780,6 +6834,10 @@ const styles = StyleSheet.create({
     fontSize: 21,
     lineHeight: 26,
     fontWeight: "900",
+  },
+  eventActionLabelCompact: {
+    fontSize: 19,
+    lineHeight: 24,
   },
   eventActionGrid: {
     flexDirection: "row",

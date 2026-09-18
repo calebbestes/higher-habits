@@ -24,6 +24,11 @@ export const CALENDAR_EVENT_COLORS = [
   { label: "Cobalt", color: "#4285F4", foreground: "#FFFFFF" },
   { label: "Eucalyptus", color: "#009688", foreground: "#FFFFFF" },
   { label: "Cherry Blossom", color: "#D81B60", foreground: "#FFFFFF" },
+  { label: "Banana", color: "#F6BF26", foreground: "#211203" },
+  { label: "Peacock", color: "#039BE5", foreground: "#FFFFFF" },
+  { label: "Grape", color: "#8E24AA", foreground: "#FFFFFF" },
+  { label: "Graphite", color: "#616161", foreground: "#FFFFFF" },
+  { label: "Tomato", color: "#D50000", foreground: "#FFFFFF" },
 ] as const;
 
 export function getCalendarEventForeground(

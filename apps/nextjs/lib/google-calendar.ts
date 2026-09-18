@@ -5,16 +5,16 @@ import { accounts, getDb } from "@habit/db";
 import { and, eq } from "drizzle-orm";
 
 export const GOOGLE_CALENDAR_EVENTS_SCOPE =
+  "https://www.googleapis.com/auth/calendar.events.owned";
+const GOOGLE_CALENDAR_LEGACY_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events";
-export const GOOGLE_CALENDAR_LIST_READ_SCOPE =
-  "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendars.readonly";
 
 const GOOGLE_CALENDAR_WRITE_SCOPES = new Set([
   "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.events.owned",
+  GOOGLE_CALENDAR_EVENTS_SCOPE,
+  GOOGLE_CALENDAR_LEGACY_EVENTS_SCOPE,
 ]);
 
 type GoogleTokenResult =
@@ -55,12 +55,6 @@ type GoogleCalendarResourceResponse = {
   labelProperties?: {
     eventLabels?: GoogleCalendarEventLabel[];
   };
-};
-
-type GoogleCalendarListEntryResponse = {
-  backgroundColor?: string;
-  colorId?: string;
-  foregroundColor?: string;
 };
 
 type GoogleCalendarApiEvent = {
@@ -166,7 +160,6 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       connected: false,
       hasGoogleAccount: false,
       hasCalendarMetadataReadScope: false,
-      hasCalendarListReadScope: false,
       scopes: [] as string[],
     };
   }
@@ -187,7 +180,6 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
     hasCalendarMetadataReadScope: scopes.includes(
       GOOGLE_CALENDAR_METADATA_READ_SCOPE,
     ),
-    hasCalendarListReadScope: scopes.includes(GOOGLE_CALENDAR_LIST_READ_SCOPE),
     hasGoogleAccount: Boolean(account),
     scopes,
   };
@@ -591,22 +583,16 @@ export async function listGoogleCalendarPrimaryEventsForRange({
     });
     if (timeZone) params.set("timeZone", timeZone);
 
-    const [response, colors, primaryCalendar, eventLabels] = await Promise.all([
+    const [response, colors, eventLabels] = await Promise.all([
       googleCalendarFetch(
         `/calendars/primary/events?${params.toString()}`,
         token.accessToken,
         { method: "GET" },
       ),
       getGoogleCalendarColors(token.accessToken),
-      getGoogleCalendarPrimaryCalendar(token.accessToken),
       getGoogleCalendarEventLabels(token.accessToken),
     ]);
     await throwIfGoogleCalendarError(response);
-
-    const primaryCalendarColor = resolveGoogleCalendarPrimaryColor(
-      primaryCalendar,
-      colors?.calendar,
-    );
 
     const body = (await response
       .json()
@@ -615,12 +601,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
       .filter((event) => event.status !== "cancelled")
       .filter((event) => !isHigherHabitsCalendarEvent(event))
       .map((event) =>
-        normalizeGoogleCalendarEvent(
-          event,
-          colors?.event,
-          primaryCalendarColor,
-          eventLabels,
-        ),
+        normalizeGoogleCalendarEvent(event, colors?.event, eventLabels),
       )
       .filter((event): event is GoogleCalendarEvent => Boolean(event));
 
@@ -1003,37 +984,12 @@ async function normalizeGoogleCalendarEventWithColors(
   accessToken: string,
   event: GoogleCalendarApiEvent,
 ): Promise<GoogleCalendarEvent | null> {
-  const [colors, primaryCalendar, eventLabels] = await Promise.all([
+  const [colors, eventLabels] = await Promise.all([
     getGoogleCalendarColors(accessToken),
-    getGoogleCalendarPrimaryCalendar(accessToken),
     getGoogleCalendarEventLabels(accessToken),
   ]);
 
-  return normalizeGoogleCalendarEvent(
-    event,
-    colors?.event,
-    resolveGoogleCalendarPrimaryColor(primaryCalendar, colors?.calendar),
-    eventLabels,
-  );
-}
-
-async function getGoogleCalendarPrimaryCalendar(
-  accessToken: string,
-): Promise<GoogleCalendarListEntryResponse | null> {
-  try {
-    const response = await googleCalendarFetch(
-      "/users/me/calendarList/primary",
-      accessToken,
-      { method: "GET" },
-    );
-    if (!response.ok) return null;
-
-    return (await response
-      .json()
-      .catch(() => null)) as GoogleCalendarListEntryResponse | null;
-  } catch {
-    return null;
-  }
+  return normalizeGoogleCalendarEvent(event, colors?.event, eventLabels);
 }
 
 async function getGoogleCalendarEventLabels(
@@ -1065,25 +1021,9 @@ async function getGoogleCalendarEventLabels(
   }
 }
 
-function resolveGoogleCalendarPrimaryColor(
-  calendar: GoogleCalendarListEntryResponse | null,
-  calendarColors?: Record<string, GoogleCalendarColorDefinition>,
-): GoogleCalendarColorDefinition | null {
-  if (!calendar) return null;
-
-  const indexedColor = calendar.colorId
-    ? calendarColors?.[calendar.colorId]
-    : undefined;
-  const background = calendar.backgroundColor ?? indexedColor?.background;
-  const foreground = calendar.foregroundColor ?? indexedColor?.foreground;
-
-  return background || foreground ? { background, foreground } : null;
-}
-
 function normalizeGoogleCalendarEvent(
   event: GoogleCalendarApiEvent,
   eventColors?: Record<string, GoogleCalendarColorDefinition> | null,
-  primaryCalendarColor?: GoogleCalendarColorDefinition | null,
   eventLabels?: Record<string, GoogleCalendarColorDefinition> | null,
 ): GoogleCalendarEvent | null {
   const id = event.id;
@@ -1103,7 +1043,7 @@ function normalizeGoogleCalendarEvent(
   const color = event.eventLabelId
     ? (directColor ?? eventLabels?.[event.eventLabelId] ?? null)
     : event.colorId
-      ? (directColor ?? eventColors?.[event.colorId] ?? primaryCalendarColor)
+      ? (directColor ?? eventColors?.[event.colorId] ?? null)
       : null;
 
   return {

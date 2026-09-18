@@ -696,10 +696,12 @@ export function FriendProfileScreen({
                     label="days until birthday"
                     value={profile.stats.daysUntilBirthday}
                   />
+                  {/*
                   <ProfileStat
                     label="incentives given"
                     value={profile.stats.incentivesGiven}
                   />
+                  */}
                 </View>
               </View>
               {!self && nudgeFriendshipId ? (
@@ -1748,16 +1750,9 @@ function ProfileStat({
       <Text style={[styles.statValue, { color: theme.text }]}>
         {safeValue.toLocaleString()}
       </Text>
-      <View style={styles.statLabelWrap}>
-        {label.split(" ").map((word) => (
-          <Text
-            key={word}
-            style={[styles.statLabel, { color: theme.textSecondary }]}
-          >
-            {word}
-          </Text>
-        ))}
-      </View>
+      <Text style={[styles.statLabel, { color: theme.textSecondary }]}>
+        {label}
+      </Text>
     </>
   );
 
@@ -2209,20 +2204,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "700",
   },
-  statLabelWrap: {
+  statLabel: {
     width: "100%",
     marginTop: 2,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    columnGap: 3,
-    rowGap: 0,
-  },
-  statLabel: {
-    flexShrink: 0,
     fontSize: 12,
     lineHeight: 15,
     fontWeight: "400",
+    textAlign: "center",
   },
   profileName: {
     marginTop: 10,

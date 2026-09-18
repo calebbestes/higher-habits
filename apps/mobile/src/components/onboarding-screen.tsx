@@ -5,6 +5,8 @@ import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -125,165 +127,176 @@ export function OnboardingScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+          style={styles.keyboardView}
         >
-          <View style={styles.content}>
-            <View style={styles.header}>
-              <Text style={[styles.eyebrow, { color: theme.primary }]}>
-                WELCOME TO FLOAT
-              </Text>
-              <Text style={[styles.title, { color: theme.text }]}>
-                Finish your profile
-              </Text>
-              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-                A few details help your friends recognize you and make the app
-                work properly.
-              </Text>
-            </View>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode={
+              Platform.OS === "ios" ? "interactive" : "on-drag"
+            }
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.content}>
+              <View style={styles.header}>
+                <Text style={[styles.eyebrow, { color: theme.primary }]}>
+                  WELCOME TO FLOAT
+                </Text>
+                <Text style={[styles.title, { color: theme.text }]}>
+                  Finish your profile
+                </Text>
+                <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+                  A few details help your friends recognize you and make the app
+                  work properly.
+                </Text>
+              </View>
 
-            <View
-              style={[
-                styles.card,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderColor: theme.tabBorder,
-                },
-              ]}
-            >
-              <Pressable
-                accessibilityLabel="Choose profile photo"
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={() => void choosePhoto()}
-                style={({ pressed }) => [
-                  styles.photoButton,
-                  pressed && styles.pressed,
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: theme.tabBar,
+                    borderColor: theme.tabBorder,
+                  },
                 ]}
               >
-                {photoUri || providerPhotoUrl ? (
-                  <Image
-                    contentFit="cover"
-                    source={{ uri: photoUri ?? providerPhotoUrl ?? undefined }}
-                    style={styles.photo}
+                <Pressable
+                  accessibilityLabel="Choose profile photo"
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={() => void choosePhoto()}
+                  style={({ pressed }) => [
+                    styles.photoButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {photoUri || providerPhotoUrl ? (
+                    <Image
+                      contentFit="cover"
+                      source={{
+                        uri: photoUri ?? providerPhotoUrl ?? undefined,
+                      }}
+                      style={styles.photo}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.photoPlaceholder,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
+                    >
+                      <SymbolView
+                        name={{
+                          ios: "camera.fill",
+                          android: "camera",
+                          web: "camera",
+                        }}
+                        size={28}
+                        tintColor={theme.primary}
+                      />
+                    </View>
+                  )}
+                  <Text style={[styles.photoLabel, { color: theme.primary }]}>
+                    {photoUri
+                      ? "Change profile photo"
+                      : providerPhotoUrl
+                        ? "Use a different photo"
+                        : "Add profile photo"}
+                  </Text>
+                </Pressable>
+
+                <View style={styles.nameRow}>
+                  <ProfileInput
+                    autoComplete="given-name"
+                    editable={!isSaving}
+                    label="First name"
+                    onChangeText={setFirstName}
+                    theme={theme}
+                    value={firstName}
                   />
-                ) : (
-                  <View
-                    style={[
-                      styles.photoPlaceholder,
-                      { backgroundColor: theme.backgroundElement },
-                    ]}
+                  <ProfileInput
+                    autoComplete="family-name"
+                    editable={!isSaving}
+                    label="Last name"
+                    onChangeText={setLastName}
+                    theme={theme}
+                    value={lastName}
+                  />
+                </View>
+
+                <ProfileInput
+                  autoComplete="tel"
+                  editable={!isSaving}
+                  keyboardType="phone-pad"
+                  label="Phone number"
+                  onChangeText={setPhoneNumber}
+                  theme={theme}
+                  value={phoneNumber}
+                />
+
+                <View style={styles.birthdayBlock}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Birthday
+                  </Text>
+                  <Text
+                    style={[styles.fieldHint, { color: theme.textSecondary }]}
                   >
+                    Shown to friends
+                  </Text>
+                  <DatePartPicker
+                    defaultValue="2000-01-01"
+                    onChange={setBirthday}
+                    value={birthday}
+                    yearMode="past"
+                  />
+                </View>
+
+                {error ? (
+                  <View style={styles.errorRow}>
                     <SymbolView
                       name={{
-                        ios: "camera.fill",
-                        android: "camera",
-                        web: "camera",
+                        ios: "exclamationmark.circle.fill",
+                        android: "error",
+                        web: "error",
                       }}
-                      size={28}
-                      tintColor={theme.primary}
+                      size={18}
+                      tintColor="#B84D54"
                     />
+                    <Text style={styles.errorText}>{error}</Text>
                   </View>
-                )}
-                <Text style={[styles.photoLabel, { color: theme.primary }]}>
-                  {photoUri
-                    ? "Change profile photo"
-                    : providerPhotoUrl
-                      ? "Use a different photo"
-                      : "Add profile photo"}
-                </Text>
-              </Pressable>
+                ) : null}
 
-              <View style={styles.nameRow}>
-                <ProfileInput
-                  autoComplete="given-name"
-                  editable={!isSaving}
-                  label="First name"
-                  onChangeText={setFirstName}
-                  theme={theme}
-                  value={firstName}
-                />
-                <ProfileInput
-                  autoComplete="family-name"
-                  editable={!isSaving}
-                  label="Last name"
-                  onChangeText={setLastName}
-                  theme={theme}
-                  value={lastName}
-                />
-              </View>
-
-              <ProfileInput
-                autoComplete="tel"
-                editable={!isSaving}
-                keyboardType="phone-pad"
-                label="Phone number"
-                onChangeText={setPhoneNumber}
-                theme={theme}
-                value={phoneNumber}
-              />
-
-              <View style={styles.birthdayBlock}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Birthday
-                </Text>
-                <Text
-                  style={[styles.fieldHint, { color: theme.textSecondary }]}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={() => void finishOnboarding()}
+                  style={({ pressed }) => [
+                    styles.continueButton,
+                    { backgroundColor: theme.primary },
+                    pressed && styles.pressed,
+                    isSaving && styles.disabled,
+                  ]}
                 >
-                  Shown to friends
-                </Text>
-                <DatePartPicker
-                  defaultValue="2000-01-01"
-                  onChange={setBirthday}
-                  value={birthday}
-                  yearMode="past"
-                />
+                  {isSaving ? (
+                    <ActivityIndicator color={theme.primaryForeground} />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.continueText,
+                        { color: theme.primaryForeground },
+                      ]}
+                    >
+                      Continue
+                    </Text>
+                  )}
+                </Pressable>
               </View>
-
-              {error ? (
-                <View style={styles.errorRow}>
-                  <SymbolView
-                    name={{
-                      ios: "exclamationmark.circle.fill",
-                      android: "error",
-                      web: "error",
-                    }}
-                    size={18}
-                    tintColor="#B84D54"
-                  />
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              ) : null}
-
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={() => void finishOnboarding()}
-                style={({ pressed }) => [
-                  styles.continueButton,
-                  { backgroundColor: theme.primary },
-                  pressed && styles.pressed,
-                  isSaving && styles.disabled,
-                ]}
-              >
-                {isSaving ? (
-                  <ActivityIndicator color={theme.primaryForeground} />
-                ) : (
-                  <Text
-                    style={[
-                      styles.continueText,
-                      { color: theme.primaryForeground },
-                    ]}
-                  >
-                    Continue
-                  </Text>
-                )}
-              </Pressable>
             </View>
-          </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
@@ -325,6 +338,7 @@ function ProfileInput({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   safeArea: { flex: 1 },
+  keyboardView: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
   content: {
     alignSelf: "center",

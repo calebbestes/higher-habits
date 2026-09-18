@@ -4,7 +4,6 @@ export type GoogleCalendarStatus = {
   configured: boolean;
   connected: boolean;
   hasCalendarMetadataReadScope: boolean;
-  hasCalendarListReadScope: boolean;
   hasGoogleAccount: boolean;
   scopes: string[];
 };
