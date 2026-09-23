@@ -748,7 +748,7 @@ export async function listGoogleCalendars(userId: string): Promise<{
   }
 }
 
-export async function listGoogleCalendarEventColors(userId: string): Promise<{
+export async function listGoogleCalendarEventColors(): Promise<{
   status:
     | "synced"
     | "auth_unavailable"
@@ -761,25 +761,28 @@ export async function listGoogleCalendarEventColors(userId: string): Promise<{
     colorId: string;
     foregroundColor: string;
   }>;
+  calendarColors: Array<{
+    backgroundColor: string;
+    colorId: string;
+    foregroundColor: string;
+  }>;
   error?: string;
 }> {
   try {
-    const token = await getGoogleCalendarAccessToken(userId);
-    if (token.status !== "connected") {
-      return { status: token.status, colors: [] };
-    }
-
-    const colorDefinitions = await getGoogleCalendarColors(token.accessToken);
+    const colorDefinitions = await getGoogleCalendarColors();
     if (!colorDefinitions) {
       return {
         status: "error",
         colors: [],
+        calendarColors: [],
         error: "Could not load Google Calendar event colors.",
       };
     }
 
-    const colors = Object.entries(colorDefinitions.event).flatMap(
-      ([colorId, definition]) =>
+    const toColorList = (
+      definitions: Record<string, GoogleCalendarColorDefinition>,
+    ) =>
+      Object.entries(definitions).flatMap(([colorId, definition]) =>
         colorId && definition.background && definition.foreground
           ? [
               {
@@ -789,14 +792,19 @@ export async function listGoogleCalendarEventColors(userId: string): Promise<{
               },
             ]
           : [],
-    );
+      );
 
-    return { status: "synced", colors };
+    return {
+      calendarColors: toColorList(colorDefinitions.calendar),
+      colors: toColorList(colorDefinitions.event),
+      status: "synced",
+    };
   } catch (error) {
     console.error("Google Calendar event colors failed", error);
     return {
       status: "error",
       colors: [],
+      calendarColors: [],
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -1416,7 +1424,7 @@ function isHigherHabitsCalendarEvent(event: GoogleCalendarApiEvent) {
   );
 }
 
-async function getGoogleCalendarColors(accessToken: string): Promise<{
+async function getGoogleCalendarColors(accessToken?: string): Promise<{
   calendar: Record<string, GoogleCalendarColorDefinition>;
   event: Record<string, GoogleCalendarColorDefinition>;
 } | null> {
@@ -1427,9 +1435,7 @@ async function getGoogleCalendarColors(accessToken: string): Promise<{
   }
 
   try {
-    const response = await googleCalendarFetch("/colors", accessToken, {
-      method: "GET",
-    });
+    const response = await fetchGoogleCalendarColors(accessToken);
     if (!response.ok) return null;
 
     const body = (await response
@@ -1451,6 +1457,26 @@ async function getGoogleCalendarColors(accessToken: string): Promise<{
   } catch {
     return null;
   }
+}
+
+async function fetchGoogleCalendarColors(accessToken?: string) {
+  if (accessToken) {
+    try {
+      const authorizedResponse = await googleCalendarFetch(
+        "/colors",
+        accessToken,
+        { method: "GET" },
+      );
+      if (authorizedResponse.ok) return authorizedResponse;
+    } catch {
+      // The colors resource is public, so retry without the user's token.
+    }
+  }
+
+  return fetch("https://www.googleapis.com/calendar/v3/colors", {
+    headers: { Accept: "application/json" },
+    method: "GET",
+  });
 }
 
 async function resolveGoogleCalendarEventColorId(

@@ -918,40 +918,46 @@ function GoalActionsModalImpl({
                       </Text>
                     </View>
                     <View style={modalStyles.colorOptions}>
-                      {colorOptions.map((option) => {
-                        const isSelected = color === option.color;
-                        const swatchColor = option.color ?? theme.primary;
+                      {isLoadingGoogleColors ? (
+                        <ActivityIndicator color={theme.primary} size="small" />
+                      ) : (
+                        colorOptions.map((option) => {
+                          const isSelected = color === option.color;
+                          const swatchColor = option.color ?? theme.primary;
 
-                        return (
-                          <ReliablePressable
-                            accessibilityLabel={`${option.label} color`}
-                            accessibilityRole="radio"
-                            accessibilityState={{
-                              checked: isSelected,
-                              disabled: isUpdatingColor,
-                            }}
-                            disabled={isUpdatingColor || isLoadingGoogleColors}
-                            key={option.label}
-                            onPress={() => onSetColor(option.color)}
-                            style={({ pressed }) => [
-                              modalStyles.colorOption,
-                              {
-                                borderColor: isSelected
-                                  ? theme.text
-                                  : "transparent",
-                              },
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <View
-                              style={[
-                                modalStyles.colorSwatch,
-                                { backgroundColor: swatchColor },
+                          return (
+                            <ReliablePressable
+                              accessibilityLabel={`${option.label} color`}
+                              accessibilityRole="radio"
+                              accessibilityState={{
+                                checked: isSelected,
+                                disabled: isUpdatingColor,
+                              }}
+                              disabled={
+                                isUpdatingColor || isLoadingGoogleColors
+                              }
+                              key={option.label}
+                              onPress={() => onSetColor(option.color)}
+                              style={({ pressed }) => [
+                                modalStyles.colorOption,
+                                {
+                                  borderColor: isSelected
+                                    ? theme.text
+                                    : "transparent",
+                                },
+                                pressed && styles.pressed,
                               ]}
-                            />
-                          </ReliablePressable>
-                        );
-                      })}
+                            >
+                              <View
+                                style={[
+                                  modalStyles.colorSwatch,
+                                  { backgroundColor: swatchColor },
+                                ]}
+                              />
+                            </ReliablePressable>
+                          );
+                        })
+                      )}
                     </View>
                   </View>
                 ) : null}

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
+import { useGoogleCalendarColors } from "@/hooks/use-google-calendar-event-colors";
 import { useTheme } from "@/hooks/use-theme";
 import type { GoogleCalendar } from "@/lib/google-calendar-client";
 
@@ -49,6 +49,10 @@ export function GoogleCalendarSelectionModal({
   visible: boolean;
 }) {
   const theme = useTheme();
+  const {
+    calendarColors: googleCalendarColors,
+    isLoading: isLoadingGoogleColors,
+  } = useGoogleCalendarColors();
   const [openColorCalendarId, setOpenColorCalendarId] = useState<string | null>(
     null,
   );
@@ -268,25 +272,29 @@ export function GoogleCalendarSelectionModal({
                     </View>
                     {onChangeColor && openColorCalendarId === calendar.id ? (
                       <View style={styles.colorOptions}>
-                        {CALENDAR_EVENT_COLORS.map((option) =>
-                          option.color ? (
+                        {isLoadingGoogleColors ? (
+                          <ActivityIndicator
+                            color={theme.primary}
+                            size="small"
+                          />
+                        ) : (
+                          googleCalendarColors.map((option) => (
                             <Pressable
-                              accessibilityLabel={`${option.label} color for ${calendar.summary}`}
+                              accessibilityLabel={`Google color ${option.colorId} for ${calendar.summary}`}
                               accessibilityRole="button"
                               accessibilityState={{
                                 selected:
-                                  option.color.toLowerCase() ===
+                                  option.backgroundColor.toLowerCase() ===
                                   color.toLowerCase(),
                               }}
-                              disabled={isSaving}
-                              key={option.label}
+                              disabled={isSaving || isLoadingGoogleColors}
+                              key={option.colorId}
                               onPress={() => {
                                 setOpenColorCalendarId(null);
                                 onChangeColor({
-                                  backgroundColor: option.color,
+                                  backgroundColor: option.backgroundColor,
                                   calendarId: calendar.id,
-                                  foregroundColor:
-                                    option.foreground ?? "#FFFFFF",
+                                  foregroundColor: option.foregroundColor,
                                 });
                               }}
                               style={({ pressed }) => [
@@ -297,8 +305,8 @@ export function GoogleCalendarSelectionModal({
                               <View
                                 style={[
                                   styles.colorOptionSwatch,
-                                  { backgroundColor: option.color },
-                                  option.color.toLowerCase() ===
+                                  { backgroundColor: option.backgroundColor },
+                                  option.backgroundColor.toLowerCase() ===
                                     color.toLowerCase() && {
                                     borderColor: theme.text,
                                     borderWidth: 3,
@@ -306,7 +314,7 @@ export function GoogleCalendarSelectionModal({
                                 ]}
                               />
                             </Pressable>
-                          ) : null,
+                          ))
                         )}
                       </View>
                     ) : null}

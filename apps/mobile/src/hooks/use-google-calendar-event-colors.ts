@@ -2,18 +2,24 @@ import { useEffect, useState } from "react";
 
 import {
   type GoogleCalendarEventColor,
-  fetchGoogleCalendarEventColors,
+  fetchGoogleCalendarColors,
 } from "@/lib/google-calendar-client";
 
-export function useGoogleCalendarEventColors() {
+export function useGoogleCalendarColors() {
   const [colors, setColors] = useState<GoogleCalendarEventColor[]>([]);
+  const [calendarColors, setCalendarColors] = useState<
+    GoogleCalendarEventColor[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
-    void fetchGoogleCalendarEventColors()
-      .then((nextColors) => {
-        if (mounted) setColors(nextColors);
+    void fetchGoogleCalendarColors()
+      .then((result) => {
+        if (mounted) {
+          setCalendarColors(result.calendarColors);
+          setColors(result.colors);
+        }
       })
       .finally(() => {
         if (mounted) setIsLoading(false);
@@ -24,5 +30,10 @@ export function useGoogleCalendarEventColors() {
     };
   }, []);
 
+  return { calendarColors, colors, isLoading };
+}
+
+export function useGoogleCalendarEventColors() {
+  const { colors, isLoading } = useGoogleCalendarColors();
   return { colors, isLoading };
 }

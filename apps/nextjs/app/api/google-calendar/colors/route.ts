@@ -5,8 +5,8 @@ import { listGoogleCalendarEventColors } from "@/lib/google-calendar";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireRequestUser(request);
-    return NextResponse.json(await listGoogleCalendarEventColors(user.id));
+    await requireRequestUser(request);
+    return NextResponse.json(await listGoogleCalendarEventColors());
   } catch (error) {
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
       {
         status: "error",
         colors: [],
+        calendarColors: [],
         error: "Could not load Google Calendar event colors.",
       },
       { status: 500 },
