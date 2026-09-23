@@ -37,6 +37,7 @@ export function serializePlannedEvent(row: PlannedEventRow) {
     startTime: row.plannedStartTime ?? null,
     endTime: row.plannedEndTime ?? null,
     completed: Boolean(row.completedAt),
+    googleCalendarId: row.googleCalendarId ?? null,
     googleCalendarEventId: row.googleCalendarEventId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -272,7 +273,10 @@ export async function upsertPlannedEvent(
   },
 ) {
   const [existing] = (await db
-    .select({ googleCalendarEventId: plannedEvents.googleCalendarEventId })
+    .select({
+      googleCalendarEventId: plannedEvents.googleCalendarEventId,
+      googleCalendarId: plannedEvents.googleCalendarId,
+    })
     .from(plannedEvents)
     .where(
       and(
@@ -281,11 +285,15 @@ export async function upsertPlannedEvent(
         eq(plannedEvents.sourceId, sourceId),
       ),
     )
-    .limit(1)) as Array<{ googleCalendarEventId: string | null }>;
+    .limit(1)) as Array<{
+    googleCalendarEventId: string | null;
+    googleCalendarId: string | null;
+  }>;
 
   const calendarSync = await upsertGoogleCalendarPlannedEvent({
     dateKey,
     existingEventId: existing?.googleCalendarEventId ?? null,
+    googleCalendarId: existing?.googleCalendarId ?? null,
     plannedEndTime,
     plannedStartTime,
     sourceId,
@@ -312,6 +320,10 @@ export async function upsertPlannedEvent(
         calendarSync.status === "synced"
           ? (calendarSync.eventId ?? existing?.googleCalendarEventId ?? null)
           : (existing?.googleCalendarEventId ?? null),
+      googleCalendarId:
+        calendarSync.status === "synced"
+          ? (calendarSync.calendarId ?? existing?.googleCalendarId ?? null)
+          : (existing?.googleCalendarId ?? null),
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -331,6 +343,10 @@ export async function upsertPlannedEvent(
           calendarSync.status === "synced"
             ? (calendarSync.eventId ?? existing?.googleCalendarEventId ?? null)
             : (existing?.googleCalendarEventId ?? null),
+        googleCalendarId:
+          calendarSync.status === "synced"
+            ? (calendarSync.calendarId ?? existing?.googleCalendarId ?? null)
+            : (existing?.googleCalendarId ?? null),
         updatedAt: new Date(),
       },
     })
@@ -352,7 +368,10 @@ export async function deletePlannedEventForSource(
   },
 ) {
   const [existing] = (await db
-    .select({ googleCalendarEventId: plannedEvents.googleCalendarEventId })
+    .select({
+      googleCalendarEventId: plannedEvents.googleCalendarEventId,
+      googleCalendarId: plannedEvents.googleCalendarId,
+    })
     .from(plannedEvents)
     .where(
       and(
@@ -361,8 +380,12 @@ export async function deletePlannedEventForSource(
         eq(plannedEvents.sourceId, sourceId),
       ),
     )
-    .limit(1)) as Array<{ googleCalendarEventId: string | null }>;
+    .limit(1)) as Array<{
+    googleCalendarEventId: string | null;
+    googleCalendarId: string | null;
+  }>;
   const calendarSync = await deleteGoogleCalendarPlannedEvent({
+    calendarId: existing?.googleCalendarId ?? undefined,
     eventId: existing?.googleCalendarEventId,
     userId,
   });
@@ -397,6 +420,7 @@ export async function deletePlannedEventsForSources(
   const existing = (await db
     .select({
       googleCalendarEventId: plannedEvents.googleCalendarEventId,
+      googleCalendarId: plannedEvents.googleCalendarId,
       sourceId: plannedEvents.sourceId,
     })
     .from(plannedEvents)
@@ -406,11 +430,16 @@ export async function deletePlannedEventsForSources(
         eq(plannedEvents.sourceType, sourceType),
         inArray(plannedEvents.sourceId, sourceIds),
       ),
-    )) as Array<{ googleCalendarEventId: string | null; sourceId: string }>;
+    )) as Array<{
+    googleCalendarEventId: string | null;
+    googleCalendarId: string | null;
+    sourceId: string;
+  }>;
 
   await Promise.all(
     existing.map((event) =>
       deleteGoogleCalendarPlannedEvent({
+        calendarId: event.googleCalendarId ?? undefined,
         eventId: event.googleCalendarEventId,
         userId,
       }),

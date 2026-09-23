@@ -62,6 +62,7 @@ import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
   deleteGoogleCalendarEvent,
+  ensureFloatGoogleCalendar,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
   getLocalTimeZone,
@@ -791,7 +792,11 @@ export function DayPlanScreen({
         return;
       }
 
-      if (!status.connected || !status.hasCalendarMetadataReadScope) {
+      if (
+        !status.connected ||
+        !status.hasCalendarMetadataReadScope ||
+        !status.hasFloatCalendarCreationScope
+      ) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
@@ -805,6 +810,13 @@ export function DayPlanScreen({
             response.error.message ?? "Could not connect Google Calendar.",
           );
         }
+      }
+
+      const floatCalendar = await ensureFloatGoogleCalendar();
+      if (floatCalendar.status !== "synced") {
+        throw new Error(
+          "Could not create the Float calendar in Google Calendar.",
+        );
       }
 
       await load({ force: true });
@@ -5267,7 +5279,7 @@ function getEntryColors(
         entry.calendarColorId,
         entry.calendarBackgroundColor,
       )
-    : (entry.calendarColor ?? theme.primary);
+    : (entry.calendarColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR);
   const textColor = "#FFFFFF";
 
   return {

@@ -4,4 +4,5 @@ export const GOOGLE_CALENDAR_SCOPES = [
   ...GOOGLE_IDENTITY_SCOPES,
   "https://www.googleapis.com/auth/calendar.events.owned",
   "https://www.googleapis.com/auth/calendar.calendars.readonly",
+  "https://www.googleapis.com/auth/calendar.app.created",
 ];

@@ -48,6 +48,7 @@ import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarStatus,
   disconnectGoogleCalendar as disconnectGoogleCalendarRequest,
+  ensureFloatGoogleCalendar,
   fetchGoogleCalendarStatus,
 } from "@/lib/google-calendar-client";
 import {
@@ -555,6 +556,12 @@ export function SettingsScreen() {
         return;
       }
 
+      const floatCalendar = await ensureFloatGoogleCalendar();
+      if (floatCalendar.status !== "synced") {
+        throw new Error(
+          "Could not create the Float calendar in Google Calendar.",
+        );
+      }
       await loadGoogleCalendarStatus();
     } catch (connectError) {
       Alert.alert(
@@ -597,7 +604,7 @@ export function SettingsScreen() {
 
     Alert.alert(
       "Disconnect Google Calendar?",
-      "Higher Habits will stop importing and updating calendar events. Existing events in Google Calendar will not be deleted.",
+      "Float will stop importing and updating calendar events. Existing events in Google Calendar will not be deleted.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -731,10 +738,13 @@ export function SettingsScreen() {
     : googleCalendarStatus
       ? googleCalendarStatus.configured
         ? googleCalendarStatus.connected &&
-          googleCalendarStatus.hasCalendarMetadataReadScope
+          googleCalendarStatus.hasCalendarMetadataReadScope &&
+          googleCalendarStatus.hasFloatCalendarCreationScope
           ? "Connected"
           : googleCalendarStatus.connected
-            ? "Reconnect for colors"
+            ? googleCalendarStatus.hasCalendarMetadataReadScope
+              ? "Reconnect"
+              : "Reconnect for colors"
             : googleCalendarStatus.hasGoogleAccount
               ? "Reconnect"
               : "Connect"

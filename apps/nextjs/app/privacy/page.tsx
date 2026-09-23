@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Higher Habits",
-  description: "Privacy policy for Higher Habits.",
+  title: "Privacy Policy | Float",
+  description: "Privacy policy for Float.",
 };
 
 export default function PrivacyPage() {
@@ -11,7 +11,7 @@ export default function PrivacyPage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-3">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-            Higher Habits
+            Float
           </p>
           <h1 className="text-4xl font-black tracking-tight">Privacy Policy</h1>
           <p className="text-sm text-foreground-500">
@@ -22,10 +22,10 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">What We Collect</h2>
           <p>
-            Higher Habits collects the information needed to run your account
-            and sync your goals, plans, journal entries, photos, friends, shared
-            goals, notification preferences, and app settings. This may include
-            your name, email address, phone number, profile photo, goal and task
+            Float collects the information needed to run your account and sync
+            your goals, plans, journal entries, photos, friends, shared goals,
+            notification preferences, and app settings. This may include your
+            name, email address, phone number, profile photo, goal and task
             data, journal text, uploaded photos, comments, props, friend
             relationships, and device push notification tokens.
           </p>
@@ -34,10 +34,9 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Contacts</h2>
           <p>
-            If you choose to find friends from contacts, Higher Habits compares
-            contact emails and phone numbers with existing Higher Habits
-            accounts. Contact identifiers are used only for this lookup and are
-            not stored.
+            If you choose to find friends from contacts, Float compares contact
+            emails and phone numbers with existing Float accounts. Contact
+            identifiers are used only for this lookup and are not stored.
           </p>
         </section>
 
@@ -54,57 +53,56 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Notifications</h2>
           <p>
-            If you enable notifications, Higher Habits uses a device push token
-            to send reminders, friend activity, shared goal updates, and
-            progress notifications based on your settings.
+            If you enable notifications, Float uses a device push token to send
+            reminders, friend activity, shared goal updates, and progress
+            notifications based on your settings.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Diagnostics</h2>
           <p>
-            Higher Habits uses diagnostics and crash reporting to understand
-            failures and improve reliability. Diagnostic reports may include
-            device, app, and error details.
+            Float uses diagnostics and crash reporting to understand failures
+            and improve reliability. Diagnostic reports may include device, app,
+            and error details.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Advertising</h2>
           <p>
-            Higher Habits may show sponsored content from advertising partners
-            such as Google AdMob. Ads may use app and device information to
-            deliver, measure, and limit ads. Higher Habits requests
-            non-personalized ads unless you separately grant tracking permission
-            where required.
+            Float may show sponsored content from advertising partners such as
+            Google AdMob. Ads may use app and device information to deliver,
+            measure, and limit ads. Float requests non-personalized ads unless
+            you separately grant tracking permission where required.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Third-Party Services</h2>
           <p>
-            Higher Habits uses Vercel, Inc. for hosting and server execution;
-            Supabase, Inc. for PostgreSQL database and file storage; Expo, Inc.
-            for push notification delivery; Sentry for crash and error
-            reporting; and Google LLC for Google Sign-In, the Google Calendar
-            API, and Google AdMob. These providers process information on our
-            behalf to provide their services to Higher Habits.
+            Float uses Vercel, Inc. for hosting and server execution; Supabase,
+            Inc. for PostgreSQL database and file storage; Expo, Inc. for push
+            notification delivery; Sentry for crash and error reporting; and
+            Google LLC for Google Sign-In, the Google Calendar API, and Google
+            AdMob. These providers process information on our behalf to provide
+            their services to Float.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Google User Data and Sharing</h2>
           <p>
-            When you use Google Sign-In, Higher Habits accesses your Google
-            name, email address, profile image, Google account identifier, and
+            When you use Google Sign-In, Float accesses your Google name, email
+            address, profile image, Google account identifier, and
             authentication information. We use this information to create,
-            identify, and secure your Higher Habits account. We do not use
-            Google Sign-In to access your Gmail, Google Drive, Google Contacts,
-            or other Google services.
+            identify, and secure your Float account. We do not use Google
+            Sign-In to access your Gmail, Google Drive, Google Contacts, or
+            other Google services.
           </p>
           <p>
-            When you separately connect Google Calendar, Higher Habits accesses
-            the primary calendar data needed for the Calendar screen, including
+            When you separately connect Google Calendar, Float accesses the
+            selected calendar data needed for the Calendar screen, including
             event identifiers, titles, descriptions, start and end times, time
             zones, status, recurrence, and display colors. We request only the
             access you grant through the
@@ -115,15 +113,19 @@ export default function PrivacyPage() {
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
               calendar.calendars.readonly
             </code>{" "}
-            scopes. Higher Habits uses those permissions to read events from
-            your primary calendar, read calendar and event display colors, and
-            create, update, or delete events created by Higher Habits. We may
-            send the title, description, date, time, time zone, recurrence, and
-            color for a Higher Habits plan to Google Calendar when you choose to
-            schedule it there. Calendar event content read for display is not
-            intentionally stored in the Higher Habits database; we retain only
-            the identifiers needed to update or delete events created by Higher
-            Habits.
+            and the{" "}
+            <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+              calendar.app.created
+            </code>{" "}
+            scopes. Float uses those permissions to read events from your
+            selected calendars, create the Float secondary calendar, read
+            calendar and event display colors, and create, update, or delete
+            events created by Float. We may send the title, description, date,
+            time, time zone, recurrence, and color for a Float plan to Google
+            Calendar when you choose to schedule it there. Calendar event
+            content read for display is not intentionally stored in the Float
+            database; we retain only the identifiers needed to update or delete
+            events created by Float.
           </p>
           <p>
             Google user data is shared, transferred, or disclosed only to these
@@ -133,26 +135,25 @@ export default function PrivacyPage() {
             <li>
               <strong>Google LLC</strong> receives authentication requests and
               authorized Google Calendar API requests. During calendar sync,
-              Higher Habits sends plan event details to Google to create,
-              update, or delete Higher Habits planning events in your Google
-              Calendar, and Google returns the calendar data needed to display
-              your events in Higher Habits.
+              Float sends plan event details to Google to create, update, or
+              delete Float planning events in your Google Calendar, and Google
+              returns the calendar data needed to display your events in Float.
             </li>
             <li>
               <strong>Vercel, Inc.</strong> processes Google account data, OAuth
               credentials, and Calendar API responses while it hosts and runs
-              the Higher Habits server.
+              the Float server.
             </li>
             <li>
               <strong>Supabase, Inc.</strong> stores the Google account
-              identifier, OAuth credentials, granted scopes, and Higher Habits
-              records containing Google Calendar event identifiers in the
-              database used by Higher Habits.
+              identifier, OAuth credentials, granted scopes, and Float records
+              containing Google Calendar event identifiers in the database used
+              by Float.
             </li>
           </ul>
           <p>
             We do not share Google user data with Sentry, Expo, Google AdMob,
-            advertisers, friends, other Higher Habits users, data brokers, or
+            advertisers, friends, other Float users, data brokers, or
             information resellers. We do not sell Google user data, use it for
             advertising, or use it to train generalized artificial-intelligence
             or machine-learning models. We use Google user data only to provide
@@ -180,14 +181,14 @@ export default function PrivacyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-bold">Data Protection</h2>
           <p>
-            Higher Habits protects sensitive data, including Google account
-            data, OAuth credentials, calendar data, journal entries, and photos,
-            using the following safeguards:
+            Float protects sensitive data, including Google account data, OAuth
+            credentials, calendar data, journal entries, and photos, using the
+            following safeguards:
           </p>
           <ul className="list-disc space-y-2 pl-6">
             <li>
-              HTTPS/TLS encrypts data in transit between the app, Higher Habits
-              servers, Google, and our service providers.
+              HTTPS/TLS encrypts data in transit between the app, Float servers,
+              Google, and our service providers.
             </li>
             <li>
               Google OAuth credentials are stored server-side in the protected
@@ -210,6 +211,10 @@ export default function PrivacyPage() {
               <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
                 calendar.calendars.readonly
               </code>{" "}
+              and the{" "}
+              <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+                calendar.app.created
+              </code>{" "}
               scopes.
             </li>
             <li>
@@ -218,21 +223,20 @@ export default function PrivacyPage() {
               private storage and short-lived signed URLs.
             </li>
             <li>
-              When you disconnect Google Calendar, Higher Habits revokes the
-              Google access tokens and removes the local connection. Account
-              deletion removes the Higher Habits account data, Google account
-              connection data, event identifiers, and uploaded photos under our
-              control.
+              When you disconnect Google Calendar, Float revokes the Google
+              access tokens and removes the local connection. Account deletion
+              removes the Float account data, Google account connection data,
+              event identifiers, and uploaded photos under our control.
             </li>
           </ul>
           <p>
-            We retain Google Sign-In account information while your Higher
-            Habits account is active. We retain Google Calendar OAuth
-            credentials only while Google Calendar is connected and delete them
-            when you disconnect or delete your account. We retain event
-            identifiers only as long as needed to synchronize or remove Higher
-            Habits events. Legal, security, and backup-retention requirements
-            may require limited additional retention.
+            We retain Google Sign-In account information while your Float
+            account is active. We retain Google Calendar OAuth credentials only
+            while Google Calendar is connected and delete them when you
+            disconnect or delete your account. We retain event identifiers only
+            as long as needed to synchronize or remove Float events. Legal,
+            security, and backup-retention requirements may require limited
+            additional retention.
           </p>
         </section>
 
@@ -241,7 +245,7 @@ export default function PrivacyPage() {
           <p>
             You can delete your account in the app from Settings. Deleting your
             account permanently removes your account, associated app data, and
-            uploaded photos controlled by Higher Habits.
+            uploaded photos controlled by Float.
           </p>
         </section>
 

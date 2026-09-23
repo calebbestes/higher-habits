@@ -5,9 +5,9 @@ import { SidebarLayout } from "@/components/sidebar-layout";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Higher Habits",
+  title: "Float",
   description:
-    "Build consistent habits, organize goals and tasks, and plan your days with Higher Habits.",
+    "Build consistent habits, organize goals and tasks, and plan your days with Float.",
 };
 
 export default function RootLayout({

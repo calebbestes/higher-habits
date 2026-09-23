@@ -4,6 +4,7 @@ export type GoogleCalendarStatus = {
   configured: boolean;
   connected: boolean;
   hasCalendarMetadataReadScope: boolean;
+  hasFloatCalendarCreationScope: boolean;
   hasGoogleAccount: boolean;
   scopes: string[];
 };
@@ -106,6 +107,19 @@ export const disconnectGoogleCalendar = (): Promise<{
   mobileApiFetch("/api/google-calendar/disconnect", {
     method: "POST",
   }).then((response) => parseResponse<{ disconnected: boolean }>(response));
+
+export const ensureFloatGoogleCalendar = (): Promise<{
+  status: GoogleCalendarEventsResponse["status"];
+  calendar?: GoogleCalendar;
+}> =>
+  mobileApiFetch("/api/google-calendar/float-calendar", {
+    method: "POST",
+  }).then((response) =>
+    parseResponse<{
+      status: GoogleCalendarEventsResponse["status"];
+      calendar?: GoogleCalendar;
+    }>(response),
+  );
 
 export const fetchGoogleCalendarEvents = ({
   calendarIds,

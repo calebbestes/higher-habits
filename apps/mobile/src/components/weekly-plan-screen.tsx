@@ -40,7 +40,10 @@ import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
-import { getGoogleCalendarEventColor } from "@/constants/calendar-colors";
+import {
+  DEFAULT_GOOGLE_CALENDAR_COLOR,
+  getGoogleCalendarEventColor,
+} from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
 import { useGoogleCalendarSelection } from "@/hooks/use-google-calendar-selection";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
@@ -50,6 +53,7 @@ import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
+  ensureFloatGoogleCalendar,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
   getLocalTimeZone,
@@ -1187,7 +1191,11 @@ export function WeeklyPlanScreen({
         return;
       }
 
-      if (!status.connected || !status.hasCalendarMetadataReadScope) {
+      if (
+        !status.connected ||
+        !status.hasCalendarMetadataReadScope ||
+        !status.hasFloatCalendarCreationScope
+      ) {
         const response = await authClient.linkSocial({
           provider: "google",
           callbackURL: getNativeAuthCallbackURLForPath("/plan-report"),
@@ -1201,6 +1209,13 @@ export function WeeklyPlanScreen({
             response.error.message ?? "Could not connect Google Calendar.",
           );
         }
+      }
+
+      const floatCalendar = await ensureFloatGoogleCalendar();
+      if (floatCalendar.status !== "synced") {
+        throw new Error(
+          "Could not create the Float calendar in Google Calendar.",
+        );
       }
 
       await load(true);
@@ -1350,8 +1365,7 @@ export function WeeklyPlanScreen({
                 accessibilityRole="button"
                 onPress={() => setCalendarPickerOpen(true)}
                 style={({ pressed }) => [
-                  styles.notesHeaderButton,
-                  { borderColor: theme.tabBorder },
+                  styles.headerActionButton,
                   pressed && styles.pressed,
                 ]}
               >
@@ -1360,38 +1374,21 @@ export function WeeklyPlanScreen({
                   size={19}
                   tintColor={theme.primary}
                 />
-                <Text
-                  style={[
-                    styles.notesHeaderButtonText,
-                    { color: theme.primary },
-                  ]}
-                >
-                  Calendars
-                </Text>
               </Pressable>
               <Pressable
                 accessibilityLabel="Open weekly notes"
                 accessibilityRole="button"
                 onPress={() => setNotesModalOpen(true)}
                 style={({ pressed }) => [
-                  styles.notesHeaderButton,
-                  { borderColor: theme.tabBorder },
+                  styles.headerActionButton,
                   pressed && styles.pressed,
                 ]}
               >
                 <SymbolView
-                  name={sym("note.text", "event_note")}
+                  name={sym("pencil.and.scribble", "edit_note")}
                   size={19}
                   tintColor={theme.primary}
                 />
-                <Text
-                  style={[
-                    styles.notesHeaderButtonText,
-                    { color: theme.primary },
-                  ]}
-                >
-                  Notes
-                </Text>
               </Pressable>
             </View>
           </View>
@@ -2458,7 +2455,7 @@ function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
     event.sourceType === "other_event"
   ) {
     return {
-      bg: event.calendarColor ?? theme.primary,
+      bg: event.calendarColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR,
       text: "#FFFFFF",
     };
   }
@@ -2877,19 +2874,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  notesHeaderButton: {
+  headerActionButton: {
     alignItems: "center",
-    borderRadius: 13,
-    borderWidth: StyleSheet.hairlineWidth,
-    height: 64,
+    borderRadius: 11,
+    height: 34,
     justifyContent: "center",
-    width: 64,
-  },
-  notesHeaderButtonText: {
-    fontSize: 10,
-    fontWeight: "800",
-    lineHeight: 12,
-    marginTop: 3,
+    width: 34,
   },
   weekNowDot: {
     backgroundColor: "#EA4335",

@@ -496,6 +496,7 @@ export const plannedEvents = pgTable(
     plannedEndTime: text("planned_end_time"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     googleCalendarEventId: text("google_calendar_event_id"),
+    googleCalendarId: text("google_calendar_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -695,6 +696,7 @@ export const goalLogs = pgTable(
       .default(false)
       .notNull(),
     googleCalendarEventId: text("google_calendar_event_id"),
+    googleCalendarId: text("google_calendar_id"),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1454,6 +1456,7 @@ export const calendarSettings = pgTable("calendar_settings", {
     .array()
     .notNull()
     .default(sql`ARRAY['primary']::text[]`),
+  floatGoogleCalendarId: text("float_google_calendar_id"),
   monthlyGoalSlots: integer("monthly_goal_slots").notNull().default(3),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

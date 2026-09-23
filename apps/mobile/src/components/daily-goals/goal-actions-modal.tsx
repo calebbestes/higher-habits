@@ -216,6 +216,7 @@ function GoalActionsModalImpl({
   const autoSavePlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const repeatEditPromptKeyRef = useRef<string | null>(null);
   const notePreview = richTextToPlainText(noteText);
   const nextPlanStartTime = normalizePlanTimeInput(
     planStartTime,
@@ -273,7 +274,50 @@ function GoalActionsModalImpl({
     if (hasAnyPlanTimeInput && !hasPlanTimeRange) return;
     if (!hasNote && !hasPlanTimeRange) return;
     if (isUpdating) return;
-    if (isPlanned && !hasPlanChanges) return;
+
+    if (!hasPlanChanges) {
+      repeatEditPromptKeyRef.current = null;
+      return;
+    }
+
+    const planChangeKey = `${nextPlanStartTime ?? ""}|${nextPlanEndTime ?? ""}|${planRepeatsDaily ? "repeat" : "single"}`;
+    if (
+      isPlanned &&
+      currentPlanRepeatsDaily &&
+      repeatEditPromptKeyRef.current !== planChangeKey
+    ) {
+      repeatEditPromptKeyRef.current = planChangeKey;
+      Alert.alert(
+        "Update repeating plan?",
+        "This habit repeats daily. Should this change apply to this day only or to this and future days?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "This day only",
+            onPress: () => {
+              onSetStatus("planned", {
+                endTime: nextPlanEndTime,
+                repeatPlan: false,
+                startTime: nextPlanStartTime,
+                timeZone: getLocalTimeZone(),
+              });
+            },
+          },
+          {
+            text: "This and future days",
+            onPress: () => {
+              onSetStatus("planned", {
+                endTime: nextPlanEndTime,
+                repeatPlan: true,
+                startTime: nextPlanStartTime,
+                timeZone: getLocalTimeZone(),
+              });
+            },
+          },
+        ],
+      );
+      return;
+    }
 
     if (autoSavePlanTimerRef.current) {
       clearTimeout(autoSavePlanTimerRef.current);
@@ -297,6 +341,7 @@ function GoalActionsModalImpl({
     };
   }, [
     canRepeatPlan,
+    currentPlanRepeatsDaily,
     hasAnyPlanTimeInput,
     hasNote,
     hasPlanChanges,

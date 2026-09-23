@@ -1,13 +1,16 @@
 import "server-only";
 
 import { createAuth } from "@habit/auth";
-import { accounts, getDb } from "@habit/db";
+import { accounts, calendarSettings, getDb } from "@habit/db";
 import { and, eq } from "drizzle-orm";
 
 export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events.owned";
 export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendars.readonly";
+export const GOOGLE_CALENDAR_APP_CREATED_SCOPE =
+  "https://www.googleapis.com/auth/calendar.app.created";
+export const FLOAT_GOOGLE_CALENDAR_NAME = "Float";
 
 type GoogleTokenResult =
   | { status: "connected"; accessToken: string; scopes: string[] }
@@ -146,6 +149,9 @@ type GoogleCalendarDirectEventBody = {
   description?: string;
   start: { date: string } | { dateTime: string; timeZone: string };
   end: { date: string } | { dateTime: string; timeZone: string };
+  extendedProperties?: {
+    private: Record<string, string>;
+  };
 };
 
 type HigherHabitsPlannedEventSource =
@@ -181,6 +187,7 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       connected: false,
       hasGoogleAccount: false,
       hasCalendarMetadataReadScope: false,
+      hasFloatCalendarCreationScope: false,
       scopes: [] as string[],
     };
   }
@@ -200,6 +207,9 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       hasGoogleCalendarWriteScope(scopes),
     hasCalendarMetadataReadScope: scopes.includes(
       GOOGLE_CALENDAR_METADATA_READ_SCOPE,
+    ),
+    hasFloatCalendarCreationScope: scopes.includes(
+      GOOGLE_CALENDAR_APP_CREATED_SCOPE,
     ),
     hasGoogleAccount: Boolean(account),
     scopes,
@@ -264,6 +274,7 @@ export async function upsertGoogleCalendarHabitPlan({
   dateKey,
   description,
   existingEventId,
+  googleCalendarId,
   goalId,
   habitName,
   plannedEndTime,
@@ -275,6 +286,7 @@ export async function upsertGoogleCalendarHabitPlan({
   dateKey: string;
   description?: string | null;
   existingEventId?: string | null;
+  googleCalendarId?: string | null;
   goalId: string;
   habitName: string;
   plannedEndTime?: string | null;
@@ -291,11 +303,13 @@ export async function upsertGoogleCalendarHabitPlan({
     | "missing_scope"
     | "error";
   eventId?: string | null;
+  calendarId?: string | null;
 }> {
   return upsertGoogleCalendarPlannedEvent({
     dateKey,
     description,
     existingEventId,
+    googleCalendarId,
     plannedEndTime,
     plannedStartTime,
     repeatDaily,
@@ -315,6 +329,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   dateKey,
   description,
   existingEventId,
+  googleCalendarId,
   plannedEndTime,
   plannedStartTime,
   repeatDaily,
@@ -329,6 +344,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   dateKey: string;
   description?: string | null;
   existingEventId?: string | null;
+  googleCalendarId?: string | null;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
   repeatDaily?: boolean;
@@ -346,12 +362,25 @@ export async function upsertGoogleCalendarPlannedEvent({
     | "not_connected"
     | "missing_scope"
     | "error";
+  calendarId?: string | null;
   eventId?: string | null;
 }> {
   try {
     const token = await getGoogleCalendarAccessToken(userId);
     if (token.status !== "connected") {
       return { status: token.status };
+    }
+
+    let calendarId = existingEventId ? (googleCalendarId ?? "primary") : null;
+    if (!existingEventId) {
+      const floatCalendar = await ensureFloatGoogleCalendarWithToken(
+        userId,
+        token,
+      );
+      if (floatCalendar.status !== "synced" || !floatCalendar.calendar) {
+        return { status: floatCalendar.status };
+      }
+      calendarId = floatCalendar.calendar.id;
     }
 
     const colorId =
@@ -385,7 +414,7 @@ export async function upsertGoogleCalendarPlannedEvent({
 
     if (existingEventId) {
       const updateResponse = await googleCalendarFetch(
-        `/calendars/primary/events/${encodeURIComponent(existingEventId)}`,
+        `/calendars/${encodeURIComponent(calendarId ?? "primary")}/events/${encodeURIComponent(existingEventId)}`,
         token.accessToken,
         {
           body: JSON.stringify(updateBody),
@@ -399,6 +428,7 @@ export async function upsertGoogleCalendarPlannedEvent({
           .catch(() => null)) as GoogleCalendarEventResponse | null;
         return {
           status: "synced",
+          calendarId,
           eventId: updated?.id ?? existingEventId,
         };
       }
@@ -422,7 +452,7 @@ export async function upsertGoogleCalendarPlannedEvent({
       extraPrivateProperties,
     });
     const insertResponse = await googleCalendarFetch(
-      "/calendars/primary/events",
+      `/calendars/${encodeURIComponent(calendarId ?? "primary")}/events`,
       token.accessToken,
       {
         body: JSON.stringify(insertBody),
@@ -434,7 +464,11 @@ export async function upsertGoogleCalendarPlannedEvent({
       .json()
       .catch(() => null)) as GoogleCalendarEventResponse | null;
 
-    return { status: "synced", eventId: inserted?.id ?? null };
+    return {
+      status: "synced",
+      calendarId,
+      eventId: inserted?.id ?? null,
+    };
   } catch (error) {
     console.error("Google Calendar plan sync failed", error);
     return { status: "error" };
@@ -443,9 +477,11 @@ export async function upsertGoogleCalendarPlannedEvent({
 
 export async function deleteGoogleCalendarHabitPlan({
   eventId,
+  calendarId,
   userId,
 }: {
   eventId?: string | null;
+  calendarId?: string | null;
   userId: string;
 }): Promise<{
   status:
@@ -457,7 +493,11 @@ export async function deleteGoogleCalendarHabitPlan({
     | "missing_scope"
     | "error";
 }> {
-  return deleteGoogleCalendarPlannedEvent({ eventId, userId });
+  return deleteGoogleCalendarPlannedEvent({
+    calendarId: calendarId ?? undefined,
+    eventId,
+    userId,
+  });
 }
 
 export async function deleteGoogleCalendarPrimaryEvent({
@@ -528,10 +568,12 @@ export async function deleteGoogleCalendarPlannedEvent({
 export async function updateGoogleCalendarHabitPlanDescription({
   description,
   eventId,
+  calendarId = "primary",
   userId,
 }: {
   description?: string | null;
   eventId?: string | null;
+  calendarId?: string;
   userId: string;
 }): Promise<{
   status:
@@ -552,7 +594,7 @@ export async function updateGoogleCalendarHabitPlanDescription({
     }
 
     const response = await googleCalendarFetch(
-      `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       token.accessToken,
       {
         body: JSON.stringify({
@@ -712,6 +754,107 @@ async function fetchGoogleCalendarList(
   );
 }
 
+type FloatCalendarSyncResult = {
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  calendar?: GoogleCalendar;
+};
+
+export async function ensureFloatGoogleCalendar(
+  userId: string,
+): Promise<FloatCalendarSyncResult> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") return { status: token.status };
+    return ensureFloatGoogleCalendarWithToken(userId, token);
+  } catch (error) {
+    console.error("Float Google Calendar ensure failed", error);
+    return { status: "error" };
+  }
+}
+
+async function ensureFloatGoogleCalendarWithToken(
+  userId: string,
+  token: Extract<GoogleTokenResult, { status: "connected" }>,
+): Promise<FloatCalendarSyncResult> {
+  const db = getDb();
+  const [settings] = db
+    ? await db
+        .select({
+          floatGoogleCalendarId: calendarSettings.floatGoogleCalendarId,
+        })
+        .from(calendarSettings)
+        .where(eq(calendarSettings.userId, userId))
+        .limit(1)
+    : [];
+  const calendars = await fetchGoogleCalendarList(token.accessToken);
+  const floatCalendar =
+    calendars.find(
+      (calendar) => calendar.id === settings?.floatGoogleCalendarId,
+    ) ??
+    calendars.find(
+      (calendar) =>
+        !calendar.primary &&
+        calendar.summary?.trim() === FLOAT_GOOGLE_CALENDAR_NAME,
+    );
+
+  let calendar = floatCalendar;
+  if (!calendar) {
+    if (!token.scopes.includes(GOOGLE_CALENDAR_APP_CREATED_SCOPE)) {
+      return { status: "missing_scope" };
+    }
+
+    const response = await googleCalendarFetch(
+      "/calendars",
+      token.accessToken,
+      {
+        body: JSON.stringify({
+          description: "Calendar for events planned in Float.",
+          summary: FLOAT_GOOGLE_CALENDAR_NAME,
+        }),
+        method: "POST",
+      },
+    );
+    await throwIfGoogleCalendarError(response);
+    calendar = (await response.json()) as GoogleCalendarListItemWithId;
+  }
+
+  const normalizedCalendar: GoogleCalendar = {
+    backgroundColor: calendar.backgroundColor ?? null,
+    description: calendar.description ?? null,
+    foregroundColor: calendar.foregroundColor ?? null,
+    id: calendar.id,
+    primary: Boolean(calendar.primary),
+    summary:
+      calendar.summaryOverride?.trim() ||
+      calendar.summary?.trim() ||
+      FLOAT_GOOGLE_CALENDAR_NAME,
+  };
+
+  if (db) {
+    await db
+      .insert(calendarSettings)
+      .values({
+        floatGoogleCalendarId: normalizedCalendar.id,
+        userId,
+      })
+      .onConflictDoUpdate({
+        target: calendarSettings.userId,
+        set: {
+          floatGoogleCalendarId: normalizedCalendar.id,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  return { status: "synced", calendar: normalizedCalendar };
+}
+
 export async function createGoogleCalendarPrimaryEvent({
   dateKey,
   description,
@@ -744,10 +887,25 @@ export async function createGoogleCalendarPrimaryEvent({
       return { status: token.status };
     }
 
+    const floatCalendar = await ensureFloatGoogleCalendarWithToken(
+      userId,
+      token,
+    );
+    if (floatCalendar.status !== "synced" || !floatCalendar.calendar) {
+      return { status: floatCalendar.status };
+    }
+    const calendarId = floatCalendar.calendar.id;
+
     const trimmedDescription = description?.trim();
     const body: GoogleCalendarDirectEventBody = {
       summary: title,
       ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      extendedProperties: {
+        private: {
+          higherHabitsSourceType: "other_event",
+          higherHabitsDate: dateKey,
+        },
+      },
       ...buildGoogleCalendarEventTime({
         dateKey,
         plannedEndTime,
@@ -756,7 +914,7 @@ export async function createGoogleCalendarPrimaryEvent({
       }),
     };
     const response = await googleCalendarFetch(
-      "/calendars/primary/events",
+      `/calendars/${encodeURIComponent(calendarId)}/events`,
       token.accessToken,
       {
         body: JSON.stringify(body),
@@ -771,7 +929,9 @@ export async function createGoogleCalendarPrimaryEvent({
 
     return {
       status: "synced",
-      event: inserted ? normalizeGoogleCalendarEvent(inserted) : null,
+      event: inserted
+        ? normalizeGoogleCalendarEvent(inserted, null, null, calendarId)
+        : null,
     };
   } catch (error) {
     console.error("Google Calendar event create failed", error);
@@ -994,8 +1154,8 @@ function buildGoogleCalendarEventDescription(description?: string | null) {
   const trimmedDescription = description?.trim();
 
   return trimmedDescription
-    ? `${trimmedDescription}\n\nPlanned from Higher Habits.`
-    : "Planned from Higher Habits.";
+    ? `${trimmedDescription}\n\nPlanned from Float.`
+    : "Planned from Float.";
 }
 
 function isHigherHabitsCalendarEvent(event: GoogleCalendarApiEvent) {

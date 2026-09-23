@@ -186,7 +186,7 @@ export function GoogleCalendarSelectionModal({
                 </Text>
               ) : null}
               <Text style={[styles.footerHint, { color: theme.textSecondary }]}>
-                Higher Habits planned items are always shown.
+                Float planned items are always shown.
               </Text>
             </ScrollView>
           )}

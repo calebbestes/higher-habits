@@ -94,6 +94,7 @@ const PROFILE_NOTE_FILTERS: Array<{ key: ProfileNoteFilter; label: string }> = [
   { key: "daily", label: "Daily" },
   { key: "monthly", label: "Monthly" },
 ];
+const INITIAL_PROFILE_POST_COUNT = 12;
 const NOTE_MONTH_NAMES = [
   "January",
   "February",
@@ -335,7 +336,7 @@ export function FriendProfileScreen({
           setIsLoading(false);
 
           const currentMonth = new Date();
-          const [myPostsData, nextFriends, nextWeeklyPlanNotes] =
+          const [initialMyPostsData, nextFriends, nextWeeklyPlanNotes] =
             await Promise.all([
               (refresh
                 ? queryClient.fetchInfiniteQuery({
@@ -350,7 +351,35 @@ export function FriendProfileScreen({
                 year: currentMonth.getFullYear(),
               }).catch(() => []),
             ]);
-          const myPosts = flattenMyPosts(myPostsData ?? undefined);
+          let myPosts = flattenMyPosts(initialMyPostsData ?? undefined);
+          let myPostsCursor = getMyPostsNextCursor(
+            initialMyPostsData ?? undefined,
+          );
+
+          while (
+            myPosts.filter(hasProfileGridContent).length <
+              INITIAL_PROFILE_POST_COUNT &&
+            myPostsCursor
+          ) {
+            const pageCursor = myPostsCursor;
+            let nextPage: Awaited<ReturnType<typeof fetchMyPostsPage>>;
+            try {
+              nextPage = await fetchMyPostsPage({
+                cursor: pageCursor,
+                limit: 21,
+              });
+            } catch {
+              break;
+            }
+
+            appendMyPostsPage(queryClient, pageCursor, nextPage);
+            const existingIds = new Set(myPosts.map((post) => post.id));
+            myPosts = [
+              ...myPosts,
+              ...nextPage.items.filter((post) => !existingIds.has(post.id)),
+            ];
+            myPostsCursor = nextPage.nextCursor;
+          }
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
@@ -368,9 +397,7 @@ export function FriendProfileScreen({
               .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
-          setPostsCursor(
-            myPostsData ? getMyPostsNextCursor(myPostsData) : null,
-          );
+          setPostsCursor(myPostsCursor);
           setWeeklyPlanNotes(nextWeeklyPlanNotes);
           setArePostsLoading(false);
         } else {

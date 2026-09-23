@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Higher Habits | Build a life you want to live",
+  title: "Float | Build a life you want to live",
   description:
-    "Higher Habits is a habit-tracking and daily-planning app for goals, tasks, reflections, and optional Google Calendar planning.",
+    "Float is a habit-tracking and daily-planning app for goals, tasks, reflections, and optional Google Calendar planning.",
 };
 
 const features = [
@@ -43,7 +43,7 @@ export default function HomePage() {
             className="text-xl font-black tracking-tight text-foreground"
             href="/"
           >
-            Higher Habits
+            Float
           </Link>
           <nav aria-label="Main navigation" className="flex items-center gap-5">
             <Link
@@ -70,9 +70,9 @@ export default function HomePage() {
               Build habits that support the life you want.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-foreground-600 sm:text-xl">
-              Higher Habits is a habit-tracking and daily-planning app. Turn
-              goals into daily actions, reflect on your progress, and organize
-              your time with optional Google Calendar integration.
+              Float is a habit-tracking and daily-planning app. Turn goals into
+              daily actions, reflect on your progress, and organize your time
+              with optional Google Calendar integration.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -180,8 +180,8 @@ export default function HomePage() {
             Google data is optional and used for specific features.
           </h2>
           <p className="mt-4 max-w-3xl text-lg leading-8 text-foreground-600">
-            You can use Higher Habits without connecting Google Calendar. When
-            you choose Google sign-in or calendar integration, we only use the
+            You can use Float without connecting Google Calendar. When you
+            choose Google sign-in or calendar integration, we only use the
             information needed to provide those features.
           </p>
 
@@ -190,16 +190,16 @@ export default function HomePage() {
               <h3 className="text-lg font-bold">Google Sign-In</h3>
               <p className="mt-2 leading-7 text-foreground-600">
                 Google provides your name, email address, and profile photo so
-                Higher Habits can create and identify your account. We do not
-                use Google sign-in to access your email or files.
+                Float can create and identify your account. We do not use Google
+                sign-in to access your email or files.
               </p>
             </div>
             <div>
               <h3 className="text-lg font-bold">Google Calendar</h3>
               <p className="mt-2 leading-7 text-foreground-600">
-                If you connect Google Calendar, Higher Habits reads events from
-                your primary calendar to show them alongside your plan. It can
-                also create and update Higher Habits planning events so your
+                If you connect Google Calendar, Float reads events from your
+                selected calendars to show them alongside your plan. Float also
+                creates a dedicated Float calendar for planning events so your
                 habits, goals, and tasks can be scheduled with your day.
               </p>
             </div>
@@ -221,7 +221,7 @@ export default function HomePage() {
 
       <footer className="border-t border-divider">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-8 text-sm text-foreground-500 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-          <p>Higher Habits helps you make the next good action easier.</p>
+          <p>Float helps you make the next good action easier.</p>
           <div className="flex gap-5">
             <Link
               className="font-semibold hover:text-foreground"

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Support | Higher Habits",
-  description: "Get help with Higher Habits.",
+  title: "Support | Float",
+  description: "Get help with Float.",
 };
 
 export default function SupportPage() {
@@ -11,7 +11,7 @@ export default function SupportPage() {
       <div className="mx-auto max-w-3xl space-y-8">
         <header className="space-y-3">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-            Higher Habits
+            Float
           </p>
           <h1 className="text-4xl font-black tracking-tight">Support</h1>
           <p className="text-sm text-foreground-500">
@@ -37,7 +37,7 @@ export default function SupportPage() {
           <h2 className="text-xl font-bold">Common Questions</h2>
           <p>
             <span className="font-semibold">How do I delete my account?</span>{" "}
-            Open Higher Habits, go to Settings, and choose Delete Account. This
+            Open Float, go to Settings, and choose Delete Account. This
             permanently removes your account and associated app data.
           </p>
           <p>

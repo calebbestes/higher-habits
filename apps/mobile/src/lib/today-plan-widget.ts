@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 
+import { DEFAULT_GOOGLE_CALENDAR_COLOR } from "@/constants/calendar-colors";
 import { fetchDayPlanBootstrap } from "@/lib/plan-bootstrap-client";
 import { formatPlanMinutesDisplay } from "@/lib/plan-time";
 import type {
@@ -52,7 +53,7 @@ export async function syncTodayPlanWidgetAsync(): Promise<void> {
       id: event.id,
       title: event.title,
       time: formatEventTime(event.startTime),
-      accent: event.calendarColor ?? "#31B5E8",
+      accent: event.calendarColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR,
     }));
     const props: TodayPlanWidgetProps = {
       dateLabel: formatDateLabel(),

@@ -17,6 +17,7 @@ export type PlannedEvent = {
   startTime: string | null;
   endTime: string | null;
   completed: boolean;
+  googleCalendarId: string | null;
   googleCalendarEventId: string | null;
   createdAt: string;
   updatedAt: string;

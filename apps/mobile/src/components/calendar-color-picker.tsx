@@ -1,6 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
+import {
+  CALENDAR_EVENT_COLORS,
+  DEFAULT_GOOGLE_CALENDAR_COLOR,
+} from "@/constants/calendar-colors";
 import { useTheme } from "@/hooks/use-theme";
 
 const RAINBOW_COLORS = [
@@ -15,7 +18,7 @@ const RAINBOW_COLORS = [
 export function CalendarColorPicker({
   defaultColor,
   defaultForeground,
-  defaultHint = "Default follows your app primary color.",
+  defaultHint = "Default uses Google's default event color.",
   disabled = false,
   value,
   onChange,
@@ -43,9 +46,10 @@ export function CalendarColorPicker({
       <View style={styles.options}>
         {CALENDAR_EVENT_COLORS.map((option) => {
           const selected = value === option.color;
-          const swatchColor = option.color ?? defaultColor ?? theme.primary;
+          const swatchColor =
+            option.color ?? defaultColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
           const swatchForeground =
-            option.foreground ?? defaultForeground ?? theme.primaryForeground;
+            option.foreground ?? defaultForeground ?? "#FFFFFF";
 
           return (
             <Pressable
