@@ -2,7 +2,7 @@
     "expo": {
         "name": "float",
         "slug": "abi",
-        "version": "1.0.5",
+        "version": "1.0.6",
         "orientation": "portrait",
         "icon": "./assets/images/abi-logo.png",
         "scheme": "mobile",
@@ -75,9 +75,7 @@
                             "displayName": "Today's Plan",
                             "description": "See today's plan at a glance.",
                             "ios": {
-                                "supportedFamilies": [
-                                    "systemMedium"
-                                ]
+                                "supportedFamilies": ["systemMedium"]
                             }
                         }
                     ]
