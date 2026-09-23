@@ -840,19 +840,25 @@ async function ensureFloatGoogleCalendarWithToken(
   };
 
   if (db) {
-    await db
-      .insert(calendarSettings)
-      .values({
-        floatGoogleCalendarId: normalizedCalendar.id,
-        userId,
-      })
-      .onConflictDoUpdate({
-        target: calendarSettings.userId,
-        set: {
+    try {
+      await db
+        .insert(calendarSettings)
+        .values({
           floatGoogleCalendarId: normalizedCalendar.id,
-          updatedAt: new Date(),
-        },
-      });
+          userId,
+        })
+        .onConflictDoUpdate({
+          target: calendarSettings.userId,
+          set: {
+            floatGoogleCalendarId: normalizedCalendar.id,
+            updatedAt: new Date(),
+          },
+        });
+    } catch (error) {
+      // Google has already created or confirmed the calendar. A settings
+      // persistence failure should not make the user retry calendar creation.
+      console.error("Could not save the Float Google Calendar ID", error);
+    }
   }
 
   return { status: "synced", calendar: normalizedCalendar };
