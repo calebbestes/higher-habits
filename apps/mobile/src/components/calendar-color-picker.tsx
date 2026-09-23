@@ -1,19 +1,13 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-
 import {
-  CALENDAR_EVENT_COLORS,
-  DEFAULT_GOOGLE_CALENDAR_COLOR,
-} from "@/constants/calendar-colors";
-import { useTheme } from "@/hooks/use-theme";
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
-const RAINBOW_COLORS = [
-  "#F44336",
-  "#FF9800",
-  "#FFEB3B",
-  "#4CAF50",
-  "#2196F3",
-  "#9C27B0",
-];
+import { useGoogleCalendarEventColors } from "@/hooks/use-google-calendar-event-colors";
+import { useTheme } from "@/hooks/use-theme";
 
 export function CalendarColorPicker({
   defaultColor,
@@ -31,6 +25,22 @@ export function CalendarColorPicker({
   onChange: (color: string | null) => void;
 }) {
   const theme = useTheme();
+  const { colors: googleEventColors, isLoading: isLoadingGoogleColors } =
+    useGoogleCalendarEventColors();
+  const colorOptions = [
+    { color: null, foreground: null, label: "Default" },
+    ...googleEventColors.map((googleColor) => ({
+      color: googleColor.backgroundColor,
+      foreground: googleColor.foregroundColor,
+      label: `Google color ${googleColor.colorId}`,
+    })),
+  ];
+  const defaultColorOption = colorOptions.find(
+    (option) =>
+      option.color &&
+      defaultColor &&
+      option.color.toLowerCase() === defaultColor.toLowerCase(),
+  );
 
   return (
     <View style={styles.container}>
@@ -39,70 +49,67 @@ export function CalendarColorPicker({
           Calendar color
         </Text>
         <Text style={[styles.value, { color: theme.textSecondary }]}>
-          {CALENDAR_EVENT_COLORS.find((option) => option.color === value)
-            ?.label ?? "Default"}
+          {isLoadingGoogleColors
+            ? "Loading…"
+            : value === null
+              ? "Default"
+              : "Choose a color"}
         </Text>
       </View>
       <View style={styles.options}>
-        {CALENDAR_EVENT_COLORS.map((option) => {
-          const selected = value === option.color;
-          const swatchColor =
-            option.color ?? defaultColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
-          const swatchForeground =
-            option.foreground ?? defaultForeground ?? "#FFFFFF";
+        {isLoadingGoogleColors ? (
+          <ActivityIndicator color={theme.primary} size="small" />
+        ) : (
+          colorOptions.map((option) => {
+            const isDefaultOption = option.color === null;
+            const selected = isDefaultOption
+              ? value === null && !defaultColorOption
+              : value === option.color ||
+                (value === null && defaultColorOption?.color === option.color);
+            const swatchColor = option.color ?? defaultColor ?? theme.primary;
+            const swatchForeground =
+              option.foreground ?? defaultForeground ?? theme.primaryForeground;
+            const optionLabel =
+              !isDefaultOption && defaultColorOption?.color === option.color
+                ? `${option.label} (default)`
+                : option.label;
 
-          return (
-            <Pressable
-              accessibilityLabel={`${option.label} calendar color`}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              disabled={disabled}
-              key={option.label}
-              onPress={() => onChange(option.color)}
-              style={({ pressed }) => [
-                styles.option,
-                pressed && styles.pressed,
-                disabled && styles.disabled,
-              ]}
-            >
-              <View
-                style={[
-                  styles.swatch,
-                  {
-                    backgroundColor: option.color ? swatchColor : "transparent",
-                    borderColor: selected ? theme.text : "transparent",
-                    borderWidth: selected ? 2 : 0,
-                  },
+            return (
+              <Pressable
+                accessibilityLabel={`${optionLabel} calendar color`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                disabled={disabled}
+                key={option.label}
+                onPress={() => onChange(option.color)}
+                style={({ pressed }) => [
+                  styles.option,
+                  pressed && styles.pressed,
+                  disabled && styles.disabled,
                 ]}
               >
-                {!option.color ? (
-                  <View style={styles.rainbowSwatch}>
-                    {RAINBOW_COLORS.map((color) => (
-                      <View
-                        key={color}
-                        style={[
-                          styles.rainbowStripe,
-                          { backgroundColor: color },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-                {selected ? (
-                  <Text style={[styles.checkmark, { color: swatchForeground }]}>
-                    ✓
-                  </Text>
-                ) : null}
-              </View>
-              <Text
-                numberOfLines={1}
-                style={[styles.optionLabel, { color: theme.text }]}
-              >
-                {option.label}
-              </Text>
-            </Pressable>
-          );
-        })}
+                <View
+                  style={[
+                    styles.swatch,
+                    {
+                      backgroundColor: swatchColor,
+                      borderColor: selected ? theme.text : "transparent",
+                      borderWidth: selected ? 2 : 0,
+                    },
+                  ]}
+                >
+                  {selected ? (
+                    <Text
+                      style={[styles.checkmark, { color: swatchForeground }]}
+                    >
+                      ✓
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })
+        )}
       </View>
       <Text style={[styles.hint, { color: theme.textSecondary }]}>
         {defaultHint}
@@ -120,14 +127,14 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 13, fontWeight: "700" },
   value: { fontSize: 12, fontWeight: "600" },
-  options: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  options: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   option: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-    minHeight: 40,
-    minWidth: 92,
-    paddingVertical: 4,
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 34,
+    minWidth: 34,
+    padding: 3,
   },
   swatch: {
     alignItems: "center",
@@ -136,19 +143,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
-  rainbowSwatch: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    borderRadius: 999,
-    flexDirection: "row",
-    overflow: "hidden",
-  },
-  rainbowStripe: { flex: 1 },
   checkmark: { fontSize: 14, fontWeight: "900", lineHeight: 16 },
-  optionLabel: { fontSize: 11, fontWeight: "700" },
   hint: { fontSize: 11, fontWeight: "600" },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.72 },

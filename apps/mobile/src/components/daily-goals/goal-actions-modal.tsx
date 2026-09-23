@@ -21,7 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
-import { CALENDAR_EVENT_COLORS } from "@/constants/calendar-colors";
+import { useGoogleCalendarEventColors } from "@/hooks/use-google-calendar-event-colors";
 import { useTheme } from "@/hooks/use-theme";
 import { addCrashBreadcrumb, setCrashContext } from "@/lib/crash-reporting";
 import type { GoalLogStatus } from "@/lib/goal-logs-client";
@@ -192,6 +192,15 @@ function GoalActionsModalImpl({
   onShown: () => void;
 }) {
   const theme = useTheme();
+  const { colors: googleEventColors, isLoading: isLoadingGoogleColors } =
+    useGoogleCalendarEventColors();
+  const colorOptions = [
+    { color: null, label: "Default" },
+    ...googleEventColors.map((googleColor) => ({
+      color: googleColor.backgroundColor,
+      label: `Google color ${googleColor.colorId}`,
+    })),
+  ];
   const isComplete = status === "complete";
   const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
@@ -907,17 +916,9 @@ function GoalActionsModalImpl({
                       >
                         Color
                       </Text>
-                      <Text
-                        style={[
-                          modalStyles.colorSectionValue,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        {isUpdatingColor ? "Saving…" : "Choose a color"}
-                      </Text>
                     </View>
                     <View style={modalStyles.colorOptions}>
-                      {CALENDAR_EVENT_COLORS.map((option) => {
+                      {colorOptions.map((option) => {
                         const isSelected = color === option.color;
                         const swatchColor = option.color ?? theme.primary;
 
@@ -929,7 +930,7 @@ function GoalActionsModalImpl({
                               checked: isSelected,
                               disabled: isUpdatingColor,
                             }}
-                            disabled={isUpdatingColor}
+                            disabled={isUpdatingColor || isLoadingGoogleColors}
                             key={option.label}
                             onPress={() => onSetColor(option.color)}
                             style={({ pressed }) => [

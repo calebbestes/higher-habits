@@ -36,6 +36,12 @@ export type GoogleCalendar = {
   summary: string;
 };
 
+export type GoogleCalendarEventColor = {
+  backgroundColor: string;
+  colorId: string;
+  foregroundColor: string;
+};
+
 export type GoogleCalendarsResponse = {
   status: GoogleCalendarEventsResponse["status"];
   calendars: GoogleCalendar[];
@@ -170,6 +176,38 @@ export const fetchGoogleCalendars = (): Promise<GoogleCalendarsResponse> =>
       }
       return result;
     });
+
+let cachedGoogleCalendarEventColors: GoogleCalendarEventColor[] | null = null;
+let googleCalendarEventColorsRequest: Promise<
+  GoogleCalendarEventColor[]
+> | null = null;
+
+export const fetchGoogleCalendarEventColors = async (): Promise<
+  GoogleCalendarEventColor[]
+> => {
+  if (cachedGoogleCalendarEventColors) return cachedGoogleCalendarEventColors;
+  if (googleCalendarEventColorsRequest) return googleCalendarEventColorsRequest;
+
+  googleCalendarEventColorsRequest = mobileApiFetch(
+    "/api/google-calendar/colors",
+  )
+    .then((response) =>
+      parseResponse<{
+        colors?: GoogleCalendarEventColor[];
+        status: GoogleCalendarEventsResponse["status"];
+      }>(response),
+    )
+    .then((result) => {
+      const colors = result.status === "synced" ? (result.colors ?? []) : [];
+      if (colors.length > 0) cachedGoogleCalendarEventColors = colors;
+      return colors;
+    })
+    .finally(() => {
+      googleCalendarEventColorsRequest = null;
+    });
+
+  return googleCalendarEventColorsRequest;
+};
 
 export const updateGoogleCalendarColor = ({
   backgroundColor,

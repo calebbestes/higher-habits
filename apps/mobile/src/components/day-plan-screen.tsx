@@ -3023,44 +3023,64 @@ export function DayPlanScreen({
 
                   {suggestedPlanEntries.length > 0 ? (
                     <View style={styles.unscheduledSection}>
-                      <ScrollView
-                        horizontal
-                        keyboardShouldPersistTaps="handled"
-                        nestedScrollEnabled
-                        onMomentumScrollEnd={unblockDaySwipeFromUnscheduled}
-                        onScrollBeginDrag={blockDaySwipeFromUnscheduled}
-                        onScrollEndDrag={unblockDaySwipeFromUnscheduled}
-                        onTouchCancel={unblockDaySwipeFromUnscheduled}
-                        onTouchEnd={unblockDaySwipeFromUnscheduled}
-                        onTouchStart={blockDaySwipeFromUnscheduled}
-                        showsHorizontalScrollIndicator={false}
-                      >
-                        <View style={styles.unscheduledRail}>
-                          {suggestedPlanEntries.map((entry) => (
-                            <EntryChip
-                              entry={entry}
-                              key={entry.id}
-                              onBeginSchedule={(pageX, pageY) =>
-                                beginScheduleEntry(entry, pageX, pageY)
-                              }
-                              onMove={handleTimelinePressMove}
-                              onPress={() => openInternalEntry(entry)}
-                              onRelease={finishTimelineGesture}
-                              onDismiss={() => dismissSuggestedEntry(entry.id)}
-                            />
-                          ))}
-                        </View>
-                      </ScrollView>
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.unscheduledHint,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        Calendar Planner: click and drag boxes onto the calendar
-                        to schedule.
-                      </Text>
+                      <View style={styles.unscheduledRow}>
+                        <Pressable
+                          accessibilityLabel="Calendar Planner instructions"
+                          accessibilityRole="button"
+                          hitSlop={8}
+                          onPress={() =>
+                            Alert.alert(
+                              "Calendar Planner",
+                              "Click and drag boxes onto the calendar to schedule.",
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.unscheduledInfoButton,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <SymbolView
+                            name={{
+                              ios: "info.circle",
+                              android: "info_outline",
+                              web: "info_outline",
+                            }}
+                            size={18}
+                            tintColor={theme.primary}
+                          />
+                        </Pressable>
+                        <ScrollView
+                          horizontal
+                          keyboardShouldPersistTaps="handled"
+                          nestedScrollEnabled
+                          onMomentumScrollEnd={unblockDaySwipeFromUnscheduled}
+                          onScrollBeginDrag={blockDaySwipeFromUnscheduled}
+                          onScrollEndDrag={unblockDaySwipeFromUnscheduled}
+                          onTouchCancel={unblockDaySwipeFromUnscheduled}
+                          onTouchEnd={unblockDaySwipeFromUnscheduled}
+                          onTouchStart={blockDaySwipeFromUnscheduled}
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.unscheduledScroll}
+                        >
+                          <View style={styles.unscheduledRail}>
+                            {suggestedPlanEntries.map((entry) => (
+                              <EntryChip
+                                entry={entry}
+                                key={entry.id}
+                                onBeginSchedule={(pageX, pageY) =>
+                                  beginScheduleEntry(entry, pageX, pageY)
+                                }
+                                onMove={handleTimelinePressMove}
+                                onPress={() => openInternalEntry(entry)}
+                                onRelease={finishTimelineGesture}
+                                onDismiss={() =>
+                                  dismissSuggestedEntry(entry.id)
+                                }
+                              />
+                            ))}
+                          </View>
+                        </ScrollView>
+                      </View>
                     </View>
                   ) : null}
                 </View>
@@ -3365,6 +3385,14 @@ export function DayPlanScreen({
           onDelete={() => void deleteActiveEntry()}
           onDeleteGoogleEvent={() => void deleteActiveGoogleEvent()}
           onOpenNote={openAttachmentForActiveEntry}
+          defaultOtherEventColor={
+            calendars.find((calendar) => calendar.summary === "Float")
+              ?.backgroundColor ?? theme.primary
+          }
+          defaultOtherEventForeground={
+            calendars.find((calendar) => calendar.summary === "Float")
+              ?.foregroundColor ?? theme.primaryForeground
+          }
           onSaveTimeRange={(range, eventColor, preserveGoogleAllDay, title) =>
             void saveActiveEntryTimeRange(
               range,
@@ -3679,6 +3707,8 @@ function DayPlanDatePicker({
 }
 
 function InternalEventActionsModal({
+  defaultOtherEventColor,
+  defaultOtherEventForeground,
   entry,
   hasNote,
   hasPhoto,
@@ -3696,6 +3726,8 @@ function InternalEventActionsModal({
   statusLabel,
   visibility,
 }: {
+  defaultOtherEventColor?: string;
+  defaultOtherEventForeground?: string;
   entry: DayPlanEntry | null;
   hasNote: boolean;
   hasPhoto: boolean;
@@ -3814,54 +3846,39 @@ function InternalEventActionsModal({
           <View
             style={[
               styles.eventActionHeader,
+              isTitleEditable && styles.eventActionHeaderCompact,
               {
                 backgroundColor: theme.tabBar,
                 borderBottomColor: theme.tabBorder,
               },
             ]}
           >
-            <View style={styles.eventActionTitleBlock}>
-              {isTitleEditable ? (
-                <TextInput
-                  autoCapitalize="sentences"
-                  editable={!isUpdating}
-                  maxLength={200}
-                  onChangeText={setEventTitle}
-                  placeholder="Event name"
-                  placeholderTextColor={theme.textSecondary}
-                  returnKeyType="done"
-                  style={[
-                    styles.eventActionTitle,
-                    styles.eventActionTitleInput,
-                    { color: theme.text },
-                  ]}
-                  value={eventTitle}
-                />
-              ) : (
+            {!isTitleEditable ? (
+              <View style={styles.eventActionTitleBlock}>
                 <Text
                   numberOfLines={2}
                   style={[styles.eventActionTitle, { color: theme.text }]}
                 >
                   {entry.title}
                 </Text>
-              )}
-              <Text
-                style={[
-                  styles.eventActionSubtitle,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                {entry.kind === "task"
-                  ? "Task"
-                  : entry.kind === "goal"
-                    ? "Goal checkpoint"
-                    : isHabitEvent
-                      ? "Daily habit"
-                      : isGoogleEvent
-                        ? "Calendar event"
-                        : "Other event"}
-              </Text>
-            </View>
+                <Text
+                  style={[
+                    styles.eventActionSubtitle,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {entry.kind === "task"
+                    ? "Task"
+                    : entry.kind === "goal"
+                      ? "Goal checkpoint"
+                      : isHabitEvent
+                        ? "Daily habit"
+                        : isGoogleEvent
+                          ? "Calendar event"
+                          : "Other event"}
+                </Text>
+              </View>
+            ) : null}
             <Pressable
               accessibilityLabel="Close"
               hitSlop={8}
@@ -3887,6 +3904,36 @@ function InternalEventActionsModal({
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
+            {isTitleEditable ? (
+              <View style={styles.eventActionSection}>
+                <Text
+                  style={[
+                    modalStyles.planTimeSectionTitle,
+                    { color: theme.text },
+                  ]}
+                >
+                  Event name
+                </Text>
+                <TextInput
+                  accessibilityLabel="Event name"
+                  autoCapitalize="sentences"
+                  editable={!isUpdating}
+                  maxLength={200}
+                  onChangeText={setEventTitle}
+                  placeholder="Event name"
+                  placeholderTextColor={theme.textSecondary}
+                  returnKeyType="done"
+                  style={[
+                    styles.eventNameInput,
+                    {
+                      borderColor: theme.tabBorder,
+                      color: theme.text,
+                    },
+                  ]}
+                  value={eventTitle}
+                />
+              </View>
+            ) : null}
             {isEditablePlannedBlock ? (
               <>
                 <Pressable
@@ -4088,14 +4135,16 @@ function InternalEventActionsModal({
                       defaultColor={
                         isGoogleEvent
                           ? DEFAULT_GOOGLE_CALENDAR_COLOR
-                          : undefined
+                          : defaultOtherEventColor
                       }
-                      defaultForeground={isGoogleEvent ? "#FFFFFF" : undefined}
+                      defaultForeground={
+                        isGoogleEvent ? "#FFFFFF" : defaultOtherEventForeground
+                      }
                       disabled={isUpdating}
                       defaultHint={
                         isGoogleEvent
                           ? "Default uses Google's default event color."
-                          : "Default uses your app primary color."
+                          : "Default uses your Float calendar color."
                       }
                       onChange={setEventColor}
                       value={eventColor}
@@ -6725,6 +6774,19 @@ const styles = StyleSheet.create({
   unscheduledSection: {
     paddingVertical: 2,
   },
+  unscheduledRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+  },
+  unscheduledScroll: { flex: 1 },
+  unscheduledInfoButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
   allDayLabel: {
     fontSize: 12,
     lineHeight: 15,
@@ -6741,13 +6803,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     paddingRight: 12,
-  },
-  unscheduledHint: {
-    marginTop: 4,
-    paddingHorizontal: 2,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "600",
   },
   floatingScheduleChip: {
     position: "absolute",
@@ -7001,6 +7056,13 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     paddingBottom: 20,
   },
+  eventActionHeaderCompact: {
+    borderBottomWidth: 0,
+    justifyContent: "flex-end",
+    minHeight: 60,
+    paddingBottom: 4,
+    paddingTop: 8,
+  },
   eventActionTitleBlock: {
     flex: 1,
     minWidth: 0,
@@ -7011,9 +7073,14 @@ const styles = StyleSheet.create({
     lineHeight: 31,
     fontWeight: "900",
   },
-  eventActionTitleInput: {
-    paddingHorizontal: 0,
-    paddingVertical: 0,
+  eventNameInput: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    fontSize: 17,
+    fontWeight: "600",
+    minHeight: 54,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   eventActionSubtitle: {
     fontSize: 16,

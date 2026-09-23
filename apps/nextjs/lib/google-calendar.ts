@@ -748,6 +748,60 @@ export async function listGoogleCalendars(userId: string): Promise<{
   }
 }
 
+export async function listGoogleCalendarEventColors(userId: string): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  colors: Array<{
+    backgroundColor: string;
+    colorId: string;
+    foregroundColor: string;
+  }>;
+  error?: string;
+}> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return { status: token.status, colors: [] };
+    }
+
+    const colorDefinitions = await getGoogleCalendarColors(token.accessToken);
+    if (!colorDefinitions) {
+      return {
+        status: "error",
+        colors: [],
+        error: "Could not load Google Calendar event colors.",
+      };
+    }
+
+    const colors = Object.entries(colorDefinitions.event).flatMap(
+      ([colorId, definition]) =>
+        colorId && definition.background && definition.foreground
+          ? [
+              {
+                backgroundColor: definition.background,
+                colorId,
+                foregroundColor: definition.foreground,
+              },
+            ]
+          : [],
+    );
+
+    return { status: "synced", colors };
+  } catch (error) {
+    console.error("Google Calendar event colors failed", error);
+    return {
+      status: "error",
+      colors: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function updateGoogleCalendarColor({
   backgroundColor,
   calendarId,

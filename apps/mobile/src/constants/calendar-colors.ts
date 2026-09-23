@@ -31,7 +31,7 @@ export const CALENDAR_EVENT_COLORS = [
   { label: "Cobalt", color: "#4285F4", foreground: "#FFFFFF" },
   { label: "Dark Blue", color: "#3F51B5", foreground: "#FFFFFF" },
   { label: "Indigo", color: "#7986CB", foreground: "#FFFFFF" },
-  { label: "Grape", color: "#8E24AA", foreground: "#FFFFFF" },
+  { label: "Light Blue", color: "#9FC6E7", foreground: "#07171D" },
   { label: "Graphite", color: "#616161", foreground: "#FFFFFF" },
 ] as const;
 
