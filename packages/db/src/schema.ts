@@ -1450,6 +1450,10 @@ export const calendarSettings = pgTable("calendar_settings", {
     .array()
     .notNull()
     .default(sql`'{}'::text[]`),
+  visibleGoogleCalendarIds: text("visible_google_calendar_ids")
+    .array()
+    .notNull()
+    .default(sql`ARRAY['primary']::text[]`),
   monthlyGoalSlots: integer("monthly_goal_slots").notNull().default(3),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

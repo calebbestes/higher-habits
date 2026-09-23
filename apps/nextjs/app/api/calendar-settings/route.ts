@@ -6,8 +6,9 @@ import { z } from "zod";
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 
 const bodySchema = z.object({
-  visibleCategoryIds: z.array(z.string().uuid()),
-  monthlyGoalSlots: z.number().int().min(1).max(5),
+  visibleCategoryIds: z.array(z.string().uuid()).optional(),
+  visibleGoogleCalendarIds: z.array(z.string().min(1)).optional(),
+  monthlyGoalSlots: z.number().int().min(1).max(5).optional(),
 });
 
 export async function GET(request: Request) {
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       visibleCategoryIds: row?.visibleCategoryIds ?? [],
+      visibleGoogleCalendarIds: row?.visibleGoogleCalendarIds ?? ["primary"],
       monthlyGoalSlots: row?.monthlyGoalSlots ?? 3,
     });
   } catch (error) {
@@ -55,20 +57,34 @@ export async function POST(request: Request) {
     }
 
     const data = bodySchema.parse(await request.json());
+    const existing = await db
+      .select()
+      .from(calendarSettings)
+      .where(eq(calendarSettings.userId, user.id))
+      .limit(1);
+    const existingSettings = existing[0];
+    const visibleCategoryIds =
+      data.visibleCategoryIds ?? existingSettings?.visibleCategoryIds ?? [];
+    const visibleGoogleCalendarIds = data.visibleGoogleCalendarIds ??
+      existingSettings?.visibleGoogleCalendarIds ?? ["primary"];
+    const monthlyGoalSlots =
+      data.monthlyGoalSlots ?? existingSettings?.monthlyGoalSlots ?? 3;
 
     await db
       .insert(calendarSettings)
       .values({
         userId: user.id,
-        visibleCategoryIds: data.visibleCategoryIds,
-        monthlyGoalSlots: data.monthlyGoalSlots,
+        visibleCategoryIds,
+        visibleGoogleCalendarIds,
+        monthlyGoalSlots,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: calendarSettings.userId,
         set: {
-          visibleCategoryIds: data.visibleCategoryIds,
-          monthlyGoalSlots: data.monthlyGoalSlots,
+          visibleCategoryIds,
+          visibleGoogleCalendarIds,
+          monthlyGoalSlots,
           updatedAt: new Date(),
         },
       });

@@ -28,6 +28,10 @@ type GoogleCalendarEventsListResponse = {
   items?: GoogleCalendarApiEvent[];
 };
 
+type GoogleCalendarListResponse = {
+  items?: GoogleCalendarListItem[];
+};
+
 type GoogleCalendarColorDefinition = {
   background?: string;
   foreground?: string;
@@ -65,6 +69,18 @@ type GoogleCalendarApiEvent = {
   };
 };
 
+type GoogleCalendarListItem = {
+  backgroundColor?: string;
+  description?: string;
+  foregroundColor?: string;
+  id?: string;
+  primary?: boolean;
+  summary?: string;
+  summaryOverride?: string;
+};
+
+type GoogleCalendarListItemWithId = GoogleCalendarListItem & { id: string };
+
 export type GoogleCalendarEvent = {
   backgroundColor?: string | null;
   colorId?: string | null;
@@ -76,6 +92,19 @@ export type GoogleCalendarEvent = {
   start: { date?: string; dateTime?: string; timeZone?: string };
   end: { date?: string; dateTime?: string; timeZone?: string };
   allDay: boolean;
+  calendarBackgroundColor?: string | null;
+  calendarForegroundColor?: string | null;
+  calendarId: string;
+  calendarName: string;
+};
+
+export type GoogleCalendar = {
+  backgroundColor: string | null;
+  description: string | null;
+  foregroundColor: string | null;
+  id: string;
+  primary: boolean;
+  summary: string;
 };
 
 const GOOGLE_CALENDAR_COLORS_CACHE_MS = 60 * 60 * 1000;
@@ -432,9 +461,11 @@ export async function deleteGoogleCalendarHabitPlan({
 }
 
 export async function deleteGoogleCalendarPrimaryEvent({
+  calendarId = "primary",
   eventId,
   userId,
 }: {
+  calendarId?: string;
   eventId: string;
   userId: string;
 }): Promise<{
@@ -447,13 +478,15 @@ export async function deleteGoogleCalendarPrimaryEvent({
     | "missing_scope"
     | "error";
 }> {
-  return deleteGoogleCalendarPlannedEvent({ eventId, userId });
+  return deleteGoogleCalendarPlannedEvent({ calendarId, eventId, userId });
 }
 
 export async function deleteGoogleCalendarPlannedEvent({
+  calendarId = "primary",
   eventId,
   userId,
 }: {
+  calendarId?: string;
   eventId?: string | null;
   userId: string;
 }): Promise<{
@@ -475,7 +508,7 @@ export async function deleteGoogleCalendarPlannedEvent({
     }
 
     const response = await googleCalendarFetch(
-      `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       token.accessToken,
       { method: "DELETE" },
     );
@@ -542,11 +575,13 @@ export async function updateGoogleCalendarHabitPlanDescription({
 }
 
 export async function listGoogleCalendarPrimaryEventsForRange({
+  calendarIds,
   timeMax,
   timeMin,
   timeZone,
   userId,
 }: {
+  calendarIds?: string[];
   timeMax: string;
   timeMin: string;
   timeZone?: string | null;
@@ -567,41 +602,114 @@ export async function listGoogleCalendarPrimaryEventsForRange({
       return { status: token.status, events: [] };
     }
 
-    const params = new URLSearchParams({
-      orderBy: "startTime",
-      singleEvents: "true",
-      timeMax,
-      timeMin,
-    });
-    if (timeZone) params.set("timeZone", timeZone);
-
-    const [response, colors, eventLabels] = await Promise.all([
-      googleCalendarFetch(
-        `/calendars/primary/events?${params.toString()}`,
-        token.accessToken,
-        { method: "GET" },
-      ),
+    const selectedCalendarIds = [
+      ...new Set(calendarIds === undefined ? ["primary"] : calendarIds),
+    ];
+    const [colors, eventLabels, calendarList] = await Promise.all([
       getGoogleCalendarColors(token.accessToken),
       getGoogleCalendarEventLabels(token.accessToken),
+      fetchGoogleCalendarList(token.accessToken),
     ]);
-    await throwIfGoogleCalendarError(response);
+    const calendarsById = new Map(
+      calendarList.map((calendar) => [calendar.id, calendar]),
+    );
+    const calendarResults = await Promise.all(
+      selectedCalendarIds.map(async (calendarId) => {
+        const params = new URLSearchParams({
+          orderBy: "startTime",
+          singleEvents: "true",
+          timeMax,
+          timeMin,
+        });
+        if (timeZone) params.set("timeZone", timeZone);
 
-    const body = (await response
-      .json()
-      .catch(() => null)) as GoogleCalendarEventsListResponse | null;
-    const events = (body?.items ?? [])
-      .filter((event) => event.status !== "cancelled")
-      .filter((event) => !isHigherHabitsCalendarEvent(event))
-      .map((event) =>
-        normalizeGoogleCalendarEvent(event, colors?.event, eventLabels),
-      )
-      .filter((event): event is GoogleCalendarEvent => Boolean(event));
+        const response = await googleCalendarFetch(
+          `/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
+          token.accessToken,
+          { method: "GET" },
+        );
+        await throwIfGoogleCalendarError(response);
+        const body = (await response
+          .json()
+          .catch(() => null)) as GoogleCalendarEventsListResponse | null;
+        return (body?.items ?? [])
+          .filter((event) => event.status !== "cancelled")
+          .filter((event) => !isHigherHabitsCalendarEvent(event))
+          .map((event) =>
+            normalizeGoogleCalendarEvent(
+              event,
+              colors?.event,
+              eventLabels,
+              calendarId,
+              calendarsById.get(calendarId),
+            ),
+          )
+          .filter((event): event is GoogleCalendarEvent => Boolean(event));
+      }),
+    );
+    const events = calendarResults.flat();
 
     return { status: "synced", events };
   } catch (error) {
     console.error("Google Calendar event list failed", error);
     return { status: "error", events: [] };
   }
+}
+
+export async function listGoogleCalendars(userId: string): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  calendars: GoogleCalendar[];
+}> {
+  try {
+    const token = await getGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return { status: token.status, calendars: [] };
+    }
+
+    const calendars = (await fetchGoogleCalendarList(token.accessToken)).map(
+      (calendar) => ({
+        backgroundColor: calendar.backgroundColor ?? null,
+        description: calendar.description ?? null,
+        foregroundColor: calendar.foregroundColor ?? null,
+        id: calendar.id,
+        primary: Boolean(calendar.primary),
+        summary:
+          calendar.summaryOverride?.trim() ||
+          calendar.summary?.trim() ||
+          "Untitled calendar",
+      }),
+    );
+
+    return { status: "synced", calendars };
+  } catch (error) {
+    console.error("Google Calendar list failed", error);
+    return { status: "error", calendars: [] };
+  }
+}
+
+async function fetchGoogleCalendarList(
+  accessToken: string,
+): Promise<GoogleCalendarListItemWithId[]> {
+  const response = await googleCalendarFetch(
+    "/users/me/calendarList?maxResults=250&showHidden=false",
+    accessToken,
+    { method: "GET" },
+  );
+  await throwIfGoogleCalendarError(response);
+  const body = (await response
+    .json()
+    .catch(() => null)) as GoogleCalendarListResponse | null;
+
+  return (body?.items ?? []).filter(
+    (calendar): calendar is GoogleCalendarListItemWithId =>
+      Boolean(calendar.id),
+  );
 }
 
 export async function createGoogleCalendarPrimaryEvent({
@@ -673,6 +781,7 @@ export async function createGoogleCalendarPrimaryEvent({
 
 export async function updateGoogleCalendarPrimaryEvent({
   allDay,
+  calendarId = "primary",
   color,
   dateKey,
   description,
@@ -685,6 +794,7 @@ export async function updateGoogleCalendarPrimaryEvent({
   userId,
 }: {
   allDay?: boolean;
+  calendarId?: string;
   color?: string | null;
   dateKey: string;
   description?: string | null;
@@ -751,7 +861,7 @@ export async function updateGoogleCalendarPrimaryEvent({
           })),
     };
     const response = await googleCalendarFetch(
-      `/calendars/primary/events/${encodeURIComponent(eventId)}${
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${
         usesEventLabels ? "?eventLabelVersion=1" : ""
       }`,
       token.accessToken,
@@ -772,6 +882,7 @@ export async function updateGoogleCalendarPrimaryEvent({
         ? await normalizeGoogleCalendarEventWithColors(
             token.accessToken,
             updated,
+            calendarId,
           )
         : null,
     };
@@ -975,13 +1086,19 @@ async function resolveGoogleCalendarEventColorSelection(
 async function normalizeGoogleCalendarEventWithColors(
   accessToken: string,
   event: GoogleCalendarApiEvent,
+  calendarId = "primary",
 ): Promise<GoogleCalendarEvent | null> {
   const [colors, eventLabels] = await Promise.all([
     getGoogleCalendarColors(accessToken),
     getGoogleCalendarEventLabels(accessToken),
   ]);
 
-  return normalizeGoogleCalendarEvent(event, colors?.event, eventLabels);
+  return normalizeGoogleCalendarEvent(
+    event,
+    colors?.event,
+    eventLabels,
+    calendarId,
+  );
 }
 
 async function getGoogleCalendarEventLabels(
@@ -1017,6 +1134,8 @@ function normalizeGoogleCalendarEvent(
   event: GoogleCalendarApiEvent,
   eventColors?: Record<string, GoogleCalendarColorDefinition> | null,
   eventLabels?: Record<string, GoogleCalendarColorDefinition> | null,
+  calendarId = "primary",
+  calendar?: GoogleCalendarListItem,
 ): GoogleCalendarEvent | null {
   const id = event.id;
   const start = event.start;
@@ -1039,10 +1158,17 @@ function normalizeGoogleCalendarEvent(
       : null;
 
   return {
-    backgroundColor: color?.background ?? null,
+    backgroundColor: color?.background ?? calendar?.backgroundColor ?? null,
+    calendarBackgroundColor: calendar?.backgroundColor ?? null,
+    calendarForegroundColor: calendar?.foregroundColor ?? null,
+    calendarId,
+    calendarName:
+      calendar?.summaryOverride?.trim() ||
+      calendar?.summary?.trim() ||
+      "Google Calendar",
     colorId: event.colorId ?? null,
     eventLabelId: event.eventLabelId ?? null,
-    foregroundColor: color?.foreground ?? null,
+    foregroundColor: color?.foreground ?? calendar?.foregroundColor ?? null,
     id,
     title: event.summary?.trim() || "Untitled event",
     description: event.description?.trim() || null,

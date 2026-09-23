@@ -10,6 +10,7 @@ import {
 } from "@/lib/google-calendar";
 
 const querySchema = z.object({
+  calendarId: z.array(z.string().min(1)).optional(),
   timeMax: z.string().datetime(),
   timeMin: z.string().datetime(),
   timeZone: z.string().min(1).optional(),
@@ -34,11 +35,13 @@ const createEventSchema = z.object({
 });
 const updateEventSchema = createEventSchema.extend({
   allDay: z.boolean().optional(),
+  calendarId: z.string().min(1).optional(),
   color: colorSchema.optional(),
   eventLabelId: z.string().max(1024).nullable().optional(),
   eventId: z.string().min(1).max(1024),
 });
 const deleteEventSchema = z.object({
+  calendarId: z.string().min(1).optional(),
   eventId: z.string().min(1).max(1024),
 });
 
@@ -47,12 +50,16 @@ export async function GET(request: Request) {
     const user = await requireRequestUser(request);
     const url = new URL(request.url);
     const query = querySchema.parse({
+      calendarId: url.searchParams.getAll("calendarId"),
       timeMax: url.searchParams.get("timeMax"),
       timeMin: url.searchParams.get("timeMin"),
       timeZone: url.searchParams.get("timeZone") ?? undefined,
     });
 
     const result = await listGoogleCalendarPrimaryEventsForRange({
+      calendarIds: query.calendarId?.includes("__none__")
+        ? []
+        : query.calendarId,
       timeMax: query.timeMax,
       timeMin: query.timeMin,
       timeZone: query.timeZone,
@@ -113,6 +120,7 @@ export async function PATCH(request: Request) {
 
     const result = await updateGoogleCalendarPrimaryEvent({
       allDay: data.allDay,
+      calendarId: data.calendarId,
       color: data.color,
       dateKey: data.dateKey,
       description: data.description ?? null,
@@ -147,6 +155,7 @@ export async function DELETE(request: Request) {
     const data = deleteEventSchema.parse(await request.json());
 
     const result = await deleteGoogleCalendarPrimaryEvent({
+      calendarId: data.calendarId,
       eventId: data.eventId,
       userId: user.id,
     });

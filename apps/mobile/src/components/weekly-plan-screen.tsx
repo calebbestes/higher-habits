@@ -35,12 +35,14 @@ import {
 } from "react-native-safe-area-context";
 
 import { CalendarSelectionModal } from "@/components/calendar-selection-modal";
+import { GoogleCalendarSelectionModal } from "@/components/google-calendar-selection-modal";
 import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
 } from "@/components/section-header-tabs";
 import { getGoogleCalendarEventColor } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
+import { useGoogleCalendarSelection } from "@/hooks/use-google-calendar-selection";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
@@ -86,6 +88,8 @@ export type WeekEvent = Pick<
   calendarColorId?: string | null;
   calendarEventLabelId?: string | null;
   calendarForegroundColor?: string | null;
+  calendarId?: string;
+  calendarName?: string;
   plannedEventId?: string;
   sourceId?: string;
   sourceType: WeekEventSourceType;
@@ -115,6 +119,8 @@ const GRID_START_MINUTES = HOURS[0] * 60;
 const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
 const WEEKLY_CREATE_SNAP_MINUTES = 15;
 const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
+const WEEKLY_CREATE_LONG_PRESS_MS = 500;
+const WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE = 8;
 const WEEK_SWIPE_DISTANCE = 64;
 const WEEK_SWIPE_VELOCITY = 720;
 const EDITOR_ACTIONS = [
@@ -273,6 +279,8 @@ function googleEventToWeekEvent(
 ): WeekEvent {
   return {
     calendarBackgroundColor: event.backgroundColor,
+    calendarId: event.calendarId,
+    calendarName: event.calendarName,
     calendarColorId: event.colorId,
     calendarEventLabelId: event.eventLabelId,
     calendarForegroundColor: event.foregroundColor,
@@ -600,16 +608,36 @@ export function WeeklyPlanScreen({
     dateKey: string;
     startMinutes: number;
   } | null>(null);
+  const weeklyCreatePendingRef = useRef<{
+    dateKey: string;
+    pageX: number;
+    pageY: number;
+    startMinutes: number;
+  } | null>(null);
+  const weeklyCreateLongPressTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const weeklyCreateLongPressReadyRef = useRef(false);
   const weeklyCreatePreviewRef = useRef<WeeklyCreateRange | null>(null);
   const [weeklyCreatePreview, setWeeklyCreatePreview] =
     useState<WeeklyCreateRange | null>(null);
   const [isWeeklyCreateGestureActive, setIsWeeklyCreateGestureActive] =
     useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
   const [headersModalOpen, setHeadersModalOpen] = useState(false);
   const [selectedHeaderIds, setSelectedHeaderIds] = useState<string[]>([]);
   const [editorFocused, setEditorFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const {
+    calendars,
+    error: calendarSelectionError,
+    isLoading: isLoadingCalendarSelection,
+    isSaving: isSavingCalendarSelection,
+    load: reloadCalendarSelection,
+    selectedCalendarIds,
+    toggleCalendar,
+  } = useGoogleCalendarSelection();
   const [now, setNow] = useState(() => new Date());
   const { width: windowWidth } = useWindowDimensions();
   const calendarWidth = Math.max(
@@ -739,6 +767,9 @@ export function WeeklyPlanScreen({
     () => () => {
       mountedRef.current = false;
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      if (weeklyCreateLongPressTimerRef.current) {
+        clearTimeout(weeklyCreateLongPressTimerRef.current);
+      }
     },
     [],
   );
@@ -783,6 +814,7 @@ export function WeeklyPlanScreen({
             weekDateKeys.at(-1) ?? weekStartKey,
           ),
           fetchGoogleCalendarEvents({
+            calendarIds: selectedCalendarIds,
             timeMax: weekRange.timeMax,
             timeMin: weekRange.timeMin,
             timeZone,
@@ -894,7 +926,7 @@ export function WeeklyPlanScreen({
         }
       }
     },
-    [timeZone, weekDays, weekStartDate, weekStartKey],
+    [selectedCalendarIds, timeZone, weekDays, weekStartDate, weekStartKey],
   );
 
   useEffect(() => {
@@ -991,10 +1023,9 @@ export function WeeklyPlanScreen({
   );
 
   const handleWeeklyCreateStart = useCallback(
-    (dateKey: string, event: GestureResponderEvent) => {
-      if (!onCreateRange || event.nativeEvent.touches.length !== 1) return;
+    (dateKey: string, startMinutes: number) => {
+      if (!onCreateRange) return;
 
-      const startMinutes = snapWeeklyCreateMinutes(event.nativeEvent.locationY);
       weeklyCreateGestureRef.current = { dateKey, startMinutes };
       const preview = {
         dateKey,
@@ -1022,11 +1053,66 @@ export function WeeklyPlanScreen({
   const handleWeeklyCreateTouchStart = useCallback(
     (dateKey: string, event: GestureResponderEvent) => {
       if (!onCreateRange || event.nativeEvent.touches.length !== 1) return;
-      setIsWeeklyCreateGestureActive(true);
-      handleWeeklyCreateStart(dateKey, event);
+
+      const { locationY, pageX, pageY } = event.nativeEvent;
+      weeklyCreatePendingRef.current = {
+        dateKey,
+        pageX,
+        pageY,
+        startMinutes: snapWeeklyCreateMinutes(locationY),
+      };
+      weeklyCreateLongPressReadyRef.current = false;
+      if (weeklyCreateLongPressTimerRef.current) {
+        clearTimeout(weeklyCreateLongPressTimerRef.current);
+      }
+      weeklyCreateLongPressTimerRef.current = setTimeout(() => {
+        weeklyCreateLongPressTimerRef.current = null;
+        weeklyCreateLongPressReadyRef.current = true;
+      }, WEEKLY_CREATE_LONG_PRESS_MS);
     },
-    [handleWeeklyCreateStart, onCreateRange],
+    [onCreateRange],
   );
+
+  const handleWeeklyCreateTouchMove = useCallback(
+    (event: GestureResponderEvent) => {
+      if (
+        weeklyCreateGestureRef.current ||
+        weeklyCreateLongPressReadyRef.current
+      ) {
+        return;
+      }
+
+      const pending = weeklyCreatePendingRef.current;
+      const touch = event.nativeEvent.touches[0];
+      if (!pending || !touch) return;
+
+      if (
+        Math.hypot(touch.pageX - pending.pageX, touch.pageY - pending.pageY) >
+        WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE
+      ) {
+        if (weeklyCreateLongPressTimerRef.current) {
+          clearTimeout(weeklyCreateLongPressTimerRef.current);
+          weeklyCreateLongPressTimerRef.current = null;
+        }
+        weeklyCreatePendingRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const handleWeeklyCreateResponderGrant = useCallback(() => {
+    const pending = weeklyCreatePendingRef.current;
+    if (!pending) return;
+
+    if (weeklyCreateLongPressTimerRef.current) {
+      clearTimeout(weeklyCreateLongPressTimerRef.current);
+      weeklyCreateLongPressTimerRef.current = null;
+    }
+    weeklyCreateLongPressReadyRef.current = false;
+    weeklyCreatePendingRef.current = null;
+    setIsWeeklyCreateGestureActive(true);
+    handleWeeklyCreateStart(pending.dateKey, pending.startMinutes);
+  }, [handleWeeklyCreateStart]);
 
   const finishWeeklyCreate = useCallback(() => {
     const preview = weeklyCreatePreviewRef.current;
@@ -1037,11 +1123,54 @@ export function WeeklyPlanScreen({
     if (preview) onCreateRange?.(preview);
   }, [onCreateRange]);
 
+  const handleWeeklyCreateTouchEnd = useCallback(() => {
+    if (weeklyCreateGestureRef.current) {
+      finishWeeklyCreate();
+      return;
+    }
+
+    const pending = weeklyCreatePendingRef.current;
+    const shouldCreate = weeklyCreateLongPressReadyRef.current && pending;
+    if (weeklyCreateLongPressTimerRef.current) {
+      clearTimeout(weeklyCreateLongPressTimerRef.current);
+      weeklyCreateLongPressTimerRef.current = null;
+    }
+    weeklyCreateLongPressReadyRef.current = false;
+    weeklyCreatePendingRef.current = null;
+
+    if (shouldCreate) {
+      setIsWeeklyCreateGestureActive(true);
+      handleWeeklyCreateStart(pending.dateKey, pending.startMinutes);
+      finishWeeklyCreate();
+    }
+  }, [finishWeeklyCreate, handleWeeklyCreateStart]);
+
   const cancelWeeklyCreate = useCallback(() => {
+    if (weeklyCreateLongPressTimerRef.current) {
+      clearTimeout(weeklyCreateLongPressTimerRef.current);
+      weeklyCreateLongPressTimerRef.current = null;
+    }
+    weeklyCreateLongPressReadyRef.current = false;
+    weeklyCreatePendingRef.current = null;
     weeklyCreateGestureRef.current = null;
     weeklyCreatePreviewRef.current = null;
     setWeeklyCreatePreview(null);
     setIsWeeklyCreateGestureActive(false);
+  }, []);
+
+  const cancelPendingWeeklyCreate = useCallback(() => {
+    if (
+      weeklyCreateGestureRef.current ||
+      weeklyCreateLongPressReadyRef.current
+    ) {
+      return;
+    }
+
+    if (weeklyCreateLongPressTimerRef.current) {
+      clearTimeout(weeklyCreateLongPressTimerRef.current);
+      weeklyCreateLongPressTimerRef.current = null;
+    }
+    weeklyCreatePendingRef.current = null;
   }, []);
 
   const syncGoogleCalendar = useCallback(async () => {
@@ -1206,6 +1335,7 @@ export function WeeklyPlanScreen({
               onRefresh={() => void load(true)}
             />
           }
+          onScrollBeginDrag={cancelPendingWeeklyCreate}
           scrollEnabled={!isWeeklyCreateGestureActive}
           showsVerticalScrollIndicator={false}
         >
@@ -1215,6 +1345,30 @@ export function WeeklyPlanScreen({
               <PlanSectionHeaderTabs currentView="weekly-plan" />
             </View>
             <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel="Choose Google calendars"
+                accessibilityRole="button"
+                onPress={() => setCalendarPickerOpen(true)}
+                style={({ pressed }) => [
+                  styles.notesHeaderButton,
+                  { borderColor: theme.tabBorder },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("calendar", "event")}
+                  size={19}
+                  tintColor={theme.primary}
+                />
+                <Text
+                  style={[
+                    styles.notesHeaderButtonText,
+                    { color: theme.primary },
+                  ]}
+                >
+                  Calendars
+                </Text>
+              </Pressable>
               <Pressable
                 accessibilityLabel="Open weekly notes"
                 accessibilityRole="button"
@@ -1540,17 +1694,24 @@ export function WeeklyPlanScreen({
                               >
                                 <View
                                   onMoveShouldSetResponderCapture={() =>
-                                    Boolean(onCreateRange)
+                                    Boolean(
+                                      onCreateRange &&
+                                        weeklyCreateLongPressReadyRef.current,
+                                    )
                                   }
-                                  onStartShouldSetResponderCapture={() =>
-                                    Boolean(onCreateRange)
-                                  }
+                                  onStartShouldSetResponderCapture={() => false}
                                   onTouchCancel={cancelWeeklyCreate}
-                                  onTouchEnd={finishWeeklyCreate}
-                                  onTouchMove={handleWeeklyCreateMove}
+                                  onTouchEnd={handleWeeklyCreateTouchEnd}
+                                  onTouchMove={handleWeeklyCreateTouchMove}
                                   onTouchStart={(event) =>
                                     handleWeeklyCreateTouchStart(dateKey, event)
                                   }
+                                  onResponderGrant={
+                                    handleWeeklyCreateResponderGrant
+                                  }
+                                  onResponderMove={handleWeeklyCreateMove}
+                                  onResponderRelease={finishWeeklyCreate}
+                                  onResponderTerminate={cancelWeeklyCreate}
                                   style={styles.weeklyCreateSurface}
                                 />
                                 {laidOutEvents.map(
@@ -1895,6 +2056,22 @@ export function WeeklyPlanScreen({
         onSelect={selectWeekFromPicker}
         selectedDate={dateFromKey(selectedDateKey)}
         visible={weekPickerOpen}
+      />
+      <GoogleCalendarSelectionModal
+        calendars={calendars}
+        error={calendarSelectionError}
+        isLoading={isLoadingCalendarSelection}
+        isSaving={isSavingCalendarSelection}
+        onConnect={() => {
+          void syncGoogleCalendar().then(() => reloadCalendarSelection());
+        }}
+        onClose={() => setCalendarPickerOpen(false)}
+        onRetry={() => void reloadCalendarSelection()}
+        onToggle={(calendarId) => {
+          void toggleCalendar(calendarId).catch(() => undefined);
+        }}
+        selectedCalendarIds={selectedCalendarIds}
+        visible={calendarPickerOpen}
       />
     </View>
   );

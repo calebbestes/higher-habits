@@ -1,5 +1,6 @@
 import { CalendarColorPicker } from "@/components/calendar-color-picker";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { GoogleCalendarSelectionModal } from "@/components/google-calendar-selection-modal";
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +49,7 @@ import {
   getGoogleCalendarEventColor,
 } from "@/constants/calendar-colors";
 import { MaxContentWidth } from "@/constants/theme";
+import { useGoogleCalendarSelection } from "@/hooks/use-google-calendar-selection";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
@@ -133,6 +135,8 @@ type DayPlanEntry = {
   calendarColorId?: string | null;
   calendarEventLabelId?: string | null;
   calendarForegroundColor?: string | null;
+  calendarId?: string;
+  calendarName?: string;
   categoryName?: string | null;
   completed?: boolean;
   description?: string | null;
@@ -306,11 +310,13 @@ export function DayPlanScreen({
   const pendingEmptyPressRef = useRef<{
     locationX: number;
     locationY: number;
+    pageX: number;
     pageY: number;
   } | null>(null);
   const timelineLongPressTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const timelineLongPressReadyRef = useRef(false);
   const suppressEntryPressUntilRef = useRef(0);
   const [selectedDate, setSelectedDate] = useState(() =>
     initialDateKey ? dateFromKey(initialDateKey) : new Date(),
@@ -363,6 +369,7 @@ export function DayPlanScreen({
     useState<GoalPhotoSource | null>(null);
   const [celebrate, setCelebrate] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState(() =>
     startOfMonth(initialDateKey ? dateFromKey(initialDateKey) : new Date()),
   );
@@ -392,6 +399,15 @@ export function DayPlanScreen({
   );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
+  const {
+    calendars,
+    error: calendarSelectionError,
+    isLoading: isLoadingCalendarSelection,
+    isSaving: isSavingCalendarSelection,
+    load: reloadCalendarSelection,
+    selectedCalendarIds,
+    toggleCalendar,
+  } = useGoogleCalendarSelection();
   const loadSequenceRef = useRef(0);
   const snapshotCacheRef = useRef(new Map<string, HabitLogsSnapshot>());
   const snapshotInFlightRef = useRef(
@@ -535,6 +551,7 @@ export function DayPlanScreen({
 
       const range = getDayRange(targetDate);
       const request = fetchGoogleCalendarEvents({
+        calendarIds: selectedCalendarIds,
         timeMax: range.timeMax,
         timeMin: range.timeMin,
         timeZone,
@@ -554,8 +571,14 @@ export function DayPlanScreen({
       googleEventsInFlightRef.current.set(targetDateKey, request);
       return request;
     },
-    [timeZone],
+    [selectedCalendarIds, timeZone],
   );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear Google event caches when calendar visibility changes.
+  useEffect(() => {
+    googleEventsCacheRef.current.clear();
+    googleEventsInFlightRef.current.clear();
+  }, [selectedCalendarIds]);
 
   const ensureProjects = useCallback(
     (force = false) => {
@@ -1349,8 +1372,8 @@ export function DayPlanScreen({
     }, TIMELINE_AUTO_SCROLL_INTERVAL_MS);
   };
   const handleEmptyTimelinePressIn = (event: GestureResponderEvent) => {
-    const { locationX, locationY, pageY } = event.nativeEvent;
-    pendingEmptyPressRef.current = { locationX, locationY, pageY };
+    const { locationX, locationY, pageX, pageY } = event.nativeEvent;
+    pendingEmptyPressRef.current = { locationX, locationY, pageX, pageY };
     updateTimelineViewportTop(pageY, locationY);
   };
   const handleEmptyTimelineLongPress = () => {
@@ -1610,6 +1633,7 @@ export function DayPlanScreen({
         const eventId = entry.sourceId ?? googleEntryId(entry.id);
         const response = await updateGoogleCalendarEvent({
           allDay: options?.googleAllDay,
+          calendarId: entry.calendarId,
           color: options?.googleColor,
           dateKey,
           description: entry.description ?? null,
@@ -1704,29 +1728,75 @@ export function DayPlanScreen({
       timelineLongPressTimerRef.current = null;
     }
   };
-  // The empty-timeline drag is driven by the raw responder system rather than
-  // Pressable so the picker only opens on a real finger lift (onResponderRelease)
-  // and never on a mid-gesture touch cancellation.
-  const handleTimelineResponderGrant = (event: GestureResponderEvent) => {
+  const cancelPendingEmptyPress = () => {
+    if (timelineGestureRef.current || timelineLongPressReadyRef.current) {
+      return;
+    }
+
+    clearTimelineLongPressTimer();
+    pendingEmptyPressRef.current = null;
+  };
+  const handleEmptyTimelineTouchStart = (event: GestureResponderEvent) => {
     handleEmptyTimelinePressIn(event);
+    timelineLongPressReadyRef.current = false;
     clearTimelineLongPressTimer();
     timelineLongPressTimerRef.current = setTimeout(() => {
       timelineLongPressTimerRef.current = null;
-      handleEmptyTimelineLongPress();
+      timelineLongPressReadyRef.current = true;
     }, LONG_PRESS_DELAY_MS);
   };
+  const handleEmptyTimelineTouchMove = (event: GestureResponderEvent) => {
+    if (timelineGestureRef.current || timelineLongPressReadyRef.current) {
+      return;
+    }
+
+    const press = pendingEmptyPressRef.current;
+    const touch = event.nativeEvent.touches[0];
+    if (!press || !touch) return;
+
+    const distance = Math.hypot(
+      touch.pageX - press.pageX,
+      touch.pageY - press.pageY,
+    );
+    if (distance > EVENT_SCROLL_CANCEL_DISTANCE) {
+      clearTimelineLongPressTimer();
+      timelineLongPressReadyRef.current = false;
+      pendingEmptyPressRef.current = null;
+    }
+  };
+  const handleTimelineMoveShouldSetResponder = () =>
+    !isPlanSheetOpen && timelineLongPressReadyRef.current;
+  const handleTimelineResponderGrant = () => {
+    clearTimelineLongPressTimer();
+    timelineLongPressReadyRef.current = false;
+    handleEmptyTimelineLongPress();
+  };
   const handleTimelineResponderMove = (event: GestureResponderEvent) => {
-    // Ignore movement until the long press has actually started a drag; until
-    // then the scroll view is free to take over for normal scrolling.
     if (!timelineGestureRef.current) return;
     handleTimelinePressMove(event);
   };
   const handleTimelineResponderRelease = () => {
     clearTimelineLongPressTimer();
+    timelineLongPressReadyRef.current = false;
     finishTimelineGesture();
+  };
+  const handleEmptyTimelineTouchEnd = () => {
+    if (timelineGestureRef.current) return;
+
+    if (timelineLongPressReadyRef.current) {
+      timelineLongPressReadyRef.current = false;
+      clearTimelineLongPressTimer();
+      handleEmptyTimelineLongPress();
+      finishTimelineGesture();
+      return;
+    }
+
+    clearTimelineLongPressTimer();
+    pendingEmptyPressRef.current = null;
   };
   const cancelTimelineGesture = () => {
     clearTimelineLongPressTimer();
+    timelineLongPressReadyRef.current = false;
     pendingEmptyPressRef.current = null;
     stopTimelineAutoScroll();
     timelineGestureRef.current = null;
@@ -2354,7 +2424,10 @@ export function DayPlanScreen({
           onPress: async () => {
             setUpdatingKey(`${entry.kind}-${eventId}`);
             try {
-              const response = await deleteGoogleCalendarEvent({ eventId });
+              const response = await deleteGoogleCalendarEvent({
+                calendarId: entry.calendarId,
+                eventId,
+              });
               if (response.status !== "deleted") {
                 throw new Error(
                   getGoogleCalendarDeleteStatusMessage(response.status),
@@ -2857,29 +2930,50 @@ export function DayPlanScreen({
                   <PageHeaderTitle title="Plan" />
                   <PlanSectionHeaderTabs currentView="day-plan" />
                 </View>
-                <Pressable
-                  accessibilityLabel="Choose date"
-                  accessibilityRole="button"
-                  onPress={openDatePicker}
-                  style={({ pressed }) => [
-                    styles.headerDateButton,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.dayBadge,
-                      { backgroundColor: theme.backgroundElement },
+                <View style={styles.dateControls}>
+                  <Pressable
+                    accessibilityLabel="Choose Google calendars"
+                    accessibilityRole="button"
+                    onPress={() => setCalendarPickerOpen(true)}
+                    style={({ pressed }) => [
+                      styles.iconButton,
+                      {
+                        borderColor: theme.tabBorder,
+                        borderWidth: StyleSheet.hairlineWidth,
+                      },
+                      pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.weekday, { color: theme.primary }]}>
-                      {WEEKDAY_NAMES[selectedDate.getDay()]}
-                    </Text>
-                    <Text style={[styles.dayNumber, { color: theme.text }]}>
-                      {selectedDate.getDate()}
-                    </Text>
-                  </View>
-                </Pressable>
+                    <SymbolView
+                      name={{ ios: "calendar", android: "event", web: "event" }}
+                      size={19}
+                      tintColor={theme.primary}
+                    />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Choose date"
+                    accessibilityRole="button"
+                    onPress={openDatePicker}
+                    style={({ pressed }) => [
+                      styles.headerDateButton,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.dayBadge,
+                        { backgroundColor: theme.backgroundElement },
+                      ]}
+                    >
+                      <Text style={[styles.weekday, { color: theme.primary }]}>
+                        {WEEKDAY_NAMES[selectedDate.getDay()]}
+                      </Text>
+                      <Text style={[styles.dayNumber, { color: theme.text }]}>
+                        {selectedDate.getDate()}
+                      </Text>
+                    </View>
+                  </Pressable>
+                </View>
               </View>
 
               {!isLoading &&
@@ -3061,6 +3155,7 @@ export function DayPlanScreen({
                       }}
                       nestedScrollEnabled
                       onLayout={measureTimelineViewport}
+                      onScrollBeginDrag={cancelPendingEmptyPress}
                       onScroll={(event) => {
                         timelineScrollYRef.current =
                           event.nativeEvent.contentOffset.y;
@@ -3109,7 +3204,12 @@ export function DayPlanScreen({
                             timelineDragLayerWidthRef.current =
                               event.nativeEvent.layout.width;
                           }}
-                          onStartShouldSetResponder={() => !isPlanSheetOpen}
+                          onMoveShouldSetResponder={
+                            handleTimelineMoveShouldSetResponder
+                          }
+                          onTouchEnd={handleEmptyTimelineTouchEnd}
+                          onTouchMove={handleEmptyTimelineTouchMove}
+                          onTouchStart={handleEmptyTimelineTouchStart}
                           onResponderGrant={handleTimelineResponderGrant}
                           onResponderMove={handleTimelineResponderMove}
                           onResponderRelease={handleTimelineResponderRelease}
@@ -3353,6 +3453,22 @@ export function DayPlanScreen({
           onSelectDate={selectPickerDate}
           selectedDate={selectedDate}
           visible={datePickerOpen}
+        />
+        <GoogleCalendarSelectionModal
+          calendars={calendars}
+          error={calendarSelectionError}
+          isLoading={isLoadingCalendarSelection}
+          isSaving={isSavingCalendarSelection}
+          onConnect={() => {
+            void syncGoogleCalendar().then(() => reloadCalendarSelection());
+          }}
+          onClose={() => setCalendarPickerOpen(false)}
+          onRetry={() => void reloadCalendarSelection()}
+          onToggle={(calendarId) => {
+            void toggleCalendar(calendarId).catch(() => undefined);
+          }}
+          selectedCalendarIds={selectedCalendarIds}
+          visible={calendarPickerOpen}
         />
         <CelebrationOverlay
           visible={celebrate}
@@ -4993,9 +5109,17 @@ function TimedEntryBlock({
   const isUnscheduledPreview = variant === "unscheduled";
   const isDraggingPreview = variant === "dragging";
   const previewColor = isUnscheduledPreview ? theme.text : color;
+  const top = (entry.startMinutes / 60) * hourHeight;
+  const naturalHeight =
+    ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
+  const height = Math.max(naturalHeight, 1);
+  const { left, width } = getEntryLayoutPercent(entry);
+  const isTiny = naturalHeight < 24;
+  const isMicro = entry.endMinutes - entry.startMinutes <= PLAN_SNAP_MINUTES;
   const eventBlockStyle = [
     styles.eventBlock,
     isDraggingPreview && styles.eventBlockDragging,
+    isMicro && styles.eventBlockMicro,
     isUnscheduledPreview
       ? [
           styles.unscheduledHabitChip,
@@ -5006,12 +5130,6 @@ function TimedEntryBlock({
         ]
       : { backgroundColor },
   ];
-  const top = (entry.startMinutes / 60) * hourHeight;
-  const naturalHeight =
-    ((entry.endMinutes - entry.startMinutes) / 60) * hourHeight;
-  const height = Math.max(naturalHeight, MIN_EVENT_HEIGHT);
-  const { left, width } = getEntryLayoutPercent(entry);
-  const isTiny = naturalHeight < 24;
   const timeLabel = formatMinuteRange(entry.startMinutes, entry.endMinutes);
   const clearLongPressTimer = () => {
     if (!longPressTimerRef.current) return;
@@ -5090,10 +5208,13 @@ function TimedEntryBlock({
   const content = (
     <View style={[eventBlockStyle, isTiny && styles.eventBlockTiny]}>
       <Text
+        adjustsFontSizeToFit={isTiny}
+        minimumFontScale={0.7}
         numberOfLines={height >= 56 ? 2 : 1}
         style={[
           styles.eventTitle,
           isTiny && styles.eventTitleTiny,
+          isMicro && styles.eventTitleMicro,
           entry.completed && styles.eventTitleCompleted,
           { color: previewColor },
         ]}
@@ -5108,6 +5229,7 @@ function TimedEntryBlock({
       pointerEvents={onPress || onBeginMove ? "auto" : "none"}
       style={[
         styles.eventOuter,
+        isMicro && styles.eventOuterMicro,
         {
           height,
           left: `${left}%`,
@@ -5378,6 +5500,8 @@ function googleEventToEntry(
     return {
       allDay: true,
       calendarBackgroundColor: event.backgroundColor,
+      calendarId: event.calendarId,
+      calendarName: event.calendarName,
       description: event.description,
       calendarColorId: event.colorId,
       calendarEventLabelId: event.eventLabelId,
@@ -5422,6 +5546,8 @@ function googleEventToEntry(
   return {
     allDay: false,
     calendarBackgroundColor: event.backgroundColor,
+    calendarId: event.calendarId,
+    calendarName: event.calendarName,
     calendarColorId: event.colorId,
     calendarEventLabelId: event.eventLabelId,
     calendarForegroundColor: event.foregroundColor,
@@ -6734,6 +6860,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingVertical: 2,
   },
+  eventOuterMicro: {
+    paddingHorizontal: 1,
+    paddingVertical: 0,
+  },
   eventPressable: { flex: 1 },
   eventBlock: {
     flex: 1,
@@ -6741,6 +6871,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 5,
+  },
+  eventBlockMicro: {
+    borderRadius: 5,
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 0,
   },
   eventBlockDragging: {
     transform: [{ scale: 1.015 }],
@@ -6760,13 +6896,17 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: "900",
   },
-  eventTitleCompleted: {
-    textDecorationLine: "line-through",
-    opacity: 0.62,
-  },
   eventTitleTiny: {
     fontSize: 10,
     lineHeight: 12,
+  },
+  eventTitleMicro: {
+    fontSize: 8,
+    lineHeight: 9,
+  },
+  eventTitleCompleted: {
+    textDecorationLine: "line-through",
+    opacity: 0.62,
   },
   draftPlanBlock: {
     position: "absolute",

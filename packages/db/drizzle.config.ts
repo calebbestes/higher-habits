@@ -13,6 +13,7 @@ export default defineConfig({
       process.env.POSTGRES_URL ??
       "postgres://postgres:postgres@localhost:5432/habit_tracker",
   },
+  schemaFilter: ["public"],
   verbose: true,
   strict: true,
 });

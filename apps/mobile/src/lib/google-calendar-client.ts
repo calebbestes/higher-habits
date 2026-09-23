@@ -19,6 +19,24 @@ export type GoogleCalendarDayEvent = {
   start: { date?: string; dateTime?: string; timeZone?: string };
   end: { date?: string; dateTime?: string; timeZone?: string };
   allDay: boolean;
+  calendarBackgroundColor?: string | null;
+  calendarForegroundColor?: string | null;
+  calendarId: string;
+  calendarName: string;
+};
+
+export type GoogleCalendar = {
+  backgroundColor: string | null;
+  description: string | null;
+  foregroundColor: string | null;
+  id: string;
+  primary: boolean;
+  summary: string;
+};
+
+export type GoogleCalendarsResponse = {
+  status: GoogleCalendarEventsResponse["status"];
+  calendars: GoogleCalendar[];
 };
 
 export type GoogleCalendarEventsResponse = {
@@ -42,6 +60,7 @@ export type CreateGoogleCalendarEventInput = {
 };
 export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
   allDay?: boolean;
+  calendarId?: string;
   color?: string | null;
   eventLabelId?: string | null;
   eventId: string;
@@ -89,21 +108,55 @@ export const disconnectGoogleCalendar = (): Promise<{
   }).then((response) => parseResponse<{ disconnected: boolean }>(response));
 
 export const fetchGoogleCalendarEvents = ({
+  calendarIds,
   timeMax,
   timeMin,
   timeZone,
 }: {
+  calendarIds?: string[];
   timeMax: string;
   timeMin: string;
   timeZone?: string | null;
 }): Promise<GoogleCalendarEventsResponse> => {
   const params = new URLSearchParams({ timeMax, timeMin });
+  if (calendarIds?.length === 0) params.append("calendarId", "__none__");
+  for (const calendarId of calendarIds ?? []) {
+    params.append("calendarId", calendarId);
+  }
   if (timeZone) params.set("timeZone", timeZone);
 
   return mobileApiFetch(
     `/api/google-calendar/events?${params.toString()}`,
   ).then((response) => parseResponse<GoogleCalendarEventsResponse>(response));
 };
+
+export const fetchGoogleCalendars = (): Promise<GoogleCalendarsResponse> =>
+  mobileApiFetch("/api/google-calendar/calendars").then((response) =>
+    parseResponse<GoogleCalendarsResponse>(response),
+  );
+
+export const fetchGoogleCalendarSelection = (): Promise<{
+  visibleGoogleCalendarIds: string[];
+}> =>
+  mobileApiFetch("/api/calendar-settings").then((response) =>
+    parseResponse<{ visibleGoogleCalendarIds?: string[] }>(response).then(
+      (settings) => ({
+        visibleGoogleCalendarIds: settings.visibleGoogleCalendarIds ?? [
+          "primary",
+        ],
+      }),
+    ),
+  );
+
+export const saveGoogleCalendarSelection = (
+  visibleGoogleCalendarIds: string[],
+): Promise<{ ok: true }> =>
+  mobileApiFetch("/api/calendar-settings", {
+    method: "POST",
+    body: JSON.stringify({
+      visibleGoogleCalendarIds,
+    }),
+  }).then((response) => parseResponse<{ ok: true }>(response));
 
 export const createGoogleCalendarEvent = ({
   dateKey,
@@ -129,6 +182,7 @@ export const createGoogleCalendarEvent = ({
 
 export const updateGoogleCalendarEvent = ({
   allDay,
+  calendarId,
   color,
   dateKey,
   description,
@@ -145,6 +199,7 @@ export const updateGoogleCalendarEvent = ({
       dateKey,
       description: description ?? null,
       eventId,
+      ...(calendarId === undefined ? {} : { calendarId }),
       ...(allDay === undefined ? {} : { allDay }),
       ...(color === undefined ? {} : { color }),
       ...(eventLabelId === undefined ? {} : { eventLabelId }),
@@ -158,13 +213,18 @@ export const updateGoogleCalendarEvent = ({
   );
 
 export const deleteGoogleCalendarEvent = ({
+  calendarId,
   eventId,
 }: {
+  calendarId?: string;
   eventId: string;
 }): Promise<DeleteGoogleCalendarEventResponse> =>
   mobileApiFetch("/api/google-calendar/events", {
     method: "DELETE",
-    body: JSON.stringify({ eventId }),
+    body: JSON.stringify({
+      eventId,
+      ...(calendarId === undefined ? {} : { calendarId }),
+    }),
   }).then((response) =>
     parseResponse<DeleteGoogleCalendarEventResponse>(response),
   );
