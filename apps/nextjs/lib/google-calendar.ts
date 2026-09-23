@@ -8,6 +8,8 @@ export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events.owned";
 export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendars.readonly";
+export const GOOGLE_CALENDAR_LIST_READ_SCOPE =
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 export const GOOGLE_CALENDAR_APP_CREATED_SCOPE =
   "https://www.googleapis.com/auth/calendar.app.created";
 export const FLOAT_GOOGLE_CALENDAR_NAME = "Float";
@@ -206,7 +208,7 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       Boolean(account?.refreshToken) &&
       hasGoogleCalendarWriteScope(scopes),
     hasCalendarMetadataReadScope: scopes.includes(
-      GOOGLE_CALENDAR_METADATA_READ_SCOPE,
+      GOOGLE_CALENDAR_LIST_READ_SCOPE,
     ),
     hasFloatCalendarCreationScope: scopes.includes(
       GOOGLE_CALENDAR_APP_CREATED_SCOPE,

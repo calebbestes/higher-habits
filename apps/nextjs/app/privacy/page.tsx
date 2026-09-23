@@ -115,6 +115,10 @@ export default function PrivacyPage() {
             </code>{" "}
             and the{" "}
             <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+              calendar.calendarlist.readonly
+            </code>{" "}
+            and the{" "}
+            <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
               calendar.app.created
             </code>{" "}
             scopes. Float uses those permissions to read events from your
@@ -210,6 +214,10 @@ export default function PrivacyPage() {
               and{" "}
               <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
                 calendar.calendars.readonly
+              </code>{" "}
+              and the{" "}
+              <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
+                calendar.calendarlist.readonly
               </code>{" "}
               and the{" "}
               <code className="rounded bg-default-100 px-1 py-0.5 text-sm">
