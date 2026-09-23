@@ -769,7 +769,10 @@ export async function ensureFloatGoogleCalendar(
   userId: string,
 ): Promise<FloatCalendarSyncResult> {
   try {
-    const token = await getGoogleCalendarAccessToken(userId);
+    // Reconnecting can grant new scopes while the previously cached access
+    // token is still technically valid. Force a refresh so Google issues a
+    // token that includes calendar.app.created before we call the Calendar API.
+    const token = await refreshGoogleCalendarAccessToken(userId);
     if (token.status !== "connected") return { status: token.status };
     return ensureFloatGoogleCalendarWithToken(userId, token);
   } catch (error) {
@@ -853,6 +856,46 @@ async function ensureFloatGoogleCalendarWithToken(
   }
 
   return { status: "synced", calendar: normalizedCalendar };
+}
+
+async function refreshGoogleCalendarAccessToken(
+  userId: string,
+): Promise<GoogleTokenResult> {
+  if (!isGoogleAuthConfigured()) {
+    return { status: "not_configured" };
+  }
+
+  const auth = createAuth();
+  if (!auth) {
+    return { status: "auth_unavailable" };
+  }
+
+  try {
+    const token = (await auth.api.refreshToken({
+      body: { providerId: "google", userId },
+    })) as {
+      accessToken?: string;
+      scope?: string;
+      scopes?: string[];
+    };
+    const scopes = parseGoogleTokenScopes(token);
+
+    if (!token.accessToken) {
+      return { status: "not_connected", scopes };
+    }
+
+    if (!hasGoogleCalendarWriteScope(scopes)) {
+      return { status: "missing_scope", scopes };
+    }
+
+    return {
+      status: "connected",
+      accessToken: token.accessToken,
+      scopes,
+    };
+  } catch {
+    return { status: "not_connected" };
+  }
 }
 
 export async function createGoogleCalendarPrimaryEvent({
