@@ -103,6 +103,7 @@ import {
 import {
   type PlannedEvent,
   deletePlannedEvent,
+  setPlannedEventCompletion,
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
@@ -1059,6 +1060,21 @@ export function DayPlanScreen({
     [dateKey],
   );
   const activeKey = activeHabit ? `${activeHabit.id}_${dateKey}` : null;
+  const activeEntryHabitKey =
+    activeEntry?.kind === "habit" && activeEntry.habitId
+      ? `${activeEntry.habitId}_${dateKey}`
+      : null;
+  const activeEntryHabit = activeEntry?.habitId
+    ? habitById.get(activeEntry.habitId)
+    : null;
+  const activeEntryHasNote = Boolean(
+    activeEntryHabitKey &&
+      snapshot?.notesByHabitDate[activeEntryHabitKey]?.trim(),
+  );
+  const activeEntryHasPhoto = Boolean(
+    activeEntryHabitKey &&
+      (snapshot?.photoCountsByHabitDate[activeEntryHabitKey] ?? 0) > 0,
+  );
   const activeCheckpoint =
     activeEntry?.kind === "goal" && activeEntry.sourceId
       ? (checkpointById.get(activeEntry.sourceId) ?? null)
@@ -2235,6 +2251,33 @@ export function DayPlanScreen({
         }
         cancelEntryNotification(activeEntry);
         invalidateCurrentCaches({ planGoals: true });
+      } else if (activeEntry.kind === "habit") {
+        if (!activeEntryHabit || !activeEntry.habitId) {
+          Alert.alert("Daily Plan", "Could not find that habit.");
+          return;
+        }
+        if (
+          !activeEntry.completed &&
+          activeEntryHabit.requireEvidence &&
+          !activeEntryHasNote &&
+          !activeEntryHasPhoto
+        ) {
+          Alert.alert(
+            "Evidence required",
+            "Add a photo or note before marking this habit complete.",
+          );
+          return;
+        }
+
+        await setPlannedEventCompletion({
+          completed: !activeEntry.completed,
+          sourceId: activeEntry.sourceId,
+        });
+        if (!activeEntry.completed) {
+          playSuccessHaptic();
+          setCelebrate(true);
+        }
+        invalidateCurrentCaches({ planned: true });
       }
 
       if (!isMountedRef.current) return;
@@ -2407,6 +2450,17 @@ export function DayPlanScreen({
   const openAttachmentForActiveEntry = () => {
     if (!activeEntry?.sourceId) return;
 
+    if (activeEntry.kind === "habit" && activeEntry.habitId) {
+      const habit = habitById.get(activeEntry.habitId);
+      if (!habit) {
+        Alert.alert("Daily Plan", "Could not find that habit.");
+        return;
+      }
+      setNoteHabit(habit);
+      setActiveEntry(null);
+      return;
+    }
+
     if (activeEntry.kind !== "goal") {
       Alert.alert(
         "Photos and notes for this event",
@@ -2427,6 +2481,11 @@ export function DayPlanScreen({
 
   const addCheckpointPhotoForActiveEntry = async (source: GoalPhotoSource) => {
     if (!activeEntry?.sourceId || uploadingPhotoSource) return;
+
+    if (activeEntry.kind === "habit" && activeEntry.habitId) {
+      await addPhoto(activeEntry.habitId, source);
+      return;
+    }
 
     if (activeEntry.kind !== "goal") {
       Alert.alert(
@@ -3172,6 +3231,8 @@ export function DayPlanScreen({
         />
         <InternalEventActionsModal
           entry={activeEntry}
+          hasNote={activeEntryHasNote}
+          hasPhoto={activeEntryHasPhoto}
           isUpdating={Boolean(
             activeEntry?.sourceId &&
               (updatingKey === activeEntry.id ||
@@ -3481,6 +3542,8 @@ function DayPlanDatePicker({
 
 function InternalEventActionsModal({
   entry,
+  hasNote,
+  hasPhoto,
   isUpdating,
   onAddPhoto,
   onClearPlan,
@@ -3496,6 +3559,8 @@ function InternalEventActionsModal({
   visibility,
 }: {
   entry: DayPlanEntry | null;
+  hasNote: boolean;
+  hasPhoto: boolean;
   isUpdating: boolean;
   onAddPhoto: () => void;
   onClearPlan: () => void;
@@ -3901,7 +3966,7 @@ function InternalEventActionsModal({
                 ) : null}
               </>
             ) : null}
-            {!isEditablePlannedBlock ? (
+            {!isEditablePlannedBlock || isHabitEvent ? (
               <>
                 <Pressable
                   disabled={isUpdating}
@@ -3981,7 +4046,7 @@ function InternalEventActionsModal({
                         { color: theme.text },
                       ]}
                     >
-                      Add photo
+                      {hasPhoto ? "Add another photo" : "Add photo"}
                     </Text>
                   </Pressable>
                 </View>
@@ -4002,7 +4067,7 @@ function InternalEventActionsModal({
                   <Text
                     style={[styles.eventActionLabel, { color: theme.text }]}
                   >
-                    Add note
+                    {hasNote ? "Edit note" : "Add note"}
                   </Text>
                 </Pressable>
               </>
@@ -4548,6 +4613,10 @@ function getInternalEntryStatusLabel(
     return checkpointById.get(entry.sourceId)?.checkpoint.completed
       ? "Reopen"
       : "Mark complete";
+  }
+
+  if (entry.kind === "habit") {
+    return entry.completed ? "Reopen" : "Mark complete";
   }
 
   return "Mark complete";
@@ -5260,7 +5329,7 @@ function plannedEventToEntry(
     event.sourceType === "task"
       ? Boolean(taskById.get(event.sourceId)?.completedAt)
       : event.sourceType === "habit_instance"
-        ? false
+        ? event.completed
         : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
   const habit = habitId ? habitById.get(habitId) : null;
   const task =

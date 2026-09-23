@@ -13,18 +13,28 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
   type IconRecord,
   RichEditor,
   RichToolbar,
   actions,
 } from "react-native-pell-rich-editor";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { CalendarSelectionModal } from "@/components/calendar-selection-modal";
 import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
@@ -97,14 +107,16 @@ const MONTH_ABBRS = [
   "Dec",
 ];
 const HOURS = Array.from({ length: 17 }, (_, index) => index + 6);
-const HOUR_HEIGHT = 27;
+const HOUR_HEIGHT = 40;
 const ALL_DAY_ROW_HEIGHT = 28;
-const TIME_LABEL_WIDTH = 44;
+const TIME_LABEL_WIDTH = 64;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
 const GRID_START_MINUTES = HOURS[0] * 60;
 const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
 const WEEKLY_CREATE_SNAP_MINUTES = 15;
 const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
+const WEEK_SWIPE_DISTANCE = 64;
+const WEEK_SWIPE_VELOCITY = 720;
 const EDITOR_ACTIONS = [
   actions.heading1,
   actions.setBold,
@@ -192,6 +204,20 @@ function addDays(date: Date, days: number): Date {
 
 function getWeekDays(weekStart: Date): Date[] {
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+}
+
+function groupWeekEventsByDate(
+  weekDays: Date[],
+  weekEvents: WeekEvent[],
+): Map<string, WeekEvent[]> {
+  const map = new Map<string, WeekEvent[]>();
+  for (const day of weekDays) map.set(toDateKey(day), []);
+  for (const event of weekEvents) {
+    const bucket = map.get(event.date);
+    if (bucket) bucket.push(event);
+  }
+  for (const bucket of map.values()) bucket.sort(compareEvents);
+  return map;
 }
 
 function formatCompactWeekRange(weekStart: Date): string {
@@ -548,6 +574,11 @@ export function WeeklyPlanScreen({
   const [weekStartDate, setWeekStartDate] = useState(() =>
     startOfWeek(dateFromKey(selectedDateKey)),
   );
+  const [weekPickerOpen, setWeekPickerOpen] = useState(false);
+  const [weekPickerMonth, setWeekPickerMonth] = useState(() => {
+    const weekStart = startOfWeek(dateFromKey(selectedDateKey));
+    return new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
+  });
   const [weekEvents, setWeekEvents] = useState<WeekEvent[]>(
     () => initialCachedWeek?.events ?? [],
   );
@@ -580,27 +611,55 @@ export function WeeklyPlanScreen({
   const [editorFocused, setEditorFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const { width: windowWidth } = useWindowDimensions();
+  const calendarWidth = Math.max(
+    Math.min(windowWidth - 36, MaxContentWidth),
+    1,
+  );
+  const weekSwipeOffset = useSharedValue(0);
   const todayKey = toDateKey(now);
+  const nowLineTop = getWeeklyNowLineTop(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
-  const nowLineTop = getWeeklyNowLineTop(now);
   const weekEventsByDate = useMemo(() => {
-    const map = new Map<string, WeekEvent[]>();
-    for (const day of weekDays) map.set(toDateKey(day), []);
-    for (const event of weekEvents) {
-      const bucket = map.get(event.date);
-      if (bucket) bucket.push(event);
-    }
-    for (const bucket of map.values()) bucket.sort(compareEvents);
-    return map;
+    return groupWeekEventsByDate(weekDays, weekEvents);
   }, [weekEvents, weekDays]);
+  const previousWeekStartDate = useMemo(
+    () => addDays(weekStartDate, -7),
+    [weekStartDate],
+  );
+  const nextWeekStartDate = useMemo(
+    () => addDays(weekStartDate, 7),
+    [weekStartDate],
+  );
+  const previousWeekDays = useMemo(
+    () => getWeekDays(previousWeekStartDate),
+    [previousWeekStartDate],
+  );
+  const nextWeekDays = useMemo(
+    () => getWeekDays(nextWeekStartDate),
+    [nextWeekStartDate],
+  );
+  const previousWeekEventsByDate = useMemo(() => {
+    const cachedWeek = readWeeklyPlanCache(
+      getWeeklyPlanCacheKey(toDateKey(previousWeekStartDate), timeZone),
+      { allowStale: true },
+    );
+    return groupWeekEventsByDate(previousWeekDays, cachedWeek?.events ?? []);
+  }, [previousWeekDays, previousWeekStartDate, timeZone]);
+  const nextWeekEventsByDate = useMemo(() => {
+    const cachedWeek = readWeeklyPlanCache(
+      getWeeklyPlanCacheKey(toDateKey(nextWeekStartDate), timeZone),
+      { allowStale: true },
+    );
+    return groupWeekEventsByDate(nextWeekDays, cachedWeek?.events ?? []);
+  }, [nextWeekDays, nextWeekStartDate, timeZone]);
   const hasAllDayEvents = useMemo(
     () => weekEvents.some((event) => !event.startTime),
     [weekEvents],
   );
   const selectedDayEvents = weekEventsByDate.get(selectedDateKey) ?? [];
   const hasUnsavedNotes = normalizeEditorHtml(draftNotes) !== notes;
-  const notesPreview = useMemo(() => stripEditorText(draftNotes), [draftNotes]);
   const availableHeaders = useMemo(() => {
     const seen = new Set<string>();
     const merged: WeeklyPlanNoteHeader[] = [];
@@ -851,19 +910,85 @@ export function WeeklyPlanScreen({
     [onSelectDate],
   );
 
-  const navigateWeek = useCallback((delta: -1 | 1) => {
-    setWeekStartDate((current) => {
-      const next = addDays(current, delta * 7);
-      setSelectedDateKey(toDateKey(next));
-      return next;
-    });
-  }, []);
+  const navigateWeek = useCallback(
+    (delta: -1 | 1) => {
+      const selectedDayOfWeek = dateFromKey(selectedDateKey).getDay();
+      setWeekStartDate((current) => {
+        const next = addDays(current, delta * 7);
+        setSelectedDateKey(toDateKey(addDays(next, selectedDayOfWeek)));
+        return next;
+      });
+    },
+    [selectedDateKey],
+  );
 
-  const goToToday = useCallback(() => {
-    const today = new Date();
-    setWeekStartDate(startOfWeek(today));
-    setSelectedDateKey(toDateKey(today));
-  }, []);
+  const completeWeekSwipe = useCallback(
+    (delta: -1 | 1) => {
+      weekSwipeOffset.value = 0;
+      navigateWeek(delta);
+    },
+    [navigateWeek, weekSwipeOffset],
+  );
+
+  const weekSwipeAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -calendarWidth + weekSwipeOffset.value }],
+  }));
+
+  const weekSwipeGesture = Gesture.Pan()
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-20, 20])
+    .onUpdate((event) => {
+      weekSwipeOffset.value = Math.max(
+        -calendarWidth,
+        Math.min(calendarWidth, event.translationX),
+      );
+    })
+    .onEnd((event) => {
+      const shouldSwipe =
+        Math.abs(event.translationX) > WEEK_SWIPE_DISTANCE ||
+        Math.abs(event.velocityX) > WEEK_SWIPE_VELOCITY;
+      const swipeDirection =
+        event.translationX !== 0 ? event.translationX : event.velocityX;
+      if (shouldSwipe && swipeDirection > 0) {
+        weekSwipeOffset.value = withTiming(
+          calendarWidth,
+          { duration: 150 },
+          (finished) => {
+            if (finished) runOnJS(completeWeekSwipe)(-1);
+          },
+        );
+      } else if (shouldSwipe && swipeDirection < 0) {
+        weekSwipeOffset.value = withTiming(
+          -calendarWidth,
+          { duration: 150 },
+          (finished) => {
+            if (finished) runOnJS(completeWeekSwipe)(1);
+          },
+        );
+      } else {
+        weekSwipeOffset.value = withSpring(0, {
+          damping: 20,
+          stiffness: 260,
+        });
+      }
+    });
+
+  const openWeekPicker = useCallback(() => {
+    setWeekPickerMonth(
+      new Date(weekStartDate.getFullYear(), weekStartDate.getMonth(), 1),
+    );
+    setWeekPickerOpen(true);
+  }, [weekStartDate]);
+
+  const selectWeekFromPicker = useCallback(
+    (date: Date) => {
+      setWeekStartDate(startOfWeek(date));
+      setSelectedDateKey(toDateKey(date));
+      onSelectDate?.(toDateKey(date));
+      setWeekPickerOpen(false);
+    },
+    [onSelectDate],
+  );
 
   const handleWeeklyCreateStart = useCallback(
     (dateKey: string, event: GestureResponderEvent) => {
@@ -1089,20 +1214,32 @@ export function WeeklyPlanScreen({
               <PageHeaderTitle title="Plan" />
               <PlanSectionHeaderTabs currentView="weekly-plan" />
             </View>
-            <Pressable
-              accessibilityLabel="Today"
-              accessibilityRole="button"
-              onPress={goToToday}
-              style={({ pressed }) => [
-                styles.todayButton,
-                { borderColor: theme.tabBorder },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={[styles.todayText, { color: theme.primary }]}>
-                Today
-              </Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel="Open weekly notes"
+                accessibilityRole="button"
+                onPress={() => setNotesModalOpen(true)}
+                style={({ pressed }) => [
+                  styles.notesHeaderButton,
+                  { borderColor: theme.tabBorder },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("note.text", "event_note")}
+                  size={19}
+                  tintColor={theme.primary}
+                />
+                <Text
+                  style={[
+                    styles.notesHeaderButtonText,
+                    { color: theme.primary },
+                  ]}
+                >
+                  Notes
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={[styles.container, { maxWidth: MaxContentWidth }]}>
@@ -1156,312 +1293,333 @@ export function WeeklyPlanScreen({
               </View>
             ) : null}
 
-            <View style={[styles.calendarCard]}>
-              <View
-                style={[
-                  styles.weekControl,
-                  { borderBottomColor: theme.tabBorder },
-                ]}
-              >
-                <View style={styles.weekControlHeader}>
-                  <Pressable
-                    accessibilityLabel="Previous week"
-                    accessibilityRole="button"
-                    onPress={() => navigateWeek(-1)}
-                    style={({ pressed }) => [
-                      styles.navButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("chevron.left", "chevron-left")}
-                      size={15}
-                      tintColor={theme.textSecondary}
+            <View style={styles.weekSwipeViewport}>
+              <GestureDetector gesture={weekSwipeGesture}>
+                <Animated.View
+                  style={[
+                    styles.weekSwipeTrack,
+                    { width: calendarWidth * 3 },
+                    weekSwipeAnimatedStyle,
+                  ]}
+                >
+                  <View style={{ width: calendarWidth }}>
+                    <WeeklyCalendarCard
+                      now={now}
+                      onOpenWeekPicker={openWeekPicker}
+                      onSelectEvent={onSelectEvent}
+                      selectedDateKey={selectedDateKey}
+                      theme={theme}
+                      todayKey={todayKey}
+                      weekDays={previousWeekDays}
+                      weekEventsByDate={previousWeekEventsByDate}
+                      weekStartDate={previousWeekStartDate}
                     />
-                  </Pressable>
-                  <Text
-                    style={[styles.weekTitle, { color: theme.textSecondary }]}
-                  >
-                    {formatCompactWeekRange(weekStartDate)}
-                  </Text>
-                  <Pressable
-                    accessibilityLabel="Next week"
-                    accessibilityRole="button"
-                    onPress={() => navigateWeek(1)}
-                    style={({ pressed }) => [
-                      styles.navButton,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    <SymbolView
-                      name={sym("chevron.right", "chevron-right")}
-                      size={15}
-                      tintColor={theme.textSecondary}
-                    />
-                  </Pressable>
-                </View>
-                <View style={styles.weekDaysTrack}>
-                  <View style={styles.weekDaysSpacer} />
-                  <View style={styles.weekDaysRow}>
-                    {weekDays.map((date) => {
-                      const dateKey = toDateKey(date);
-                      const isSelected = dateKey === selectedDateKey;
-                      const isToday = dateKey === todayKey;
+                  </View>
+                  <View style={{ width: calendarWidth }}>
+                    <View style={styles.calendarCard}>
+                      <View
+                        style={[
+                          styles.weekControl,
+                          { borderBottomColor: theme.tabBorder },
+                        ]}
+                      >
+                        <View style={styles.weekControlHeader}>
+                          <Pressable
+                            accessibilityLabel="Previous week"
+                            accessibilityRole="button"
+                            onPress={() => navigateWeek(-1)}
+                            style={({ pressed }) => [
+                              styles.navButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <SymbolView
+                              name={sym("chevron.left", "chevron-left")}
+                              size={15}
+                              tintColor={theme.textSecondary}
+                            />
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel="Choose week"
+                            accessibilityRole="button"
+                            onPress={openWeekPicker}
+                            style={({ pressed }) => [
+                              styles.weekTitleButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.weekTitle,
+                                { color: theme.textSecondary },
+                              ]}
+                            >
+                              {formatCompactWeekRange(weekStartDate)}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel="Next week"
+                            accessibilityRole="button"
+                            onPress={() => navigateWeek(1)}
+                            style={({ pressed }) => [
+                              styles.navButton,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <SymbolView
+                              name={sym("chevron.right", "chevron-right")}
+                              size={15}
+                              tintColor={theme.textSecondary}
+                            />
+                          </Pressable>
+                        </View>
+                        <View style={styles.weekDaysTrack}>
+                          <View style={styles.weekDaysSpacer} />
+                          <View style={styles.weekDaysRow}>
+                            {weekDays.map((date) => {
+                              const dateKey = toDateKey(date);
+                              const isSelected = dateKey === selectedDateKey;
+                              const isToday = dateKey === todayKey;
 
-                      return (
-                        <Pressable
-                          key={dateKey}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isSelected }}
-                          onPress={() => selectDate(date)}
-                          style={({ pressed }) => [
-                            styles.dayPill,
-                            pressed && styles.pressed,
+                              return (
+                                <Pressable
+                                  key={dateKey}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected: isSelected }}
+                                  onPress={() => selectDate(date)}
+                                  style={({ pressed }) => [
+                                    styles.dayPill,
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.dayName,
+                                      { color: theme.textSecondary },
+                                      isSelected && { color: theme.text },
+                                    ]}
+                                  >
+                                    {DAY_NAMES[date.getDay()].slice(0, 1)}
+                                  </Text>
+                                  <View
+                                    style={[
+                                      styles.dayNumberCircle,
+                                      isToday && {
+                                        backgroundColor: theme.primary,
+                                      },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.dayNumber,
+                                        {
+                                          color: isToday
+                                            ? theme.primaryForeground
+                                            : theme.text,
+                                        },
+                                      ]}
+                                    >
+                                      {date.getDate()}
+                                    </Text>
+                                  </View>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      </View>
+
+                      {hasAllDayEvents ? (
+                        <View
+                          style={[
+                            styles.allDayRow,
+                            { borderBottomColor: theme.tabBorder },
                           ]}
                         >
                           <Text
                             style={[
-                              styles.dayName,
+                              styles.allDayLabel,
                               { color: theme.textSecondary },
-                              isSelected && { color: theme.text },
                             ]}
                           >
-                            {DAY_NAMES[date.getDay()].slice(0, 1)}
+                            All day
                           </Text>
-                          <View
-                            style={[
-                              styles.dayNumberCircle,
-                              isToday && {
-                                backgroundColor: theme.primary,
-                              },
-                            ]}
-                          >
-                            <Text
+                          <View style={styles.allDayColumns}>
+                            {weekDays.map((day) => {
+                              const dateKey = toDateKey(day);
+                              const allDayEvents =
+                                weekEventsByDate
+                                  .get(dateKey)
+                                  ?.filter((event) => !event.startTime) ?? [];
+                              return (
+                                <View key={dateKey} style={styles.allDayColumn}>
+                                  {allDayEvents.slice(0, 1).map((event) => (
+                                    <EventChip
+                                      event={event}
+                                      key={event.id}
+                                      onPress={() => onSelectEvent?.(event)}
+                                    />
+                                  ))}
+                                  {allDayEvents.length > 1 ? (
+                                    <Text
+                                      style={[
+                                        styles.allDayOverflow,
+                                        { color: theme.textSecondary },
+                                      ]}
+                                    >
+                                      +{allDayEvents.length - 1}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.timeGrid}>
+                        <View style={styles.timeLabels}>
+                          {HOURS.map((hour) => (
+                            <View key={hour} style={styles.hourLabelRow}>
+                              <Text
+                                style={[
+                                  styles.hourLabel,
+                                  { color: theme.textSecondary },
+                                ]}
+                              >
+                                {formatHour(hour)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                        <View
+                          style={[
+                            styles.dayGrid,
+                            {
+                              borderLeftColor: theme.tabBorder,
+                            },
+                          ]}
+                        >
+                          {HOURS.map((hour) => (
+                            <View
+                              key={hour}
+                              pointerEvents="none"
                               style={[
-                                styles.dayNumber,
+                                styles.hourLine,
                                 {
-                                  color: isToday
-                                    ? theme.primaryForeground
-                                    : theme.text,
+                                  borderTopColor: theme.tabBorder,
+                                  top: (hour - HOURS[0]) * HOUR_HEIGHT,
                                 },
                               ]}
-                            >
-                              {date.getDate()}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              </View>
-
-              {hasAllDayEvents ? (
-                <View
-                  style={[
-                    styles.allDayRow,
-                    { borderBottomColor: theme.tabBorder },
-                  ]}
-                >
-                  <Text
-                    style={[styles.allDayLabel, { color: theme.textSecondary }]}
-                  >
-                    All day
-                  </Text>
-                  <View style={styles.allDayColumns}>
-                    {weekDays.map((day) => {
-                      const dateKey = toDateKey(day);
-                      const allDayEvents =
-                        weekEventsByDate
-                          .get(dateKey)
-                          ?.filter((event) => !event.startTime) ?? [];
-                      return (
-                        <View key={dateKey} style={styles.allDayColumn}>
-                          {allDayEvents.slice(0, 1).map((event) => (
-                            <EventChip
-                              event={event}
-                              key={event.id}
-                              onPress={() => onSelectEvent?.(event)}
                             />
                           ))}
-                          {allDayEvents.length > 1 ? (
-                            <Text
-                              style={[
-                                styles.allDayOverflow,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              +{allDayEvents.length - 1}
-                            </Text>
-                          ) : null}
+                          {weekDays.map((day, dayIndex) => {
+                            const dateKey = toDateKey(day);
+                            const timedEvents =
+                              weekEventsByDate
+                                .get(dateKey)
+                                ?.filter((event) => event.startTime) ?? [];
+                            const laidOutEvents =
+                              layoutWeekDayEvents(timedEvents);
+                            return (
+                              <View
+                                key={dateKey}
+                                style={[
+                                  styles.dayColumn,
+                                  {
+                                    backgroundColor:
+                                      dateKey === selectedDateKey
+                                        ? `${theme.backgroundSelected}55`
+                                        : "transparent",
+                                    borderLeftColor:
+                                      dayIndex === 0
+                                        ? "transparent"
+                                        : theme.tabBorder,
+                                  },
+                                ]}
+                              >
+                                <View
+                                  onMoveShouldSetResponderCapture={() =>
+                                    Boolean(onCreateRange)
+                                  }
+                                  onStartShouldSetResponderCapture={() =>
+                                    Boolean(onCreateRange)
+                                  }
+                                  onTouchCancel={cancelWeeklyCreate}
+                                  onTouchEnd={finishWeeklyCreate}
+                                  onTouchMove={handleWeeklyCreateMove}
+                                  onTouchStart={(event) =>
+                                    handleWeeklyCreateTouchStart(dateKey, event)
+                                  }
+                                  style={styles.weeklyCreateSurface}
+                                />
+                                {laidOutEvents.map(
+                                  ({ event, laneCount, laneIndex }) => (
+                                    <EventBlock
+                                      key={event.id}
+                                      event={event}
+                                      laneCount={laneCount}
+                                      laneIndex={laneIndex}
+                                      onPress={() => onSelectEvent?.(event)}
+                                    />
+                                  ),
+                                )}
+                                {weeklyCreatePreview?.dateKey === dateKey ? (
+                                  <View
+                                    pointerEvents="none"
+                                    style={[
+                                      styles.weeklyCreatePreview,
+                                      {
+                                        backgroundColor: `${theme.primary}55`,
+                                        borderColor: theme.primary,
+                                        height:
+                                          ((weeklyCreatePreview.endMinutes -
+                                            weeklyCreatePreview.startMinutes) /
+                                            60) *
+                                          HOUR_HEIGHT,
+                                        top:
+                                          ((weeklyCreatePreview.startMinutes -
+                                            GRID_START_MINUTES) /
+                                            60) *
+                                          HOUR_HEIGHT,
+                                      },
+                                    ]}
+                                  />
+                                ) : null}
+                                {dateKey === todayKey && nowLineTop !== null ? (
+                                  <View
+                                    pointerEvents="none"
+                                    style={[
+                                      styles.weekNowIndicator,
+                                      { top: nowLineTop },
+                                    ]}
+                                  >
+                                    <View style={styles.weekNowDot} />
+                                    <View style={styles.weekNowLine} />
+                                  </View>
+                                ) : null}
+                              </View>
+                            );
+                          })}
                         </View>
-                      );
-                    })}
-                  </View>
-                </View>
-              ) : null}
-
-              <View style={styles.timeGrid}>
-                <View style={styles.timeLabels}>
-                  {HOURS.map((hour) => (
-                    <View key={hour} style={styles.hourLabelRow}>
-                      <Text
-                        style={[
-                          styles.hourLabel,
-                          { color: theme.textSecondary },
-                        ]}
-                      >
-                        {formatHour(hour)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-                <View
-                  style={[
-                    styles.dayGrid,
-                    {
-                      borderLeftColor: theme.tabBorder,
-                    },
-                  ]}
-                >
-                  {HOURS.map((hour) => (
-                    <View
-                      key={hour}
-                      pointerEvents="none"
-                      style={[
-                        styles.hourLine,
-                        {
-                          borderTopColor: theme.tabBorder,
-                          top: (hour - HOURS[0]) * HOUR_HEIGHT,
-                        },
-                      ]}
-                    />
-                  ))}
-                  {weekDays.map((day, dayIndex) => {
-                    const dateKey = toDateKey(day);
-                    const timedEvents =
-                      weekEventsByDate
-                        .get(dateKey)
-                        ?.filter((event) => event.startTime) ?? [];
-                    const laidOutEvents = layoutWeekDayEvents(timedEvents);
-                    return (
-                      <View
-                        key={dateKey}
-                        style={[
-                          styles.dayColumn,
-                          {
-                            backgroundColor:
-                              dateKey === selectedDateKey
-                                ? `${theme.backgroundSelected}55`
-                                : "transparent",
-                            borderLeftColor:
-                              dayIndex === 0 ? "transparent" : theme.tabBorder,
-                          },
-                        ]}
-                      >
-                        <View
-                          onMoveShouldSetResponderCapture={() =>
-                            Boolean(onCreateRange)
-                          }
-                          onStartShouldSetResponderCapture={() =>
-                            Boolean(onCreateRange)
-                          }
-                          onTouchCancel={cancelWeeklyCreate}
-                          onTouchEnd={finishWeeklyCreate}
-                          onTouchMove={handleWeeklyCreateMove}
-                          onTouchStart={(event) =>
-                            handleWeeklyCreateTouchStart(dateKey, event)
-                          }
-                          style={styles.weeklyCreateSurface}
-                        />
-                        {laidOutEvents.map(
-                          ({ event, laneCount, laneIndex }) => (
-                            <EventBlock
-                              key={event.id}
-                              event={event}
-                              laneCount={laneCount}
-                              laneIndex={laneIndex}
-                              onPress={() => onSelectEvent?.(event)}
-                            />
-                          ),
-                        )}
-                        {weeklyCreatePreview?.dateKey === dateKey ? (
-                          <View
-                            pointerEvents="none"
-                            style={[
-                              styles.weeklyCreatePreview,
-                              {
-                                backgroundColor: `${theme.primary}55`,
-                                borderColor: theme.primary,
-                                height:
-                                  ((weeklyCreatePreview.endMinutes -
-                                    weeklyCreatePreview.startMinutes) /
-                                    60) *
-                                  HOUR_HEIGHT,
-                                top:
-                                  ((weeklyCreatePreview.startMinutes -
-                                    GRID_START_MINUTES) /
-                                    60) *
-                                  HOUR_HEIGHT,
-                              },
-                            ]}
-                          />
-                        ) : null}
-                        {dateKey === todayKey && nowLineTop !== null ? (
-                          <View
-                            pointerEvents="none"
-                            style={[
-                              styles.weekNowIndicator,
-                              { top: nowLineTop },
-                            ]}
-                          >
-                            <View style={styles.weekNowDot} />
-                            <View style={styles.weekNowLine} />
-                          </View>
-                        ) : null}
                       </View>
-                    );
-                  })}
-                </View>
-              </View>
-            </View>
-
-            <View
-              style={[
-                styles.notesCard,
-                {
-                  backgroundColor: theme.tabBar,
-                  borderColor: theme.tabBorder,
-                },
-              ]}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open weekly notes"
-                onPress={() => setNotesModalOpen(true)}
-                style={({ pressed }) => [
-                  styles.notesPreviewButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.notesHeader}>
-                  <View style={styles.notesHeaderText}>
-                    <Text style={[styles.notesTitle, { color: theme.text }]}>
-                      Weekly notes
-                    </Text>
+                    </View>
                   </View>
-                </View>
-                {notesPreview ? (
-                  <Text
-                    numberOfLines={5}
-                    style={[styles.notesPreview, { color: theme.text }]}
-                  >
-                    {notesPreview}
-                  </Text>
-                ) : (
-                  <View style={styles.emptyNotesPreview} />
-                )}
-              </Pressable>
+                  <View style={{ width: calendarWidth }}>
+                    <WeeklyCalendarCard
+                      now={now}
+                      onOpenWeekPicker={openWeekPicker}
+                      onSelectEvent={onSelectEvent}
+                      selectedDateKey={selectedDateKey}
+                      theme={theme}
+                      todayKey={todayKey}
+                      weekDays={nextWeekDays}
+                      weekEventsByDate={nextWeekEventsByDate}
+                      weekStartDate={nextWeekStartDate}
+                    />
+                  </View>
+                </Animated.View>
+              </GestureDetector>
             </View>
           </View>
         </ScrollView>
@@ -1729,6 +1887,15 @@ export function WeeklyPlanScreen({
           ) : null}
         </View>
       </Modal>
+      <CalendarSelectionModal
+        mode="week"
+        month={weekPickerMonth}
+        onChangeMonth={setWeekPickerMonth}
+        onClose={() => setWeekPickerOpen(false)}
+        onSelect={selectWeekFromPicker}
+        selectedDate={dateFromKey(selectedDateKey)}
+        visible={weekPickerOpen}
+      />
     </View>
   );
 }
@@ -1738,6 +1905,293 @@ function compareEvents(left: WeekEvent, right: WeekEvent): number {
   const rightTime = right.startTime ?? "99:99";
   return (
     leftTime.localeCompare(rightTime) || left.title.localeCompare(right.title)
+  );
+}
+
+function WeeklyCalendarCard({
+  now,
+  onCancelWeeklyCreate,
+  onCreateEventMove,
+  onCreateEventStart,
+  onFinishWeeklyCreate,
+  onOpenWeekPicker,
+  onSelectDate,
+  onSelectEvent,
+  selectedDateKey,
+  theme,
+  todayKey,
+  weekDays,
+  weekEventsByDate,
+  weekStartDate,
+  weeklyCreatePreview,
+}: {
+  now: Date;
+  onCancelWeeklyCreate?: () => void;
+  onCreateEventMove?: (event: GestureResponderEvent) => void;
+  onCreateEventStart?: (dateKey: string, event: GestureResponderEvent) => void;
+  onFinishWeeklyCreate?: () => void;
+  onOpenWeekPicker?: () => void;
+  onSelectDate?: (date: Date) => void;
+  onSelectEvent?: (event: WeekEvent) => void;
+  selectedDateKey: string;
+  theme: ReturnType<typeof useTheme>;
+  todayKey: string;
+  weekDays: Date[];
+  weekEventsByDate: Map<string, WeekEvent[]>;
+  weekStartDate: Date;
+  weeklyCreatePreview?: WeeklyCreateRange | null;
+}) {
+  const hasAllDayEvents = Array.from(weekEventsByDate.values()).some((events) =>
+    events.some((event) => !event.startTime),
+  );
+  const nowLineTop = getWeeklyNowLineTop(now);
+
+  return (
+    <View style={styles.calendarCard}>
+      <View
+        style={[styles.weekControl, { borderBottomColor: theme.tabBorder }]}
+      >
+        <View style={styles.weekControlHeader}>
+          <Pressable
+            accessibilityLabel="Previous week"
+            accessibilityRole="button"
+            onPress={() => onSelectDate?.(addDays(weekStartDate, -1))}
+            style={({ pressed }) => [
+              styles.navButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("chevron.left", "chevron-left")}
+              size={15}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Choose week"
+            accessibilityRole="button"
+            disabled={!onOpenWeekPicker}
+            onPress={onOpenWeekPicker}
+            style={({ pressed }) => [
+              styles.weekTitleButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.weekTitle, { color: theme.textSecondary }]}>
+              {formatCompactWeekRange(weekStartDate)}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Next week"
+            accessibilityRole="button"
+            onPress={() => onSelectDate?.(addDays(weekStartDate, 7))}
+            style={({ pressed }) => [
+              styles.navButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("chevron.right", "chevron-right")}
+              size={15}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+        </View>
+        <View style={styles.weekDaysTrack}>
+          <View style={styles.weekDaysSpacer} />
+          <View style={styles.weekDaysRow}>
+            {weekDays.map((date) => {
+              const dateKey = toDateKey(date);
+              const isSelected = dateKey === selectedDateKey;
+              const isToday = dateKey === todayKey;
+
+              return (
+                <Pressable
+                  key={dateKey}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => onSelectDate?.(date)}
+                  style={({ pressed }) => [
+                    styles.dayPill,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dayName,
+                      { color: theme.textSecondary },
+                      isSelected && { color: theme.text },
+                    ]}
+                  >
+                    {DAY_NAMES[date.getDay()].slice(0, 1)}
+                  </Text>
+                  <View
+                    style={[
+                      styles.dayNumberCircle,
+                      isToday && { backgroundColor: theme.primary },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dayNumber,
+                        {
+                          color: isToday ? theme.primaryForeground : theme.text,
+                        },
+                      ]}
+                    >
+                      {date.getDate()}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+
+      {hasAllDayEvents ? (
+        <View
+          style={[styles.allDayRow, { borderBottomColor: theme.tabBorder }]}
+        >
+          <Text style={[styles.allDayLabel, { color: theme.textSecondary }]}>
+            All day
+          </Text>
+          <View style={styles.allDayColumns}>
+            {weekDays.map((day) => {
+              const dateKey = toDateKey(day);
+              const allDayEvents =
+                weekEventsByDate
+                  .get(dateKey)
+                  ?.filter((event) => !event.startTime) ?? [];
+              return (
+                <View key={dateKey} style={styles.allDayColumn}>
+                  {allDayEvents.slice(0, 1).map((event) => (
+                    <EventChip
+                      event={event}
+                      key={event.id}
+                      onPress={() => onSelectEvent?.(event)}
+                    />
+                  ))}
+                  {allDayEvents.length > 1 ? (
+                    <Text
+                      style={[
+                        styles.allDayOverflow,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      +{allDayEvents.length - 1}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.timeGrid}>
+        <View style={styles.timeLabels}>
+          {HOURS.map((hour) => (
+            <View key={hour} style={styles.hourLabelRow}>
+              <Text style={[styles.hourLabel, { color: theme.textSecondary }]}>
+                {formatHour(hour)}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <View style={[styles.dayGrid, { borderLeftColor: theme.tabBorder }]}>
+          {HOURS.map((hour) => (
+            <View
+              key={hour}
+              pointerEvents="none"
+              style={[
+                styles.hourLine,
+                {
+                  borderTopColor: theme.tabBorder,
+                  top: (hour - HOURS[0]) * HOUR_HEIGHT,
+                },
+              ]}
+            />
+          ))}
+          {weekDays.map((day, dayIndex) => {
+            const dateKey = toDateKey(day);
+            const timedEvents =
+              weekEventsByDate
+                .get(dateKey)
+                ?.filter((event) => event.startTime) ?? [];
+            const laidOutEvents = layoutWeekDayEvents(timedEvents);
+            return (
+              <View
+                key={dateKey}
+                style={[
+                  styles.dayColumn,
+                  {
+                    backgroundColor:
+                      dateKey === selectedDateKey
+                        ? `${theme.backgroundSelected}55`
+                        : "transparent",
+                    borderLeftColor:
+                      dayIndex === 0 ? "transparent" : theme.tabBorder,
+                  },
+                ]}
+              >
+                {onCreateEventStart ? (
+                  <View
+                    onMoveShouldSetResponderCapture={() => true}
+                    onStartShouldSetResponderCapture={() => true}
+                    onTouchCancel={onCancelWeeklyCreate}
+                    onTouchEnd={onFinishWeeklyCreate}
+                    onTouchMove={onCreateEventMove}
+                    onTouchStart={(event) => onCreateEventStart(dateKey, event)}
+                    style={styles.weeklyCreateSurface}
+                  />
+                ) : null}
+                {laidOutEvents.map(({ event, laneCount, laneIndex }) => (
+                  <EventBlock
+                    key={event.id}
+                    event={event}
+                    laneCount={laneCount}
+                    laneIndex={laneIndex}
+                    onPress={() => onSelectEvent?.(event)}
+                  />
+                ))}
+                {weeklyCreatePreview?.dateKey === dateKey ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.weeklyCreatePreview,
+                      {
+                        backgroundColor: `${theme.primary}55`,
+                        borderColor: theme.primary,
+                        height:
+                          ((weeklyCreatePreview.endMinutes -
+                            weeklyCreatePreview.startMinutes) /
+                            60) *
+                          HOUR_HEIGHT,
+                        top:
+                          ((weeklyCreatePreview.startMinutes -
+                            GRID_START_MINUTES) /
+                            60) *
+                          HOUR_HEIGHT,
+                      },
+                    ]}
+                  />
+                ) : null}
+                {dateKey === todayKey && nowLineTop !== null ? (
+                  <View
+                    pointerEvents="none"
+                    style={[styles.weekNowIndicator, { top: nowLineTop }]}
+                  >
+                    <View style={styles.weekNowDot} />
+                    <View style={styles.weekNowLine} />
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -1873,6 +2327,12 @@ const styles = StyleSheet.create({
   calendarCard: {
     overflow: "visible",
   },
+  weekSwipeTrack: {
+    flexDirection: "row",
+  },
+  weekSwipeViewport: {
+    overflow: "hidden",
+  },
   calendarEmptyDescription: {
     fontSize: 14,
     fontWeight: "500",
@@ -1967,9 +2427,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 0,
     paddingVertical: 2,
-  },
-  emptyNotesPreview: {
-    minHeight: 54,
   },
   emptyHeadersText: {
     fontSize: 15,
@@ -2123,22 +2580,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 28,
   },
-  notesCard: {
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 0,
-    overflow: "hidden",
-  },
-  notesHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12,
-    justifyContent: "space-between",
-  },
-  notesHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
   notesModal: {
     flex: 1,
   },
@@ -2169,26 +2610,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  notesPreview: {
-    fontSize: 18,
-    fontWeight: "400",
-    lineHeight: 25,
-    marginTop: 18,
-  },
-  notesPreviewButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-  },
   notesSubtitle: {
     fontSize: 16,
     fontWeight: "500",
     lineHeight: 21,
     marginTop: 4,
-  },
-  notesTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    lineHeight: 29,
   },
   pageHeader: {
     alignItems: "center",
@@ -2269,17 +2695,24 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     width: TIME_LABEL_WIDTH,
   },
-  todayButton: {
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
-  todayText: {
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 18,
+  notesHeaderButton: {
+    alignItems: "center",
+    borderRadius: 13,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 64,
+    justifyContent: "center",
+    width: 64,
+  },
+  notesHeaderButtonText: {
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12,
+    marginTop: 3,
   },
   weekNowDot: {
     backgroundColor: "#EA4335",
@@ -2339,5 +2772,14 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     lineHeight: 13,
     textAlign: "center",
+  },
+  weekTitleButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
   },
 });

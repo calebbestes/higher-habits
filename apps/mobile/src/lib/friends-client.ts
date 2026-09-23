@@ -1118,10 +1118,33 @@ export const fetchDailyReflectionPromptStats = () =>
         : [],
     );
 
+export const fetchMyPostsPage = (
+  options: { cursor?: string | null; limit?: number } = {},
+): Promise<FriendFeedPage> => {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 21));
+  if (options.cursor) params.set("cursor", options.cursor);
+
+  return mobileApiFetch(`/api/users/posts?${params.toString()}`)
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeFeedPage);
+};
+
+export const fetchMyPost = (
+  postId: string,
+): Promise<FriendFeedEntry | null> => {
+  const params = new URLSearchParams({ postId });
+  return mobileApiFetch(`/api/users/posts?${params.toString()}`)
+    .then((r) => parseResponse<unknown>(r))
+    .then(normalizeFeedPage)
+    .then((page) => page.items.find((post) => post.id === postId) ?? null);
+};
+
 export const fetchMyPosts = () =>
   mobileApiFetch("/api/users/posts")
     .then((r) => parseResponse<unknown>(r))
-    .then(normalizeFeed);
+    .then(normalizeFeedPage)
+    .then((page) => page.items);
 
 export const toggleFeedProp = (goalLogId: string) =>
   mobileApiFetch(`/api/friends/feed/${goalLogId}`, {

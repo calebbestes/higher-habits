@@ -6,16 +6,8 @@ import { and, eq } from "drizzle-orm";
 
 export const GOOGLE_CALENDAR_EVENTS_SCOPE =
   "https://www.googleapis.com/auth/calendar.events.owned";
-const GOOGLE_CALENDAR_LEGACY_EVENTS_SCOPE =
-  "https://www.googleapis.com/auth/calendar.events";
 export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendars.readonly";
-
-const GOOGLE_CALENDAR_WRITE_SCOPES = new Set([
-  "https://www.googleapis.com/auth/calendar",
-  GOOGLE_CALENDAR_EVENTS_SCOPE,
-  GOOGLE_CALENDAR_LEGACY_EVENTS_SCOPE,
-]);
 
 type GoogleTokenResult =
   | { status: "connected"; accessToken: string; scopes: string[] }
@@ -147,7 +139,7 @@ export function parseOAuthScopes(scope: string | null | undefined): string[] {
 }
 
 export function hasGoogleCalendarWriteScope(scopes: string[]) {
-  return scopes.some((scope) => GOOGLE_CALENDAR_WRITE_SCOPES.has(scope));
+  return scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE);
 }
 
 export async function getGoogleCalendarConnectionStatus(userId: string) {

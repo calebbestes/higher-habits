@@ -11,6 +11,7 @@ import {
   getPlannedEventsForUser,
   resolvePlannedEventSourceTitle,
   serializePlannedEvent,
+  setPlannedEventCompletion,
   upsertPlannedEvent,
 } from "@/lib/planned-events";
 
@@ -51,7 +52,18 @@ const deleteSchema = z.object({
   sourceId: z.string().uuid(),
 });
 
-const bodySchema = z.discriminatedUnion("type", [upsertSchema, deleteSchema]);
+const setCompletionSchema = z.object({
+  type: z.literal("setCompletion"),
+  sourceType: z.literal("habit_instance"),
+  sourceId: z.string().uuid(),
+  completed: z.boolean(),
+});
+
+const bodySchema = z.discriminatedUnion("type", [
+  upsertSchema,
+  deleteSchema,
+  setCompletionSchema,
+]);
 
 const getDatabase = () => getDb() ?? null;
 
@@ -107,6 +119,21 @@ export async function POST(request: Request) {
     }
 
     const data = bodySchema.parse(await request.json());
+
+    if (data.type === "setCompletion") {
+      const row = await setPlannedEventCompletion(db, {
+        completed: data.completed,
+        sourceId: data.sourceId,
+        sourceType: data.sourceType,
+        userId: user.id,
+      });
+
+      if (!row) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({ event: serializePlannedEvent(row) });
+    }
 
     if (data.type === "delete") {
       const title =

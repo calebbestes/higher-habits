@@ -1,5 +1,6 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
+import { useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -8,6 +9,8 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -36,8 +39,7 @@ import {
   fetchFriendProfileByFriendId,
   fetchFriendProfilePosts,
   fetchFriends,
-  fetchMyPosts,
-  fetchMyProfile,
+  fetchMyPostsPage,
   sendFriendNudge,
 } from "@/lib/friends-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
@@ -52,6 +54,13 @@ import {
 } from "@/lib/habit-logs-client";
 import type { HabitVisibility } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
+import {
+  appendMyPostsPage,
+  flattenMyPosts,
+  getMyPostsNextCursor,
+  myPostsQueryOptions,
+  myProfileQueryOptions,
+} from "@/lib/my-profile-query";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type WeeklyPlanNote,
@@ -230,6 +239,7 @@ export function FriendProfileScreen({
   onBack?: () => void;
 }) {
   const theme = useTheme();
+  const queryClient = useQueryClient();
   const router = useRouter();
   const tabBarHeight = useTabBarHeight();
   const { width } = useWindowDimensions();
@@ -242,9 +252,14 @@ export function FriendProfileScreen({
   const [isFriendsSheetOpen, setIsFriendsSheetOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [arePostsLoading, setArePostsLoading] = useState(true);
+  const [postsCursor, setPostsCursor] = useState<string | null>(null);
+  const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isNudging, setIsNudging] = useState(false);
+  const [profileImageViewerUrl, setProfileImageViewerUrl] = useState<
+    string | null
+  >(null);
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
@@ -282,6 +297,7 @@ export function FriendProfileScreen({
           createPrivateProfilePreview({ friendId, initialImage, initialName }),
         );
         setPosts([]);
+        setPostsCursor(null);
         setFriends([]);
         setWeeklyPlanNotes([]);
         setIsLoading(false);
@@ -304,7 +320,12 @@ export function FriendProfileScreen({
       setError(null);
       try {
         if (self) {
-          const nextProfile = await fetchMyProfile();
+          const nextProfile = refresh
+            ? await queryClient.fetchQuery({
+                ...myProfileQueryOptions(),
+                staleTime: 0,
+              })
+            : await queryClient.ensureQueryData(myProfileQueryOptions());
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
@@ -314,16 +335,22 @@ export function FriendProfileScreen({
           setIsLoading(false);
 
           const currentMonth = new Date();
-          const [myPosts, nextFriends, nextWeeklyPlanNotes] = await Promise.all(
-            [
-              fetchMyPosts().catch(() => []),
+          const [myPostsData, nextFriends, nextWeeklyPlanNotes] =
+            await Promise.all([
+              (refresh
+                ? queryClient.fetchInfiniteQuery({
+                    ...myPostsQueryOptions(),
+                    staleTime: 0,
+                  })
+                : queryClient.ensureInfiniteQueryData(myPostsQueryOptions())
+              ).catch(() => null),
               fetchFriends().catch(() => []),
               fetchWeeklyPlanNotes({
                 month: currentMonth.getMonth() + 1,
                 year: currentMonth.getFullYear(),
               }).catch(() => []),
-            ],
-          );
+            ]);
+          const myPosts = flattenMyPosts(myPostsData ?? undefined);
 
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
@@ -340,6 +367,9 @@ export function FriendProfileScreen({
             myPosts
               .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
+          );
+          setPostsCursor(
+            myPostsData ? getMyPostsNextCursor(myPostsData) : null,
           );
           setWeeklyPlanNotes(nextWeeklyPlanNotes);
           setArePostsLoading(false);
@@ -376,6 +406,7 @@ export function FriendProfileScreen({
               .filter(hasProfileGridContent)
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
+          setPostsCursor(null);
           setArePostsLoading(false);
         }
       } catch (loadError) {
@@ -387,6 +418,7 @@ export function FriendProfileScreen({
           );
           setProfile(null);
           setPosts([]);
+          setPostsCursor(null);
           setWeeklyPlanNotes([]);
           setArePostsLoading(false);
         }
@@ -398,14 +430,70 @@ export function FriendProfileScreen({
         }
       }
     },
-    [friendId, friendshipId, initialImage, initialName, privateProfile, self],
+    [
+      friendId,
+      friendshipId,
+      initialImage,
+      initialName,
+      privateProfile,
+      queryClient,
+      self,
+    ],
+  );
+
+  const loadMorePosts = useCallback(async () => {
+    if (!self || !postsCursor || isLoadingMorePosts) return;
+
+    setIsLoadingMorePosts(true);
+    try {
+      const nextPage = await fetchMyPostsPage({
+        cursor: postsCursor,
+        limit: 21,
+      });
+      if (!isMountedRef.current) return;
+
+      appendMyPostsPage(queryClient, postsCursor, nextPage);
+      setPosts((currentPosts) => {
+        const existingIds = new Set(currentPosts.map((post) => post.id));
+        return [
+          ...currentPosts,
+          ...nextPage.items.filter(
+            (post) => !existingIds.has(post.id) && hasProfileGridContent(post),
+          ),
+        ];
+      });
+      setPostsCursor(nextPage.nextCursor);
+    } catch {
+      // Keep the cursor so the next scroll can retry the request.
+    } finally {
+      if (isMountedRef.current) setIsLoadingMorePosts(false);
+    }
+  }, [isLoadingMorePosts, postsCursor, queryClient, self]);
+
+  const handleProfileScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!self || visibleActiveBodySection !== "posts") return;
+
+      const { contentOffset, contentSize, layoutMeasurement } =
+        event.nativeEvent;
+      if (
+        contentOffset.y + layoutMeasurement.height >=
+        contentSize.height - 500
+      ) {
+        void loadMorePosts();
+      }
+    },
+    [loadMorePosts, self, visibleActiveBodySection],
   );
 
   const refreshOwnProfile = useCallback(async () => {
     if (!self) return;
-    const nextProfile = await fetchMyProfile();
+    const nextProfile = await queryClient.fetchQuery({
+      ...myProfileQueryOptions(),
+      staleTime: 0,
+    });
     if (isMountedRef.current) setProfile(nextProfile);
-  }, [self]);
+  }, [queryClient, self]);
 
   const activeHabitAction = activeHabitDay
     ? toProfileActionGoal(activeHabitDay.habit)
@@ -649,6 +737,8 @@ export function FriendProfileScreen({
               onRefresh={() => void load(true)}
             />
           }
+          onScroll={handleProfileScroll}
+          scrollEventThrottle={200}
           showsVerticalScrollIndicator={false}
         >
           {error ? (
@@ -673,6 +763,11 @@ export function FriendProfileScreen({
                   <ProfileAvatar
                     image={profile.friend.image}
                     name={profile.friend.name}
+                    onPress={
+                      profile.friend.image
+                        ? () => setProfileImageViewerUrl(profile.friend.image)
+                        : undefined
+                    }
                     size={78}
                   />
                   <Text
@@ -748,6 +843,8 @@ export function FriendProfileScreen({
                 <ProfilePostsGrid
                   arePostsLoading={arePostsLoading}
                   filter={postFilter}
+                  hasMorePosts={Boolean(self && postsCursor)}
+                  isLoadingMorePosts={isLoadingMorePosts}
                   posts={posts}
                   self={self}
                   tileSize={tileSize}
@@ -848,6 +945,45 @@ export function FriendProfileScreen({
           />
         ) : null}
       </SafeAreaView>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setProfileImageViewerUrl(null)}
+        statusBarTranslucent
+        transparent
+        visible={Boolean(profileImageViewerUrl)}
+      >
+        <View style={styles.profileImageViewer}>
+          <Pressable
+            accessibilityLabel="Close profile photo"
+            accessibilityRole="button"
+            onPress={() => setProfileImageViewerUrl(null)}
+            style={styles.profileImageViewerBackdrop}
+          />
+          {profileImageViewerUrl ? (
+            <Image
+              contentFit="contain"
+              source={{ uri: profileImageViewerUrl }}
+              style={styles.profileImageViewerImage}
+            />
+          ) : null}
+          <Pressable
+            accessibilityLabel="Close profile photo"
+            accessibilityRole="button"
+            onPress={() => setProfileImageViewerUrl(null)}
+            style={({ pressed }) => [
+              styles.profileImageViewerClose,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={sym("xmark", "close")}
+              size={22}
+              weight="bold"
+              tintColor="#FFFFFF"
+            />
+          </Pressable>
+        </View>
+      </Modal>
       <FriendsListSheet
         friends={friends}
         isOpen={isFriendsSheetOpen}
@@ -1242,6 +1378,8 @@ function ProfileNotesSection({
 function ProfilePostsGrid({
   arePostsLoading,
   filter,
+  hasMorePosts,
+  isLoadingMorePosts,
   onChangeFilter,
   onOpenPost,
   posts,
@@ -1250,6 +1388,8 @@ function ProfilePostsGrid({
 }: {
   arePostsLoading: boolean;
   filter: ProfilePostFilter;
+  hasMorePosts: boolean;
+  isLoadingMorePosts: boolean;
   onChangeFilter: (filter: ProfilePostFilter) => void;
   onOpenPost: (post: FriendFeedEntry) => void;
   posts: FriendFeedEntry[];
@@ -1421,6 +1561,11 @@ function ProfilePostsGrid({
             </Text>
           </View>
         )}
+        {hasMorePosts && isLoadingMorePosts ? (
+          <View style={styles.profilePostsLoadMore}>
+            <ActivityIndicator color={theme.primary} size="small" />
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -1692,15 +1837,17 @@ function PeriodicHabitRow({
 function ProfileAvatar({
   image,
   name,
+  onPress,
   size,
 }: {
   image: string | null;
   name: string;
+  onPress?: () => void;
   size: number;
 }) {
   const theme = useTheme();
 
-  return (
+  const avatar = (
     <View
       style={[
         styles.avatar,
@@ -1729,6 +1876,19 @@ function ProfileAvatar({
         </Text>
       )}
     </View>
+  );
+
+  if (!onPress) return avatar;
+
+  return (
+    <Pressable
+      accessibilityLabel="View profile photo"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [pressed && styles.pressed]}
+    >
+      {avatar}
+    </Pressable>
   );
 }
 
@@ -2188,6 +2348,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
+  profileImageViewer: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.94)",
+    flex: 1,
+    justifyContent: "center",
+  },
+  profileImageViewerBackdrop: StyleSheet.absoluteFill,
+  profileImageViewerImage: {
+    height: "80%",
+    width: "100%",
+  },
+  profileImageViewerClose: {
+    alignItems: "center",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    position: "absolute",
+    right: 16,
+    top: 16,
+    width: 44,
+  },
   avatarText: { fontWeight: "700" },
   statsRow: {
     flex: 1,
@@ -2521,6 +2702,10 @@ const styles = StyleSheet.create({
   tileGoal: { fontSize: 12, fontWeight: "700" },
   tileNote: { fontSize: 12, lineHeight: 15, fontWeight: "500" },
   emptyPosts: { paddingHorizontal: 20, paddingTop: 8 },
+  profilePostsLoadMore: {
+    alignItems: "center",
+    paddingVertical: 16,
+  },
   loadingPostsText: {
     fontSize: 14,
     fontWeight: "800",

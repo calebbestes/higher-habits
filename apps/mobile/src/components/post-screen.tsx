@@ -15,6 +15,7 @@ import {
   deleteReflectionPost,
   fetchFriends,
   fetchFriendsFeed,
+  fetchMyPost,
   fetchMyPosts,
   reportContent,
   setReflectionBody,
@@ -22,8 +23,14 @@ import {
   toggleFeedRepost,
   toggleReflectionProp,
 } from "@/lib/friends-client";
+import {
+  getCachedFriendsFeedEntry,
+  updateCachedFriendsFeedEntries,
+} from "@/lib/friends-feed-query";
 import { deleteGoalLog, setGoalLogNote } from "@/lib/goal-logs-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
+import { getCachedMyPost, updateCachedMyPost } from "@/lib/my-profile-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,9 +84,16 @@ export function PostScreen({
 }) {
   const theme = useTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
-  const [entry, setEntry] = useState<FriendFeedEntry | null>(null);
+  const [entry, setEntry] = useState<FriendFeedEntry | null>(() =>
+    source === "feed"
+      ? getCachedFriendsFeedEntry(queryClient, postId)
+      : source === "self"
+        ? (getCachedMyPost(queryClient, postId) ?? null)
+        : null,
+  );
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
@@ -97,24 +111,39 @@ export function PostScreen({
   const load = useCallback(
     async (refresh = false) => {
       const requestId = ++loadRequestIdRef.current;
+
+      if (!refresh && (source === "feed" || source === "self")) {
+        const cachedEntry =
+          source === "feed"
+            ? getCachedFriendsFeedEntry(queryClient, postId)
+            : getCachedMyPost(queryClient, postId);
+        if (cachedEntry) {
+          setEntry(cachedEntry);
+          setError(null);
+          setIsLoading(false);
+          return;
+        }
+      }
+
       refresh ? setIsRefreshing(true) : setIsLoading(true);
       setError(null);
 
       try {
-        const primary = source === "self" ? fetchMyPosts : fetchFriendsFeed;
-        const fallback = source === "self" ? fetchFriendsFeed : fetchMyPosts;
-        const primaryResponse = await primary();
-        const primaryPosts = Array.isArray(primaryResponse)
-          ? primaryResponse
-          : primaryResponse.items;
-        let nextEntry = primaryPosts.find((post) => post.id === postId) ?? null;
+        let nextEntry: FriendFeedEntry | null = null;
+        if (source === "self") {
+          nextEntry = await fetchMyPost(postId);
+        } else {
+          const primaryResponse = await fetchFriendsFeed();
+          const primaryPosts = Array.isArray(primaryResponse)
+            ? primaryResponse
+            : primaryResponse.items;
+          nextEntry = primaryPosts.find((post) => post.id === postId) ?? null;
 
-        if (!nextEntry) {
-          const fallbackResponse = await fallback().catch(() => []);
-          const fallbackPosts = Array.isArray(fallbackResponse)
-            ? fallbackResponse
-            : fallbackResponse.items;
-          nextEntry = fallbackPosts.find((post) => post.id === postId) ?? null;
+          if (!nextEntry) {
+            const fallbackPosts = await fetchMyPosts().catch(() => []);
+            nextEntry =
+              fallbackPosts.find((post) => post.id === postId) ?? null;
+          }
         }
 
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
@@ -141,8 +170,22 @@ export function PostScreen({
         }
       }
     },
-    [postId, source],
+    [postId, queryClient, source],
   );
+
+  useEffect(() => {
+    if (!entry) return;
+
+    if (source === "self") {
+      updateCachedMyPost(queryClient, entry);
+    } else {
+      updateCachedFriendsFeedEntries(queryClient, (entries) =>
+        entries.map((cachedEntry) =>
+          cachedEntry.id === entry.id ? entry : cachedEntry,
+        ),
+      );
+    }
+  }, [entry, queryClient, source]);
 
   useEffect(
     () => () => {

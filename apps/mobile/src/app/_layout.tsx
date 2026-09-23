@@ -1,3 +1,4 @@
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   DarkTheme,
   DefaultTheme,
@@ -18,8 +19,14 @@ import {
   setCrashReportingUser,
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
+import { friendsFeedQueryOptions } from "@/lib/friends-feed-query";
 import { initializeMobileAds } from "@/lib/mobile-ads";
+import {
+  myPostsQueryOptions,
+  myProfileQueryOptions,
+} from "@/lib/my-profile-query";
 import { syncHabitRemindersFromServerAsync } from "@/lib/push-notifications";
+import { mobileQueryClient } from "@/lib/query-client";
 import {
   type AppStartPage,
   type CollabSection,
@@ -46,7 +53,8 @@ type NavigationDefaults = {
   defaultPlanReportView: PlanReportView;
 };
 
-const STARTUP_REQUEST_TIMEOUT_MS = 10_000;
+const AUTH_STARTUP_TIMEOUT_MS = 3_000;
+const USER_SETTINGS_STARTUP_TIMEOUT_MS = 2_000;
 
 const FALLBACK_NAVIGATION_DEFAULTS: NavigationDefaults = {
   defaultAppStartPage: DEFAULT_APP_START_PAGE,
@@ -66,8 +74,10 @@ function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <ThemeProvider value={colorScheme === "light" ? DefaultTheme : DarkTheme}>
-        <AnimatedSplashOverlay />
-        <AuthNavigator />
+        <QueryClientProvider client={mobileQueryClient}>
+          <AnimatedSplashOverlay />
+          <AuthNavigator />
+        </QueryClientProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
@@ -77,6 +87,7 @@ function AuthNavigator() {
   const router = useRouter();
   const theme = useTheme();
   const { data: session, isPending } = useMobileSession();
+  const queryClient = useQueryClient();
   const sessionUserId = session?.user.id;
   const [authStartupResolved, setAuthStartupResolved] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState<
@@ -85,6 +96,25 @@ function AuthNavigator() {
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionUserId) {
+      queryClient.clear();
+      return;
+    }
+
+    // Warm the feed as soon as authentication is available. This improves
+    // the first feed render without delaying the app's startup gate.
+    void queryClient
+      .prefetchInfiniteQuery(friendsFeedQueryOptions())
+      .catch(() => undefined);
+    void queryClient
+      .prefetchQuery(myProfileQueryOptions())
+      .catch(() => undefined);
+    void queryClient
+      .prefetchInfiniteQuery(myPostsQueryOptions())
+      .catch(() => undefined);
+  }, [queryClient, sessionUserId]);
 
   useEffect(() => {
     if (!isPending) {
@@ -97,7 +127,7 @@ function AuthNavigator() {
 
     const timeout = setTimeout(
       () => setAuthStartupResolved(true),
-      STARTUP_REQUEST_TIMEOUT_MS,
+      AUTH_STARTUP_TIMEOUT_MS,
     );
 
     return () => clearTimeout(timeout);
@@ -125,7 +155,7 @@ function AuthNavigator() {
         applyNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
         setNavigationDefaults(FALLBACK_NAVIGATION_DEFAULTS);
       }
-    }, STARTUP_REQUEST_TIMEOUT_MS);
+    }, USER_SETTINGS_STARTUP_TIMEOUT_MS);
 
     void fetchUserSettings()
       .then((settings) => {

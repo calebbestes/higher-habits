@@ -494,6 +494,7 @@ export const plannedEvents = pgTable(
     date: date("date", { mode: "string" }).notNull(),
     plannedStartTime: text("planned_start_time"),
     plannedEndTime: text("planned_end_time"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     googleCalendarEventId: text("google_calendar_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

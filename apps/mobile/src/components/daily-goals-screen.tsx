@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { CalendarSelectionModal } from "@/components/calendar-selection-modal";
 import {
   CelebrationOverlay,
   confettiSource,
@@ -26,6 +27,11 @@ import {
 } from "@/components/section-header-tabs";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
 import {
   addCrashBreadcrumb,
   captureHandledError,
@@ -113,6 +119,15 @@ type PeriodHabitGroup = {
   goals: HabitInCategory[];
 };
 
+type DailyGoalsScreenCache = {
+  categories: Category[];
+  friendGroups: FriendGroupRow[];
+  friends: FriendRow[];
+  snapshot: HabitLogsSnapshot;
+};
+
+const DAILY_GOALS_SCREEN_CACHE_PREFIX = "screen:daily-goals:";
+
 export function DailyGoalsScreen({
   initialDateKey,
   onDateChange,
@@ -122,22 +137,29 @@ export function DailyGoalsScreen({
 }) {
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
+  const initialSelectedDate =
+    initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+      ? (() => {
+          const [y, m, d] = initialDateKey.split("-").map(Number);
+          return new Date(y, (m as number) - 1, d as number);
+        })()
+      : new Date();
+  const initialMonthKey = getMonthKey(initialSelectedDate);
+  const initialCachedScreen = getCachedData<DailyGoalsScreenCache>(
+    `${DAILY_GOALS_SCREEN_CACHE_PREFIX}${initialMonthKey}`,
+  );
 
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    if (initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)) {
-      const [y, m, d] = initialDateKey.split("-").map(Number);
-      return new Date(y, (m as number) - 1, d as number);
-    }
-    return new Date();
-  });
-  const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date>(initialSelectedDate);
+  const [snapshot, setSnapshot] = useState<HabitLogsSnapshot | null>(
+    initialCachedScreen?.data.snapshot ?? null,
+  );
   const [logsByHabitDate, setLogsByGoalDate] = useState<
     HabitLogsSnapshot["logsByHabitDate"]
-  >({});
+  >(initialCachedScreen?.data.snapshot.logsByHabitDate ?? {});
   const [completedCountsByHabitDate, setCompletedCountsByHabitDate] = useState<
     HabitLogsSnapshot["completedCountsByHabitDate"]
-  >({});
-  const [isLoading, setIsLoading] = useState(true);
+  >(initialCachedScreen?.data.snapshot.completedCountsByHabitDate ?? {});
+  const [isLoading, setIsLoading] = useState(!initialCachedScreen);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
@@ -152,12 +174,27 @@ export function DailyGoalsScreen({
   const [noteGoal, setNoteGoal] = useState<ActionGoal | null>(null);
   const [uploadingPhotoSource, setUploadingPhotoSource] =
     useState<GoalPhotoSource | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(
+    () =>
+      new Date(
+        initialSelectedDate.getFullYear(),
+        initialSelectedDate.getMonth(),
+        1,
+      ),
+  );
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [friends, setFriends] = useState<FriendRow[]>([]);
-  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>([]);
+  const [categories, setCategories] = useState<Category[]>(
+    initialCachedScreen?.data.categories ?? [],
+  );
+  const [friends, setFriends] = useState<FriendRow[]>(
+    initialCachedScreen?.data.friends ?? [],
+  );
+  const [friendGroups, setFriendGroups] = useState<FriendGroupRow[]>(
+    initialCachedScreen?.data.friendGroups ?? [],
+  );
   const [celebrate, setCelebrate] = useState(false);
   const [fireCelebrate, setFireCelebrate] = useState(false);
   const daySwipeRef = useRef<{
@@ -226,11 +263,12 @@ export function DailyGoalsScreen({
     setSelectedDate((current) => addDays(current, days));
   }, []);
 
-  const goToToday = useCallback(() => {
-    const nextToday = new Date(today);
-    dateMotionDirectionRef.current = nextToday > selectedDate ? 1 : -1;
-    setSelectedDate(nextToday);
-  }, [selectedDate, today]);
+  const openDatePicker = useCallback(() => {
+    setDatePickerMonth(
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+    );
+    setDatePickerOpen(true);
+  }, [selectedDate]);
 
   const cancelDaySwipe = useCallback(() => {
     daySwipeRef.current = null;
@@ -281,7 +319,21 @@ export function DailyGoalsScreen({
     async (refresh = false) => {
       const requestId = loadRequestIdRef.current + 1;
       loadRequestIdRef.current = requestId;
-      refresh ? setIsRefreshing(true) : setIsLoading(true);
+      const cacheKey = `${DAILY_GOALS_SCREEN_CACHE_PREFIX}${monthKey}`;
+      const cached = getCachedData<DailyGoalsScreenCache>(cacheKey);
+      if (!refresh && cached) {
+        setSnapshot(cached.data.snapshot);
+        setLogsByGoalDate(cached.data.snapshot.logsByHabitDate);
+        setCompletedCountsByHabitDate(
+          cached.data.snapshot.completedCountsByHabitDate,
+        );
+        setCategories(cached.data.categories);
+        setFriends(cached.data.friends);
+        setFriendGroups(cached.data.friendGroups);
+        setIsLoading(false);
+        if (isCacheFresh(cached)) return;
+      }
+      refresh ? setIsRefreshing(true) : setIsLoading(!cached);
       setError(null);
       try {
         const [snap, cats, nextFriends, nextFriendGroups] = await Promise.all([
@@ -301,6 +353,12 @@ export function DailyGoalsScreen({
           nextFriends.filter((friend) => friend.status === "accepted"),
         );
         setFriendGroups(nextFriendGroups);
+        setCachedData(cacheKey, {
+          categories: cats,
+          friendGroups: nextFriendGroups,
+          friends: nextFriends.filter((friend) => friend.status === "accepted"),
+          snapshot: snap,
+        });
       } catch (err) {
         if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
           return;
@@ -975,7 +1033,18 @@ export function DailyGoalsScreen({
               />
             </Pressable>
 
-            <View style={styles.dateLabel}>
+            <Pressable
+              accessibilityLabel="Choose day"
+              accessibilityRole="button"
+              onPress={(event) => {
+                event.stopPropagation();
+                openDatePicker();
+              }}
+              style={({ pressed }) => [
+                styles.dateLabel,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={[styles.dateLabelText, { color: theme.text }]}>
                 {formatDate(selectedDate)}
               </Text>
@@ -991,29 +1060,9 @@ export function DailyGoalsScreen({
                   </Text>
                 </View>
               ) : null}
-            </View>
+            </Pressable>
 
             <View style={styles.navRight}>
-              {!isToday ? (
-                <Pressable
-                  accessibilityLabel="Go to today"
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    goToToday();
-                  }}
-                  style={({ pressed }) => [
-                    styles.todayButton,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[styles.todayButtonText, { color: theme.primary }]}
-                  >
-                    Today
-                  </Text>
-                </Pressable>
-              ) : null}
               <Pressable
                 accessibilityLabel="Next day"
                 hitSlop={8}
@@ -1266,6 +1315,18 @@ export function DailyGoalsScreen({
             handleGoalActionsShown(activeGoal);
           }
         }}
+      />
+      <CalendarSelectionModal
+        mode="day"
+        month={datePickerMonth}
+        onChangeMonth={setDatePickerMonth}
+        onClose={() => setDatePickerOpen(false)}
+        onSelect={(date) => {
+          setSelectedDate(date);
+          setDatePickerOpen(false);
+        }}
+        selectedDate={selectedDate}
+        visible={datePickerOpen}
       />
       {noteGoal ? (
         <GoalNoteEditorModal

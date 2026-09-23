@@ -1,4 +1,5 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Image, type ImageLoadEventData } from "expo-image";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -83,7 +84,6 @@ import {
   fetchFriendGroups,
   fetchFriends,
   fetchFriendsFeed,
-  fetchMyPosts,
   reportContent,
   sendFriendIncentive,
   toggleFeedProp,
@@ -92,6 +92,14 @@ import {
   toggleSocialPostProp,
   uploadDailyReflectionPhoto,
 } from "@/lib/friends-client";
+import {
+  FRIENDS_FEED_PAGE_SIZE,
+  appendFriendsFeedPage,
+  flattenFriendsFeed,
+  friendsFeedQueryOptions,
+  getFriendsFeedNextCursor,
+  updateCachedFriendsFeedEntries,
+} from "@/lib/friends-feed-query";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import {
   type GoalPhotoUpload,
@@ -113,6 +121,10 @@ import {
   type Goal as PlanGoal,
   fetchPlanGoals,
 } from "@/lib/planning-goals-client";
+import {
+  flattenMyPosts,
+  myPostsQueryOptions,
+} from "@/lib/my-profile-query";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type CreateSharedGoalInput,
@@ -135,7 +147,6 @@ const FEED_FILTER_PREFERENCES_KEY = "feed-filter-preferences";
 const DAILY_REFLECTION_PROMPT_KEY = "daily-reflection-prompt";
 const DAILY_REFLECTION_FAVORITES_KEY = "daily-reflection-favorites";
 const FEED_AD_INTERVAL = 3;
-const FEED_BATCH_SIZE = 10;
 const POST_DOUBLE_TAP_DELAY_MS = 260;
 
 type FeedFilters = {
@@ -511,6 +522,8 @@ function buildFeedRenderItems(
 export function FeedScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const friendsFeedQuery = useInfiniteQuery(friendsFeedQueryOptions());
   const tabBarHeight = useTabBarHeight();
   const { width: viewportWidth, height: viewportHeight } =
     useWindowDimensions();
@@ -657,67 +670,90 @@ export function FeedScreen() {
     [],
   );
 
-  const load = useCallback(async (refresh = false) => {
-    const requestId = loadRequestIdRef.current + 1;
-    loadRequestIdRef.current = requestId;
-    refresh ? setIsRefreshing(true) : setIsLoading(true);
-    setError(null);
-    try {
-      const [
-        feedPage,
-        groups,
-        nextFriends,
-        nextPersonalGoals,
-        nextPersonalPlanGoals,
-        sharedGoals,
-        myPosts,
-      ] = await Promise.all([
-        fetchFriendsFeed({ limit: FEED_BATCH_SIZE }),
-        fetchFriendGroups().catch(() => []),
-        fetchFriends().catch(() => []),
-        fetchGoals().catch(() => []),
-        fetchPlanGoals().catch(() => []),
-        fetchSharedGoals().catch(() => []),
-        fetchMyPosts().catch(() => []),
-      ]);
-      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
-        return;
+  const load = useCallback(
+    async (refresh = false) => {
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
+      refresh ? setIsRefreshing(true) : setIsLoading(true);
+      setError(null);
+      try {
+        const [
+          feedData,
+          groups,
+          nextFriends,
+          nextPersonalGoals,
+          nextPersonalPlanGoals,
+          sharedGoals,
+          myPostsData,
+        ] = await Promise.all([
+          refresh
+            ? queryClient.fetchInfiniteQuery({
+                ...friendsFeedQueryOptions(),
+                staleTime: 0,
+              })
+            : queryClient.ensureInfiniteQueryData(friendsFeedQueryOptions()),
+          fetchFriendGroups().catch(() => []),
+          fetchFriends().catch(() => []),
+          fetchGoals().catch(() => []),
+          fetchPlanGoals().catch(() => []),
+          fetchSharedGoals().catch(() => []),
+          refresh
+            ? queryClient.fetchInfiniteQuery({
+                ...myPostsQueryOptions(),
+                staleTime: 0,
+              })
+            : queryClient.ensureInfiniteQueryData(myPostsQueryOptions()),
+        ]);
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
+        const feedEntries = flattenFriendsFeed(feedData);
+        const myPosts = flattenMyPosts(myPostsData);
+        const todayKey = toDateKey(new Date());
+        setFeedCursor(getFriendsFeedNextCursor(feedData));
+        setEntries(feedEntries);
+        setMyDailyReflectionEntry(
+          myPosts.find(
+            (post) => post.kind === "reflection" && post.dateKey === todayKey,
+          ) ?? null,
+        );
+        setFriendGroups(groups);
+        setFriends(nextFriends);
+        setPersonalGoals(nextPersonalGoals);
+        setPersonalPlanGoals(nextPersonalPlanGoals);
+        setJoinedGoalKeys(
+          new Set(
+            feedEntries
+              .filter((entry) => hasJoinedSharedGoal(entry, sharedGoals))
+              .map(feedGoalKey),
+          ),
+        );
+      } catch (err) {
+        if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Could not load feed.");
+      } finally {
+        if (isMountedRef.current && requestId === loadRequestIdRef.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
-      const todayKey = toDateKey(new Date());
-      setFeedCursor(feedPage.nextCursor);
-      setEntries(feedPage.items);
-      setMyDailyReflectionEntry(
-        myPosts.find(
-          (post) => post.kind === "reflection" && post.dateKey === todayKey,
-        ) ?? null,
-      );
-      setFriendGroups(groups);
-      setFriends(nextFriends);
-      setPersonalGoals(nextPersonalGoals);
-      setPersonalPlanGoals(nextPersonalPlanGoals);
-      setJoinedGoalKeys(
-        new Set(
-          feedPage.items
-            .filter((entry) => hasJoinedSharedGoal(entry, sharedGoals))
-            .map(feedGoalKey),
-        ),
-      );
-    } catch (err) {
-      if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Could not load feed.");
-    } finally {
-      if (isMountedRef.current && requestId === loadRequestIdRef.current) {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!friendsFeedQuery.data) return;
+
+    setEntries(flattenFriendsFeed(friendsFeedQuery.data));
+    setFeedCursor(getFriendsFeedNextCursor(friendsFeedQuery.data));
+    setIsLoading(false);
+  }, [friendsFeedQuery.data]);
 
   useEffect(() => {
     void getStoredHiddenFeedGoals().then((keys) => {
@@ -780,16 +816,24 @@ export function FeedScreen() {
     [],
   );
 
+  const updateFeedEntries = useCallback(
+    (updater: (entries: FriendFeedEntry[]) => FriendFeedEntry[]) => {
+      setEntries(updater);
+      updateCachedFriendsFeedEntries(queryClient, updater);
+    },
+    [queryClient],
+  );
+
   const updateFeedEntry = useCallback(
     (entryId: string, updater: (entry: FriendFeedEntry) => FriendFeedEntry) => {
-      setEntries((prev) =>
+      updateFeedEntries((prev) =>
         prev.map((entry) => (entry.id === entryId ? updater(entry) : entry)),
       );
       setMyDailyReflectionEntry((entry) =>
         entry?.id === entryId ? updater(entry) : entry,
       );
     },
-    [],
+    [updateFeedEntries],
   );
 
   const handleToggleProp = useCallback(
@@ -1178,7 +1222,7 @@ export function FeedScreen() {
             void deletePhoto
               .then(() => {
                 if (!isMountedRef.current) return;
-                setEntries((prev) =>
+                updateFeedEntries((prev) =>
                   prev.flatMap((entry) => {
                     if (entry.id !== active.entry.id) return [entry];
 
@@ -1209,7 +1253,7 @@ export function FeedScreen() {
         },
       ]);
     },
-    [deletingPhotoId],
+    [deletingPhotoId, updateFeedEntries],
   );
 
   const reportPost = useCallback(async (entry: FriendFeedEntry) => {
@@ -1261,72 +1305,78 @@ export function FeedScreen() {
     [],
   );
 
-  const blockFriend = useCallback(async (entry: FriendFeedEntry) => {
-    try {
-      await reportContent({
-        targetType: "user",
-        targetId: entry.friend.id,
-        reason: "Blocked from feed post actions.",
-        context: { feedPostId: entry.id },
-      }).catch(() => undefined);
+  const blockFriend = useCallback(
+    async (entry: FriendFeedEntry) => {
+      try {
+        await reportContent({
+          targetType: "user",
+          targetId: entry.friend.id,
+          reason: "Blocked from feed post actions.",
+          context: { feedPostId: entry.id },
+        }).catch(() => undefined);
 
-      const friends = await fetchFriends();
-      const friendship = friends.find(
-        (friend) =>
-          friend.friendId === entry.friend.id && friend.status === "accepted",
-      );
+        const friends = await fetchFriends();
+        const friendship = friends.find(
+          (friend) =>
+            friend.friendId === entry.friend.id && friend.status === "accepted",
+        );
 
-      if (!friendship) {
-        throw new Error("Friendship not found.");
+        if (!friendship) {
+          throw new Error("Friendship not found.");
+        }
+
+        await archiveFriend(friendship.id);
+        if (!isMountedRef.current) return;
+        updateFeedEntries((prev) =>
+          prev.filter((item) => item.friend.id !== entry.friend.id),
+        );
+        setActiveCommentsEntryId((current) =>
+          current === entry.id ? null : current,
+        );
+        Alert.alert("Blocked", `${entry.friend.name} was removed.`);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not block user",
+          err instanceof Error ? err.message : undefined,
+        );
       }
+    },
+    [updateFeedEntries],
+  );
 
-      await archiveFriend(friendship.id);
-      if (!isMountedRef.current) return;
-      setEntries((prev) =>
-        prev.filter((item) => item.friend.id !== entry.friend.id),
-      );
-      setActiveCommentsEntryId((current) =>
-        current === entry.id ? null : current,
-      );
-      Alert.alert("Blocked", `${entry.friend.name} was removed.`);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      Alert.alert(
-        "Could not block user",
-        err instanceof Error ? err.message : undefined,
-      );
-    }
-  }, []);
+  const unfollowFriend = useCallback(
+    async (entry: FriendFeedEntry) => {
+      try {
+        const friends = await fetchFriends();
+        const friendship = friends.find(
+          (friend) =>
+            friend.friendId === entry.friend.id && friend.status === "accepted",
+        );
 
-  const unfollowFriend = useCallback(async (entry: FriendFeedEntry) => {
-    try {
-      const friends = await fetchFriends();
-      const friendship = friends.find(
-        (friend) =>
-          friend.friendId === entry.friend.id && friend.status === "accepted",
-      );
+        if (!friendship) {
+          throw new Error("Friendship not found.");
+        }
 
-      if (!friendship) {
-        throw new Error("Friendship not found.");
+        await archiveFriend(friendship.id);
+        if (!isMountedRef.current) return;
+        updateFeedEntries((prev) =>
+          prev.filter((item) => item.friend.id !== entry.friend.id),
+        );
+        setActiveCommentsEntryId((current) =>
+          current === entry.id ? null : current,
+        );
+        Alert.alert("Unfollowed", `${entry.friend.name} was removed.`);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not unfollow user",
+          err instanceof Error ? err.message : undefined,
+        );
       }
-
-      await archiveFriend(friendship.id);
-      if (!isMountedRef.current) return;
-      setEntries((prev) =>
-        prev.filter((item) => item.friend.id !== entry.friend.id),
-      );
-      setActiveCommentsEntryId((current) =>
-        current === entry.id ? null : current,
-      );
-      Alert.alert("Unfollowed", `${entry.friend.name} was removed.`);
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      Alert.alert(
-        "Could not unfollow user",
-        err instanceof Error ? err.message : undefined,
-      );
-    }
-  }, []);
+    },
+    [updateFeedEntries],
+  );
 
   const unfollowFeedGoal = useCallback(
     async (entry: FriendFeedEntry) => {
@@ -1334,7 +1384,9 @@ export function FeedScreen() {
       const next = new Set(hiddenFeedGoalKeys);
       next.add(key);
       setHiddenFeedGoalKeys(next);
-      setEntries((prev) => prev.filter((item) => feedGoalKey(item) !== key));
+      updateFeedEntries((prev) =>
+        prev.filter((item) => feedGoalKey(item) !== key),
+      );
       setActiveCommentsEntryId((current) =>
         current === entry.id ? null : current,
       );
@@ -1354,7 +1406,7 @@ export function FeedScreen() {
         );
       }
     },
-    [hiddenFeedGoalKeys],
+    [hiddenFeedGoalKeys, updateFeedEntries],
   );
 
   const hideFeedAd = useCallback(
@@ -1843,7 +1895,7 @@ export function FeedScreen() {
     try {
       const nextPage = await fetchFriendsFeed({
         cursor: feedCursor,
-        limit: FEED_BATCH_SIZE,
+        limit: FRIENDS_FEED_PAGE_SIZE,
       });
       if (!isMountedRef.current) return;
 
@@ -1854,6 +1906,7 @@ export function FeedScreen() {
           ...nextPage.items.filter((entry) => !existingIds.has(entry.id)),
         ];
       });
+      appendFriendsFeedPage(queryClient, feedCursor, nextPage);
       setFeedCursor(nextPage.nextCursor);
     } catch {
       // The next scroll can retry the cursor request without disrupting the
@@ -1861,7 +1914,7 @@ export function FeedScreen() {
     } finally {
       if (isMountedRef.current) setIsLoadingMoreFeed(false);
     }
-  }, [feedCursor, isLoading, isLoadingMoreFeed]);
+  }, [feedCursor, isLoading, isLoadingMoreFeed, queryClient]);
   useEffect(() => {
     if (
       isLoading ||

@@ -14,6 +14,7 @@ import {
 } from "@habit/db";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 import { type Mention, loadContentMentions } from "@/lib/mentions";
@@ -111,6 +112,46 @@ type HabitCompletionHighlightRow = {
   dateKey: string;
 };
 
+const DEFAULT_POST_PAGE_SIZE = 21;
+const MAX_POST_PAGE_SIZE = 50;
+const postsCursorSchema = z.object({
+  id: z.string().min(1),
+  updatedAt: z.string().datetime(),
+});
+type PostsCursor = z.infer<typeof postsCursorSchema>;
+
+function decodePostsCursor(value: string | null): PostsCursor | null {
+  if (!value) return null;
+
+  try {
+    const parsed = postsCursorSchema.safeParse(
+      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodePostsCursor(entry: { id: string; updatedAt: string }) {
+  return Buffer.from(
+    JSON.stringify({ id: entry.id, updatedAt: entry.updatedAt }),
+  ).toString("base64url");
+}
+
+function isAfterPostsCursor(
+  entry: { id: string; updatedAt: string },
+  cursor: PostsCursor | null,
+) {
+  if (!cursor) return true;
+
+  const entryTime = new Date(entry.updatedAt).getTime();
+  const cursorTime = new Date(cursor.updatedAt).getTime();
+  return (
+    entryTime < cursorTime || (entryTime === cursorTime && entry.id < cursor.id)
+  );
+}
+
 function dateKeyToNoon(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1, 12);
@@ -184,6 +225,20 @@ export async function GET(request: Request) {
   try {
     const user = await requireRequestUser(request);
     const db = getDb();
+    const url = new URL(request.url);
+    const requestedPostId = url.searchParams.get("postId");
+    const isSinglePostRequest = Boolean(requestedPostId);
+    const hasPagination =
+      isSinglePostRequest ||
+      url.searchParams.has("limit") ||
+      url.searchParams.has("cursor");
+    const requestedLimit = Number(url.searchParams.get("limit"));
+    const pageLimit = isSinglePostRequest
+      ? 1
+      : Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(Math.trunc(requestedLimit), 1), MAX_POST_PAGE_SIZE)
+        : DEFAULT_POST_PAGE_SIZE;
+    const pageCursor = decodePostsCursor(url.searchParams.get("cursor"));
 
     if (!db) {
       return NextResponse.json(
@@ -228,27 +283,6 @@ export async function GET(request: Request) {
       )
       .orderBy(desc(goalLogs.updatedAt), desc(goalLogs.date));
 
-    const logIds = logRows.map((row) => row.entryId);
-    const goalLogMentionsById = await loadContentMentions(
-      db,
-      "goal_log",
-      logIds,
-    );
-    const logPhotoRows =
-      logIds.length > 0
-        ? await db
-            .select({
-              entryId: goalLogPhotos.goalLogId,
-              photoId: goalLogPhotos.id,
-              storagePath: goalLogPhotos.storagePath,
-              contentType: goalLogPhotos.contentType,
-              photoCreatedAt: goalLogPhotos.createdAt,
-            })
-            .from(goalLogPhotos)
-            .where(inArray(goalLogPhotos.goalLogId, logIds))
-            .orderBy(desc(goalLogPhotos.createdAt))
-        : [];
-
     // Completed goal checkpoints with notes or photos.
     const checkpointRows = await db
       .select({
@@ -272,7 +306,83 @@ export async function GET(request: Request) {
       )
       .orderBy(desc(goalCheckpoints.updatedAt));
 
-    const checkpointIds = checkpointRows.map((row) => row.entryId);
+    const reflectionRows = await db
+      .select({
+        entryId: dailyReflectionPosts.id,
+        prompt: dailyReflectionPosts.prompt,
+        body: dailyReflectionPosts.body,
+        visibility: dailyReflectionPosts.visibility,
+        dateKey: dailyReflectionPosts.date,
+        updatedAt: dailyReflectionPosts.updatedAt,
+      })
+      .from(dailyReflectionPosts)
+      .where(eq(dailyReflectionPosts.userId, user.id))
+      .orderBy(desc(dailyReflectionPosts.updatedAt));
+
+    const allEntryCursors = [
+      ...logRows.map((row) => ({
+        id: row.entryId,
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+      ...checkpointRows.map((row) => ({
+        id: row.entryId,
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+      ...reflectionRows.map((row) => ({
+        id: row.entryId,
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+    ].sort((left, right) => {
+      if (left.updatedAt !== right.updatedAt) {
+        return left.updatedAt < right.updatedAt ? 1 : -1;
+      }
+      return left.id < right.id ? 1 : left.id > right.id ? -1 : 0;
+    });
+    const pageEntries = hasPagination
+      ? allEntryCursors
+          .filter((entry) =>
+            isSinglePostRequest
+              ? entry.id === requestedPostId
+              : isAfterPostsCursor(entry, pageCursor),
+          )
+          .slice(0, pageLimit)
+      : [];
+    const pageEntryIds = hasPagination
+      ? new Set(pageEntries.map((entry) => entry.id))
+      : null;
+    const hasMorePageEntries =
+      hasPagination && !isSinglePostRequest
+        ? allEntryCursors.filter((entry) =>
+            isAfterPostsCursor(entry, pageCursor),
+          ).length > pageEntries.length
+        : false;
+
+    const logIds = logRows
+      .filter((row) => !pageEntryIds || pageEntryIds.has(row.entryId))
+      .map((row) => row.entryId);
+    const goalLogMentionsById = await loadContentMentions(
+      db,
+      "goal_log",
+      logIds,
+    );
+    const logPhotoRows =
+      logIds.length > 0
+        ? await db
+            .select({
+              entryId: goalLogPhotos.goalLogId,
+              photoId: goalLogPhotos.id,
+              storagePath: goalLogPhotos.storagePath,
+              contentType: goalLogPhotos.contentType,
+              photoCreatedAt: goalLogPhotos.createdAt,
+            })
+            .from(goalLogPhotos)
+            .where(inArray(goalLogPhotos.goalLogId, logIds))
+            .orderBy(desc(goalLogPhotos.createdAt))
+        : [];
+
+    const checkpointIds = checkpointRows
+      .filter((row) => !pageEntryIds || pageEntryIds.has(row.entryId))
+      .map((row) => row.entryId);
     const checkpointMentionsById = await loadContentMentions(
       db,
       "goal_checkpoint",
@@ -332,6 +442,7 @@ export async function GET(request: Request) {
     }> = [];
 
     for (const row of logRows) {
+      if (pageEntryIds && !pageEntryIds.has(row.entryId)) continue;
       const photos = photosByEntryId.get(row.entryId) ?? [];
       const postType =
         !row.notes.trim() && photos.length === 0 ? "completion" : "journal";
@@ -361,6 +472,7 @@ export async function GET(request: Request) {
     }
 
     for (const row of checkpointRows) {
+      if (pageEntryIds && !pageEntryIds.has(row.entryId)) continue;
       if (!row.completedAt) continue;
       const photos = photosByEntryId.get(row.entryId) ?? [];
       const postType =
@@ -390,19 +502,9 @@ export async function GET(request: Request) {
       });
     }
 
-    const reflectionRows = await db
-      .select({
-        entryId: dailyReflectionPosts.id,
-        prompt: dailyReflectionPosts.prompt,
-        body: dailyReflectionPosts.body,
-        visibility: dailyReflectionPosts.visibility,
-        dateKey: dailyReflectionPosts.date,
-        updatedAt: dailyReflectionPosts.updatedAt,
-      })
-      .from(dailyReflectionPosts)
-      .where(eq(dailyReflectionPosts.userId, user.id))
-      .orderBy(desc(dailyReflectionPosts.updatedAt));
-    const reflectionIds = reflectionRows.map((row) => row.entryId);
+    const reflectionIds = reflectionRows
+      .filter((row) => !pageEntryIds || pageEntryIds.has(row.entryId))
+      .map((row) => row.entryId);
     const reflectionMentionsById = await loadContentMentions(
       db,
       "reflection_post",
@@ -501,6 +603,7 @@ export async function GET(request: Request) {
     );
 
     for (const row of reflectionRows) {
+      if (pageEntryIds && !pageEntryIds.has(row.entryId)) continue;
       const photos = reflectionPhotosById.get(row.entryId) ?? [];
       entries.push({
         id: row.entryId,
@@ -529,9 +632,23 @@ export async function GET(request: Request) {
       });
     }
 
-    entries.sort((a, b) =>
-      a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
-    );
+    entries.sort((a, b) => {
+      if (a.updatedAt !== b.updatedAt) {
+        return a.updatedAt < b.updatedAt ? 1 : -1;
+      }
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+
+    if (hasPagination) {
+      const items = entries.slice(0, pageLimit);
+      const lastItem = items.at(-1);
+
+      return NextResponse.json({
+        items,
+        nextCursor:
+          lastItem && hasMorePageEntries ? encodePostsCursor(lastItem) : null,
+      });
+    }
 
     return NextResponse.json(entries);
   } catch (error) {

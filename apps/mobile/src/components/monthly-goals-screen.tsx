@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
+import { CalendarSelectionModal } from "@/components/calendar-selection-modal";
 import {
   CelebrationOverlay,
   confettiSource,
@@ -273,6 +274,14 @@ export function MonthlyGoalsScreen({
   const theme = useTheme();
   const tabBarHeight = useTabBarHeight();
   const [displayMonth, setDisplayMonth] = useState(() => {
+    const now =
+      initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+        ? dateFromKey(initialDateKey)
+        : new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [monthPickerMonth, setMonthPickerMonth] = useState(() => {
     const now =
       initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
         ? dateFromKey(initialDateKey)
@@ -679,10 +688,19 @@ export function MonthlyGoalsScreen({
     });
   }, []);
 
-  const goToToday = useCallback(() => {
-    setDisplayMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDateKey(todayDateKey);
-  }, [today, todayDateKey]);
+  const openMonthPicker = useCallback(() => {
+    setMonthPickerMonth(
+      new Date(displayMonth.getFullYear(), displayMonth.getMonth(), 1),
+    );
+    setMonthPickerOpen(true);
+  }, [displayMonth]);
+
+  const selectMonthFromPicker = useCallback((date: Date) => {
+    const nextMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+    setDisplayMonth(nextMonth);
+    setSelectedDateKey(toDateKey(nextMonth));
+    setMonthPickerOpen(false);
+  }, []);
 
   const scrollToDetailPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -701,7 +719,6 @@ export function MonthlyGoalsScreen({
     [scrollToDetailPanel],
   );
 
-  const isCurrentMonth = isSameMonth(displayMonth, today);
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;
 
   return (
@@ -776,24 +793,20 @@ export function MonthlyGoalsScreen({
                 tintColor={theme.tabIcon}
               />
             </Pressable>
-            <Text style={[styles.monthLabel, { color: theme.text }]}>
-              {monthLabel}
-            </Text>
+            <Pressable
+              accessibilityLabel="Choose month"
+              accessibilityRole="button"
+              onPress={openMonthPicker}
+              style={({ pressed }) => [
+                styles.monthLabelButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.monthLabel, { color: theme.text }]}>
+                {monthLabel}
+              </Text>
+            </Pressable>
             <View style={styles.monthNavRight}>
-              {!isCurrentMonth ? (
-                <Pressable
-                  onPress={goToToday}
-                  style={({ pressed }) => [
-                    styles.todayBtn,
-                    { borderColor: theme.primary },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={[styles.todayBtnText, { color: theme.primary }]}>
-                    Today
-                  </Text>
-                </Pressable>
-              ) : null}
               <Pressable
                 accessibilityLabel="Next month"
                 hitSlop={8}
@@ -890,6 +903,16 @@ export function MonthlyGoalsScreen({
           })
         }
         onSave={saveGoal}
+      />
+
+      <CalendarSelectionModal
+        mode="month"
+        month={monthPickerMonth}
+        onChangeMonth={setMonthPickerMonth}
+        onClose={() => setMonthPickerOpen(false)}
+        onSelect={selectMonthFromPicker}
+        selectedDate={displayMonth}
+        visible={monthPickerOpen}
       />
 
       <CelebrationOverlay
@@ -1455,6 +1478,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: "700",
+  },
+  monthLabelButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    paddingHorizontal: 6,
   },
   monthNavRight: {
     flexDirection: "row",

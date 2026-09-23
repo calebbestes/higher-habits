@@ -16,6 +16,7 @@ export type PlannedEvent = {
   date: string;
   startTime: string | null;
   endTime: string | null;
+  completed: boolean;
   googleCalendarEventId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,3 +111,20 @@ export const deletePlannedEvent = ({
   }).then((response) =>
     parseResponse<{ ok: true; calendarSync?: { status: string } }>(response),
   );
+
+export const setPlannedEventCompletion = ({
+  completed,
+  sourceId,
+}: {
+  completed: boolean;
+  sourceId: string;
+}) =>
+  mobileApiFetch("/api/planned-events", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "setCompletion",
+      sourceType: "habit_instance",
+      sourceId,
+      completed,
+    }),
+  }).then((response) => parseResponse<{ event: PlannedEvent }>(response));

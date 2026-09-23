@@ -28,6 +28,11 @@ import {
 } from "@/components/section-header-tabs";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  getCachedData,
+  isCacheFresh,
+  setCachedData,
+} from "@/lib/app-data-cache";
+import {
   type FriendIncentiveRow,
   type FriendRow,
   type IncentiveTargetType,
@@ -958,15 +963,26 @@ function CreateIncentiveModal({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
+type IncentivesScreenCache = {
+  friends: FriendRow[];
+};
+
+const INCENTIVES_SCREEN_CACHE_KEY = "screen:incentives";
+
 export function IncentivesScreen() {
   const theme = useTheme();
   const accent = theme.primary;
   const accentForeground = theme.primaryForeground;
   const insets = useSafeAreaInsets();
   const pressLocksRef = useRef(new Set<string>());
+  const cachedScreen = getCachedData<IncentivesScreenCache>(
+    INCENTIVES_SCREEN_CACHE_KEY,
+  );
 
-  const [friends, setFriends] = useState<FriendRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [friends, setFriends] = useState<FriendRow[]>(
+    cachedScreen?.data.friends ?? [],
+  );
+  const [loading, setLoading] = useState(!cachedScreen);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"received" | "sent">("received");
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
@@ -975,13 +991,28 @@ export function IncentivesScreen() {
   );
   const [showCreate, setShowCreate] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
+    const cached = getCachedData<IncentivesScreenCache>(
+      INCENTIVES_SCREEN_CACHE_KEY,
+    );
+    if (!refresh && cached) {
+      setFriends(cached.data.friends);
+      setLoading(false);
+      if (isCacheFresh(cached)) return;
+    }
+    setLoading(!cached);
     try {
       const data = await fetchFriends();
-      setFriends(data.filter((f) => f.status === "accepted"));
+      const acceptedFriends = data.filter((f) => f.status === "accepted");
+      setCachedData(INCENTIVES_SCREEN_CACHE_KEY, {
+        friends: acceptedFriends,
+      });
+      setFriends(acceptedFriends);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load.");
+      if (!cached) {
+        setError(e instanceof Error ? e.message : "Failed to load.");
+      }
     } finally {
       setLoading(false);
     }
@@ -998,7 +1029,7 @@ export function IncentivesScreen() {
     setAcceptingId(incentive.id);
     try {
       await acceptFriendIncentive(friend.id, incentive.id);
-      await load();
+      await load(true);
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed.");
     } finally {
@@ -1012,7 +1043,7 @@ export function IncentivesScreen() {
   ) {
     await sendFriendIncentive(friendshipId, payload);
     setShowCreate(false);
-    await load();
+    await load(true);
   }
 
   async function handleNudge(friend: FriendRow, incentive: FriendIncentiveRow) {
@@ -1159,7 +1190,7 @@ export function IncentivesScreen() {
             {error}
           </Text>
           <Pressable
-            onPress={() => runPressAction("retry", load)}
+            onPress={() => runPressAction("retry", () => void load(true))}
             style={[styles.retryBtn, { borderColor: accent }]}
           >
             <Text style={[styles.retryText, { color: accent }]}>Retry</Text>

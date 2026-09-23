@@ -40,6 +40,13 @@ export default function PlanReportScreen() {
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
+  const handleDateChange = useCallback(
+    (dateKey: string) => {
+      setPlanReportDateKey(dateKey);
+      router.setParams({ date: dateKey });
+    },
+    [router],
+  );
   const [pendingEventTarget, setPendingEventTarget] =
     useState<DayPlanEventTarget | null>(null);
   const [pendingCreateRange, setPendingCreateRange] =
@@ -96,7 +103,7 @@ export default function PlanReportScreen() {
             <DayPlanScreen
               initialDateKey={activeDateKey}
               initialEventTarget={pendingEventTarget}
-              onDateChange={setPlanReportDateKey}
+              onDateChange={handleDateChange}
             />
           </ComponentErrorBoundary>
         ) : null}
@@ -105,7 +112,7 @@ export default function PlanReportScreen() {
             <WeeklyPlanScreen
               initialDateKey={activeDateKey}
               onCreateRange={openCreateRange}
-              onDateChange={setPlanReportDateKey}
+              onDateChange={handleDateChange}
               onSelectEvent={openDailyForEvent}
               onSelectDate={openDailyForDate}
             />
@@ -131,7 +138,7 @@ export default function PlanReportScreen() {
           <ComponentErrorBoundary name="MonthlyGoalsScreen">
             <MonthlyGoalsScreen
               initialDateKey={activeDateKey}
-              onDateChange={setPlanReportDateKey}
+              onDateChange={handleDateChange}
             />
           </ComponentErrorBoundary>
         ) : null}

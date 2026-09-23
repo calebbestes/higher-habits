@@ -2,6 +2,7 @@ import {
   type PlannedEventSourceType,
   type getDb,
   goalCheckpoints,
+  goalLogs,
   habits,
   plannedEvents,
   tasks,
@@ -35,10 +36,130 @@ export function serializePlannedEvent(row: PlannedEventRow) {
     date: row.date,
     startTime: row.plannedStartTime ?? null,
     endTime: row.plannedEndTime ?? null,
+    completed: Boolean(row.completedAt),
     googleCalendarEventId: row.googleCalendarEventId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+export async function setPlannedEventCompletion(
+  db: Database,
+  {
+    completed,
+    sourceId,
+    sourceType,
+    userId,
+  }: {
+    completed: boolean;
+    sourceId: string;
+    sourceType: PlannedEventSourceType;
+    userId: string;
+  },
+) {
+  return db.transaction(async (tx) => {
+    const [existingEvent] = await tx
+      .select()
+      .from(plannedEvents)
+      .where(
+        and(
+          eq(plannedEvents.userId, userId),
+          eq(plannedEvents.sourceType, sourceType),
+          eq(plannedEvents.sourceId, sourceId),
+        ),
+      )
+      .limit(1);
+
+    if (!existingEvent) return null;
+
+    const wasCompleted = Boolean(existingEvent.completedAt);
+    const [row] = (await tx
+      .update(plannedEvents)
+      .set({
+        completedAt: completed ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(plannedEvents.id, existingEvent.id))
+      .returning()) as PlannedEventRow[];
+
+    if (!row || wasCompleted === completed || !existingEvent.sourceParentId) {
+      return row ?? null;
+    }
+
+    const [habit] = await tx
+      .select({
+        frequencyGoal: habits.frequencyGoal,
+        id: habits.id,
+        visibility: habits.visibility,
+      })
+      .from(habits)
+      .where(
+        and(
+          eq(habits.id, existingEvent.sourceParentId),
+          eq(habits.userId, userId),
+        ),
+      )
+      .limit(1);
+
+    if (!habit) return row;
+
+    const [existingLog] = await tx
+      .select()
+      .from(goalLogs)
+      .where(
+        and(
+          eq(goalLogs.goalId, habit.id),
+          eq(goalLogs.date, existingEvent.date),
+          eq(goalLogs.userId, userId),
+        ),
+      )
+      .limit(1);
+
+    const targetCount = Math.max(habit.frequencyGoal ?? 1, 1);
+    const completedCount = Math.min(
+      targetCount,
+      Math.max(0, (existingLog?.completedCount ?? 0) + (completed ? 1 : -1)),
+    );
+    const status =
+      completedCount >= targetCount
+        ? "complete"
+        : completedCount > 0
+          ? "incomplete"
+          : existingLog?.status === "planned"
+            ? "planned"
+            : "incomplete";
+
+    await tx
+      .insert(goalLogs)
+      .values({
+        completedCount,
+        date: existingEvent.date,
+        goalId: habit.id,
+        status,
+        userId,
+        visibility: existingLog?.visibility ?? habit.visibility,
+        ...(existingLog
+          ? {}
+          : {
+              notes: "",
+              plannedEndTime: null,
+              plannedRepeatsDaily: false,
+              plannedStartTime: null,
+            }),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [goalLogs.goalId, goalLogs.date],
+        set: {
+          completedCount,
+          status,
+          updatedAt: new Date(),
+          userId,
+        },
+      });
+
+    return row;
+  });
 }
 
 export async function getPlannedEventsForUser(
