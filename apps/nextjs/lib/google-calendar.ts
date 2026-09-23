@@ -748,6 +748,88 @@ export async function listGoogleCalendars(userId: string): Promise<{
   }
 }
 
+export async function updateGoogleCalendarColor({
+  backgroundColor,
+  calendarId,
+  foregroundColor,
+  userId,
+}: {
+  backgroundColor: string;
+  calendarId: string;
+  foregroundColor: string;
+  userId: string;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  calendar?: GoogleCalendar;
+  error?: string;
+}> {
+  try {
+    const token = await refreshGoogleCalendarAccessToken(userId);
+    if (token.status !== "connected") {
+      return {
+        status: token.status,
+        ...(token.status === "missing_scope"
+          ? {
+              error:
+                "Reconnect Google Calendar in Settings to allow calendar color changes.",
+            }
+          : {}),
+      };
+    }
+
+    if (!token.scopes.includes(GOOGLE_CALENDAR_LIST_WRITE_SCOPE)) {
+      return {
+        status: "missing_scope",
+        error:
+          "Reconnect Google Calendar in Settings to allow calendar color changes.",
+      };
+    }
+
+    const calendars = await fetchGoogleCalendarList(token.accessToken);
+    if (!calendars.some((calendar) => calendar.id === calendarId)) {
+      return { status: "error", error: "Google calendar was not found." };
+    }
+
+    const response = await googleCalendarFetch(
+      `/users/me/calendarList/${encodeURIComponent(calendarId)}?colorRgbFormat=true`,
+      token.accessToken,
+      {
+        body: JSON.stringify({ backgroundColor, foregroundColor }),
+        method: "PATCH",
+      },
+    );
+    await throwIfGoogleCalendarError(response);
+    const updated = (await response.json()) as GoogleCalendarListItemWithId;
+
+    return {
+      status: "synced",
+      calendar: {
+        backgroundColor: updated.backgroundColor ?? backgroundColor,
+        description: updated.description ?? null,
+        foregroundColor: updated.foregroundColor ?? foregroundColor,
+        id: updated.id,
+        primary: Boolean(updated.primary),
+        summary:
+          updated.summaryOverride?.trim() ||
+          updated.summary?.trim() ||
+          "Untitled calendar",
+      },
+    };
+  } catch (error) {
+    console.error("Google Calendar color update failed", error);
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function fetchGoogleCalendarList(
   accessToken: string,
 ): Promise<GoogleCalendarListItemWithId[]> {
@@ -827,6 +909,7 @@ async function ensureFloatGoogleCalendarWithToken(
         calendar.summary?.trim() === FLOAT_GOOGLE_CALENDAR_NAME,
     );
 
+  const isCreatingFloatCalendar = !floatCalendar;
   let calendar = floatCalendar;
   if (!calendar) {
     if (!token.scopes.includes(GOOGLE_CALENDAR_APP_CREATED_SCOPE)) {
@@ -860,7 +943,7 @@ async function ensureFloatGoogleCalendarWithToken(
       FLOAT_GOOGLE_CALENDAR_NAME,
   };
 
-  if (syncColor && primaryCalendar) {
+  if (syncColor && isCreatingFloatCalendar && primaryCalendar) {
     await syncFloatGoogleCalendarColor(
       token,
       normalizedCalendar.id,

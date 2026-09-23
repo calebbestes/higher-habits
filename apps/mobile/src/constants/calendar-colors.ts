@@ -18,17 +18,21 @@ export const CALENDAR_TYPE_COLORS = {
 
 export const CALENDAR_EVENT_COLORS = [
   { label: "Default", color: null, foreground: null },
-  { label: "Sage", color: "#33B679", foreground: "#07171D" },
+  { label: "Tomato", color: "#D50000", foreground: "#FFFFFF" },
+  { label: "Cherry Blossom", color: "#D81B60", foreground: "#FFFFFF" },
+  { label: "Deep Orange", color: "#F4511E", foreground: "#FFFFFF" },
   { label: "Flamingo", color: "#E67C73", foreground: "#1A090A" },
   { label: "Mango", color: "#F09300", foreground: "#211203" },
-  { label: "Cobalt", color: "#4285F4", foreground: "#FFFFFF" },
-  { label: "Eucalyptus", color: "#009688", foreground: "#FFFFFF" },
-  { label: "Cherry Blossom", color: "#D81B60", foreground: "#FFFFFF" },
   { label: "Banana", color: "#F6BF26", foreground: "#211203" },
+  { label: "Dark Green", color: "#0B8043", foreground: "#FFFFFF" },
+  { label: "Sage", color: "#33B679", foreground: "#07171D" },
+  { label: "Eucalyptus", color: "#009688", foreground: "#FFFFFF" },
   { label: "Peacock", color: "#039BE5", foreground: "#FFFFFF" },
+  { label: "Cobalt", color: "#4285F4", foreground: "#FFFFFF" },
+  { label: "Dark Blue", color: "#3F51B5", foreground: "#FFFFFF" },
+  { label: "Indigo", color: "#7986CB", foreground: "#FFFFFF" },
   { label: "Grape", color: "#8E24AA", foreground: "#FFFFFF" },
   { label: "Graphite", color: "#616161", foreground: "#FFFFFF" },
-  { label: "Tomato", color: "#D50000", foreground: "#FFFFFF" },
 ] as const;
 
 export function getCalendarEventForeground(

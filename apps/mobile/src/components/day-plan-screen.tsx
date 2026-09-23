@@ -402,6 +402,7 @@ export function DayPlanScreen({
   const timeZone = useMemo(() => getLocalTimeZone(), []);
   const {
     calendars,
+    changeCalendarColor,
     error: calendarSelectionError,
     isLoading: isLoadingCalendarSelection,
     isSaving: isSavingCalendarSelection,
@@ -3473,11 +3474,18 @@ export function DayPlanScreen({
           error={calendarSelectionError}
           isLoading={isLoadingCalendarSelection}
           isSaving={isSavingCalendarSelection}
+          isSyncing={isSyncingGoogleCalendar}
           onConnect={() => {
             void syncGoogleCalendar().then(() => reloadCalendarSelection());
           }}
           onClose={() => setCalendarPickerOpen(false)}
+          onChangeColor={(color) => {
+            void changeCalendarColor(color).catch(() => undefined);
+          }}
           onRetry={() => void reloadCalendarSelection()}
+          onSync={() => {
+            void syncGoogleCalendar().then(() => reloadCalendarSelection());
+          }}
           onToggle={(calendarId) => {
             void toggleCalendar(calendarId).catch(() => undefined);
           }}

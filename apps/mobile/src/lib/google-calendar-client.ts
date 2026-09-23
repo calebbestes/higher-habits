@@ -171,6 +171,30 @@ export const fetchGoogleCalendars = (): Promise<GoogleCalendarsResponse> =>
       return result;
     });
 
+export const updateGoogleCalendarColor = ({
+  backgroundColor,
+  calendarId,
+  foregroundColor,
+}: {
+  backgroundColor: string;
+  calendarId: string;
+  foregroundColor: string;
+}): Promise<{
+  status: GoogleCalendarEventsResponse["status"];
+  calendar?: GoogleCalendar;
+  error?: string;
+}> =>
+  mobileApiFetch("/api/google-calendar/calendars", {
+    method: "PATCH",
+    body: JSON.stringify({ backgroundColor, calendarId, foregroundColor }),
+  }).then((response) =>
+    parseResponse<{
+      status: GoogleCalendarEventsResponse["status"];
+      calendar?: GoogleCalendar;
+      error?: string;
+    }>(response),
+  );
+
 export const fetchGoogleCalendarSelection = (): Promise<{
   visibleGoogleCalendarIds: string[];
 }> =>
