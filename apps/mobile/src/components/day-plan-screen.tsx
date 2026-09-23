@@ -795,6 +795,7 @@ export function DayPlanScreen({
       if (
         !status.connected ||
         !status.hasCalendarMetadataReadScope ||
+        !status.hasFloatCalendarColorScope ||
         !status.hasFloatCalendarCreationScope
       ) {
         const response = await authClient.linkSocial({

@@ -10,6 +10,8 @@ export const GOOGLE_CALENDAR_METADATA_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendars.readonly";
 export const GOOGLE_CALENDAR_LIST_READ_SCOPE =
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+export const GOOGLE_CALENDAR_LIST_WRITE_SCOPE =
+  "https://www.googleapis.com/auth/calendar.calendarlist";
 export const GOOGLE_CALENDAR_APP_CREATED_SCOPE =
   "https://www.googleapis.com/auth/calendar.app.created";
 export const FLOAT_GOOGLE_CALENDAR_NAME = "Float";
@@ -189,6 +191,7 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       connected: false,
       hasGoogleAccount: false,
       hasCalendarMetadataReadScope: false,
+      hasFloatCalendarColorScope: false,
       hasFloatCalendarCreationScope: false,
       scopes: [] as string[],
     };
@@ -209,6 +212,9 @@ export async function getGoogleCalendarConnectionStatus(userId: string) {
       hasGoogleCalendarWriteScope(scopes),
     hasCalendarMetadataReadScope: scopes.includes(
       GOOGLE_CALENDAR_LIST_READ_SCOPE,
+    ),
+    hasFloatCalendarColorScope: scopes.includes(
+      GOOGLE_CALENDAR_LIST_WRITE_SCOPE,
     ),
     hasFloatCalendarCreationScope: scopes.includes(
       GOOGLE_CALENDAR_APP_CREATED_SCOPE,
@@ -782,7 +788,9 @@ export async function ensureFloatGoogleCalendar(
     // token that includes calendar.app.created before we call the Calendar API.
     const token = await refreshGoogleCalendarAccessToken(userId);
     if (token.status !== "connected") return { status: token.status };
-    return ensureFloatGoogleCalendarWithToken(userId, token);
+    return ensureFloatGoogleCalendarWithToken(userId, token, {
+      syncColor: true,
+    });
   } catch (error) {
     console.error("Float Google Calendar ensure failed", error);
     return {
@@ -795,6 +803,7 @@ export async function ensureFloatGoogleCalendar(
 async function ensureFloatGoogleCalendarWithToken(
   userId: string,
   token: Extract<GoogleTokenResult, { status: "connected" }>,
+  { syncColor = false }: { syncColor?: boolean } = {},
 ): Promise<FloatCalendarSyncResult> {
   const db = getDb();
   const [settings] = db
@@ -807,6 +816,7 @@ async function ensureFloatGoogleCalendarWithToken(
         .limit(1)
     : [];
   const calendars = await fetchGoogleCalendarList(token.accessToken);
+  const primaryCalendar = calendars.find((calendar) => calendar.primary);
   const floatCalendar =
     calendars.find(
       (calendar) => calendar.id === settings?.floatGoogleCalendarId,
@@ -850,6 +860,14 @@ async function ensureFloatGoogleCalendarWithToken(
       FLOAT_GOOGLE_CALENDAR_NAME,
   };
 
+  if (syncColor && primaryCalendar) {
+    await syncFloatGoogleCalendarColor(
+      token,
+      normalizedCalendar.id,
+      primaryCalendar,
+    );
+  }
+
   if (db) {
     try {
       await db
@@ -873,6 +891,39 @@ async function ensureFloatGoogleCalendarWithToken(
   }
 
   return { status: "synced", calendar: normalizedCalendar };
+}
+
+async function syncFloatGoogleCalendarColor(
+  token: Extract<GoogleTokenResult, { status: "connected" }>,
+  floatCalendarId: string,
+  primaryCalendar: GoogleCalendarListItemWithId,
+) {
+  if (
+    !token.scopes.includes(GOOGLE_CALENDAR_LIST_WRITE_SCOPE) ||
+    !primaryCalendar.backgroundColor
+  ) {
+    return;
+  }
+
+  try {
+    const response = await googleCalendarFetch(
+      `/users/me/calendarList/${encodeURIComponent(floatCalendarId)}?colorRgbFormat=true`,
+      token.accessToken,
+      {
+        body: JSON.stringify({
+          backgroundColor: primaryCalendar.backgroundColor,
+          ...(primaryCalendar.foregroundColor
+            ? { foregroundColor: primaryCalendar.foregroundColor }
+            : {}),
+        }),
+        method: "PATCH",
+      },
+    );
+    await throwIfGoogleCalendarError(response);
+  } catch (error) {
+    // Color matching is a convenience; it should never block calendar setup.
+    console.error("Could not match the Float calendar color", error);
+  }
 }
 
 async function refreshGoogleCalendarAccessToken(

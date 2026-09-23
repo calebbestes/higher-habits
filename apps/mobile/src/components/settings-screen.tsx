@@ -740,10 +740,12 @@ export function SettingsScreen() {
       ? googleCalendarStatus.configured
         ? googleCalendarStatus.connected &&
           googleCalendarStatus.hasCalendarMetadataReadScope &&
+          googleCalendarStatus.hasFloatCalendarColorScope &&
           googleCalendarStatus.hasFloatCalendarCreationScope
           ? "Connected"
           : googleCalendarStatus.connected
-            ? googleCalendarStatus.hasCalendarMetadataReadScope
+            ? googleCalendarStatus.hasCalendarMetadataReadScope &&
+              googleCalendarStatus.hasFloatCalendarColorScope
               ? "Reconnect"
               : "Reconnect for colors"
             : googleCalendarStatus.hasGoogleAccount
