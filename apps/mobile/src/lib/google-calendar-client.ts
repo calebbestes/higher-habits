@@ -38,6 +38,7 @@ export type GoogleCalendar = {
 export type GoogleCalendarsResponse = {
   status: GoogleCalendarEventsResponse["status"];
   calendars: GoogleCalendar[];
+  error?: string;
 };
 
 export type GoogleCalendarEventsResponse = {
@@ -157,9 +158,17 @@ export const fetchGoogleCalendarEvents = ({
 };
 
 export const fetchGoogleCalendars = (): Promise<GoogleCalendarsResponse> =>
-  mobileApiFetch("/api/google-calendar/calendars").then((response) =>
-    parseResponse<GoogleCalendarsResponse>(response),
-  );
+  mobileApiFetch("/api/google-calendar/calendars")
+    .then((response) => parseResponse<GoogleCalendarsResponse>(response))
+    .then((result) => {
+      if (result.status !== "synced") {
+        const message =
+          result.error ?? `Google Calendar list failed (${result.status}).`;
+        console.error("[Google Calendar] Calendar list failed:", message);
+        throw new Error(message);
+      }
+      return result;
+    });
 
 export const fetchGoogleCalendarSelection = (): Promise<{
   visibleGoogleCalendarIds: string[];

@@ -707,6 +707,7 @@ export async function listGoogleCalendars(userId: string): Promise<{
     | "missing_scope"
     | "error";
   calendars: GoogleCalendar[];
+  error?: string;
 }> {
   try {
     const token = await getGoogleCalendarAccessToken(userId);
@@ -731,7 +732,11 @@ export async function listGoogleCalendars(userId: string): Promise<{
     return { status: "synced", calendars };
   } catch (error) {
     console.error("Google Calendar list failed", error);
-    return { status: "error", calendars: [] };
+    return {
+      status: "error",
+      calendars: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
