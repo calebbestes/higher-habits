@@ -111,15 +111,27 @@ export const disconnectGoogleCalendar = (): Promise<{
 export const ensureFloatGoogleCalendar = (): Promise<{
   status: GoogleCalendarEventsResponse["status"];
   calendar?: GoogleCalendar;
+  error?: string;
 }> =>
   mobileApiFetch("/api/google-calendar/float-calendar", {
     method: "POST",
-  }).then((response) =>
-    parseResponse<{
-      status: GoogleCalendarEventsResponse["status"];
-      calendar?: GoogleCalendar;
-    }>(response),
-  );
+  })
+    .then((response) =>
+      parseResponse<{
+        status: GoogleCalendarEventsResponse["status"];
+        calendar?: GoogleCalendar;
+        error?: string;
+      }>(response),
+    )
+    .then((result) => {
+      if (result.status !== "synced") {
+        console.error(
+          "[Google Calendar] Float calendar setup failed:",
+          result.error ?? result.status,
+        );
+      }
+      return result;
+    });
 
 export const fetchGoogleCalendarEvents = ({
   calendarIds,

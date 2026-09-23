@@ -763,6 +763,7 @@ type FloatCalendarSyncResult = {
     | "missing_scope"
     | "error";
   calendar?: GoogleCalendar;
+  error?: string;
 };
 
 export async function ensureFloatGoogleCalendar(
@@ -777,7 +778,10 @@ export async function ensureFloatGoogleCalendar(
     return ensureFloatGoogleCalendarWithToken(userId, token);
   } catch (error) {
     console.error("Float Google Calendar ensure failed", error);
-    return { status: "error" };
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

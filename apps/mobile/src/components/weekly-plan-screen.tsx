@@ -1214,7 +1214,8 @@ export function WeeklyPlanScreen({
       const floatCalendar = await ensureFloatGoogleCalendar();
       if (floatCalendar.status !== "synced") {
         throw new Error(
-          "Could not create the Float calendar in Google Calendar.",
+          floatCalendar.error ??
+            `Could not create the Float calendar in Google Calendar (${floatCalendar.status}).`,
         );
       }
 
