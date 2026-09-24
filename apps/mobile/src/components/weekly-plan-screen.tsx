@@ -100,10 +100,10 @@ export type WeekEvent = Pick<
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const HOURS = Array.from({ length: 17 }, (_, index) => index + 6);
+const HOURS = Array.from({ length: 24 }, (_, index) => index);
 const HOUR_HEIGHT = 40;
 const ALL_DAY_ROW_HEIGHT = 28;
-const TIME_LABEL_WIDTH = 64;
+const TIME_LABEL_WIDTH = 48;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
 const GRID_START_MINUTES = HOURS[0] * 60;
 const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
@@ -650,7 +650,7 @@ export function WeeklyPlanScreen({
     calendars.find((calendar) => calendar.summary === "Float")
       ?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
   const [now, setNow] = useState(() => new Date());
-  const { width: windowWidth } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const calendarWidth = Math.max(
     Math.min(windowWidth - 36, MaxContentWidth),
     1,
@@ -660,6 +660,21 @@ export function WeeklyPlanScreen({
   const nowLineTop = getWeeklyNowLineTop(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
+  const timelineViewportHeight = Math.max(
+    320,
+    windowHeight - tabBarHeight - 150,
+  );
+  const initialTimelineMinutes = weekDays.some(
+    (day) => toDateKey(day) === todayKey,
+  )
+    ? now.getHours() * 60 + now.getMinutes()
+    : 8 * 60;
+  const initialTimelineStartHour = Math.max(
+    0,
+    Math.floor(initialTimelineMinutes / 60) - 2,
+  );
+  const initialTimelineScrollTarget = initialTimelineStartHour * HOUR_HEIGHT;
+  const [initialTimelineScrollY] = useState(initialTimelineScrollTarget);
   const weekEventsByDate = useMemo(
     () =>
       groupWeekEventsByDate(
@@ -1363,7 +1378,7 @@ export function WeeklyPlanScreen({
         setError(
           saveError instanceof Error
             ? saveError.message
-            : "Could not save weekly notes.",
+            : "Could not save weekly journal.",
         );
       } finally {
         if (mountedRef.current) setIsSavingNotes(false);
@@ -1434,10 +1449,7 @@ export function WeeklyPlanScreen({
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
         <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: tabBarHeight + 20 },
-          ]}
+          contentContainerStyle={[styles.content, { paddingBottom: 20 }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -1456,7 +1468,7 @@ export function WeeklyPlanScreen({
             </View>
             <View style={styles.headerActions}>
               <Pressable
-                accessibilityLabel="Open weekly notes"
+                accessibilityLabel="Open weekly journal"
                 accessibilityRole="button"
                 onPress={() => setNotesModalOpen(true)}
                 style={({ pressed }) => [
@@ -1566,6 +1578,8 @@ export function WeeklyPlanScreen({
                 >
                   <View style={{ width: calendarWidth }}>
                     <WeeklyCalendarCard
+                      initialTimelineScrollY={initialTimelineScrollY}
+                      timelineViewportHeight={timelineViewportHeight}
                       now={now}
                       onSelectEvent={onSelectEvent}
                       selectedDateKey={selectedDateKey}
@@ -1688,143 +1702,161 @@ export function WeeklyPlanScreen({
                         </View>
                       ) : null}
 
-                      <View style={styles.timeGrid}>
-                        <View style={styles.timeLabels}>
-                          {HOURS.map((hour) => (
-                            <View key={hour} style={styles.hourLabelRow}>
-                              <Text
-                                style={[
-                                  styles.hourLabel,
-                                  { color: theme.textSecondary },
-                                ]}
-                              >
-                                {formatHour(hour)}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                        <View
-                          style={[
-                            styles.dayGrid,
-                            {
-                              borderLeftColor: theme.tabBorder,
-                            },
-                          ]}
-                        >
-                          {HOURS.map((hour) => (
-                            <View
-                              key={hour}
-                              pointerEvents="none"
-                              style={[
-                                styles.hourLine,
-                                {
-                                  borderTopColor: theme.tabBorder,
-                                  top: (hour - HOURS[0]) * HOUR_HEIGHT,
-                                },
-                              ]}
-                            />
-                          ))}
-                          {weekDays.map((day, dayIndex) => {
-                            const dateKey = toDateKey(day);
-                            const timedEvents =
-                              weekEventsByDate
-                                .get(dateKey)
-                                ?.filter((event) => event.startTime) ?? [];
-                            const laidOutEvents =
-                              layoutWeekDayEvents(timedEvents);
-                            return (
+                      <ScrollView
+                        contentOffset={{ x: 0, y: initialTimelineScrollY }}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator={false}
+                        style={[
+                          styles.timelineScroll,
+                          { height: timelineViewportHeight },
+                        ]}
+                      >
+                        <View style={styles.timeGrid}>
+                          <View style={styles.timeLabels}>
+                            {HOURS.map((hour) => (
+                              <View key={hour} style={styles.hourLabelRow}>
+                                <Text
+                                  style={[
+                                    styles.hourLabel,
+                                    { color: theme.textSecondary },
+                                  ]}
+                                >
+                                  {formatHour(hour)}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                          <View
+                            style={[
+                              styles.dayGrid,
+                              {
+                                borderLeftColor: theme.tabBorder,
+                              },
+                            ]}
+                          >
+                            {HOURS.map((hour) => (
                               <View
-                                key={dateKey}
+                                key={hour}
+                                pointerEvents="none"
                                 style={[
-                                  styles.dayColumn,
+                                  styles.hourLine,
                                   {
-                                    backgroundColor:
-                                      dateKey === selectedDateKey
-                                        ? `${theme.backgroundSelected}55`
-                                        : "transparent",
-                                    borderLeftColor:
-                                      dayIndex === 0
-                                        ? "transparent"
-                                        : theme.tabBorder,
+                                    borderTopColor: theme.tabBorder,
+                                    top: (hour - HOURS[0]) * HOUR_HEIGHT,
                                   },
                                 ]}
-                              >
+                              />
+                            ))}
+                            {weekDays.map((day, dayIndex) => {
+                              const dateKey = toDateKey(day);
+                              const timedEvents =
+                                weekEventsByDate
+                                  .get(dateKey)
+                                  ?.filter((event) => event.startTime) ?? [];
+                              const laidOutEvents =
+                                layoutWeekDayEvents(timedEvents);
+                              return (
                                 <View
-                                  onMoveShouldSetResponderCapture={() =>
-                                    Boolean(
-                                      onCreateRange &&
-                                        weeklyCreateLongPressReadyRef.current,
-                                    )
-                                  }
-                                  onStartShouldSetResponderCapture={() => false}
-                                  onTouchCancel={cancelWeeklyCreate}
-                                  onTouchEnd={handleWeeklyCreateTouchEnd}
-                                  onTouchMove={handleWeeklyCreateTouchMove}
-                                  onTouchStart={(event) =>
-                                    handleWeeklyCreateTouchStart(dateKey, event)
-                                  }
-                                  onResponderGrant={
-                                    handleWeeklyCreateResponderGrant
-                                  }
-                                  onResponderMove={handleWeeklyCreateMove}
-                                  onResponderRelease={finishWeeklyCreate}
-                                  onResponderTerminate={cancelWeeklyCreate}
-                                  style={styles.weeklyCreateSurface}
-                                />
-                                {laidOutEvents.map(
-                                  ({ event, laneCount, laneIndex }) => (
-                                    <EventBlock
-                                      key={event.id}
-                                      event={event}
-                                      laneCount={laneCount}
-                                      laneIndex={laneIndex}
-                                      onPress={() => onSelectEvent?.(event)}
-                                    />
-                                  ),
-                                )}
-                                {weeklyCreatePreview?.dateKey === dateKey ? (
+                                  key={dateKey}
+                                  style={[
+                                    styles.dayColumn,
+                                    {
+                                      backgroundColor:
+                                        dateKey === selectedDateKey
+                                          ? `${theme.backgroundSelected}55`
+                                          : "transparent",
+                                      borderLeftColor:
+                                        dayIndex === 0
+                                          ? "transparent"
+                                          : theme.tabBorder,
+                                    },
+                                  ]}
+                                >
                                   <View
-                                    pointerEvents="none"
-                                    style={[
-                                      styles.weeklyCreatePreview,
-                                      {
-                                        backgroundColor: `${theme.primary}55`,
-                                        borderColor: theme.primary,
-                                        height:
-                                          ((weeklyCreatePreview.endMinutes -
-                                            weeklyCreatePreview.startMinutes) /
-                                            60) *
-                                          HOUR_HEIGHT,
-                                        top:
-                                          ((weeklyCreatePreview.startMinutes -
-                                            GRID_START_MINUTES) /
-                                            60) *
-                                          HOUR_HEIGHT,
-                                      },
-                                    ]}
+                                    onMoveShouldSetResponderCapture={() =>
+                                      Boolean(
+                                        onCreateRange &&
+                                          weeklyCreateLongPressReadyRef.current,
+                                      )
+                                    }
+                                    onStartShouldSetResponderCapture={() =>
+                                      false
+                                    }
+                                    onTouchCancel={cancelWeeklyCreate}
+                                    onTouchEnd={handleWeeklyCreateTouchEnd}
+                                    onTouchMove={handleWeeklyCreateTouchMove}
+                                    onTouchStart={(event) =>
+                                      handleWeeklyCreateTouchStart(
+                                        dateKey,
+                                        event,
+                                      )
+                                    }
+                                    onResponderGrant={
+                                      handleWeeklyCreateResponderGrant
+                                    }
+                                    onResponderMove={handleWeeklyCreateMove}
+                                    onResponderRelease={finishWeeklyCreate}
+                                    onResponderTerminate={cancelWeeklyCreate}
+                                    style={styles.weeklyCreateSurface}
                                   />
-                                ) : null}
-                                {dateKey === todayKey && nowLineTop !== null ? (
-                                  <View
-                                    pointerEvents="none"
-                                    style={[
-                                      styles.weekNowIndicator,
-                                      { top: nowLineTop },
-                                    ]}
-                                  >
-                                    <View style={styles.weekNowDot} />
-                                    <View style={styles.weekNowLine} />
-                                  </View>
-                                ) : null}
-                              </View>
-                            );
-                          })}
+                                  {laidOutEvents.map(
+                                    ({ event, laneCount, laneIndex }) => (
+                                      <EventBlock
+                                        key={event.id}
+                                        event={event}
+                                        laneCount={laneCount}
+                                        laneIndex={laneIndex}
+                                        onPress={() => onSelectEvent?.(event)}
+                                      />
+                                    ),
+                                  )}
+                                  {weeklyCreatePreview?.dateKey === dateKey ? (
+                                    <View
+                                      pointerEvents="none"
+                                      style={[
+                                        styles.weeklyCreatePreview,
+                                        {
+                                          backgroundColor: `${theme.primary}55`,
+                                          borderColor: theme.primary,
+                                          height:
+                                            ((weeklyCreatePreview.endMinutes -
+                                              weeklyCreatePreview.startMinutes) /
+                                              60) *
+                                            HOUR_HEIGHT,
+                                          top:
+                                            ((weeklyCreatePreview.startMinutes -
+                                              GRID_START_MINUTES) /
+                                              60) *
+                                            HOUR_HEIGHT,
+                                        },
+                                      ]}
+                                    />
+                                  ) : null}
+                                  {dateKey === todayKey &&
+                                  nowLineTop !== null ? (
+                                    <View
+                                      pointerEvents="none"
+                                      style={[
+                                        styles.weekNowIndicator,
+                                        { top: nowLineTop },
+                                      ]}
+                                    >
+                                      <View style={styles.weekNowDot} />
+                                      <View style={styles.weekNowLine} />
+                                    </View>
+                                  ) : null}
+                                </View>
+                              );
+                            })}
+                          </View>
                         </View>
-                      </View>
+                      </ScrollView>
                     </View>
                   </View>
                   <View style={{ width: calendarWidth }}>
                     <WeeklyCalendarCard
+                      initialTimelineScrollY={initialTimelineScrollY}
+                      timelineViewportHeight={timelineViewportHeight}
                       now={now}
                       onSelectEvent={onSelectEvent}
                       selectedDateKey={selectedDateKey}
@@ -1866,7 +1898,7 @@ export function WeeklyPlanScreen({
               >
                 <View style={styles.notesModalTitleBlock}>
                   <Text style={[styles.notesModalTitle, { color: theme.text }]}>
-                    Weekly notes
+                    Weekly journal
                   </Text>
                   <Text
                     style={[
@@ -1883,7 +1915,7 @@ export function WeeklyPlanScreen({
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Done editing weekly notes"
+                  accessibilityLabel="Done editing weekly journal"
                   onPress={closeNotesModal}
                   style={({ pressed }) => [
                     styles.doneButton,
@@ -2095,7 +2127,7 @@ export function WeeklyPlanScreen({
                         { color: theme.textSecondary },
                       ]}
                     >
-                      Format a line as H in weekly notes to save it here.
+                      Format a line as H in your weekly journal to save it here.
                     </Text>
                   )}
                 </ScrollView>
@@ -2151,6 +2183,7 @@ function compareEvents(left: WeekEvent, right: WeekEvent): number {
 }
 
 function WeeklyCalendarCard({
+  initialTimelineScrollY,
   now,
   onCancelWeeklyCreate,
   onCreateEventMove,
@@ -2160,12 +2193,14 @@ function WeeklyCalendarCard({
   onSelectEvent,
   selectedDateKey,
   theme,
+  timelineViewportHeight,
   todayKey,
   weekDays,
   weekEventsByDate,
   weekStartDate,
   weeklyCreatePreview,
 }: {
+  initialTimelineScrollY: number;
   now: Date;
   onCancelWeeklyCreate?: () => void;
   onCreateEventMove?: (event: GestureResponderEvent) => void;
@@ -2175,6 +2210,7 @@ function WeeklyCalendarCard({
   onSelectEvent?: (event: WeekEvent) => void;
   selectedDateKey: string;
   theme: ReturnType<typeof useTheme>;
+  timelineViewportHeight: number;
   todayKey: string;
   weekDays: Date[];
   weekEventsByDate: Map<string, WeekEvent[]>;
@@ -2283,108 +2319,119 @@ function WeeklyCalendarCard({
         </View>
       ) : null}
 
-      <View style={styles.timeGrid}>
-        <View style={styles.timeLabels}>
-          {HOURS.map((hour) => (
-            <View key={hour} style={styles.hourLabelRow}>
-              <Text style={[styles.hourLabel, { color: theme.textSecondary }]}>
-                {formatHour(hour)}
-              </Text>
-            </View>
-          ))}
-        </View>
-        <View style={[styles.dayGrid, { borderLeftColor: theme.tabBorder }]}>
-          {HOURS.map((hour) => (
-            <View
-              key={hour}
-              pointerEvents="none"
-              style={[
-                styles.hourLine,
-                {
-                  borderTopColor: theme.tabBorder,
-                  top: (hour - HOURS[0]) * HOUR_HEIGHT,
-                },
-              ]}
-            />
-          ))}
-          {weekDays.map((day, dayIndex) => {
-            const dateKey = toDateKey(day);
-            const timedEvents =
-              weekEventsByDate
-                .get(dateKey)
-                ?.filter((event) => event.startTime) ?? [];
-            const laidOutEvents = layoutWeekDayEvents(timedEvents);
-            return (
+      <ScrollView
+        contentOffset={{ x: 0, y: initialTimelineScrollY }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+        style={[styles.timelineScroll, { height: timelineViewportHeight }]}
+      >
+        <View style={styles.timeGrid}>
+          <View style={styles.timeLabels}>
+            {HOURS.map((hour) => (
+              <View key={hour} style={styles.hourLabelRow}>
+                <Text
+                  style={[styles.hourLabel, { color: theme.textSecondary }]}
+                >
+                  {formatHour(hour)}
+                </Text>
+              </View>
+            ))}
+          </View>
+          <View style={[styles.dayGrid, { borderLeftColor: theme.tabBorder }]}>
+            {HOURS.map((hour) => (
               <View
-                key={dateKey}
+                key={hour}
+                pointerEvents="none"
                 style={[
-                  styles.dayColumn,
+                  styles.hourLine,
                   {
-                    backgroundColor:
-                      dateKey === selectedDateKey
-                        ? `${theme.backgroundSelected}55`
-                        : "transparent",
-                    borderLeftColor:
-                      dayIndex === 0 ? "transparent" : theme.tabBorder,
+                    borderTopColor: theme.tabBorder,
+                    top: (hour - HOURS[0]) * HOUR_HEIGHT,
                   },
                 ]}
-              >
-                {onCreateEventStart ? (
-                  <View
-                    onMoveShouldSetResponderCapture={() => true}
-                    onStartShouldSetResponderCapture={() => true}
-                    onTouchCancel={onCancelWeeklyCreate}
-                    onTouchEnd={onFinishWeeklyCreate}
-                    onTouchMove={onCreateEventMove}
-                    onTouchStart={(event) => onCreateEventStart(dateKey, event)}
-                    style={styles.weeklyCreateSurface}
-                  />
-                ) : null}
-                {laidOutEvents.map(({ event, laneCount, laneIndex }) => (
-                  <EventBlock
-                    key={event.id}
-                    event={event}
-                    laneCount={laneCount}
-                    laneIndex={laneIndex}
-                    onPress={() => onSelectEvent?.(event)}
-                  />
-                ))}
-                {weeklyCreatePreview?.dateKey === dateKey ? (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.weeklyCreatePreview,
-                      {
-                        backgroundColor: `${theme.primary}55`,
-                        borderColor: theme.primary,
-                        height:
-                          ((weeklyCreatePreview.endMinutes -
-                            weeklyCreatePreview.startMinutes) /
-                            60) *
-                          HOUR_HEIGHT,
-                        top:
-                          ((weeklyCreatePreview.startMinutes -
-                            GRID_START_MINUTES) /
-                            60) *
-                          HOUR_HEIGHT,
-                      },
-                    ]}
-                  />
-                ) : null}
-                {dateKey === todayKey && nowLineTop !== null ? (
-                  <View
-                    pointerEvents="none"
-                    style={[styles.weekNowIndicator, { top: nowLineTop }]}
-                  >
-                    <View style={styles.weekNowDot} />
-                    <View style={styles.weekNowLine} />
-                  </View>
-                ) : null}
-              </View>
-            );
-          })}
+              />
+            ))}
+            {weekDays.map((day, dayIndex) => {
+              const dateKey = toDateKey(day);
+              const timedEvents =
+                weekEventsByDate
+                  .get(dateKey)
+                  ?.filter((event) => event.startTime) ?? [];
+              const laidOutEvents = layoutWeekDayEvents(timedEvents);
+              return (
+                <View
+                  key={dateKey}
+                  style={[
+                    styles.dayColumn,
+                    {
+                      backgroundColor:
+                        dateKey === selectedDateKey
+                          ? `${theme.backgroundSelected}55`
+                          : "transparent",
+                      borderLeftColor:
+                        dayIndex === 0 ? "transparent" : theme.tabBorder,
+                    },
+                  ]}
+                >
+                  {onCreateEventStart ? (
+                    <View
+                      onMoveShouldSetResponderCapture={() => true}
+                      onStartShouldSetResponderCapture={() => true}
+                      onTouchCancel={onCancelWeeklyCreate}
+                      onTouchEnd={onFinishWeeklyCreate}
+                      onTouchMove={onCreateEventMove}
+                      onTouchStart={(event) =>
+                        onCreateEventStart(dateKey, event)
+                      }
+                      style={styles.weeklyCreateSurface}
+                    />
+                  ) : null}
+                  {laidOutEvents.map(({ event, laneCount, laneIndex }) => (
+                    <EventBlock
+                      key={event.id}
+                      event={event}
+                      laneCount={laneCount}
+                      laneIndex={laneIndex}
+                      onPress={() => onSelectEvent?.(event)}
+                    />
+                  ))}
+                  {weeklyCreatePreview?.dateKey === dateKey ? (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.weeklyCreatePreview,
+                        {
+                          backgroundColor: `${theme.primary}55`,
+                          borderColor: theme.primary,
+                          height:
+                            ((weeklyCreatePreview.endMinutes -
+                              weeklyCreatePreview.startMinutes) /
+                              60) *
+                            HOUR_HEIGHT,
+                          top:
+                            ((weeklyCreatePreview.startMinutes -
+                              GRID_START_MINUTES) /
+                              60) *
+                            HOUR_HEIGHT,
+                        },
+                      ]}
+                    />
+                  ) : null}
+                  {dateKey === todayKey && nowLineTop !== null ? (
+                    <View
+                      pointerEvents="none"
+                      style={[styles.weekNowIndicator, { top: nowLineTop }]}
+                    >
+                      <View style={styles.weekNowDot} />
+                      <View style={styles.weekNowLine} />
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -2883,6 +2930,10 @@ const styles = StyleSheet.create({
   },
   timeGrid: {
     flexDirection: "row",
+  },
+  timelineScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   timeLabels: {
     paddingLeft: 7,

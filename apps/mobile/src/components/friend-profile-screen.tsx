@@ -85,7 +85,7 @@ const PROFILE_BODY_SECTIONS: Array<{
   label: string;
 }> = [
   { key: "posts", label: "Posts" },
-  { key: "notes", label: "Notes" },
+  { key: "notes", label: "Journal" },
   { key: "daily", label: "Daily" },
   { key: "periodic", label: "Periodic" },
 ];
@@ -1129,7 +1129,7 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
     section === "posts"
       ? "Posts"
       : section === "notes"
-        ? "Notes"
+        ? "Journal"
         : section === "daily"
           ? "Daily habits"
           : "Periodic habits";
@@ -1258,6 +1258,11 @@ function ProfileNotesSection({
     .filter((note) => note.text.length > 0);
 
   useEffect(() => {
+    if (activeFilter !== "monthly") return;
+    setSelectedMonth((current) => (current === "all" ? current : "all"));
+  }, [activeFilter]);
+
+  useEffect(() => {
     const currentFilterKey = getProfileNotesFilterKey(
       activeFilter,
       currentMonth,
@@ -1347,7 +1352,7 @@ function ProfileNotesSection({
     selectedYear === "all" ? "All" : String(selectedYear);
   const selectedNotesLabel =
     selectedMonth === "all" && selectedYear === "all"
-      ? "All notes"
+      ? "All journal entries"
       : selectedMonth === "all"
         ? String(selectedYear)
         : selectedYear === "all"
@@ -1437,13 +1442,13 @@ function ProfileNotesSection({
         <View style={styles.notesEmptyState}>
           <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
             {self
-              ? `No ${activeFilter} notes here`
-              : `No shared ${activeFilter} notes`}
+              ? `No ${activeFilter} journal entries here`
+              : `No shared ${activeFilter} journal entries`}
           </Text>
           <Text style={[styles.notesEmptyText, { color: theme.textSecondary }]}>
             {self
-              ? `${selectedNotesLabel} does not have saved ${activeFilter} notes yet.`
-              : "Notes this friend shares will show up here."}
+              ? `${selectedNotesLabel} does not have saved ${activeFilter} journal entries yet.`
+              : "Journal entries this friend shares will show up here."}
           </Text>
         </View>
       )}
@@ -1765,7 +1770,7 @@ function ProfileNotesFilterMenu({
       actions={actions}
       onPressAction={({ nativeEvent }) => onSelect(nativeEvent.event)}
       style={styles.noteFilterMenu}
-      title={`Filter notes by ${label.toLowerCase()}`}
+      title={`Filter journal by ${label.toLowerCase()}`}
     >
       <View
         accessible

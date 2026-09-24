@@ -1970,8 +1970,8 @@ export function DayPlanScreen({
   );
   const openDatePicker = useCallback(() => {
     playSelectionHaptic();
-    setCalendarPickerOpen(false);
-    setDatePickerOpen(true);
+    setDatePickerOpen(false);
+    setCalendarPickerOpen(true);
   }, []);
   const selectPickerDate = useCallback(
     (date: Date) => {
@@ -2905,7 +2905,7 @@ export function DayPlanScreen({
                 </View>
                 <View style={styles.dateControls}>
                   <Pressable
-                    accessibilityLabel="Add note for this day"
+                    accessibilityLabel="Open daily journal"
                     accessibilityRole="button"
                     onPress={() => setDayNoteOpen(true)}
                     style={({ pressed }) => [

@@ -773,7 +773,7 @@ export function MonthlyGoalsScreen({
             </View>
             <View style={styles.headerActions}>
               <Pressable
-                accessibilityLabel="Add note for this month"
+                accessibilityLabel="Open monthly journal"
                 accessibilityRole="button"
                 onPress={() => setMonthlyNoteOpen(true)}
                 style={({ pressed }) => [

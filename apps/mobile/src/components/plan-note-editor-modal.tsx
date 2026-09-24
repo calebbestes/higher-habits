@@ -106,7 +106,9 @@ export function PlanNoteEditorModal({
         noteType,
       });
       setError(
-        saveError instanceof Error ? saveError.message : "Could not save note.",
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save journal entry.",
       );
     } finally {
       setIsSaving(false);
@@ -145,7 +147,7 @@ export function PlanNoteEditorModal({
             </Pressable>
             <View style={styles.headerText}>
               <Text style={[styles.title, { color: theme.text }]}>
-                {noteType === "day" ? "Day note" : "Monthly note"}
+                {noteType === "day" ? "Day journal" : "Monthly journal"}
               </Text>
               <Text style={[styles.date, { color: theme.textSecondary }]}>
                 {dateLabel}
@@ -184,7 +186,7 @@ export function PlanNoteEditorModal({
           >
             <View>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Notes
+                Journal
               </Text>
               <Text
                 style={[
@@ -225,7 +227,7 @@ export function PlanNoteEditorModal({
                 initialContentHTML={initialValue}
                 initialHeight={280}
                 onChange={setValue}
-                placeholder={`Write a note for this ${noteType}...`}
+                placeholder={`Write in your journal for this ${noteType}...`}
                 style={styles.editor}
                 styleWithCSS={false}
               />
