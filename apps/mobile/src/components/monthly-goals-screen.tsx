@@ -265,13 +265,11 @@ function isGoalPlannedForDate({
 export function MonthlyGoalsScreen({
   habitsTab,
   initialDateKey,
-  isActive = true,
   onDateChange,
   onHabitsTabChange,
 }: {
   habitsTab?: HabitsTab;
   initialDateKey?: string;
-  isActive?: boolean;
   onDateChange?: (dateKey: string) => void;
   onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
@@ -297,7 +295,6 @@ export function MonthlyGoalsScreen({
       ? initialDateKey
       : toDateKey(new Date()),
   );
-  const lastReportedDateKeyRef = useRef<string | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
   const today = useMemo(() => new Date(), [displayMonth]);
@@ -314,31 +311,6 @@ export function MonthlyGoalsScreen({
   const [monthlyNoteOpen, setMonthlyNoteOpen] = useState(false);
   const [monthlyNote, setMonthlyNote] = useState("");
 
-  useEffect(() => {
-    if (
-      !isActive ||
-      !initialDateKey ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
-      initialDateKey === selectedDateKey
-    ) {
-      return;
-    }
-
-    const nextDate = dateFromKey(initialDateKey);
-    setSelectedDateKey(initialDateKey);
-    setDisplayMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
-    setMonthPickerMonth(
-      new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
-    );
-  }, [initialDateKey, isActive, selectedDateKey]);
-
-  useEffect(() => {
-    if (!isActive || lastReportedDateKeyRef.current === selectedDateKey) {
-      return;
-    }
-    lastReportedDateKeyRef.current = selectedDateKey;
-    onDateChange?.(selectedDateKey);
-  }, [isActive, onDateChange, selectedDateKey]);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);
@@ -723,13 +695,16 @@ export function MonthlyGoalsScreen({
 
   const selectedDate = dateFromKey(selectedDateKey);
 
-  const navigateMonth = useCallback((delta: 1 | -1) => {
-    setDisplayMonth((m) => {
-      const newMonth = addMonths(m, delta);
-      setSelectedDateKey(toDateKey(newMonth));
-      return newMonth;
-    });
-  }, []);
+  const navigateMonth = useCallback(
+    (delta: 1 | -1) => {
+      const nextMonth = addMonths(displayMonth, delta);
+      const nextDateKey = toDateKey(nextMonth);
+      setDisplayMonth(nextMonth);
+      setSelectedDateKey(nextDateKey);
+      onDateChange?.(nextDateKey);
+    },
+    [displayMonth, onDateChange],
+  );
 
   const openMonthPicker = useCallback(() => {
     setMonthPickerMonth(
@@ -738,12 +713,17 @@ export function MonthlyGoalsScreen({
     setMonthPickerOpen(true);
   }, [displayMonth]);
 
-  const selectMonthFromPicker = useCallback((date: Date) => {
-    const nextMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-    setDisplayMonth(nextMonth);
-    setSelectedDateKey(toDateKey(nextMonth));
-    setMonthPickerOpen(false);
-  }, []);
+  const selectMonthFromPicker = useCallback(
+    (date: Date) => {
+      const nextMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+      const nextDateKey = toDateKey(nextMonth);
+      setDisplayMonth(nextMonth);
+      setSelectedDateKey(nextDateKey);
+      onDateChange?.(nextDateKey);
+      setMonthPickerOpen(false);
+    },
+    [onDateChange],
+  );
 
   const scrollToDetailPanel = useCallback(() => {
     requestAnimationFrame(() => {
@@ -757,9 +737,10 @@ export function MonthlyGoalsScreen({
   const selectDateAndScroll = useCallback(
     (dateKey: string) => {
       setSelectedDateKey(dateKey);
+      onDateChange?.(dateKey);
       scrollToDetailPanel();
     },
-    [scrollToDetailPanel],
+    [onDateChange, scrollToDetailPanel],
   );
 
   const monthLabel = `${MONTH_NAMES[displayMonth.getMonth()]} ${displayMonth.getFullYear()}`;

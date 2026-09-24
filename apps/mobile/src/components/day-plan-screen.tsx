@@ -269,7 +269,6 @@ export function DayPlanScreen({
   initialDateKey,
   initialCreateRange,
   initialEventTarget,
-  isActive = true,
   modalOnly = false,
   onDateChange,
   onEventOverlayDismiss,
@@ -278,7 +277,6 @@ export function DayPlanScreen({
   initialDateKey?: string;
   initialCreateRange?: DayPlanCreateRange | null;
   initialEventTarget?: DayPlanEventTarget | null;
-  isActive?: boolean;
   modalOnly?: boolean;
   onDateChange?: (dateKey: string) => void;
   onEventOverlayDismiss?: () => void;
@@ -305,7 +303,6 @@ export function DayPlanScreen({
     pageX: number;
     pageY: number;
   } | null>(null);
-  const lastReportedDateKeyRef = useRef<string | null>(null);
   const suppressDaySwipeRef = useRef(false);
   const dateMotionValueRef = useRef(new Animated.Value(0));
   const dateMotionDirectionRef = useRef(1);
@@ -383,21 +380,6 @@ export function DayPlanScreen({
   );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   useEffect(() => {
-    if (
-      !isActive ||
-      !initialDateKey ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
-      initialDateKey === dateKey
-    ) {
-      return;
-    }
-
-    const nextDate = dateFromKey(initialDateKey);
-    setSelectedDate(nextDate);
-    setDatePickerMonth(startOfMonth(nextDate));
-  }, [dateKey, initialDateKey, isActive]);
-
-  useEffect(() => {
     let cancelled = false;
     setDayNote("");
     void fetchPlanNote({ dateKey, period: "daily" })
@@ -435,6 +417,8 @@ export function DayPlanScreen({
   );
   const monthKey = useMemo(() => getMonthKey(selectedDate), [selectedDate]);
   const timeZone = useMemo(() => getLocalTimeZone(), []);
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
   const {
     calendars,
     changeCalendarColor,
@@ -466,14 +450,6 @@ export function DayPlanScreen({
   const habitCategoriesCacheRef = useRef<Category[] | null>(null);
   const projectsLoadedRef = useRef(false);
   const projectsInFlightRef = useRef<Promise<void> | null>(null);
-
-  useEffect(() => {
-    if (!isActive || lastReportedDateKeyRef.current === dateKey) {
-      return;
-    }
-    lastReportedDateKeyRef.current = dateKey;
-    onDateChange?.(dateKey);
-  }, [dateKey, isActive, onDateChange]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: animate whenever the selected date key changes.
   useEffect(() => {
@@ -1976,33 +1952,40 @@ export function DayPlanScreen({
 
   const moveDate = useCallback(
     (days: number) => {
-      const currentDateKey = toDateKey(selectedDate);
-      const nextDateKey = toDateKey(addDays(selectedDate, days));
+      const currentDate = selectedDateRef.current;
+      const nextDate = addDays(currentDate, days);
+      const currentDateKey = toDateKey(currentDate);
+      const nextDateKey = toDateKey(nextDate);
       reportMobileDiagnostic("day-swipe", {
         currentDateKey,
         days,
         nextDateKey,
       });
       dateMotionDirectionRef.current = days > 0 ? 1 : -1;
-      setSelectedDate(addDays(selectedDate, days));
+      selectedDateRef.current = nextDate;
+      setSelectedDate(nextDate);
+      onDateChange?.(nextDateKey);
     },
-    [selectedDate],
+    [onDateChange],
   );
   const openDatePicker = useCallback(() => {
     playSelectionHaptic();
-    setDatePickerOpen(false);
-    setCalendarPickerOpen(true);
+    setCalendarPickerOpen(false);
+    setDatePickerOpen(true);
   }, []);
   const selectPickerDate = useCallback(
     (date: Date) => {
       playSelectionHaptic();
       const nextDate = startOfDay(date);
-      dateMotionDirectionRef.current = nextDate > selectedDate ? 1 : -1;
+      dateMotionDirectionRef.current =
+        nextDate > selectedDateRef.current ? 1 : -1;
+      selectedDateRef.current = nextDate;
       setSelectedDate(nextDate);
+      onDateChange?.(toDateKey(nextDate));
       setDatePickerOpen(false);
       setCalendarPickerOpen(false);
     },
-    [selectedDate],
+    [onDateChange],
   );
   const cancelDaySwipe = useCallback(() => {
     daySwipeRef.current = null;

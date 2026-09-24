@@ -1,5 +1,5 @@
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { ComponentErrorBoundary } from "@/components/component-error-boundary";
@@ -38,7 +38,6 @@ export default function PlanReportScreen() {
   const rememberedView = usePlanReportView();
   const rememberedDateKey = usePlanReportDateKey();
   const routeDateKey = isDateKey(date) ? date : undefined;
-  const pendingDateKeyRef = useRef<string | null>(null);
   const activeView = isPlanReportView(view)
     ? view
     : isPlanReportView(rememberedView)
@@ -48,18 +47,15 @@ export default function PlanReportScreen() {
     activeView === "weekly-plan" || activeView === "monthly-plan"
       ? activeView
       : "day-plan";
-  const activeDateKey =
-    pendingDateKeyRef.current ?? routeDateKey ?? rememberedDateKey ?? undefined;
+  const activeDateKey = routeDateKey ?? rememberedDateKey ?? undefined;
   const handleDateChange = useCallback(
     (dateKey: string) => {
       reportMobileDiagnostic("plan-report-date-change", {
         nextDateKey: dateKey,
         routeDate: routeDateKey ?? null,
       });
-      pendingDateKeyRef.current = dateKey;
       setPlanReportDateKey(dateKey);
       if (routeDateKey === dateKey) {
-        pendingDateKeyRef.current = null;
         return;
       }
       router.setParams({ date: dateKey });
@@ -74,7 +70,6 @@ export default function PlanReportScreen() {
     (dateKey: string) => {
       setPendingEventTarget(null);
       setPendingCreateRange(null);
-      pendingDateKeyRef.current = dateKey;
       setPlanReportDateKey(dateKey);
       setPlanReportView("day-plan");
       router.setParams({ date: dateKey, view: "day-plan" });
@@ -100,15 +95,8 @@ export default function PlanReportScreen() {
   const openCreateRange = useCallback((range: WeeklyCreateRange) => {
     setPendingEventTarget(null);
     setPendingCreateRange(range);
-    pendingDateKeyRef.current = range.dateKey;
     setPlanReportDateKey(range.dateKey);
   }, []);
-
-  useEffect(() => {
-    if (pendingDateKeyRef.current === routeDateKey) {
-      pendingDateKeyRef.current = null;
-    }
-  }, [routeDateKey]);
 
   useEffect(() => {
     const legacyHref = getLegacyCreateHref(view);
@@ -134,7 +122,6 @@ export default function PlanReportScreen() {
             <ComponentErrorBoundary name="DayPlanScreen">
               <DayPlanScreen
                 initialDateKey={activeDateKey}
-                isActive={activePlanView === "day-plan"}
                 onDateChange={handleDateChange}
               />
             </ComponentErrorBoundary>
@@ -143,7 +130,6 @@ export default function PlanReportScreen() {
             <ComponentErrorBoundary name="WeeklyPlanScreen">
               <WeeklyPlanScreen
                 initialDateKey={activeDateKey}
-                isActive={activePlanView === "weekly-plan"}
                 onCreateRange={openCreateRange}
                 onDateChange={handleDateChange}
                 onSelectEvent={openDailyForEvent}
@@ -171,7 +157,6 @@ export default function PlanReportScreen() {
             <ComponentErrorBoundary name="MonthlyGoalsScreen">
               <MonthlyGoalsScreen
                 initialDateKey={activeDateKey}
-                isActive={activePlanView === "monthly-plan"}
                 onDateChange={handleDateChange}
               />
             </ComponentErrorBoundary>

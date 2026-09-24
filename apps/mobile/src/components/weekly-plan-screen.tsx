@@ -551,14 +551,12 @@ function stripEditorText(html: string): string {
 
 export function WeeklyPlanScreen({
   initialDateKey,
-  isActive = true,
   onCreateRange,
   onDateChange,
   onSelectEvent,
   onSelectDate,
 }: {
   initialDateKey?: string;
-  isActive?: boolean;
   onCreateRange?: (range: WeeklyCreateRange) => void;
   onDateChange?: (dateKey: string) => void;
   onSelectEvent?: (event: WeekEvent) => void;
@@ -590,7 +588,6 @@ export function WeeklyPlanScreen({
   const [weekStartDate, setWeekStartDate] = useState(() =>
     startOfWeek(dateFromKey(selectedDateKey)),
   );
-  const lastReportedDateKeyRef = useRef<string | null>(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [weekPickerMonth, setWeekPickerMonth] = useState(() => {
     const weekStart = startOfWeek(dateFromKey(selectedDateKey));
@@ -662,24 +659,6 @@ export function WeeklyPlanScreen({
   const todayKey = toDateKey(now);
   const nowLineTop = getWeeklyNowLineTop(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
-  useEffect(() => {
-    if (
-      !isActive ||
-      !initialDateKey ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
-      initialDateKey === selectedDateKey
-    ) {
-      return;
-    }
-
-    const nextDate = dateFromKey(initialDateKey);
-    setSelectedDateKey(initialDateKey);
-    setWeekStartDate(startOfWeek(nextDate));
-    setWeekPickerMonth(
-      new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
-    );
-  }, [initialDateKey, isActive, selectedDateKey]);
-
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
   const weekEventsByDate = useMemo(
     () =>
@@ -820,14 +799,6 @@ export function WeeklyPlanScreen({
   useEffect(() => {
     savedNotesRef.current = notes;
   }, [notes]);
-
-  useEffect(() => {
-    if (!isActive || lastReportedDateKeyRef.current === selectedDateKey) {
-      return;
-    }
-    lastReportedDateKeyRef.current = selectedDateKey;
-    onDateChange?.(selectedDateKey);
-  }, [isActive, onDateChange, selectedDateKey]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -1071,13 +1042,13 @@ export function WeeklyPlanScreen({
   const navigateWeek = useCallback(
     (delta: -1 | 1) => {
       const selectedDayOfWeek = dateFromKey(selectedDateKey).getDay();
-      setWeekStartDate((current) => {
-        const next = addDays(current, delta * 7);
-        setSelectedDateKey(toDateKey(addDays(next, selectedDayOfWeek)));
-        return next;
-      });
+      const next = addDays(weekStartDate, delta * 7);
+      const nextDateKey = toDateKey(addDays(next, selectedDayOfWeek));
+      setWeekStartDate(next);
+      setSelectedDateKey(nextDateKey);
+      onDateChange?.(nextDateKey);
     },
-    [selectedDateKey],
+    [onDateChange, selectedDateKey, weekStartDate],
   );
 
   const completeWeekSwipe = useCallback(
