@@ -78,7 +78,9 @@ export function fetchMobileSession(options?: FetchMobileSessionOptions) {
       })
       .catch((error) => {
         if (inFlightSessionRequest === sessionRequest) {
-          currentMobileSession = null;
+          // A transient server/database failure must not turn a valid cached
+          // session into a logout. Explicit sign-out is the only path that
+          // clears currentMobileSession.
           hasResolvedMobileSession = true;
           notifyMobileSessionListeners();
         }

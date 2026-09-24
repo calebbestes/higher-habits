@@ -9,8 +9,8 @@ import {
   persistAuthCallbackCookie,
 } from "@/lib/auth-client";
 
-const MAX_SESSION_REFRESH_ATTEMPTS = 8;
-const SESSION_REFRESH_DELAY_MS = 300;
+const MAX_SESSION_REFRESH_ATTEMPTS = 6;
+const SESSION_REFRESH_DELAY_MS = 1_000;
 
 function getFirstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -88,7 +88,7 @@ export default function AuthCallbackScreen() {
 
       timeout = setTimeout(
         () => void completeAuth(attempt + 1),
-        SESSION_REFRESH_DELAY_MS,
+        Math.min(SESSION_REFRESH_DELAY_MS * 2 ** attempt, 8_000),
       );
     };
 

@@ -1,32 +1,39 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
+const diagnosticValueSchema = z.union([
+  z.boolean(),
+  z.number().finite(),
+  z.string().max(500),
+  z.null(),
+]);
 
 const diagnosticSchema = z.object({
-  details: z.record(z.string(), z.unknown()).optional(),
+  details: z
+    .record(z.string().max(80), diagnosticValueSchema)
+    .refine((details) => Object.keys(details).length <= 30)
+    .optional(),
   event: z.string().min(1).max(120),
   message: z.string().max(2_000).optional(),
 });
 
 export async function POST(request: Request) {
   try {
-    const user = await requireRequestUser(request);
     const data = diagnosticSchema.parse(await request.json());
 
+    // Keep this endpoint independent from Better Auth. It is used to diagnose
+    // auth/database failures, so requiring a session here would create another
+    // database request during the outage we are trying to observe.
     console.error(
       "[Mobile Diagnostic]",
       JSON.stringify({
         ...data,
         receivedAt: new Date().toISOString(),
-        userId: user.id,
       }),
     );
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const authErrorResponse = toAuthErrorResponse(error);
-    if (authErrorResponse) return authErrorResponse;
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

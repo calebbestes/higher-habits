@@ -45,13 +45,9 @@ export function PlanReportViewSlot({
 }) {
   const context = usePlanReportContext();
 
-  return (
-    <View
-      style={[styles.slot, context.activeView !== view && styles.hiddenSlot]}
-    >
-      {children}
-    </View>
-  );
+  if (context.activeView !== view) return null;
+
+  return <View style={styles.slot}>{children}</View>;
 }
 
 export function usePlanReportContext(): PlanReportContextValue {
@@ -65,6 +61,5 @@ export function usePlanReportContext(): PlanReportContextValue {
 }
 
 const styles = StyleSheet.create({
-  hiddenSlot: { display: "none" },
   slot: { flex: 1 },
 });
