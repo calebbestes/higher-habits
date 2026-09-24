@@ -194,13 +194,16 @@ function GoalActionsModalImpl({
   const theme = useTheme();
   const { colors: googleEventColors, isLoading: isLoadingGoogleColors } =
     useGoogleCalendarEventColors();
-  const colorOptions = [
-    { color: null, label: "Default" },
-    ...googleEventColors.map((googleColor) => ({
-      color: googleColor.backgroundColor,
-      label: `Google color ${googleColor.colorId}`,
-    })),
-  ];
+  const colorOptions = googleEventColors.map((googleColor) => ({
+    color: googleColor.backgroundColor,
+    label: googleColor.label ?? `Google color ${googleColor.colorId}`,
+  }));
+  const selectedColorOption = colorOptions.find(
+    (option) =>
+      option.color &&
+      color &&
+      option.color.toLowerCase() === color.toLowerCase(),
+  );
   const isComplete = status === "complete";
   const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
@@ -916,6 +919,27 @@ function GoalActionsModalImpl({
                       >
                         Color
                       </Text>
+                      <ReliablePressable
+                        accessibilityLabel="Use default calendar color"
+                        accessibilityRole="button"
+                        disabled={
+                          isUpdatingColor ||
+                          color === null ||
+                          color === undefined
+                        }
+                        onPress={() => onSetColor(null)}
+                      >
+                        <Text
+                          style={[
+                            modalStyles.colorSectionValue,
+                            { color: theme.textSecondary },
+                          ]}
+                        >
+                          {color === null || color === undefined
+                            ? "Default"
+                            : (selectedColorOption?.label ?? "Choose a color")}
+                        </Text>
+                      </ReliablePressable>
                     </View>
                     <View style={modalStyles.colorOptions}>
                       {isLoadingGoogleColors ? (
@@ -923,7 +947,6 @@ function GoalActionsModalImpl({
                       ) : (
                         colorOptions.map((option) => {
                           const isSelected = color === option.color;
-                          const swatchColor = option.color ?? theme.primary;
 
                           return (
                             <ReliablePressable
@@ -951,7 +974,7 @@ function GoalActionsModalImpl({
                               <View
                                 style={[
                                   modalStyles.colorSwatch,
-                                  { backgroundColor: swatchColor },
+                                  { backgroundColor: option.color },
                                 ]}
                               />
                             </ReliablePressable>

@@ -25,6 +25,8 @@ export type GoogleCalendarDayEvent = {
   calendarForegroundColor?: string | null;
   calendarId: string;
   calendarName: string;
+  higherHabitsSourceId?: string | null;
+  higherHabitsSourceType?: string | null;
 };
 
 export type GoogleCalendar = {
@@ -40,11 +42,14 @@ export type GoogleCalendarEventColor = {
   backgroundColor: string;
   colorId: string;
   foregroundColor: string;
+  label?: string;
 };
 
 export type GoogleCalendarColorsResponse = {
-  calendarColors: GoogleCalendarEventColor[];
-  colors: GoogleCalendarEventColor[];
+  calendarColors?: GoogleCalendarEventColor[];
+  colors?: GoogleCalendarEventColor[];
+  error?: string;
+  eventLabels?: GoogleCalendarEventColor[];
   status: GoogleCalendarEventsResponse["status"];
 };
 
@@ -195,22 +200,36 @@ export const fetchGoogleCalendarColors =
     googleCalendarColorsRequest = mobileApiFetch("/api/google-calendar/colors")
       .then((response) => parseResponse<GoogleCalendarColorsResponse>(response))
       .then((result) => {
+        const colors = result.colors ?? [];
+        const calendarColors = result.calendarColors ?? [];
+        const eventLabels = result.eventLabels ?? [];
         if (result.status !== "synced") {
-          console.error("[Google Calendar] Colors failed:", result.status);
+          console.error(
+            "[Google Calendar] Colors failed:",
+            result.error ?? result.status,
+          );
         }
         if (
           result.status === "synced" &&
-          (result.colors.length > 0 || result.calendarColors.length > 0)
+          (colors.length > 0 ||
+            calendarColors.length > 0 ||
+            eventLabels.length > 0)
         ) {
-          cachedGoogleCalendarColors = result;
+          cachedGoogleCalendarColors = {
+            ...result,
+            calendarColors,
+            colors,
+            eventLabels,
+          };
         }
-        return result;
+        return { ...result, calendarColors, colors, eventLabels };
       })
       .catch((error) => {
         console.error("[Google Calendar] Colors request failed:", error);
         return {
           calendarColors: [],
           colors: [],
+          eventLabels: [],
           status: "error" as const,
         };
       })
@@ -221,11 +240,15 @@ export const fetchGoogleCalendarColors =
     return googleCalendarColorsRequest;
   };
 
-export const fetchGoogleCalendarEventColors = async () =>
-  (await fetchGoogleCalendarColors()).colors;
+export const fetchGoogleCalendarEventColors = async () => {
+  const result = await fetchGoogleCalendarColors();
+  return result.eventLabels?.length
+    ? result.eventLabels
+    : (result.colors ?? []);
+};
 
 export const fetchGoogleCalendarCalendarColors = async () =>
-  (await fetchGoogleCalendarColors()).calendarColors;
+  (await fetchGoogleCalendarColors()).calendarColors ?? [];
 
 export const updateGoogleCalendarColor = ({
   backgroundColor,

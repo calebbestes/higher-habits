@@ -333,7 +333,15 @@ export function TasksScreen() {
         startTime: existingPlan.startTime,
         timeZone: null,
         title: saved.name,
+        calendarColor: saved.color,
       });
+      if (result.calendarSync?.status !== "synced") {
+        Alert.alert(
+          "Task saved, but Google Calendar was not updated",
+          result.calendarSync?.error ??
+            `Google Calendar sync was ${result.calendarSync?.status ?? "not attempted"}.`,
+        );
+      }
       if (!isMountedRef.current) return;
       setPlannedEvents((current) => {
         const nextPlannedEvents = current.map((event) =>

@@ -11,7 +11,6 @@ import { useTheme } from "@/hooks/use-theme";
 
 export function CalendarColorPicker({
   defaultColor,
-  defaultForeground,
   defaultHint = "Default uses Google's default event color.",
   disabled = false,
   value,
@@ -27,19 +26,22 @@ export function CalendarColorPicker({
   const theme = useTheme();
   const { colors: googleEventColors, isLoading: isLoadingGoogleColors } =
     useGoogleCalendarEventColors();
-  const colorOptions = [
-    { color: null, foreground: null, label: "Default" },
-    ...googleEventColors.map((googleColor) => ({
-      color: googleColor.backgroundColor,
-      foreground: googleColor.foregroundColor,
-      label: `Google color ${googleColor.colorId}`,
-    })),
-  ];
+  const colorOptions = googleEventColors.map((googleColor) => ({
+    color: googleColor.backgroundColor,
+    foreground: googleColor.foregroundColor,
+    label: googleColor.label ?? `Google color ${googleColor.colorId}`,
+  }));
   const defaultColorOption = colorOptions.find(
     (option) =>
       option.color &&
       defaultColor &&
       option.color.toLowerCase() === defaultColor.toLowerCase(),
+  );
+  const selectedColorOption = colorOptions.find(
+    (option) =>
+      option.color &&
+      value &&
+      option.color.toLowerCase() === value.toLowerCase(),
   );
 
   return (
@@ -48,35 +50,34 @@ export function CalendarColorPicker({
         <Text style={[styles.label, { color: theme.text }]}>
           Calendar color
         </Text>
-        <Text style={[styles.value, { color: theme.textSecondary }]}>
-          {isLoadingGoogleColors
-            ? "Loading…"
-            : value === null
-              ? "Default"
-              : "Choose a color"}
-        </Text>
+        <Pressable
+          accessibilityLabel="Use default calendar color"
+          accessibilityRole="button"
+          disabled={disabled || value === null || value === undefined}
+          onPress={() => onChange(null)}
+          style={({ pressed }) => [pressed && styles.pressed]}
+        >
+          <Text style={[styles.value, { color: theme.textSecondary }]}>
+            {isLoadingGoogleColors
+              ? "Loading…"
+              : value === null
+                ? "Default"
+                : (selectedColorOption?.label ?? "Choose a color")}
+          </Text>
+        </Pressable>
       </View>
       <View style={styles.options}>
         {isLoadingGoogleColors ? (
           <ActivityIndicator color={theme.primary} size="small" />
         ) : (
           colorOptions.map((option) => {
-            const isDefaultOption = option.color === null;
-            const selected = isDefaultOption
-              ? value === null && !defaultColorOption
-              : value === option.color ||
-                (value === null && defaultColorOption?.color === option.color);
-            const swatchColor = option.color ?? defaultColor ?? theme.primary;
-            const swatchForeground =
-              option.foreground ?? defaultForeground ?? theme.primaryForeground;
-            const optionLabel =
-              !isDefaultOption && defaultColorOption?.color === option.color
-                ? `${option.label} (default)`
-                : option.label;
+            const selected =
+              value === option.color ||
+              (value === null && defaultColorOption?.color === option.color);
 
             return (
               <Pressable
-                accessibilityLabel={`${optionLabel} calendar color`}
+                accessibilityLabel={`${option.label} calendar color`}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
                 disabled={disabled}
@@ -92,7 +93,7 @@ export function CalendarColorPicker({
                   style={[
                     styles.swatch,
                     {
-                      backgroundColor: swatchColor,
+                      backgroundColor: option.color,
                       borderColor: selected ? theme.text : "transparent",
                       borderWidth: selected ? 2 : 0,
                     },
@@ -100,7 +101,7 @@ export function CalendarColorPicker({
                 >
                   {selected ? (
                     <Text
-                      style={[styles.checkmark, { color: swatchForeground }]}
+                      style={[styles.checkmark, { color: option.foreground }]}
                     >
                       ✓
                     </Text>

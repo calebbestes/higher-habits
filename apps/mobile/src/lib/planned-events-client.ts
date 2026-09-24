@@ -35,6 +35,13 @@ export type PlannedEventInput = {
   timeZone?: string | null;
 };
 
+export type PlannedEventCalendarSync = {
+  status: string;
+  error?: string;
+  eventId?: string | null;
+  calendarId?: string | null;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -90,9 +97,10 @@ export const upsertPlannedEvent = ({
       plannedTimeZone: timeZone ?? null,
     }),
   }).then((response) =>
-    parseResponse<{ event: PlannedEvent; calendarSync?: { status: string } }>(
-      response,
-    ),
+    parseResponse<{
+      event: PlannedEvent;
+      calendarSync?: PlannedEventCalendarSync;
+    }>(response),
   );
 
 export const deletePlannedEvent = ({
@@ -110,7 +118,9 @@ export const deletePlannedEvent = ({
       sourceId,
     }),
   }).then((response) =>
-    parseResponse<{ ok: true; calendarSync?: { status: string } }>(response),
+    parseResponse<{ ok: true; calendarSync?: PlannedEventCalendarSync }>(
+      response,
+    ),
   );
 
 export const setPlannedEventCompletion = ({

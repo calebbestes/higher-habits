@@ -39,6 +39,7 @@ import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-contr
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalFormModal } from "@/components/goals-screen";
 import { HabitFormModal } from "@/components/habits-manager-screen";
+import { PlanNoteEditorModal } from "@/components/plan-note-editor-modal";
 import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
@@ -94,6 +95,7 @@ import {
   getNativeAuthErrorCallbackURLForPath,
 } from "@/lib/native-auth-callback";
 import { fetchDayPlanBootstrap } from "@/lib/plan-bootstrap-client";
+import { fetchPlanNote, savePlanNote } from "@/lib/plan-notes-client";
 import {
   DEFAULT_PLAN_PERIOD,
   DEFAULT_PLAN_START_TIME,
@@ -371,10 +373,25 @@ export function DayPlanScreen({
   const [celebrate, setCelebrate] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
+  const [dayNoteOpen, setDayNoteOpen] = useState(false);
+  const [dayNote, setDayNote] = useState("");
   const [datePickerMonth, setDatePickerMonth] = useState(() =>
     startOfMonth(initialDateKey ? dateFromKey(initialDateKey) : new Date()),
   );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  useEffect(() => {
+    let cancelled = false;
+    setDayNote("");
+    void fetchPlanNote({ dateKey, period: "daily" })
+      .then((note) => {
+        if (!cancelled) setDayNote(note.notes);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dateKey]);
   const isViewingToday = useMemo(
     () => toDateKey(now) === dateKey,
     [now, dateKey],
@@ -410,6 +427,9 @@ export function DayPlanScreen({
     selectedCalendarIds,
     toggleCalendar,
   } = useGoogleCalendarSelection();
+  const floatCalendarColor =
+    calendars.find((calendar) => calendar.summary === "Float")
+      ?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
   const loadSequenceRef = useRef(0);
   const snapshotCacheRef = useRef(new Map<string, HabitLogsSnapshot>());
   const snapshotInFlightRef = useRef(
@@ -1027,6 +1047,7 @@ export function DayPlanScreen({
       buildDayPlanEntries({
         checkpointById,
         dateKey,
+        defaultCalendarColor: floatCalendarColor,
         googleEvents,
         habitById,
         plannedEvents,
@@ -1043,6 +1064,7 @@ export function DayPlanScreen({
       selectedDate,
       snapshot,
       taskById,
+      floatCalendarColor,
     ],
   );
   const timedEntries = useMemo(
@@ -1062,6 +1084,7 @@ export function DayPlanScreen({
       buildSuggestedPlanEntries({
         allDayEntries,
         dateKey,
+        defaultCalendarColor: floatCalendarColor,
         planGoals,
         scheduledHabitCounts,
         scheduledCheckpointIds,
@@ -1072,6 +1095,7 @@ export function DayPlanScreen({
     [
       allDayEntries,
       dateKey,
+      floatCalendarColor,
       planGoals,
       scheduledHabitCounts,
       scheduledCheckpointIds,
@@ -1934,9 +1958,9 @@ export function DayPlanScreen({
   }, []);
   const openDatePicker = useCallback(() => {
     playSelectionHaptic();
-    setDatePickerMonth(startOfMonth(selectedDate));
-    setDatePickerOpen(true);
-  }, [selectedDate]);
+    setDatePickerOpen(false);
+    setCalendarPickerOpen(true);
+  }, []);
   const selectPickerDate = useCallback(
     (date: Date) => {
       playSelectionHaptic();
@@ -1944,6 +1968,7 @@ export function DayPlanScreen({
       dateMotionDirectionRef.current = nextDate > selectedDate ? 1 : -1;
       setSelectedDate(nextDate);
       setDatePickerOpen(false);
+      setCalendarPickerOpen(false);
     },
     [selectedDate],
   );
@@ -2724,6 +2749,13 @@ export function DayPlanScreen({
 
       if (!isMountedRef.current) return;
       patchPlannedEvent(response.event);
+      if (response.calendarSync?.status !== "synced") {
+        Alert.alert(
+          "Saved in Float, but not Google Calendar",
+          response.calendarSync?.error ??
+            `Google Calendar sync was ${response.calendarSync?.status ?? "not attempted"}. Try reconnecting Google Calendar and save again.`,
+        );
+      }
       scheduleEntryNotification(
         {
           allDay: false,
@@ -2947,9 +2979,9 @@ export function DayPlanScreen({
                 </View>
                 <View style={styles.dateControls}>
                   <Pressable
-                    accessibilityLabel="Choose Google calendars"
+                    accessibilityLabel="Add note for this day"
                     accessibilityRole="button"
-                    onPress={() => setCalendarPickerOpen(true)}
+                    onPress={() => setDayNoteOpen(true)}
                     style={({ pressed }) => [
                       styles.iconButton,
                       {
@@ -2960,7 +2992,11 @@ export function DayPlanScreen({
                     ]}
                   >
                     <SymbolView
-                      name={{ ios: "calendar", android: "event", web: "event" }}
+                      name={{
+                        ios: "pencil.and.scribble",
+                        android: "edit_note",
+                        web: "edit_note",
+                      }}
                       size={19}
                       tintColor={theme.primary}
                     />
@@ -2980,8 +3016,11 @@ export function DayPlanScreen({
                         { backgroundColor: theme.backgroundElement },
                       ]}
                     >
-                      <Text style={[styles.weekday, { color: theme.primary }]}>
-                        {WEEKDAY_NAMES[selectedDate.getDay()]}
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.weekday, { color: theme.primary }]}
+                      >
+                        {WEEKDAY_NAMES[selectedDate.getDay()].slice(0, 3)}
                       </Text>
                       <Text style={[styles.dayNumber, { color: theme.text }]}>
                         {selectedDate.getDate()}
@@ -3427,6 +3466,11 @@ export function DayPlanScreen({
           onSelectType={setSelectedPlanTargetType}
         />
         <OtherEventFormModal
+          defaultColor={floatCalendarColor}
+          defaultForeground={
+            calendars.find((calendar) => calendar.summary === "Float")
+              ?.foregroundColor ?? theme.primaryForeground
+          }
           isSaving={isCreatingOtherEvent}
           range={otherEventRange}
           onClose={() => setOtherEventRange(null)}
@@ -3489,6 +3533,24 @@ export function DayPlanScreen({
             }}
           />
         ) : null}
+        {dayNoteOpen ? (
+          <PlanNoteEditorModal
+            key={dateKey}
+            dateLabel={dateKey}
+            initialValue={dayNote}
+            noteType="day"
+            onClose={() => setDayNoteOpen(false)}
+            onSave={async (notes) => {
+              const saved = await savePlanNote({
+                dateKey,
+                notes,
+                period: "daily",
+              });
+              setDayNote(saved.notes);
+            }}
+            visible
+          />
+        ) : null}
         <DayPlanDatePicker
           month={datePickerMonth}
           onChangeMonth={setDatePickerMonth}
@@ -3511,12 +3573,14 @@ export function DayPlanScreen({
             void changeCalendarColor(color).catch(() => undefined);
           }}
           onRetry={() => void reloadCalendarSelection()}
+          onSelectDate={selectPickerDate}
           onSync={() => {
             void syncGoogleCalendar().then(() => reloadCalendarSelection());
           }}
           onToggle={(calendarId) => {
             void toggleCalendar(calendarId).catch(() => undefined);
           }}
+          selectedDate={selectedDate}
           selectedCalendarIds={selectedCalendarIds}
           visible={calendarPickerOpen}
         />
@@ -3548,6 +3612,7 @@ function DayPlanDatePicker({
 }) {
   const theme = useTheme();
   const pressLocksRef = useRef<Set<string>>(new Set());
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const todayKey = toDateKey(new Date());
   const selectedKey = toDateKey(selectedDate);
   const days = useMemo(() => getCalendarMonthDays(month), [month]);
@@ -3568,6 +3633,10 @@ function DayPlanDatePicker({
     }, 500);
   };
 
+  useEffect(() => {
+    if (!visible) setMonthPickerOpen(false);
+  }, [visible]);
+
   if (!visible) return null;
 
   return (
@@ -3582,13 +3651,22 @@ function DayPlanDatePicker({
         >
           <View style={styles.datePickerHeader}>
             <Pressable
-              accessibilityLabel="Previous month"
+              accessibilityLabel={
+                monthPickerOpen ? "Previous year" : "Previous month"
+              }
               hitSlop={8}
               onPress={() =>
-                runPressAction("previous-month", () => {
-                  playSelectionHaptic();
-                  onChangeMonth(addMonths(month, -1));
-                })
+                runPressAction(
+                  monthPickerOpen ? "previous-year" : "previous-month",
+                  () => {
+                    playSelectionHaptic();
+                    onChangeMonth(
+                      monthPickerOpen
+                        ? new Date(month.getFullYear() - 1, month.getMonth(), 1)
+                        : addMonths(month, -1),
+                    );
+                  },
+                )
               }
               style={({ pressed }) => [
                 styles.datePickerNavButton,
@@ -3603,17 +3681,40 @@ function DayPlanDatePicker({
                 weight="semibold"
               />
             </Pressable>
-            <Text style={[styles.datePickerTitle, { color: theme.text }]}>
-              {MONTH_NAMES[month.getMonth()]} {month.getFullYear()}
-            </Text>
+            {monthPickerOpen ? (
+              <Text style={[styles.datePickerTitle, { color: theme.text }]}>
+                {month.getFullYear()}
+              </Text>
+            ) : (
+              <Pressable
+                accessibilityLabel="Choose month and year"
+                accessibilityRole="button"
+                onPress={() => {
+                  playSelectionHaptic();
+                  setMonthPickerOpen(true);
+                }}
+                style={({ pressed }) => [pressed && styles.pressed]}
+              >
+                <Text style={[styles.datePickerTitle, { color: theme.text }]}>
+                  {MONTH_NAMES[month.getMonth()]} {month.getFullYear()}
+                </Text>
+              </Pressable>
+            )}
             <Pressable
-              accessibilityLabel="Next month"
+              accessibilityLabel={monthPickerOpen ? "Next year" : "Next month"}
               hitSlop={8}
               onPress={() =>
-                runPressAction("next-month", () => {
-                  playSelectionHaptic();
-                  onChangeMonth(addMonths(month, 1));
-                })
+                runPressAction(
+                  monthPickerOpen ? "next-year" : "next-month",
+                  () => {
+                    playSelectionHaptic();
+                    onChangeMonth(
+                      monthPickerOpen
+                        ? new Date(month.getFullYear() + 1, month.getMonth(), 1)
+                        : addMonths(month, 1),
+                    );
+                  },
+                )
               }
               style={({ pressed }) => [
                 styles.datePickerNavButton,
@@ -3630,76 +3731,131 @@ function DayPlanDatePicker({
             </Pressable>
           </View>
 
-          <View style={styles.datePickerWeekdays}>
-            {WEEKDAY_NAMES.map((day) => (
-              <Text
-                key={day}
-                style={[
-                  styles.datePickerWeekday,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                {day.slice(0, day === "Thu" ? 2 : 1)}
-              </Text>
-            ))}
-          </View>
+          {monthPickerOpen ? (
+            <View style={styles.monthPickerGrid}>
+              {Array.from({ length: 4 }, (_, row) => (
+                <View key={MONTH_NAMES[row * 3]} style={styles.monthPickerRow}>
+                  {Array.from({ length: 3 }, (_, column) => {
+                    const monthIndex = row * 3 + column;
+                    const isSelected = monthIndex === month.getMonth();
 
-          <View style={styles.datePickerGrid}>
-            {weeks.map((week) => (
-              <View
-                key={toDateKey(week[0] ?? month)}
-                style={styles.datePickerWeek}
-              >
-                {week.map((day) => {
-                  const dayKey = toDateKey(day);
-                  const isSelected = dayKey === selectedKey;
-                  const isToday = dayKey === todayKey;
-                  const inMonth = day.getMonth() === month.getMonth();
-
-                  return (
-                    <Pressable
-                      accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
-                      accessibilityRole="button"
-                      key={dayKey}
-                      onPress={() =>
-                        runPressAction(`date-${dayKey}`, () =>
-                          onSelectDate(day),
-                        )
-                      }
-                      style={({ pressed }) => [
-                        styles.datePickerDay,
-                        {
-                          backgroundColor: isSelected
-                            ? theme.primary
-                            : theme.backgroundElement,
-                          borderColor: isToday
-                            ? theme.primary
-                            : theme.tabBorder,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.datePickerDayText,
+                    return (
+                      <Pressable
+                        accessibilityLabel={`Choose ${MONTH_NAMES[monthIndex]}`}
+                        accessibilityRole="button"
+                        key={MONTH_NAMES[monthIndex]}
+                        onPress={() =>
+                          runPressAction(`month-${monthIndex}`, () => {
+                            playSelectionHaptic();
+                            onChangeMonth(
+                              new Date(month.getFullYear(), monthIndex, 1),
+                            );
+                            setMonthPickerOpen(false);
+                          })
+                        }
+                        style={({ pressed }) => [
+                          styles.monthPickerButton,
                           {
-                            color: isSelected
-                              ? theme.primaryForeground
-                              : inMonth
-                                ? theme.text
-                                : theme.textSecondary,
-                            opacity: inMonth || isSelected ? 1 : 0.48,
+                            backgroundColor: isSelected
+                              ? theme.primary
+                              : theme.backgroundElement,
+                            borderColor: theme.tabBorder,
                           },
+                          pressed && styles.pressed,
                         ]}
                       >
-                        {day.getDate()}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                        <Text
+                          style={[
+                            styles.monthPickerButtonText,
+                            {
+                              color: isSelected
+                                ? theme.primaryForeground
+                                : theme.text,
+                            },
+                          ]}
+                        >
+                          {MONTH_NAMES[monthIndex].slice(0, 3)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <>
+              <View style={styles.datePickerWeekdays}>
+                {WEEKDAY_NAMES.map((day) => (
+                  <Text
+                    key={day}
+                    style={[
+                      styles.datePickerWeekday,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {day.slice(0, day === "Thu" ? 2 : 1)}
+                  </Text>
+                ))}
               </View>
-            ))}
-          </View>
+
+              <View style={styles.datePickerGrid}>
+                {weeks.map((week) => (
+                  <View
+                    key={toDateKey(week[0] ?? month)}
+                    style={styles.datePickerWeek}
+                  >
+                    {week.map((day) => {
+                      const dayKey = toDateKey(day);
+                      const isSelected = dayKey === selectedKey;
+                      const isToday = dayKey === todayKey;
+                      const inMonth = day.getMonth() === month.getMonth();
+
+                      return (
+                        <Pressable
+                          accessibilityLabel={`Choose ${MONTH_NAMES[day.getMonth()]} ${day.getDate()}`}
+                          accessibilityRole="button"
+                          key={dayKey}
+                          onPress={() =>
+                            runPressAction(`date-${dayKey}`, () =>
+                              onSelectDate(day),
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.datePickerDay,
+                            {
+                              backgroundColor: isSelected
+                                ? theme.primary
+                                : theme.backgroundElement,
+                              borderColor: isToday
+                                ? theme.primary
+                                : theme.tabBorder,
+                            },
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.datePickerDayText,
+                              {
+                                color: isSelected
+                                  ? theme.primaryForeground
+                                  : inMonth
+                                    ? theme.text
+                                    : theme.textSecondary,
+                                opacity: inMonth || isSelected ? 1 : 0.48,
+                              },
+                            ]}
+                          >
+                            {day.getDate()}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -4598,11 +4754,15 @@ function PlanSelectionModal({
 }
 
 function OtherEventFormModal({
+  defaultColor,
+  defaultForeground,
   isSaving,
   onClose,
   onSave,
   range,
 }: {
+  defaultColor?: string;
+  defaultForeground?: string;
   isSaving: boolean;
   onClose: () => void;
   onSave: (title: string, calendarColor: string | null) => void;
@@ -4704,6 +4864,9 @@ function OtherEventFormModal({
               onSubmitEditing={submit}
             />
             <CalendarColorPicker
+              defaultColor={defaultColor}
+              defaultForeground={defaultForeground}
+              defaultHint="Default uses your Float calendar color."
               disabled={isSaving}
               onChange={setCalendarColor}
               value={calendarColor}
@@ -5351,6 +5514,7 @@ function getEntryColors(
 function buildDayPlanEntries({
   checkpointById,
   dateKey,
+  defaultCalendarColor,
   googleEvents,
   habitById,
   plannedEvents,
@@ -5360,6 +5524,7 @@ function buildDayPlanEntries({
 }: {
   checkpointById: Map<string, CheckpointRef>;
   dateKey: string;
+  defaultCalendarColor: string;
   googleEvents: GoogleCalendarDayEvent[];
   habitById: Map<string, ActionHabit>;
   plannedEvents: PlannedEvent[];
@@ -5377,7 +5542,34 @@ function buildDayPlanEntries({
   );
   const entries: DayPlanEntry[] = [];
 
+  const plannedEventByGoogleKey = new Map(
+    plannedEvents
+      .filter((event) => event.googleCalendarId && event.googleCalendarEventId)
+      .map((event) => [
+        `${event.googleCalendarId}:${event.googleCalendarEventId}`,
+        event,
+      ]),
+  );
+  const liveGoogleColorByPlannedEventId = new Map(
+    googleEvents.flatMap((event) => {
+      const planned = plannedEventByGoogleKey.get(
+        `${event.calendarId}:${event.id}`,
+      );
+      return planned && event.backgroundColor
+        ? [[planned.id, event.backgroundColor] as const]
+        : [];
+    }),
+  );
+
   for (const event of googleEvents) {
+    const isBackedByPlannedEvent = plannedEventByGoogleKey.has(
+      `${event.calendarId}:${event.id}`,
+    );
+    const isInternalHabitEvent =
+      event.higherHabitsSourceType === "habit" ||
+      event.higherHabitsSourceType === "habit_instance";
+    if (isBackedByPlannedEvent || isInternalHabitEvent) continue;
+
     const entry = googleEventToEntry(event, dayStart, dayEnd);
     if (entry) entries.push(entry);
   }
@@ -5386,7 +5578,9 @@ function buildDayPlanEntries({
     const entry = plannedEventToEntry(event, {
       checkpointById,
       categoryNameById,
+      defaultCalendarColor,
       habitById,
+      liveCalendarColor: liveGoogleColorByPlannedEventId.get(event.id),
       taskById,
     });
     if (entry) entries.push(entry);
@@ -5407,7 +5601,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
-        calendarColor: habit.color,
+        calendarColor: habit.color ?? defaultCalendarColor,
         categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: habit.period === "monthly" ? "Periodic habit" : null,
@@ -5441,7 +5635,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: true,
-        calendarColor: habit.color,
+        calendarColor: habit.color ?? defaultCalendarColor,
         categoryName: categoryNameById.get(habit.categoryId),
         completed: status === "complete",
         description: "Periodic habit",
@@ -5476,7 +5670,7 @@ function buildDayPlanEntries({
 
       entries.push({
         allDay: !hasTimeRange,
-        calendarColor: habit.color,
+        calendarColor: habit.color ?? defaultCalendarColor,
         categoryName: categoryNameById.get(habit.categoryId),
         description: habit.period === "monthly" ? "Periodic habit" : null,
         endMinutes: hasTimeRange
@@ -5502,12 +5696,16 @@ function plannedEventToEntry(
   {
     categoryNameById,
     checkpointById,
+    defaultCalendarColor,
     habitById,
+    liveCalendarColor,
     taskById,
   }: {
     categoryNameById: Map<string, string>;
     checkpointById: Map<string, CheckpointRef>;
+    defaultCalendarColor: string;
     habitById: Map<string, ActionHabit>;
+    liveCalendarColor?: string;
     taskById: Map<string, Task>;
   },
 ): DayPlanEntry | null {
@@ -5535,7 +5733,12 @@ function plannedEventToEntry(
   return {
     allDay: !hasTimeRange,
     calendarColor:
-      event.calendarColor ?? habit?.color ?? task?.color ?? goal?.color,
+      liveCalendarColor ??
+      event.calendarColor ??
+      habit?.color ??
+      task?.color ??
+      goal?.color ??
+      defaultCalendarColor,
     categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
     completed,
     description:
@@ -5747,6 +5950,7 @@ function isExplicitDatePlannedEntry(
 function buildSuggestedPlanEntries({
   allDayEntries,
   dateKey,
+  defaultCalendarColor,
   planGoals,
   scheduledHabitCounts,
   scheduledCheckpointIds,
@@ -5756,6 +5960,7 @@ function buildSuggestedPlanEntries({
 }: {
   allDayEntries: DayPlanEntry[];
   dateKey: string;
+  defaultCalendarColor: string;
   planGoals: Goal[];
   scheduledHabitCounts: Map<string, number>;
   scheduledCheckpointIds: Set<string>;
@@ -5839,6 +6044,7 @@ function buildSuggestedPlanEntries({
             ),
             entry: suggestedEntry({
               categoryName: category.name,
+              calendarColor: habit.color ?? defaultCalendarColor,
               description: category.name,
               habitId: habit.id,
               id: `suggested-habit-${habit.id}`,
@@ -5873,6 +6079,7 @@ function buildSuggestedPlanEntries({
     })
     .map((task) =>
       suggestedEntry({
+        calendarColor: task.color ?? defaultCalendarColor,
         defaultDurationMinutes: getTaskDurationMinutes(task.timeRequired),
         description: [
           task.dueDate ? formatDisplayDate(task.dueDate) : null,
@@ -5897,7 +6104,7 @@ function buildSuggestedPlanEntries({
           )
           .map((checkpoint) =>
             suggestedEntry({
-              calendarColor: goal.color,
+              calendarColor: goal.color ?? defaultCalendarColor,
               defaultDurationMinutes: DEFAULT_UNSCHEDULED_DROP_MINUTES,
               description: [
                 goal.title,
@@ -6680,6 +6887,27 @@ const styles = StyleSheet.create({
   datePickerGrid: {
     gap: 5,
     marginTop: 7,
+  },
+  monthPickerGrid: {
+    gap: 8,
+    marginTop: 18,
+  },
+  monthPickerRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  monthPickerButton: {
+    flex: 1,
+    height: 66,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+  },
+  monthPickerButtonText: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
   },
   datePickerWeek: {
     flexDirection: "row",

@@ -61,6 +61,7 @@ import {
   myPostsQueryOptions,
   myProfileQueryOptions,
 } from "@/lib/my-profile-query";
+import { type PlanNote, fetchPlanNotes } from "@/lib/plan-notes-client";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type WeeklyPlanNote,
@@ -212,12 +213,27 @@ function formatProfileMonthLabel(monthKey: string) {
 
 type ProfileNoteMonthFilter = number | "all";
 type ProfileNoteYearFilter = number | "all";
+type ProfileNote = WeeklyPlanNote | PlanNote;
 
 function getProfileNotesFilterKey(
+  filter: ProfileNoteFilter,
   month: ProfileNoteMonthFilter,
   year: ProfileNoteYearFilter,
 ) {
-  return `${month}:${year}`;
+  return `${filter}:${month}:${year}`;
+}
+
+function getProfileNoteDateKey(note: ProfileNote) {
+  return "weekStartDate" in note ? note.weekStartDate : note.dateKey;
+}
+
+function formatProfileDayLabel(dateKey: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    weekday: "short",
+  }).format(dateFromProfileKey(dateKey));
 }
 
 export function FriendProfileScreen({
@@ -250,6 +266,8 @@ export function FriendProfileScreen({
   const [posts, setPosts] = useState<FriendFeedEntry[]>([]);
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [weeklyPlanNotes, setWeeklyPlanNotes] = useState<WeeklyPlanNote[]>([]);
+  const [dailyPlanNotes, setDailyPlanNotes] = useState<PlanNote[]>([]);
+  const [monthlyPlanNotes, setMonthlyPlanNotes] = useState<PlanNote[]>([]);
   const [isFriendsSheetOpen, setIsFriendsSheetOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [arePostsLoading, setArePostsLoading] = useState(true);
@@ -301,6 +319,8 @@ export function FriendProfileScreen({
         setPostsCursor(null);
         setFriends([]);
         setWeeklyPlanNotes([]);
+        setDailyPlanNotes([]);
+        setMonthlyPlanNotes([]);
         setIsLoading(false);
         setArePostsLoading(false);
         setIsRefreshing(false);
@@ -336,21 +356,36 @@ export function FriendProfileScreen({
           setIsLoading(false);
 
           const currentMonth = new Date();
-          const [initialMyPostsData, nextFriends, nextWeeklyPlanNotes] =
-            await Promise.all([
-              (refresh
-                ? queryClient.fetchInfiniteQuery({
-                    ...myPostsQueryOptions(),
-                    staleTime: 0,
-                  })
-                : queryClient.ensureInfiniteQueryData(myPostsQueryOptions())
-              ).catch(() => null),
-              fetchFriends().catch(() => []),
-              fetchWeeklyPlanNotes({
-                month: currentMonth.getMonth() + 1,
-                year: currentMonth.getFullYear(),
-              }).catch(() => []),
-            ]);
+          const [
+            initialMyPostsData,
+            nextFriends,
+            nextWeeklyPlanNotes,
+            nextDailyPlanNotes,
+            nextMonthlyPlanNotes,
+          ] = await Promise.all([
+            (refresh
+              ? queryClient.fetchInfiniteQuery({
+                  ...myPostsQueryOptions(),
+                  staleTime: 0,
+                })
+              : queryClient.ensureInfiniteQueryData(myPostsQueryOptions())
+            ).catch(() => null),
+            fetchFriends().catch(() => []),
+            fetchWeeklyPlanNotes({
+              month: currentMonth.getMonth() + 1,
+              year: currentMonth.getFullYear(),
+            }).catch(() => []),
+            fetchPlanNotes({
+              month: currentMonth.getMonth() + 1,
+              period: "daily",
+              year: currentMonth.getFullYear(),
+            }).catch(() => []),
+            fetchPlanNotes({
+              month: currentMonth.getMonth() + 1,
+              period: "monthly",
+              year: currentMonth.getFullYear(),
+            }).catch(() => []),
+          ]);
           let myPosts = flattenMyPosts(initialMyPostsData ?? undefined);
           let myPostsCursor = getMyPostsNextCursor(
             initialMyPostsData ?? undefined,
@@ -399,6 +434,8 @@ export function FriendProfileScreen({
           );
           setPostsCursor(myPostsCursor);
           setWeeklyPlanNotes(nextWeeklyPlanNotes);
+          setDailyPlanNotes(nextDailyPlanNotes);
+          setMonthlyPlanNotes(nextMonthlyPlanNotes);
           setArePostsLoading(false);
         } else {
           const nextProfile = friendId
@@ -412,6 +449,8 @@ export function FriendProfileScreen({
           setProfile(nextProfile);
           setFriends([]);
           setWeeklyPlanNotes([]);
+          setDailyPlanNotes([]);
+          setMonthlyPlanNotes([]);
           setIsLoading(false);
 
           const feedPage = nextProfile.friend.friendshipId
@@ -447,6 +486,8 @@ export function FriendProfileScreen({
           setPosts([]);
           setPostsCursor(null);
           setWeeklyPlanNotes([]);
+          setDailyPlanNotes([]);
+          setMonthlyPlanNotes([]);
           setArePostsLoading(false);
         }
       } finally {
@@ -890,6 +931,8 @@ export function FriendProfileScreen({
                 <ProfileNotesSection
                   activeFilter={noteFilter}
                   accountCreatedAt={profile.friend.createdAt}
+                  dailyNotes={dailyPlanNotes}
+                  monthlyNotes={monthlyPlanNotes}
                   self={self}
                   weeklyNotes={weeklyPlanNotes}
                   onChangeFilter={setNoteFilter}
@@ -1119,12 +1162,16 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
 function ProfileNotesSection({
   activeFilter,
   accountCreatedAt,
+  dailyNotes,
+  monthlyNotes,
   onChangeFilter,
   self,
   weeklyNotes,
 }: {
   activeFilter: ProfileNoteFilter;
   accountCreatedAt: string | null;
+  dailyNotes: PlanNote[];
+  monthlyNotes: PlanNote[];
   onChangeFilter: (filter: ProfileNoteFilter) => void;
   self: boolean;
   weeklyNotes: WeeklyPlanNote[];
@@ -1138,9 +1185,15 @@ function ProfileNotesSection({
   const [selectedYear, setSelectedYear] =
     useState<ProfileNoteYearFilter>(currentYear);
   const [notesByFilterKey, setNotesByFilterKey] = useState<
-    Record<string, WeeklyPlanNote[]>
+    Record<string, ProfileNote[]>
   >({});
   const [loadingFilterKey, setLoadingFilterKey] = useState<string | null>(null);
+  const currentNotes =
+    activeFilter === "weekly"
+      ? weeklyNotes
+      : activeFilter === "daily"
+        ? dailyNotes
+        : monthlyNotes;
   const yearOptions = useMemo(() => {
     const createdAt = accountCreatedAt ? new Date(accountCreatedAt) : null;
     const createdYear =
@@ -1159,28 +1212,40 @@ function ProfileNotesSection({
     const noteYears = new Set<number>();
     for (const note of [
       ...weeklyNotes,
+      ...dailyNotes,
+      ...monthlyNotes,
       ...Object.values(notesByFilterKey).flat(),
     ]) {
-      const year = dateFromProfileKey(note.weekStartDate).getFullYear();
+      const year = dateFromProfileKey(
+        getProfileNoteDateKey(note),
+      ).getFullYear();
       if (!Number.isNaN(year)) noteYears.add(year);
     }
 
     return noteYears.size > 0
       ? [...noteYears].sort((left, right) => right - left)
       : [currentYear];
-  }, [accountCreatedAt, currentYear, notesByFilterKey, weeklyNotes]);
+  }, [
+    accountCreatedAt,
+    currentYear,
+    dailyNotes,
+    monthlyNotes,
+    notesByFilterKey,
+    weeklyNotes,
+  ]);
   const selectedFilterKey = getProfileNotesFilterKey(
+    activeFilter,
     selectedMonth,
     selectedYear,
   );
   const selectedMonthNotes =
     notesByFilterKey[selectedFilterKey] ??
     (selectedMonth === currentMonth && selectedYear === currentYear
-      ? weeklyNotes
+      ? currentNotes
       : []);
-  const visibleWeeklyNotes = selectedMonthNotes
+  const visibleNotes = selectedMonthNotes
     .filter((note) => {
-      const date = dateFromProfileKey(note.weekStartDate);
+      const date = dateFromProfileKey(getProfileNoteDateKey(note));
       return (
         (selectedMonth === "all" || date.getMonth() + 1 === selectedMonth) &&
         (selectedYear === "all" || date.getFullYear() === selectedYear)
@@ -1194,26 +1259,34 @@ function ProfileNotesSection({
 
   useEffect(() => {
     const currentFilterKey = getProfileNotesFilterKey(
+      activeFilter,
       currentMonth,
       currentYear,
     );
     setNotesByFilterKey((current) => ({
       ...current,
-      [currentFilterKey]: weeklyNotes,
+      [currentFilterKey]: currentNotes,
     }));
-  }, [currentMonth, currentYear, weeklyNotes]);
+  }, [activeFilter, currentMonth, currentYear, currentNotes]);
 
   const loadNotesForFilter = useCallback(
     async (month: ProfileNoteMonthFilter, year: ProfileNoteYearFilter) => {
-      const filterKey = getProfileNotesFilterKey(month, year);
+      const filterKey = getProfileNotesFilterKey(activeFilter, month, year);
       if (notesByFilterKey[filterKey]) return;
 
       setLoadingFilterKey(filterKey);
       try {
-        const notes = await fetchWeeklyPlanNotes({
-          month: month === "all" ? undefined : month,
-          year: year === "all" ? undefined : year,
-        });
+        const notes: ProfileNote[] =
+          activeFilter === "weekly"
+            ? await fetchWeeklyPlanNotes({
+                month: month === "all" ? undefined : month,
+                year: year === "all" ? undefined : year,
+              })
+            : await fetchPlanNotes({
+                month: month === "all" ? undefined : month,
+                period: activeFilter,
+                year: year === "all" ? undefined : year,
+              });
         setNotesByFilterKey((current) => ({ ...current, [filterKey]: notes }));
       } catch {
         setNotesByFilterKey((current) => ({ ...current, [filterKey]: [] }));
@@ -1223,7 +1296,7 @@ function ProfileNotesSection({
         );
       }
     },
-    [notesByFilterKey],
+    [activeFilter, notesByFilterKey],
   );
 
   const selectNotesFilter = useCallback(
@@ -1234,6 +1307,10 @@ function ProfileNotesSection({
     },
     [loadNotesForFilter],
   );
+
+  useEffect(() => {
+    void loadNotesForFilter(selectedMonth, selectedYear);
+  }, [loadNotesForFilter, selectedMonth, selectedYear]);
   const monthActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -1316,88 +1393,85 @@ function ProfileNotesSection({
         })}
       </View>
 
-      {activeFilter === "weekly" ? (
-        <>
-          <View style={styles.noteMonthHeader}>
-            <Text style={[styles.noteMonthTitle, { color: theme.text }]}>
-              {selectedNotesLabel}
-            </Text>
-            {loadingFilterKey === selectedFilterKey ? (
-              <Text
-                style={[styles.noteMonthStatus, { color: theme.textSecondary }]}
-              >
-                Loading
-              </Text>
-            ) : null}
-          </View>
+      <View style={styles.noteMonthHeader}>
+        <Text style={[styles.noteMonthTitle, { color: theme.text }]}>
+          {selectedNotesLabel}
+        </Text>
+        {loadingFilterKey === selectedFilterKey ? (
+          <Text
+            style={[styles.noteMonthStatus, { color: theme.textSecondary }]}
+          >
+            Loading
+          </Text>
+        ) : null}
+      </View>
 
-          {visibleWeeklyNotes.length > 0 ? (
-            <View style={styles.noteList}>
-              {visibleWeeklyNotes.map((note) => (
-                <View key={note.weekStartDate} style={styles.notePreviewBlock}>
-                  <Text
-                    style={[styles.noteDateLabel, { color: theme.primary }]}
-                  >
-                    {formatProfileWeekRange(note.weekStartDate)}
-                  </Text>
-                  <Text style={[styles.noteBody, { color: theme.text }]}>
-                    {note.text}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.notesEmptyState}>
-              <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
-                {self ? "No weekly notes here" : "No shared weekly notes"}
-              </Text>
-              <Text
-                style={[styles.notesEmptyText, { color: theme.textSecondary }]}
-              >
-                {self
-                  ? `${selectedNotesLabel} does not have saved weekly notes yet.`
-                  : "Notes this friend shares will show up here."}
-              </Text>
-            </View>
-          )}
+      {visibleNotes.length > 0 ? (
+        <View style={styles.noteList}>
+          {visibleNotes.map((note) => {
+            const noteDateKey = getProfileNoteDateKey(note);
+            const text = richTextToPlainText(note.notes).trim();
+            const label =
+              activeFilter === "weekly"
+                ? formatProfileWeekRange(noteDateKey)
+                : activeFilter === "daily"
+                  ? formatProfileDayLabel(noteDateKey)
+                  : formatProfileMonthLabel(noteDateKey.slice(0, 7));
 
-          <View style={styles.noteFilterDropdownRow}>
-            <ProfileNotesFilterMenu
-              actions={monthActions}
-              label="Month"
-              value={selectedMonthLabel}
-              onSelect={(event) => {
-                const month = event === "all" ? "all" : Number(event);
-                if (month === "all" || (month >= 1 && month <= 12)) {
-                  selectNotesFilter(month, selectedYear);
-                }
-              }}
-            />
-            <ProfileNotesFilterMenu
-              actions={yearActions}
-              label="Year"
-              value={selectedYearLabel}
-              onSelect={(event) => {
-                const year = event === "all" ? "all" : Number(event);
-                if (year === "all" || yearOptions.includes(year)) {
-                  selectNotesFilter(selectedMonth, year);
-                }
-              }}
-            />
-          </View>
-        </>
+            return (
+              <View
+                key={`${activeFilter}-${noteDateKey}`}
+                style={styles.notePreviewBlock}
+              >
+                <Text style={[styles.noteDateLabel, { color: theme.primary }]}>
+                  {label}
+                </Text>
+                <Text style={[styles.noteBody, { color: theme.text }]}>
+                  {text}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
       ) : (
         <View style={styles.notesEmptyState}>
           <Text style={[styles.notesEmptyTitle, { color: theme.text }]}>
-            {activeFilter === "daily"
-              ? "Daily notes are not set up yet"
-              : "Monthly notes are not set up yet"}
+            {self
+              ? `No ${activeFilter} notes here`
+              : `No shared ${activeFilter} notes`}
           </Text>
           <Text style={[styles.notesEmptyText, { color: theme.textSecondary }]}>
-            For now, profile notes come from Weekly notes.
+            {self
+              ? `${selectedNotesLabel} does not have saved ${activeFilter} notes yet.`
+              : "Notes this friend shares will show up here."}
           </Text>
         </View>
       )}
+
+      <View style={styles.noteFilterDropdownRow}>
+        <ProfileNotesFilterMenu
+          actions={monthActions}
+          label="Month"
+          value={selectedMonthLabel}
+          onSelect={(event) => {
+            const month = event === "all" ? "all" : Number(event);
+            if (month === "all" || (month >= 1 && month <= 12)) {
+              selectNotesFilter(month, selectedYear);
+            }
+          }}
+        />
+        <ProfileNotesFilterMenu
+          actions={yearActions}
+          label="Year"
+          value={selectedYearLabel}
+          onSelect={(event) => {
+            const year = event === "all" ? "all" : Number(event);
+            if (year === "all" || yearOptions.includes(year)) {
+              selectNotesFilter(selectedMonth, year);
+            }
+          }}
+        />
+      </View>
     </View>
   );
 }

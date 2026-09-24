@@ -230,6 +230,24 @@ function groupWeekEventsByDate(
   return map;
 }
 
+function withDefaultWeekEventColor(
+  event: WeekEvent,
+  defaultCalendarColor: string,
+): WeekEvent {
+  if (event.sourceType === "google") return event;
+  return { ...event, calendarColor: defaultCalendarColor };
+}
+
+function visibleWeekEvents(
+  events: WeekEvent[],
+  defaultCalendarColor: string,
+  calendarSelectionLoaded: boolean,
+): WeekEvent[] {
+  return events
+    .filter((event) => calendarSelectionLoaded || event.sourceType === "google")
+    .map((event) => withDefaultWeekEventColor(event, defaultCalendarColor));
+}
+
 function formatCompactWeekRange(weekStart: Date): string {
   const weekEnd = addDays(weekStart, 6);
   if (weekStart.getMonth() === weekEnd.getMonth()) {
@@ -315,16 +333,22 @@ function plannedEventToWeekEvent(
   taskById: Map<string, Task>,
   goalColorByCheckpointId: Map<string, string | null>,
   habitColorById: Map<string, string | null>,
+  defaultCalendarColor: string,
+  liveCalendarColor?: string,
 ): WeekEvent {
-  const calendarColor =
-    event.calendarColor ??
-    (event.sourceType === "task"
-      ? (taskById.get(event.sourceId)?.color ?? null)
+  const sourceColor =
+    event.sourceType === "task"
+      ? taskById.get(event.sourceId)?.color
       : event.sourceType === "goal_checkpoint"
-        ? (goalColorByCheckpointId.get(event.sourceId) ?? null)
+        ? goalColorByCheckpointId.get(event.sourceId)
         : event.sourceType === "habit_instance"
-          ? (habitColorById.get(event.sourceParentId ?? event.sourceId) ?? null)
-          : null);
+          ? habitColorById.get(event.sourceParentId ?? event.sourceId)
+          : null;
+  const calendarColor =
+    liveCalendarColor ||
+    event.calendarColor ||
+    sourceColor ||
+    defaultCalendarColor;
 
   return {
     calendarColor,
@@ -639,10 +663,14 @@ export function WeeklyPlanScreen({
     error: calendarSelectionError,
     isLoading: isLoadingCalendarSelection,
     isSaving: isSavingCalendarSelection,
+    loaded: calendarSelectionLoaded,
     load: reloadCalendarSelection,
     selectedCalendarIds,
     toggleCalendar,
   } = useGoogleCalendarSelection();
+  const floatCalendarColor =
+    calendars.find((calendar) => calendar.summary === "Float")
+      ?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
   const [now, setNow] = useState(() => new Date());
   const { width: windowWidth } = useWindowDimensions();
   const calendarWidth = Math.max(
@@ -654,9 +682,18 @@ export function WeeklyPlanScreen({
   const nowLineTop = getWeeklyNowLineTop(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
-  const weekEventsByDate = useMemo(() => {
-    return groupWeekEventsByDate(weekDays, weekEvents);
-  }, [weekEvents, weekDays]);
+  const weekEventsByDate = useMemo(
+    () =>
+      groupWeekEventsByDate(
+        weekDays,
+        visibleWeekEvents(
+          weekEvents,
+          floatCalendarColor,
+          calendarSelectionLoaded,
+        ),
+      ),
+    [calendarSelectionLoaded, floatCalendarColor, weekEvents, weekDays],
+  );
   const previousWeekStartDate = useMemo(
     () => addDays(weekStartDate, -7),
     [weekStartDate],
@@ -678,15 +715,41 @@ export function WeeklyPlanScreen({
       getWeeklyPlanCacheKey(toDateKey(previousWeekStartDate), timeZone),
       { allowStale: true },
     );
-    return groupWeekEventsByDate(previousWeekDays, cachedWeek?.events ?? []);
-  }, [previousWeekDays, previousWeekStartDate, timeZone]);
+    return groupWeekEventsByDate(
+      previousWeekDays,
+      visibleWeekEvents(
+        cachedWeek?.events ?? [],
+        floatCalendarColor,
+        calendarSelectionLoaded,
+      ),
+    );
+  }, [
+    calendarSelectionLoaded,
+    floatCalendarColor,
+    previousWeekDays,
+    previousWeekStartDate,
+    timeZone,
+  ]);
   const nextWeekEventsByDate = useMemo(() => {
     const cachedWeek = readWeeklyPlanCache(
       getWeeklyPlanCacheKey(toDateKey(nextWeekStartDate), timeZone),
       { allowStale: true },
     );
-    return groupWeekEventsByDate(nextWeekDays, cachedWeek?.events ?? []);
-  }, [nextWeekDays, nextWeekStartDate, timeZone]);
+    return groupWeekEventsByDate(
+      nextWeekDays,
+      visibleWeekEvents(
+        cachedWeek?.events ?? [],
+        floatCalendarColor,
+        calendarSelectionLoaded,
+      ),
+    );
+  }, [
+    calendarSelectionLoaded,
+    floatCalendarColor,
+    nextWeekDays,
+    nextWeekStartDate,
+    timeZone,
+  ]);
   const hasAllDayEvents = useMemo(
     () => weekEvents.some((event) => !event.startTime),
     [weekEvents],
@@ -835,11 +898,42 @@ export function WeeklyPlanScreen({
         const plannedBootstrap =
           plannedResult.status === "fulfilled" ? plannedResult.value : null;
         const weekDateKeySet = new Set(weekDateKeys);
+        const plannedEventByGoogleKey = new Map(
+          (plannedBootstrap?.plannedEvents ?? [])
+            .filter(
+              (event) => event.googleCalendarId && event.googleCalendarEventId,
+            )
+            .map((event) => [
+              `${event.googleCalendarId}:${event.googleCalendarEventId}`,
+              event,
+            ]),
+        );
+        const liveGoogleColorByPlannedEventId = new Map(
+          googleResult.status === "fulfilled"
+            ? googleResult.value.events.flatMap((event) => {
+                const planned = plannedEventByGoogleKey.get(
+                  `${event.calendarId}:${event.id}`,
+                );
+                return planned && event.backgroundColor
+                  ? [[planned.id, event.backgroundColor] as const]
+                  : [];
+              })
+            : [],
+        );
         const googleWeekEvents =
           googleResult.status === "fulfilled"
             ? googleResult.value.events.flatMap((event) => {
                 const dateKey = getGoogleEventDateKey(event);
-                return dateKey && weekDateKeySet.has(dateKey)
+                const isPlannedEvent = plannedEventByGoogleKey.has(
+                  `${event.calendarId}:${event.id}`,
+                );
+                const isInternalHabitEvent =
+                  event.higherHabitsSourceType === "habit" ||
+                  event.higherHabitsSourceType === "habit_instance";
+                return dateKey &&
+                  weekDateKeySet.has(dateKey) &&
+                  !isPlannedEvent &&
+                  !isInternalHabitEvent
                   ? [googleEventToWeekEvent(event, dateKey)]
                   : [];
               })
@@ -888,6 +982,8 @@ export function WeeklyPlanScreen({
                 taskById,
                 goalColorByCheckpointId,
                 habitColorById,
+                floatCalendarColor,
+                liveGoogleColorByPlannedEventId.get(event.id),
               ),
             )
           : [];
@@ -931,7 +1027,14 @@ export function WeeklyPlanScreen({
         }
       }
     },
-    [selectedCalendarIds, timeZone, weekDays, weekStartDate, weekStartKey],
+    [
+      floatCalendarColor,
+      selectedCalendarIds,
+      timeZone,
+      weekDays,
+      weekStartDate,
+      weekStartKey,
+    ],
   );
 
   useEffect(() => {
@@ -945,6 +1048,21 @@ export function WeeklyPlanScreen({
       onSelectDate?.(dateKey);
     },
     [onSelectDate],
+  );
+
+  const openCalendarDrawer = useCallback(() => {
+    setCalendarPickerOpen(true);
+  }, []);
+
+  const selectCalendarDate = useCallback(
+    (date: Date) => {
+      const dateKey = toDateKey(date);
+      setWeekStartDate(startOfWeek(date));
+      setSelectedDateKey(dateKey);
+      setCalendarPickerOpen(false);
+      onDateChange?.(dateKey);
+    },
+    [onDateChange],
   );
 
   const navigateWeek = useCallback(
@@ -1364,21 +1482,6 @@ export function WeeklyPlanScreen({
             </View>
             <View style={styles.headerActions}>
               <Pressable
-                accessibilityLabel="Choose Google calendars"
-                accessibilityRole="button"
-                onPress={() => setCalendarPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.headerActionButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("calendar", "event")}
-                  size={19}
-                  tintColor={theme.primary}
-                />
-              </Pressable>
-              <Pressable
                 accessibilityLabel="Open weekly notes"
                 accessibilityRole="button"
                 onPress={() => setNotesModalOpen(true)}
@@ -1392,6 +1495,37 @@ export function WeeklyPlanScreen({
                   size={19}
                   tintColor={theme.primary}
                 />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Choose week"
+                accessibilityRole="button"
+                onPress={openCalendarDrawer}
+                style={({ pressed }) => [
+                  styles.headerDateButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.headerDateBadge,
+                    { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.headerDateWeekday, { color: theme.primary }]}
+                  >
+                    {DAY_NAMES[dateFromKey(selectedDateKey).getDay()].slice(
+                      0,
+                      3,
+                    )}
+                  </Text>
+                  <Text
+                    style={[styles.headerDateNumber, { color: theme.text }]}
+                  >
+                    {dateFromKey(selectedDateKey).getDate()}
+                  </Text>
+                </View>
               </Pressable>
             </View>
           </View>
@@ -2071,6 +2205,7 @@ export function WeeklyPlanScreen({
           void changeCalendarColor(color).catch(() => undefined);
         }}
         onRetry={() => void reloadCalendarSelection()}
+        onSelectDate={selectCalendarDate}
         onSync={() => {
           void syncGoogleCalendar().then(() => reloadCalendarSelection());
         }}
@@ -2078,6 +2213,7 @@ export function WeeklyPlanScreen({
           void toggleCalendar(calendarId).catch(() => undefined);
         }}
         selectedCalendarIds={selectedCalendarIds}
+        selectedDate={dateFromKey(selectedDateKey)}
         visible={calendarPickerOpen}
       />
     </View>
@@ -2890,6 +3026,29 @@ const styles = StyleSheet.create({
     height: 34,
     justifyContent: "center",
     width: 34,
+  },
+  headerDateButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerDateBadge: {
+    alignItems: "center",
+    borderRadius: 13,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  headerDateWeekday: {
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    lineHeight: 11,
+    textTransform: "uppercase",
+  },
+  headerDateNumber: {
+    fontSize: 19,
+    fontWeight: "800",
+    lineHeight: 22,
   },
   weekNowDot: {
     backgroundColor: "#EA4335",

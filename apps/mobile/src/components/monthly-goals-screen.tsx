@@ -22,6 +22,7 @@ import {
 } from "@/components/celebration-overlay";
 import { HabitFormModal } from "@/components/habits-manager-screen";
 import { HabitsTabs } from "@/components/habits-tabs";
+import { PlanNoteEditorModal } from "@/components/plan-note-editor-modal";
 import {
   PageHeaderTitle,
   PlanSectionHeaderTabs,
@@ -50,6 +51,7 @@ import {
   fetchCategories,
   updateHabit,
 } from "@/lib/habits-client";
+import { fetchPlanNote, savePlanNote } from "@/lib/plan-notes-client";
 import {
   cancelHabitReminderAsync,
   scheduleHabitReminderAsync,
@@ -306,6 +308,8 @@ export function MonthlyGoalsScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [monthlyNoteOpen, setMonthlyNoteOpen] = useState(false);
+  const [monthlyNote, setMonthlyNote] = useState("");
 
   useEffect(() => {
     onDateChange?.(selectedDateKey);
@@ -323,6 +327,20 @@ export function MonthlyGoalsScreen({
   const loadRequestIdRef = useRef(0);
 
   const monthKey = useMemo(() => getMonthKey(displayMonth), [displayMonth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMonthlyNote("");
+    void fetchPlanNote({ dateKey: `${monthKey}-01`, period: "monthly" })
+      .then((note) => {
+        if (!cancelled) setMonthlyNote(note.notes);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey]);
 
   useEffect(
     () => () => {
@@ -747,23 +765,51 @@ export function MonthlyGoalsScreen({
               <PageHeaderTitle title="Plan" />
               <PlanSectionHeaderTabs currentView="monthly-plan" />
             </View>
-            <Pressable
-              accessibilityLabel="Add habit"
-              accessibilityRole="button"
-              onPress={() => setFormOpen(true)}
-              style={({ pressed }) => [
-                styles.addButton,
-                styles.headerAddButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("plus", "add")}
-                size={28}
-                weight="semibold"
-                tintColor={theme.primary}
-              />
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel="Add note for this month"
+                accessibilityRole="button"
+                onPress={() => setMonthlyNoteOpen(true)}
+                style={({ pressed }) => [
+                  styles.headerActionButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("pencil.and.scribble", "edit_note")}
+                  size={19}
+                  tintColor={theme.primary}
+                />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Choose month"
+                accessibilityRole="button"
+                onPress={openMonthPicker}
+                style={({ pressed }) => [
+                  styles.headerDateButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.headerDateBadge,
+                    { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.headerDateWeekday, { color: theme.primary }]}
+                  >
+                    {DAY_NAMES_FULL[selectedDate.getDay()].slice(0, 3)}
+                  </Text>
+                  <Text
+                    style={[styles.headerDateNumber, { color: theme.text }]}
+                  >
+                    {selectedDate.getDate()}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
           </View>
 
           {habitsTab && onHabitsTabChange ? (
@@ -807,6 +853,22 @@ export function MonthlyGoalsScreen({
               </Text>
             </Pressable>
             <View style={styles.monthNavRight}>
+              <Pressable
+                accessibilityLabel="Add habit"
+                accessibilityRole="button"
+                onPress={() => setFormOpen(true)}
+                style={({ pressed }) => [
+                  styles.navAddButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("plus", "add")}
+                  size={20}
+                  weight="semibold"
+                  tintColor={theme.primary}
+                />
+              </Pressable>
               <Pressable
                 accessibilityLabel="Next month"
                 hitSlop={8}
@@ -914,6 +976,25 @@ export function MonthlyGoalsScreen({
         selectedDate={displayMonth}
         visible={monthPickerOpen}
       />
+
+      {monthlyNoteOpen ? (
+        <PlanNoteEditorModal
+          key={monthKey}
+          dateLabel={monthLabel}
+          initialValue={monthlyNote}
+          noteType="month"
+          onClose={() => setMonthlyNoteOpen(false)}
+          onSave={async (notes) => {
+            const saved = await savePlanNote({
+              dateKey: `${monthKey}-01`,
+              notes,
+              period: "monthly",
+            });
+            setMonthlyNote(saved.notes);
+          }}
+          visible
+        />
+      ) : null}
 
       <CelebrationOverlay
         visible={celebrate}
@@ -1441,6 +1522,41 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   pageHeaderText: { flex: 1, minWidth: 0, gap: 1, paddingRight: 54 },
+  headerActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerActionButton: {
+    alignItems: "center",
+    borderRadius: 11,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  headerDateButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerDateBadge: {
+    alignItems: "center",
+    borderRadius: 13,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  headerDateWeekday: {
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    lineHeight: 11,
+    textTransform: "uppercase",
+  },
+  headerDateNumber: {
+    fontSize: 19,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
   addButton: {
     width: 42,
     height: 42,
@@ -1490,6 +1606,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+  },
+  navAddButton: {
+    alignItems: "center",
+    borderRadius: 13,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   todayBtn: {
     borderWidth: 1,

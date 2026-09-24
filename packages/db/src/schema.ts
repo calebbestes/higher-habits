@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const GOAL_PERIODS = ["daily", "weekly", "monthly"] as const;
+export const PLAN_NOTE_PERIODS = ["daily", "monthly"] as const;
 export const GOAL_PRIORITIES = ["high", "low"] as const;
 export const GOAL_VISIBILITIES = [
   "only_me",
@@ -81,6 +82,7 @@ export const FEED_REPOST_SOURCE_TYPES = [
 ] as const;
 
 export const goalPeriodEnum = pgEnum("goal_period", GOAL_PERIODS);
+export const planNotePeriodEnum = pgEnum("plan_note_period", PLAN_NOTE_PERIODS);
 export const goalPriorityEnum = pgEnum("goal_priority", GOAL_PRIORITIES);
 export const goalVisibilityEnum = pgEnum("goal_visibility", GOAL_VISIBILITIES);
 export const logStatusEnum = pgEnum("log_status", LOG_STATUSES);
@@ -566,6 +568,38 @@ export const weeklyPlanNoteHeaders = pgTable(
       table.text,
     ),
     index("weekly_plan_note_headers_user_id_idx").on(table.userId),
+  ],
+);
+
+export const planNotes = pgTable(
+  "plan_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: planNotePeriodEnum("period").notNull(),
+    date: date("date", { mode: "string" }).notNull(),
+    notes: text("notes").default("").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("plan_notes_user_period_date_uidx").on(
+      table.userId,
+      table.period,
+      table.date,
+    ),
+    index("plan_notes_user_id_idx").on(table.userId),
+    index("plan_notes_user_period_date_idx").on(
+      table.userId,
+      table.period,
+      table.date,
+    ),
   ],
 );
 
@@ -1351,6 +1385,8 @@ export type WeeklyPlanNote = typeof weeklyPlanNotes.$inferSelect;
 export type NewWeeklyPlanNote = typeof weeklyPlanNotes.$inferInsert;
 export type WeeklyPlanNoteHeader = typeof weeklyPlanNoteHeaders.$inferSelect;
 export type NewWeeklyPlanNoteHeader = typeof weeklyPlanNoteHeaders.$inferInsert;
+export type PlanNote = typeof planNotes.$inferSelect;
+export type NewPlanNote = typeof planNotes.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type NewHabit = typeof habits.$inferInsert;
 export type GoalLog = typeof goalLogs.$inferSelect;
