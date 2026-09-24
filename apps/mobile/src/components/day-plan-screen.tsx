@@ -62,7 +62,6 @@ import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
-  deleteGoogleCalendarEvent,
   ensureFloatGoogleCalendar,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
@@ -90,6 +89,7 @@ import {
   updateHabitColor,
 } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
+import { reportMobileDiagnostic } from "@/lib/mobile-diagnostics";
 import {
   getNativeAuthCallbackURLForPath,
   getNativeAuthErrorCallbackURLForPath,
@@ -269,6 +269,7 @@ export function DayPlanScreen({
   initialDateKey,
   initialCreateRange,
   initialEventTarget,
+  isActive = true,
   modalOnly = false,
   onDateChange,
   onEventOverlayDismiss,
@@ -277,6 +278,7 @@ export function DayPlanScreen({
   initialDateKey?: string;
   initialCreateRange?: DayPlanCreateRange | null;
   initialEventTarget?: DayPlanEventTarget | null;
+  isActive?: boolean;
   modalOnly?: boolean;
   onDateChange?: (dateKey: string) => void;
   onEventOverlayDismiss?: () => void;
@@ -303,6 +305,7 @@ export function DayPlanScreen({
     pageX: number;
     pageY: number;
   } | null>(null);
+  const lastReportedDateKeyRef = useRef<string | null>(null);
   const suppressDaySwipeRef = useRef(false);
   const dateMotionValueRef = useRef(new Animated.Value(0));
   const dateMotionDirectionRef = useRef(1);
@@ -380,6 +383,21 @@ export function DayPlanScreen({
   );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   useEffect(() => {
+    if (
+      !isActive ||
+      !initialDateKey ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
+      initialDateKey === dateKey
+    ) {
+      return;
+    }
+
+    const nextDate = dateFromKey(initialDateKey);
+    setSelectedDate(nextDate);
+    setDatePickerMonth(startOfMonth(nextDate));
+  }, [dateKey, initialDateKey, isActive]);
+
+  useEffect(() => {
     let cancelled = false;
     setDayNote("");
     void fetchPlanNote({ dateKey, period: "daily" })
@@ -450,8 +468,12 @@ export function DayPlanScreen({
   const projectsInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
+    if (!isActive || lastReportedDateKeyRef.current === dateKey) {
+      return;
+    }
+    lastReportedDateKeyRef.current = dateKey;
     onDateChange?.(dateKey);
-  }, [dateKey, onDateChange]);
+  }, [dateKey, isActive, onDateChange]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: animate whenever the selected date key changes.
   useEffect(() => {
@@ -1952,10 +1974,20 @@ export function DayPlanScreen({
     }
   };
 
-  const moveDate = useCallback((days: number) => {
-    dateMotionDirectionRef.current = days > 0 ? 1 : -1;
-    setSelectedDate((current) => addDays(current, days));
-  }, []);
+  const moveDate = useCallback(
+    (days: number) => {
+      const currentDateKey = toDateKey(selectedDate);
+      const nextDateKey = toDateKey(addDays(selectedDate, days));
+      reportMobileDiagnostic("day-swipe", {
+        currentDateKey,
+        days,
+        nextDateKey,
+      });
+      dateMotionDirectionRef.current = days > 0 ? 1 : -1;
+      setSelectedDate(addDays(selectedDate, days));
+    },
+    [selectedDate],
+  );
   const openDatePicker = useCallback(() => {
     playSelectionHaptic();
     setDatePickerOpen(false);
@@ -2404,95 +2436,6 @@ export function DayPlanScreen({
     } finally {
       if (isMountedRef.current) setUpdatingKey(null);
     }
-  };
-
-  const deleteActiveEntry = async () => {
-    if (!activeEntry?.sourceId) return;
-
-    const entry = activeEntry;
-    const sourceId = activeEntry.sourceId;
-    Alert.alert(
-      "Delete event?",
-      `"${entry.title}" will be removed from your daily plan and calendar.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setUpdatingKey(`${entry.kind}-${sourceId}`);
-            try {
-              await deletePlannedEvent({
-                sourceId,
-                sourceType: getPlannedEventSourceTypeForEntry(entry),
-              });
-              cancelEntryNotification(entry);
-              invalidateCurrentCaches({ google: true, planned: true });
-              if (!isMountedRef.current) return;
-              setActiveEntry(null);
-              await load({ quiet: true });
-            } catch (deleteError) {
-              if (!isMountedRef.current) return;
-              Alert.alert(
-                "Could not delete event",
-                deleteError instanceof Error
-                  ? deleteError.message
-                  : "The event could not be deleted.",
-              );
-            } finally {
-              if (isMountedRef.current) setUpdatingKey(null);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const deleteActiveGoogleEvent = async () => {
-    if (!activeEntry?.sourceId || activeEntry.kind !== "google") return;
-
-    const entry = activeEntry;
-    const eventId = activeEntry.sourceId;
-    Alert.alert(
-      "Delete event?",
-      `"${entry.title}" will be permanently deleted from your Google Calendar.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setUpdatingKey(`${entry.kind}-${eventId}`);
-            try {
-              const response = await deleteGoogleCalendarEvent({
-                calendarId: entry.calendarId,
-                eventId,
-              });
-              if (response.status !== "deleted") {
-                throw new Error(
-                  getGoogleCalendarDeleteStatusMessage(response.status),
-                );
-              }
-              cancelEntryNotification(entry);
-              invalidateCurrentCaches({ google: true });
-              if (!isMountedRef.current) return;
-              setActiveEntry(null);
-              await load({ quiet: true });
-            } catch (deleteError) {
-              if (!isMountedRef.current) return;
-              Alert.alert(
-                "Could not delete Google Calendar event",
-                deleteError instanceof Error
-                  ? deleteError.message
-                  : "The Google Calendar event could not be deleted.",
-              );
-            } finally {
-              if (isMountedRef.current) setUpdatingKey(null);
-            }
-          },
-        },
-      ],
-    );
   };
 
   const clearActiveEntryPlan = async () => {
@@ -3421,8 +3364,6 @@ export function DayPlanScreen({
           onAddPhoto={() => void addCheckpointPhotoForActiveEntry("library")}
           onClearPlan={() => void clearActiveEntryPlan()}
           onClose={() => setActiveEntry(null)}
-          onDelete={() => void deleteActiveEntry()}
-          onDeleteGoogleEvent={() => void deleteActiveGoogleEvent()}
           onOpenNote={openAttachmentForActiveEntry}
           defaultOtherEventColor={
             calendars.find((calendar) => calendar.summary === "Float")
@@ -3872,8 +3813,6 @@ function InternalEventActionsModal({
   onAddPhoto,
   onClearPlan,
   onClose,
-  onDelete,
-  onDeleteGoogleEvent,
   onOpenNote,
   onSaveTimeRange,
   onSetVisibility,
@@ -3891,8 +3830,6 @@ function InternalEventActionsModal({
   onAddPhoto: () => void;
   onClearPlan: () => void;
   onClose: () => void;
-  onDelete: () => void;
-  onDeleteGoogleEvent: () => void;
   onOpenNote: () => void;
   onSaveTimeRange: (
     range: PlanRange,
@@ -4092,81 +4029,6 @@ function InternalEventActionsModal({
             ) : null}
             {isEditablePlannedBlock ? (
               <>
-                <Pressable
-                  disabled={
-                    isUpdating ||
-                    (hasTimeRangeChanges && !canSaveTimeRange) ||
-                    !canSaveEventTitle ||
-                    (!hasSaveChanges && isGoogleEvent)
-                  }
-                  onPress={() =>
-                    runPressAction("save-or-clear", () => {
-                      if (
-                        hasSaveChanges &&
-                        nextStartMinutes !== null &&
-                        nextEndMinutes !== null
-                      ) {
-                        onSaveTimeRange(
-                          {
-                            endMinutes: normalizeEndMinutes(
-                              nextStartMinutes,
-                              nextEndMinutes,
-                            ),
-                            startMinutes: nextStartMinutes,
-                          },
-                          isGoogleEvent || isOtherEvent
-                            ? eventColor
-                            : undefined,
-                          isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
-                          isTitleEditable ? eventTitle.trim() : undefined,
-                        );
-                        return;
-                      }
-
-                      if (isGoogleEvent) return;
-                      onClearPlan();
-                    })
-                  }
-                  style={({ pressed }) => [
-                    styles.eventActionRow,
-                    styles.eventActionRowCompact,
-                    { backgroundColor: theme.backgroundElement },
-                    hasTimeRangeChanges &&
-                      !canSaveTimeRange &&
-                      modalStyles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {isUpdating ? (
-                    <ActivityIndicator color={theme.primary} size="small" />
-                  ) : (
-                    <SymbolView
-                      name={
-                        hasSaveChanges
-                          ? sym("calendar.badge.plus", "event_available")
-                          : sym("calendar.badge.minus", "event_busy")
-                      }
-                      size={26}
-                      tintColor={
-                        hasSaveChanges ? theme.primary : theme.textSecondary
-                      }
-                    />
-                  )}
-                  <Text
-                    style={[
-                      styles.eventActionLabel,
-                      styles.eventActionLabelCompact,
-                      { color: theme.text },
-                    ]}
-                  >
-                    {hasSaveChanges || isGoogleEvent
-                      ? hasSaveChanges
-                        ? "Save changes"
-                        : "Save plan"
-                      : "Clear plan"}
-                  </Text>
-                </Pressable>
-
                 <View style={styles.eventActionSection}>
                   <Text
                     style={[
@@ -4426,44 +4288,77 @@ function InternalEventActionsModal({
               />
             ) : null}
 
-            {!isGoogleEvent ? (
+            {isEditablePlannedBlock ? (
               <Pressable
-                disabled={isUpdating}
-                onPress={() => runPressAction("delete", onDelete)}
-                style={({ pressed }) => [
-                  styles.eventActionRow,
-                  { backgroundColor: theme.backgroundElement },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("trash.fill", "delete")}
-                  size={26}
-                  tintColor="#B84D54"
-                />
-                <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
-                  Delete
-                </Text>
-              </Pressable>
-            ) : null}
-            {isGoogleEvent ? (
-              <Pressable
-                disabled={isUpdating}
+                disabled={
+                  isUpdating ||
+                  (hasTimeRangeChanges && !canSaveTimeRange) ||
+                  !canSaveEventTitle ||
+                  (!hasSaveChanges && isGoogleEvent)
+                }
                 onPress={() =>
-                  runPressAction("delete-google-event", onDeleteGoogleEvent)
+                  runPressAction("save-or-clear", () => {
+                    if (
+                      hasSaveChanges &&
+                      nextStartMinutes !== null &&
+                      nextEndMinutes !== null
+                    ) {
+                      onSaveTimeRange(
+                        {
+                          endMinutes: normalizeEndMinutes(
+                            nextStartMinutes,
+                            nextEndMinutes,
+                          ),
+                          startMinutes: nextStartMinutes,
+                        },
+                        isGoogleEvent || isOtherEvent ? eventColor : undefined,
+                        isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
+                        isTitleEditable ? eventTitle.trim() : undefined,
+                      );
+                      return;
+                    }
+
+                    if (isGoogleEvent) return;
+                    onClearPlan();
+                  })
                 }
                 style={({ pressed }) => [
-                  styles.eventActionDestructiveRow,
+                  styles.eventActionRow,
+                  styles.eventActionRowCompact,
+                  { backgroundColor: theme.backgroundElement },
+                  hasTimeRangeChanges &&
+                    !canSaveTimeRange &&
+                    modalStyles.disabled,
                   pressed && styles.pressed,
                 ]}
               >
-                <SymbolView
-                  name={sym("trash.fill", "delete")}
-                  size={24}
-                  tintColor="#B84D54"
-                />
-                <Text style={[styles.eventActionLabel, { color: "#B84D54" }]}>
-                  Delete
+                {isUpdating ? (
+                  <ActivityIndicator color={theme.primary} size="small" />
+                ) : (
+                  <SymbolView
+                    name={
+                      hasSaveChanges
+                        ? sym("calendar.badge.plus", "event_available")
+                        : sym("calendar.badge.minus", "event_busy")
+                    }
+                    size={26}
+                    tintColor={
+                      hasSaveChanges ? theme.primary : theme.textSecondary
+                    }
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.eventActionLabel,
+                    styles.eventActionLabelCompact,
+                    { color: theme.text },
+                  ]}
+                >
+                  {hasSaveChanges || isGoogleEvent
+                    ? hasSaveChanges
+                      ? "Save changes"
+                      : "Save plan"
+                    : "Clear plan"}
                 </Text>
               </Pressable>
             ) : null}
@@ -6675,20 +6570,6 @@ function getGoogleCalendarStatusMessage(status: string) {
   }
 }
 
-function getGoogleCalendarDeleteStatusMessage(status: string) {
-  switch (status) {
-    case "not_connected":
-      return "Connect Google Calendar before deleting events.";
-    case "missing_scope":
-      return "Reconnect Google Calendar with calendar event permissions.";
-    case "not_configured":
-    case "auth_unavailable":
-      return "Google Calendar is not configured for this app.";
-    default:
-      return "The Google Calendar event could not be deleted.";
-  }
-}
-
 function getPlanTargetMeta(targetType: PlanTargetType) {
   switch (targetType) {
     case "dailyHabit":
@@ -7346,13 +7227,6 @@ const styles = StyleSheet.create({
     gap: 16,
     borderRadius: 16,
     paddingHorizontal: 16,
-  },
-  eventActionDestructiveRow: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 2,
   },
   eventActionLabel: {
     flex: 1,

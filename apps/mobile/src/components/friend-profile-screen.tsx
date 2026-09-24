@@ -91,8 +91,8 @@ const PROFILE_BODY_SECTIONS: Array<{
 ];
 
 const PROFILE_NOTE_FILTERS: Array<{ key: ProfileNoteFilter; label: string }> = [
-  { key: "weekly", label: "Weekly" },
   { key: "daily", label: "Daily" },
+  { key: "weekly", label: "Weekly" },
   { key: "monthly", label: "Monthly" },
 ];
 const INITIAL_PROFILE_POST_COUNT = 12;
@@ -282,7 +282,7 @@ export function FriendProfileScreen({
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
-  const [noteFilter, setNoteFilter] = useState<ProfileNoteFilter>("weekly");
+  const [noteFilter, setNoteFilter] = useState<ProfileNoteFilter>("daily");
   const [activeHabitDay, setActiveHabitDay] = useState<ActiveHabitDay | null>(
     null,
   );

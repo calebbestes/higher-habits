@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import { addCrashBreadcrumb, captureHandledError } from "@/lib/crash-reporting";
+import { reportMobileDiagnostic } from "@/lib/mobile-diagnostics";
 
 type Props = {
   /** Human-readable component name reported to Sentry on a render failure. */
@@ -30,6 +31,13 @@ export class ComponentErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    reportMobileDiagnostic("react-error-boundary", {
+      component: this.props.name,
+      componentStack: info.componentStack ?? null,
+      errorMessage: error.message,
+      errorName: error.name,
+      errorStack: error.stack ?? null,
+    });
     addCrashBreadcrumb(
       `Render failed in ${this.props.name}`,
       { component: this.props.name },

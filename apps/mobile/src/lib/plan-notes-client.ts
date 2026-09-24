@@ -15,6 +15,12 @@ async function parseResponse<T>(response: Response): Promise<T> {
       error?: string;
       message?: string;
     } | null;
+    console.error("[Plan Notes] API request failed", {
+      body,
+      status: response.status,
+      statusText: response.statusText,
+      url: response.url,
+    });
     throw new Error(body?.error ?? body?.message ?? "Unable to continue.");
   }
 
@@ -59,8 +65,24 @@ export const savePlanNote = ({
   dateKey: string;
   notes: string;
   period: PlanNotePeriod;
-}) =>
-  mobileApiFetch("/api/plan-notes", {
+}) => {
+  console.log("[Plan Notes] Saving note", {
+    dateKey,
+    noteLength: notes.length,
+    period,
+  });
+
+  return mobileApiFetch("/api/plan-notes", {
     method: "POST",
     body: JSON.stringify({ dateKey, notes, period }),
-  }).then((response) => parseResponse<PlanNote>(response));
+  })
+    .then((response) => parseResponse<PlanNote>(response))
+    .catch((error) => {
+      console.error("[Plan Notes] Save failed", {
+        dateKey,
+        error,
+        period,
+      });
+      throw error;
+    });
+};

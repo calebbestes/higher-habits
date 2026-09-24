@@ -10,10 +10,15 @@ import {
 } from "@/components/day-plan-screen";
 import { MonthlyGoalsScreen } from "@/components/monthly-goals-screen";
 import {
+  PlanReportProvider,
+  PlanReportViewSlot,
+} from "@/components/plan-report-context";
+import {
   type WeekEvent,
   type WeeklyCreateRange,
   WeeklyPlanScreen,
 } from "@/components/weekly-plan-screen";
+import { reportMobileDiagnostic } from "@/lib/mobile-diagnostics";
 import {
   PLAN_REPORT_VIEW_HREFS,
   type PlanReportView,
@@ -37,15 +42,24 @@ export default function PlanReportScreen() {
     : isPlanReportView(rememberedView)
       ? rememberedView
       : "day-plan";
+  const activePlanView =
+    activeView === "weekly-plan" || activeView === "monthly-plan"
+      ? activeView
+      : "day-plan";
   const activeDateKey = isDateKey(date)
     ? date
     : (rememberedDateKey ?? undefined);
   const handleDateChange = useCallback(
     (dateKey: string) => {
+      reportMobileDiagnostic("plan-report-date-change", {
+        nextDateKey: dateKey,
+        routeDate: typeof date === "string" ? date : null,
+      });
       setPlanReportDateKey(dateKey);
+      if (date === dateKey) return;
       router.setParams({ date: dateKey });
     },
-    [router],
+    [date, router],
   );
   const [pendingEventTarget, setPendingEventTarget] =
     useState<DayPlanEventTarget | null>(null);
@@ -96,54 +110,62 @@ export default function PlanReportScreen() {
   }, [router, view]);
 
   return (
-    <View style={styles.pageStack}>
-      <View style={styles.page}>
-        {activeView === "day-plan" ? (
-          <ComponentErrorBoundary name="DayPlanScreen">
-            <DayPlanScreen
-              initialDateKey={activeDateKey}
-              initialEventTarget={pendingEventTarget}
-              onDateChange={handleDateChange}
-            />
-          </ComponentErrorBoundary>
-        ) : null}
-        {activeView === "weekly-plan" ? (
-          <ComponentErrorBoundary name="WeeklyPlanScreen">
-            <WeeklyPlanScreen
-              initialDateKey={activeDateKey}
-              onCreateRange={openCreateRange}
-              onDateChange={handleDateChange}
-              onSelectEvent={openDailyForEvent}
-              onSelectDate={openDailyForDate}
-            />
-            {pendingEventTarget ? (
+    <PlanReportProvider
+      activeDateKey={activeDateKey}
+      activeView={activePlanView}
+      onDateChange={handleDateChange}
+    >
+      <View style={styles.pageStack}>
+        <View style={styles.page}>
+          <PlanReportViewSlot view="day-plan">
+            <ComponentErrorBoundary name="DayPlanScreen">
               <DayPlanScreen
-                initialDateKey={pendingEventTarget.dateKey}
-                initialEventTarget={pendingEventTarget}
-                modalOnly
-                onEventOverlayDismiss={() => setPendingEventTarget(null)}
+                initialDateKey={activeDateKey}
+                isActive={activePlanView === "day-plan"}
+                onDateChange={handleDateChange}
               />
-            ) : null}
-            {pendingCreateRange ? (
-              <DayPlanScreen
-                initialCreateRange={pendingCreateRange}
-                initialDateKey={pendingCreateRange.dateKey}
-                modalOnly
-                onEventOverlayDismiss={() => setPendingCreateRange(null)}
+            </ComponentErrorBoundary>
+          </PlanReportViewSlot>
+          <PlanReportViewSlot view="weekly-plan">
+            <ComponentErrorBoundary name="WeeklyPlanScreen">
+              <WeeklyPlanScreen
+                initialDateKey={activeDateKey}
+                isActive={activePlanView === "weekly-plan"}
+                onCreateRange={openCreateRange}
+                onDateChange={handleDateChange}
+                onSelectEvent={openDailyForEvent}
+                onSelectDate={openDailyForDate}
               />
-            ) : null}
-          </ComponentErrorBoundary>
-        ) : null}
-        {activeView === "monthly-plan" ? (
-          <ComponentErrorBoundary name="MonthlyGoalsScreen">
-            <MonthlyGoalsScreen
-              initialDateKey={activeDateKey}
-              onDateChange={handleDateChange}
-            />
-          </ComponentErrorBoundary>
-        ) : null}
+              {pendingEventTarget ? (
+                <DayPlanScreen
+                  initialDateKey={pendingEventTarget.dateKey}
+                  initialEventTarget={pendingEventTarget}
+                  modalOnly
+                  onEventOverlayDismiss={() => setPendingEventTarget(null)}
+                />
+              ) : null}
+              {pendingCreateRange ? (
+                <DayPlanScreen
+                  initialCreateRange={pendingCreateRange}
+                  initialDateKey={pendingCreateRange.dateKey}
+                  modalOnly
+                  onEventOverlayDismiss={() => setPendingCreateRange(null)}
+                />
+              ) : null}
+            </ComponentErrorBoundary>
+          </PlanReportViewSlot>
+          <PlanReportViewSlot view="monthly-plan">
+            <ComponentErrorBoundary name="MonthlyGoalsScreen">
+              <MonthlyGoalsScreen
+                initialDateKey={activeDateKey}
+                isActive={activePlanView === "monthly-plan"}
+                onDateChange={handleDateChange}
+              />
+            </ComponentErrorBoundary>
+          </PlanReportViewSlot>
+        </View>
       </View>
-    </View>
+    </PlanReportProvider>
   );
 }
 

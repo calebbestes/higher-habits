@@ -265,11 +265,13 @@ function isGoalPlannedForDate({
 export function MonthlyGoalsScreen({
   habitsTab,
   initialDateKey,
+  isActive = true,
   onDateChange,
   onHabitsTabChange,
 }: {
   habitsTab?: HabitsTab;
   initialDateKey?: string;
+  isActive?: boolean;
   onDateChange?: (dateKey: string) => void;
   onHabitsTabChange?: (tab: HabitsTab) => void;
 }) {
@@ -295,6 +297,7 @@ export function MonthlyGoalsScreen({
       ? initialDateKey
       : toDateKey(new Date()),
   );
+  const lastReportedDateKeyRef = useRef<string | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: recompute "today" when the user navigates months (e.g. across midnight)
   const today = useMemo(() => new Date(), [displayMonth]);
@@ -312,8 +315,30 @@ export function MonthlyGoalsScreen({
   const [monthlyNote, setMonthlyNote] = useState("");
 
   useEffect(() => {
+    if (
+      !isActive ||
+      !initialDateKey ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
+      initialDateKey === selectedDateKey
+    ) {
+      return;
+    }
+
+    const nextDate = dateFromKey(initialDateKey);
+    setSelectedDateKey(initialDateKey);
+    setDisplayMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
+    setMonthPickerMonth(
+      new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
+    );
+  }, [initialDateKey, isActive, selectedDateKey]);
+
+  useEffect(() => {
+    if (!isActive || lastReportedDateKeyRef.current === selectedDateKey) {
+      return;
+    }
+    lastReportedDateKeyRef.current = selectedDateKey;
     onDateChange?.(selectedDateKey);
-  }, [onDateChange, selectedDateKey]);
+  }, [isActive, onDateChange, selectedDateKey]);
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [celebrate, setCelebrate] = useState(false);
@@ -854,22 +879,6 @@ export function MonthlyGoalsScreen({
             </Pressable>
             <View style={styles.monthNavRight}>
               <Pressable
-                accessibilityLabel="Add habit"
-                accessibilityRole="button"
-                onPress={() => setFormOpen(true)}
-                style={({ pressed }) => [
-                  styles.navAddButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={sym("plus", "add")}
-                  size={20}
-                  weight="semibold"
-                  tintColor={theme.primary}
-                />
-              </Pressable>
-              <Pressable
                 accessibilityLabel="Next month"
                 hitSlop={8}
                 onPress={() => navigateMonth(1)}
@@ -941,6 +950,7 @@ export function MonthlyGoalsScreen({
               onLayout={(y) => {
                 detailPanelYRef.current = y;
               }}
+              onAddHabit={() => setFormOpen(true)}
               onMoreGoal={openHabitMenu}
               onToggleGoal={toggleHabitForSelectedDay}
             />
@@ -1224,6 +1234,7 @@ function DayDetailPanel({
   selectedDateStatus,
   updatingKeys,
   onLayout,
+  onAddHabit,
   onMoreGoal,
   onToggleGoal,
 }: {
@@ -1240,6 +1251,7 @@ function DayDetailPanel({
   selectedDateStatus: (goal: PeriodicHabitInfo) => boolean;
   updatingKeys: Set<string>;
   onLayout?: (y: number) => void;
+  onAddHabit: () => void;
   onMoreGoal: (goal: PeriodicHabitInfo) => void;
   onToggleGoal: (goal: PeriodicHabitInfo) => void;
 }) {
@@ -1295,6 +1307,22 @@ function DayDetailPanel({
             Tap a habit to add or remove it for this day
           </Text>
         </View>
+        <Pressable
+          accessibilityLabel="Add habit"
+          accessibilityRole="button"
+          onPress={onAddHabit}
+          style={({ pressed }) => [
+            styles.navAddButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <SymbolView
+            name={sym("plus", "add")}
+            size={20}
+            weight="semibold"
+            tintColor={theme.primary}
+          />
+        </Pressable>
       </View>
 
       <View
@@ -1721,11 +1749,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   detailHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     paddingHorizontal: 18,
     paddingTop: 16,
     paddingBottom: 4,
   },
-  detailHeaderLeft: { gap: 2 },
+  detailHeaderLeft: { flex: 1, gap: 2, minWidth: 0 },
   detailDate: {
     fontSize: 17,
     lineHeight: 22,

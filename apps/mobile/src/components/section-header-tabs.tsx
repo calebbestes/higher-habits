@@ -71,12 +71,14 @@ export function CreateSectionHeaderTabs({
 
 export function PlanSectionHeaderTabs({
   currentView,
+  showIndicator = true,
   style,
 }: {
   currentView: Extract<
     PlanReportView,
     "day-plan" | "weekly-plan" | "monthly-plan"
   >;
+  showIndicator?: boolean;
   style?: ViewStyle;
 }) {
   const router = useRouter();
@@ -89,6 +91,7 @@ export function PlanSectionHeaderTabs({
         setPlanReportView(view);
         router.setParams({ view });
       }}
+      showIndicator={showIndicator}
       style={style}
     />
   );
@@ -120,11 +123,13 @@ function SectionHeaderTabs<T extends string>({
   activeKey,
   onChange,
   options,
+  showIndicator = true,
   style,
 }: {
   activeKey: T;
   onChange: (key: T) => void;
   options: Array<{ key: T; label: string }>;
+  showIndicator?: boolean;
   style?: ViewStyle;
 }) {
   const theme = useTheme();
@@ -153,12 +158,16 @@ function SectionHeaderTabs<T extends string>({
             >
               {option.label}
             </Text>
-            <View
-              style={[
-                styles.sectionTabIndicator,
-                { backgroundColor: isActive ? theme.primary : "transparent" },
-              ]}
-            />
+            {showIndicator ? (
+              <View
+                style={[
+                  styles.sectionTabIndicator,
+                  {
+                    backgroundColor: isActive ? theme.primary : "transparent",
+                  },
+                ]}
+              />
+            ) : null}
           </Pressable>
         );
       })}

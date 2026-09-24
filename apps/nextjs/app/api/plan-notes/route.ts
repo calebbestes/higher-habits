@@ -132,6 +132,11 @@ export async function GET(request: Request) {
 
     return NextResponse.json(rows.map(serialize));
   } catch (error) {
+    console.error("[Plan Notes] GET failed", {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
     if (error instanceof z.ZodError) {
@@ -157,6 +162,12 @@ export async function POST(request: Request) {
 
     const data = bodySchema.parse(await request.json());
     const dateKey = normalizeDateKey(data.period, data.dateKey);
+    console.log("[Plan Notes] Saving note", {
+      dateKey,
+      noteLength: data.notes.length,
+      period: data.period,
+      userIdSuffix: user.id.slice(-8),
+    });
     const [row] = await db
       .insert(planNotes)
       .values({
@@ -178,6 +189,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json(serialize(row));
   } catch (error) {
+    console.error("[Plan Notes] POST failed", {
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     const authErrorResponse = toAuthErrorResponse(error);
     if (authErrorResponse) return authErrorResponse;
     if (error instanceof z.ZodError) {

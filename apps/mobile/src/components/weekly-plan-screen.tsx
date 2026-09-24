@@ -100,20 +100,6 @@ export type WeekEvent = Pick<
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_ABBRS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 const HOURS = Array.from({ length: 17 }, (_, index) => index + 6);
 const HOUR_HEIGHT = 40;
 const ALL_DAY_ROW_HEIGHT = 28;
@@ -246,14 +232,6 @@ function visibleWeekEvents(
   return events
     .filter((event) => calendarSelectionLoaded || event.sourceType === "google")
     .map((event) => withDefaultWeekEventColor(event, defaultCalendarColor));
-}
-
-function formatCompactWeekRange(weekStart: Date): string {
-  const weekEnd = addDays(weekStart, 6);
-  if (weekStart.getMonth() === weekEnd.getMonth()) {
-    return `${MONTH_ABBRS[weekStart.getMonth()]} ${weekStart.getDate()}-${weekEnd.getDate()}`;
-  }
-  return `${MONTH_ABBRS[weekStart.getMonth()]} ${weekStart.getDate()}-${MONTH_ABBRS[weekEnd.getMonth()]} ${weekEnd.getDate()}`;
 }
 
 function formatHour(hour: number): string {
@@ -573,12 +551,14 @@ function stripEditorText(html: string): string {
 
 export function WeeklyPlanScreen({
   initialDateKey,
+  isActive = true,
   onCreateRange,
   onDateChange,
   onSelectEvent,
   onSelectDate,
 }: {
   initialDateKey?: string;
+  isActive?: boolean;
   onCreateRange?: (range: WeeklyCreateRange) => void;
   onDateChange?: (dateKey: string) => void;
   onSelectEvent?: (event: WeekEvent) => void;
@@ -610,6 +590,7 @@ export function WeeklyPlanScreen({
   const [weekStartDate, setWeekStartDate] = useState(() =>
     startOfWeek(dateFromKey(selectedDateKey)),
   );
+  const lastReportedDateKeyRef = useRef<string | null>(null);
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const [weekPickerMonth, setWeekPickerMonth] = useState(() => {
     const weekStart = startOfWeek(dateFromKey(selectedDateKey));
@@ -681,6 +662,24 @@ export function WeeklyPlanScreen({
   const todayKey = toDateKey(now);
   const nowLineTop = getWeeklyNowLineTop(now);
   const weekStartKey = useMemo(() => toDateKey(weekStartDate), [weekStartDate]);
+  useEffect(() => {
+    if (
+      !isActive ||
+      !initialDateKey ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(initialDateKey) ||
+      initialDateKey === selectedDateKey
+    ) {
+      return;
+    }
+
+    const nextDate = dateFromKey(initialDateKey);
+    setSelectedDateKey(initialDateKey);
+    setWeekStartDate(startOfWeek(nextDate));
+    setWeekPickerMonth(
+      new Date(nextDate.getFullYear(), nextDate.getMonth(), 1),
+    );
+  }, [initialDateKey, isActive, selectedDateKey]);
+
   const weekDays = useMemo(() => getWeekDays(weekStartDate), [weekStartDate]);
   const weekEventsByDate = useMemo(
     () =>
@@ -823,8 +822,12 @@ export function WeeklyPlanScreen({
   }, [notes]);
 
   useEffect(() => {
+    if (!isActive || lastReportedDateKeyRef.current === selectedDateKey) {
+      return;
+    }
+    lastReportedDateKeyRef.current = selectedDateKey;
     onDateChange?.(selectedDateKey);
-  }, [onDateChange, selectedDateKey]);
+  }, [isActive, onDateChange, selectedDateKey]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -1593,7 +1596,6 @@ export function WeeklyPlanScreen({
                   <View style={{ width: calendarWidth }}>
                     <WeeklyCalendarCard
                       now={now}
-                      onOpenWeekPicker={openWeekPicker}
                       onSelectEvent={onSelectEvent}
                       selectedDateKey={selectedDateKey}
                       theme={theme}
@@ -1611,56 +1613,6 @@ export function WeeklyPlanScreen({
                           { borderBottomColor: theme.tabBorder },
                         ]}
                       >
-                        <View style={styles.weekControlHeader}>
-                          <Pressable
-                            accessibilityLabel="Previous week"
-                            accessibilityRole="button"
-                            onPress={() => navigateWeek(-1)}
-                            style={({ pressed }) => [
-                              styles.navButton,
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <SymbolView
-                              name={sym("chevron.left", "chevron-left")}
-                              size={15}
-                              tintColor={theme.textSecondary}
-                            />
-                          </Pressable>
-                          <Pressable
-                            accessibilityLabel="Choose week"
-                            accessibilityRole="button"
-                            onPress={openWeekPicker}
-                            style={({ pressed }) => [
-                              styles.weekTitleButton,
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.weekTitle,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              {formatCompactWeekRange(weekStartDate)}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            accessibilityLabel="Next week"
-                            accessibilityRole="button"
-                            onPress={() => navigateWeek(1)}
-                            style={({ pressed }) => [
-                              styles.navButton,
-                              pressed && styles.pressed,
-                            ]}
-                          >
-                            <SymbolView
-                              name={sym("chevron.right", "chevron-right")}
-                              size={15}
-                              tintColor={theme.textSecondary}
-                            />
-                          </Pressable>
-                        </View>
                         <View style={styles.weekDaysTrack}>
                           <View style={styles.weekDaysSpacer} />
                           <View style={styles.weekDaysRow}>
@@ -1903,7 +1855,6 @@ export function WeeklyPlanScreen({
                   <View style={{ width: calendarWidth }}>
                     <WeeklyCalendarCard
                       now={now}
-                      onOpenWeekPicker={openWeekPicker}
                       onSelectEvent={onSelectEvent}
                       selectedDateKey={selectedDateKey}
                       theme={theme}
@@ -2234,7 +2185,6 @@ function WeeklyCalendarCard({
   onCreateEventMove,
   onCreateEventStart,
   onFinishWeeklyCreate,
-  onOpenWeekPicker,
   onSelectDate,
   onSelectEvent,
   selectedDateKey,
@@ -2250,7 +2200,6 @@ function WeeklyCalendarCard({
   onCreateEventMove?: (event: GestureResponderEvent) => void;
   onCreateEventStart?: (dateKey: string, event: GestureResponderEvent) => void;
   onFinishWeeklyCreate?: () => void;
-  onOpenWeekPicker?: () => void;
   onSelectDate?: (date: Date) => void;
   onSelectEvent?: (event: WeekEvent) => void;
   selectedDateKey: string;
@@ -2271,52 +2220,6 @@ function WeeklyCalendarCard({
       <View
         style={[styles.weekControl, { borderBottomColor: theme.tabBorder }]}
       >
-        <View style={styles.weekControlHeader}>
-          <Pressable
-            accessibilityLabel="Previous week"
-            accessibilityRole="button"
-            onPress={() => onSelectDate?.(addDays(weekStartDate, -1))}
-            style={({ pressed }) => [
-              styles.navButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("chevron.left", "chevron-left")}
-              size={15}
-              tintColor={theme.textSecondary}
-            />
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Choose week"
-            accessibilityRole="button"
-            disabled={!onOpenWeekPicker}
-            onPress={onOpenWeekPicker}
-            style={({ pressed }) => [
-              styles.weekTitleButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.weekTitle, { color: theme.textSecondary }]}>
-              {formatCompactWeekRange(weekStartDate)}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Next week"
-            accessibilityRole="button"
-            onPress={() => onSelectDate?.(addDays(weekStartDate, 7))}
-            style={({ pressed }) => [
-              styles.navButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <SymbolView
-              name={sym("chevron.right", "chevron-right")}
-              size={15}
-              tintColor={theme.textSecondary}
-            />
-          </Pressable>
-        </View>
         <View style={styles.weekDaysTrack}>
           <View style={styles.weekDaysSpacer} />
           <View style={styles.weekDaysRow}>
@@ -3083,13 +2986,6 @@ const styles = StyleSheet.create({
     paddingTop: 3,
     paddingBottom: 4,
   },
-  weekControlHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 18,
-    width: "100%",
-  },
   weekDaysRow: {
     flex: 1,
     flexDirection: "row",
@@ -3101,21 +2997,5 @@ const styles = StyleSheet.create({
   weekDaysTrack: {
     flexDirection: "row",
     width: "100%",
-  },
-  weekTitle: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: "600",
-    lineHeight: 13,
-    textAlign: "center",
-  },
-  weekTitleButton: {
-    alignItems: "center",
-    borderRadius: 8,
-    flex: 1,
-    justifyContent: "center",
-    minWidth: 0,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
   },
 });

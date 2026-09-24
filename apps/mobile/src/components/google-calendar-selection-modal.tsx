@@ -351,11 +351,6 @@ export function GoogleCalendarSelectionModal({
                     {error}
                   </Text>
                 ) : null}
-                <Text
-                  style={[styles.footerHint, { color: theme.textSecondary }]}
-                >
-                  Float planned items are always shown.
-                </Text>
               </ScrollView>
             )}
           </View>

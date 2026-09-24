@@ -100,6 +100,11 @@ export function PlanNoteEditorModal({
       await onSave(normalizeEditorHtml(value));
       onClose();
     } catch (saveError) {
+      console.error("[Plan Note Editor] Save failed", {
+        dateLabel,
+        error: saveError,
+        noteType,
+      });
       setError(
         saveError instanceof Error ? saveError.message : "Could not save note.",
       );
