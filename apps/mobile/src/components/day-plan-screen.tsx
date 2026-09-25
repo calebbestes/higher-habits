@@ -429,9 +429,13 @@ export function DayPlanScreen({
     selectedCalendarIds,
     toggleCalendar,
   } = useGoogleCalendarSelection();
+  const floatCalendar = calendars.find(
+    (calendar) => calendar.summary === "Float",
+  );
   const floatCalendarColor =
-    calendars.find((calendar) => calendar.summary === "Float")
-      ?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
+    floatCalendar?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
+  const isFloatCalendarVisible =
+    !floatCalendar || selectedCalendarIds.includes(floatCalendar.id);
   const loadSequenceRef = useRef(0);
   const snapshotCacheRef = useRef(new Map<string, HabitLogsSnapshot>());
   const snapshotInFlightRef = useRef(
@@ -1048,17 +1052,21 @@ export function DayPlanScreen({
         defaultCalendarColor: floatCalendarColor,
         googleEvents,
         habitById,
+        isFloatCalendarVisible,
         plannedEvents,
+        selectedCalendarIds,
+        selectedDate,
         snapshot,
         taskById,
-        selectedDate,
       }),
     [
       checkpointById,
       dateKey,
       googleEvents,
       habitById,
+      isFloatCalendarVisible,
       plannedEvents,
+      selectedCalendarIds,
       selectedDate,
       snapshot,
       taskById,
@@ -1083,6 +1091,7 @@ export function DayPlanScreen({
         allDayEntries,
         dateKey,
         defaultCalendarColor: floatCalendarColor,
+        isFloatCalendarVisible,
         planGoals,
         scheduledHabitCounts,
         scheduledCheckpointIds,
@@ -1094,6 +1103,7 @@ export function DayPlanScreen({
       allDayEntries,
       dateKey,
       floatCalendarColor,
+      isFloatCalendarVisible,
       planGoals,
       scheduledHabitCounts,
       scheduledCheckpointIds,
@@ -5396,7 +5406,9 @@ function buildDayPlanEntries({
   defaultCalendarColor,
   googleEvents,
   habitById,
+  isFloatCalendarVisible,
   plannedEvents,
+  selectedCalendarIds,
   selectedDate,
   snapshot,
   taskById,
@@ -5406,7 +5418,9 @@ function buildDayPlanEntries({
   defaultCalendarColor: string;
   googleEvents: GoogleCalendarDayEvent[];
   habitById: Map<string, ActionHabit>;
+  isFloatCalendarVisible: boolean;
   plannedEvents: PlannedEvent[];
+  selectedCalendarIds: string[];
   selectedDate: Date;
   snapshot: HabitLogsSnapshot | null;
   taskById: Map<string, Task>;
@@ -5441,6 +5455,8 @@ function buildDayPlanEntries({
   );
 
   for (const event of googleEvents) {
+    if (!selectedCalendarIds.includes(event.calendarId)) continue;
+
     const isBackedByPlannedEvent = plannedEventByGoogleKey.has(
       `${event.calendarId}:${event.id}`,
     );
@@ -5453,19 +5469,28 @@ function buildDayPlanEntries({
     if (entry) entries.push(entry);
   }
 
-  for (const event of plannedEvents) {
-    const entry = plannedEventToEntry(event, {
-      checkpointById,
-      categoryNameById,
-      defaultCalendarColor,
-      habitById,
-      liveCalendarColor: liveGoogleColorByPlannedEventId.get(event.id),
-      taskById,
-    });
-    if (entry) entries.push(entry);
+  if (isFloatCalendarVisible) {
+    for (const event of plannedEvents) {
+      if (
+        event.googleCalendarId &&
+        !selectedCalendarIds.includes(event.googleCalendarId)
+      ) {
+        continue;
+      }
+
+      const entry = plannedEventToEntry(event, {
+        checkpointById,
+        categoryNameById,
+        defaultCalendarColor,
+        habitById,
+        liveCalendarColor: liveGoogleColorByPlannedEventId.get(event.id),
+        taskById,
+      });
+      if (entry) entries.push(entry);
+    }
   }
 
-  if (snapshot) {
+  if (isFloatCalendarVisible && snapshot) {
     for (const habit of habitById.values()) {
       const key = `${habit.id}_${dateKey}`;
       const status = snapshot.logsByHabitDate[key];
@@ -5830,6 +5855,7 @@ function buildSuggestedPlanEntries({
   allDayEntries,
   dateKey,
   defaultCalendarColor,
+  isFloatCalendarVisible,
   planGoals,
   scheduledHabitCounts,
   scheduledCheckpointIds,
@@ -5840,6 +5866,7 @@ function buildSuggestedPlanEntries({
   allDayEntries: DayPlanEntry[];
   dateKey: string;
   defaultCalendarColor: string;
+  isFloatCalendarVisible: boolean;
   planGoals: Goal[];
   scheduledHabitCounts: Map<string, number>;
   scheduledCheckpointIds: Set<string>;
@@ -5847,6 +5874,8 @@ function buildSuggestedPlanEntries({
   snapshot: HabitLogsSnapshot | null;
   tasks: Task[];
 }): SuggestedPlanEntry[] {
+  if (!isFloatCalendarVisible) return [];
+
   const habitById = buildHabitMap(snapshot);
   const allDayHabitEntries = allDayEntries
     .filter(
