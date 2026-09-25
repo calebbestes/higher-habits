@@ -21,7 +21,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { withErrorTrace } from "@/components/component-error-boundary";
 import { GoalLogVisibilityControl } from "@/components/goal-log-visibility-control";
+import { DEFAULT_GOOGLE_CALENDAR_COLOR } from "@/constants/calendar-colors";
 import { useGoogleCalendarEventColors } from "@/hooks/use-google-calendar-event-colors";
+import { useGoogleCalendarSelection } from "@/hooks/use-google-calendar-selection";
 import { useTheme } from "@/hooks/use-theme";
 import { addCrashBreadcrumb, setCrashContext } from "@/lib/crash-reporting";
 import type { GoalLogStatus } from "@/lib/goal-logs-client";
@@ -236,6 +238,11 @@ function GoalActionsModalImpl({
   const theme = useTheme();
   const { colors: googleEventColors, isLoading: isLoadingGoogleColors } =
     useGoogleCalendarEventColors();
+  const { calendars } = useGoogleCalendarSelection();
+  const floatCalendarColor =
+    calendars.find((calendar) => calendar.summary === "Float")
+      ?.backgroundColor ?? DEFAULT_GOOGLE_CALENDAR_COLOR;
+  const effectiveColor = color ?? floatCalendarColor;
   const colorOptions = googleEventColors.map((googleColor) => ({
     color: googleColor.backgroundColor,
     label: googleColor.label ?? `Google color ${googleColor.colorId}`,
@@ -1264,7 +1271,7 @@ function GoalActionsModalImpl({
                             style={[
                               modalStyles.colorCurrentSwatch,
                               {
-                                backgroundColor: color ?? theme.primary,
+                                backgroundColor: effectiveColor,
                               },
                             ]}
                           />
@@ -1304,7 +1311,7 @@ function GoalActionsModalImpl({
                     {isColorPickerOpen ? (
                       <>
                         <ReliablePressable
-                          accessibilityLabel="Use default color"
+                          accessibilityLabel="Use Float calendar color"
                           accessibilityRole="radio"
                           accessibilityState={{
                             checked: color === null || color === undefined,
@@ -1327,7 +1334,7 @@ function GoalActionsModalImpl({
                               { color: theme.textSecondary },
                             ]}
                           >
-                            Default color
+                            Float calendar color
                           </Text>
                         </ReliablePressable>
                         <View style={modalStyles.colorOptions}>

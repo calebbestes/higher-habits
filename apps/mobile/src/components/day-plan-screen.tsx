@@ -2063,11 +2063,7 @@ export function DayPlanScreen({
     if (Date.now() < suppressEntryPressUntilRef.current) return;
 
     if (entry.kind === "habit" && entry.habitId) {
-      if (entry.sourceId) {
-        setActiveEntry(entry);
-        return;
-      }
-
+      setActiveEntry(null);
       setActiveHabit(habitById.get(entry.habitId) ?? null);
       return;
     }
@@ -2103,7 +2099,8 @@ export function DayPlanScreen({
     if (!entry) return;
 
     openedInitialEventTargetRef.current = targetKey;
-    if (entry.kind === "habit" && entry.habitId && !entry.sourceId) {
+    if (entry.kind === "habit" && entry.habitId) {
+      setActiveEntry(null);
       setActiveHabit(habitById.get(entry.habitId) ?? null);
     } else {
       setActiveEntry(entry);

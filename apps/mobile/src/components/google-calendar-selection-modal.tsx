@@ -9,7 +9,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { useGoogleCalendarColors } from "@/hooks/use-google-calendar-event-colors";
 import { useTheme } from "@/hooks/use-theme";
@@ -55,6 +58,7 @@ export function GoogleCalendarSelectionModal({
   visible: boolean;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const {
     calendarColors: googleCalendarColors,
     isLoading: isLoadingGoogleColors,
@@ -108,7 +112,7 @@ export function GoogleCalendarSelectionModal({
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <SafeAreaView
-          edges={["top", "bottom"]}
+          edges={["bottom"]}
           style={[
             styles.drawer,
             {
@@ -118,7 +122,7 @@ export function GoogleCalendarSelectionModal({
           ]}
         >
           <View style={styles.upperPane}>
-            <View style={styles.header}>
+            <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
               <View style={styles.heading}>
                 <Text style={[styles.title, { color: theme.text }]}>
                   Calendars
