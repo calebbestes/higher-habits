@@ -217,7 +217,7 @@ export function TopTasksScreen() {
             nextTask,
           ].filter((item): item is Task => Boolean(item)),
         );
-        void reloadProjects();
+        void reloadProjects(true);
       } catch (err) {
         setTasks((prev) =>
           prev.map((t) => (t.id === previous.id ? previous : t)),
@@ -278,7 +278,7 @@ export function TopTasksScreen() {
     }
     setFormOpen(false);
     setEditingTask(null);
-    void reloadProjects();
+    void reloadProjects(true);
   };
 
   const openPlanTask = (task: Task) => {
@@ -353,7 +353,7 @@ export function TopTasksScreen() {
                   event.sourceType !== "task" || event.sourceId !== task.id,
               ),
             );
-            void reloadProjects();
+            void reloadProjects(true);
           } catch (err) {
             setError(
               err instanceof Error ? err.message : "Could not delete task.",

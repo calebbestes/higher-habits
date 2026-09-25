@@ -644,6 +644,7 @@ export function WeeklyPlanScreen({
     isSaving: isSavingCalendarSelection,
     loaded: calendarSelectionLoaded,
     load: reloadCalendarSelection,
+    recentCalendarIds,
     selectedCalendarIds,
     toggleCalendar,
   } = useGoogleCalendarSelection();
@@ -2163,6 +2164,7 @@ export function WeeklyPlanScreen({
             .catch(() => undefined);
         }}
         onRetry={() => void reloadCalendarSelection()}
+        recentCalendarIds={recentCalendarIds}
         onSelectDate={selectCalendarDate}
         onSync={() => {
           void syncGoogleCalendar().then(() => reloadCalendarSelection());

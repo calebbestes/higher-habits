@@ -66,6 +66,15 @@ export type HabitLogSocialSummary = {
   comments: HabitLogSocialComment[];
 };
 
+export type PlannedRepeatCadence = "daily" | "weekly" | "monthly";
+export type PlannedRepeatMonthlyType = "day_of_month" | "day_of_week";
+export type PlannedRepeat = {
+  cadence: PlannedRepeatCadence;
+  interval: number;
+  days: number[] | null;
+  monthlyType: PlannedRepeatMonthlyType | null;
+};
+
 export type CategoryWithHabits = {
   id: string;
   name: string;
@@ -113,12 +122,22 @@ export type HabitLogsSnapshot = {
   visibilityByHabitDate: Record<string, HabitVisibility>;
   plannedTimesByHabitDate: Record<
     string,
-    { startTime: string | null; endTime: string | null; repeatsDaily: boolean }
+    {
+      startTime: string | null;
+      endTime: string | null;
+      repeatsDaily: boolean;
+      repeat: PlannedRepeat | null;
+    }
   >;
-  // Active "repeat daily" plan per habit, effective from originDate forward.
+  // Active repeating plan per habit, effective from originDate forward.
   repeatingPlansByHabit: Record<
     string,
-    { startTime: string | null; endTime: string | null; originDate: string }
+    {
+      startTime: string | null;
+      endTime: string | null;
+      originDate: string;
+      repeat: PlannedRepeat;
+    }
   >;
   // Dates (any status) that already have their own log per habit; an explicit
   // log for a date overrides the projected daily repeat for that date.
@@ -159,6 +178,29 @@ function nullableString(value: unknown): string | null {
 
 function booleanOrFallback(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizePlannedRepeat(value: unknown): PlannedRepeat | null {
+  if (!isRecord(value)) return null;
+  const cadence = value.cadence;
+  if (cadence !== "daily" && cadence !== "weekly" && cadence !== "monthly") {
+    return null;
+  }
+  const interval =
+    typeof value.interval === "number" && Number.isFinite(value.interval)
+      ? Math.max(1, Math.round(value.interval))
+      : 1;
+  const days = Array.isArray(value.days)
+    ? value.days.filter(
+        (day): day is number =>
+          typeof day === "number" && Number.isInteger(day) && day >= 0,
+      )
+    : null;
+  const monthlyType =
+    value.monthlyType === "day_of_month" || value.monthlyType === "day_of_week"
+      ? value.monthlyType
+      : null;
+  return { cadence, interval, days, monthlyType };
 }
 
 function normalizePriority(value: unknown): "high" | "low" {
@@ -235,6 +277,16 @@ function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
             startTime: nullableString(entry.startTime),
             endTime: nullableString(entry.endTime),
             repeatsDaily: booleanOrFallback(entry.repeatsDaily),
+            repeat:
+              normalizePlannedRepeat(entry.repeat) ??
+              (entry.repeatsDaily
+                ? {
+                    cadence: "daily",
+                    interval: 1,
+                    days: null,
+                    monthlyType: null,
+                  }
+                : null),
           }
         : null,
   );
@@ -279,7 +331,26 @@ function normalizeSnapshot(value: unknown): HabitLogsSnapshot {
     ),
     plannedTimesByHabitDate,
     repeatingPlansByHabit: isRecord(payload.repeatingPlansByHabit)
-      ? (payload.repeatingPlansByHabit as HabitLogsSnapshot["repeatingPlansByHabit"])
+      ? Object.fromEntries(
+          Object.entries(payload.repeatingPlansByHabit).flatMap(
+            ([habitId, value]) => {
+              if (!isRecord(value)) return [];
+              const repeat = normalizePlannedRepeat(value.repeat);
+              if (!repeat) return [];
+              return [
+                [
+                  habitId,
+                  {
+                    startTime: nullableString(value.startTime),
+                    endTime: nullableString(value.endTime),
+                    originDate: nullableString(value.originDate) ?? "",
+                    repeat,
+                  },
+                ],
+              ];
+            },
+          ),
+        )
       : {},
     explicitPlanDatesByHabit: isRecord(payload.explicitPlanDatesByHabit)
       ? (payload.explicitPlanDatesByHabit as Record<string, string[]>)
@@ -322,7 +393,9 @@ export const setHabitLog = (
   options?: {
     completedCount?: number;
     endTime?: string | null;
+    repeat?: PlannedRepeat | null;
     repeatPlan?: boolean;
+    repeatStop?: boolean;
     startTime?: string | null;
     timeZone?: string | null;
   },
@@ -340,7 +413,16 @@ export const setHabitLog = (
             plannedEndTime: options.endTime ?? null,
             completedCount: options.completedCount,
             plannedTimeZone: options.timeZone ?? null,
-            repeatPlan: options.repeatPlan ?? false,
+            plannedRepeatCadence: options.repeat?.cadence ?? null,
+            plannedRepeatDays: options.repeat?.days ?? null,
+            plannedRepeatInterval: options.repeat?.interval ?? null,
+            plannedRepeatMonthlyType: options.repeat?.monthlyType ?? null,
+            repeatStop: options.repeatStop ?? false,
+            repeatPlan: options.repeat
+              ? true
+              : options.repeatStop
+                ? false
+                : (options.repeatPlan ?? false),
           }
         : {}),
     }),

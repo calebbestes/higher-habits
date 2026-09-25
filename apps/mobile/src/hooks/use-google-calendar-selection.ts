@@ -12,6 +12,7 @@ const DEFAULT_SELECTED_CALENDAR_IDS = ["primary"];
 
 type GoogleCalendarSelectionCache = {
   calendars: GoogleCalendar[];
+  recentCalendarIds: string[];
   selectedCalendarIds: string[];
 };
 
@@ -41,6 +42,9 @@ export function useGoogleCalendarSelection() {
       googleCalendarSelectionCache?.selectedCalendarIds ??
       DEFAULT_SELECTED_CALENDAR_IDS,
   );
+  const [recentCalendarIds, setRecentCalendarIds] = useState<string[]>(
+    () => googleCalendarSelectionCache?.recentCalendarIds ?? [],
+  );
   const [isLoading, setIsLoading] = useState(
     () => googleCalendarSelectionCache === null,
   );
@@ -63,10 +67,15 @@ export function useGoogleCalendarSelection() {
       const nextSelectedIds = selectionResult.visibleGoogleCalendarIds.map(
         (calendarId) => resolvePrimaryCalendarId(nextCalendars, calendarId),
       );
+      const nextRecentIds = selectionResult.googleCalendarRecentIds.map(
+        (calendarId) => resolvePrimaryCalendarId(nextCalendars, calendarId),
+      );
       const uniqueSelectedIds = [...new Set(nextSelectedIds)];
+      const uniqueRecentIds = [...new Set(nextRecentIds)];
 
       googleCalendarSelectionCache = {
         calendars: nextCalendars,
+        recentCalendarIds: uniqueRecentIds,
         selectedCalendarIds: uniqueSelectedIds,
       };
 
@@ -76,6 +85,7 @@ export function useGoogleCalendarSelection() {
           ? currentSelectedIds
           : uniqueSelectedIds,
       );
+      setRecentCalendarIds(uniqueRecentIds);
       setLoaded(true);
     } catch (loadError) {
       setError(
@@ -98,20 +108,27 @@ export function useGoogleCalendarSelection() {
       const nextSelectedIds = selectedCalendarIds.includes(calendarId)
         ? selectedCalendarIds.filter((id) => id !== calendarId)
         : [...selectedCalendarIds, calendarId];
+      const nextRecentIds = selectedCalendarIds.includes(calendarId)
+        ? recentCalendarIds
+        : [calendarId, ...recentCalendarIds.filter((id) => id !== calendarId)];
 
       setSelectedCalendarIds(nextSelectedIds);
+      setRecentCalendarIds(nextRecentIds);
       googleCalendarSelectionCache = {
         calendars,
+        recentCalendarIds: nextRecentIds,
         selectedCalendarIds: nextSelectedIds,
       };
       setIsSaving(true);
       setError(null);
       try {
-        await saveGoogleCalendarSelection(nextSelectedIds);
+        await saveGoogleCalendarSelection(nextSelectedIds, nextRecentIds);
       } catch (saveError) {
         setSelectedCalendarIds(selectedCalendarIds);
+        setRecentCalendarIds(recentCalendarIds);
         googleCalendarSelectionCache = {
           calendars,
+          recentCalendarIds,
           selectedCalendarIds,
         };
         const message =
@@ -124,7 +141,7 @@ export function useGoogleCalendarSelection() {
         setIsSaving(false);
       }
     },
-    [calendars, selectedCalendarIds],
+    [calendars, recentCalendarIds, selectedCalendarIds],
   );
 
   const changeCalendarColor = useCallback(
@@ -186,6 +203,7 @@ export function useGoogleCalendarSelection() {
     loaded,
     load,
     selectedCalendarIds,
+    recentCalendarIds,
     toggleCalendar,
   };
 }

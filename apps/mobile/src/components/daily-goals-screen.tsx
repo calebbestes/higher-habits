@@ -50,6 +50,7 @@ import {
   type HabitInCategory,
   type HabitLogStatus,
   type HabitLogsSnapshot,
+  type PlannedRepeat,
   fetchHabitLogsSnapshot,
   getMonthKey,
   setHabitLog,
@@ -67,6 +68,7 @@ import {
   deleteHabit,
   fetchCategories,
   updateHabit,
+  updateHabitColor,
 } from "@/lib/habits-client";
 import {
   cancelHabitReminderAsync,
@@ -484,7 +486,9 @@ export function DailyGoalsScreen({
       status: HabitLogStatus,
       options?: {
         endTime?: string | null;
+        repeat?: PlannedRepeat | null;
         repeatPlan?: boolean;
+        repeatStop?: boolean;
         startTime?: string | null;
         timeZone?: string | null;
         completedCount?: number;
@@ -544,6 +548,16 @@ export function DailyGoalsScreen({
             plannedTimesByHabitDate[key] = {
               startTime: options?.startTime ?? null,
               endTime: options?.endTime ?? null,
+              repeat:
+                options?.repeat ??
+                (options?.repeatPlan
+                  ? {
+                      cadence: "daily",
+                      interval: 1,
+                      days: null,
+                      monthlyType: null,
+                    }
+                  : null),
               repeatsDaily: options?.repeatPlan ?? false,
             };
           } else {
@@ -910,6 +924,43 @@ export function DailyGoalsScreen({
     [dateKey],
   );
 
+  const handleSetGoalColor = useCallback(
+    async (color: string | null) => {
+      if (!activeGoal) return;
+
+      const goal = activeGoal;
+      const colorKey = `color-${goal.id}`;
+      setUpdatingKeys((current) => new Set(current).add(colorKey));
+      try {
+        const updatedHabit = await updateHabitColor(goal.id, color);
+        setActiveGoal((current) =>
+          current?.id === updatedHabit.id
+            ? { ...current, color: updatedHabit.color }
+            : current,
+        );
+        const nextSnapshot = await fetchHabitLogsSnapshot(monthKey);
+        if (!isMountedRef.current) return;
+        setSnapshot(nextSnapshot);
+        setLogsByGoalDate(nextSnapshot.logsByHabitDate);
+        setCompletedCountsByHabitDate(nextSnapshot.completedCountsByHabitDate);
+      } catch (colorError) {
+        Alert.alert(
+          "Could not update color",
+          colorError instanceof Error
+            ? colorError.message
+            : "Could not update this habit's color.",
+        );
+      } finally {
+        setUpdatingKeys((current) => {
+          const next = new Set(current);
+          next.delete(colorKey);
+          return next;
+        });
+      }
+    },
+    [activeGoal, monthKey],
+  );
+
   // Defensive, self-reporting derivation of the goal-actions modal props. Every
   // snapshot sub-map and goal field is optional-chained with a fallback so a
   // malformed/incomplete goal (e.g. missing period/visibility from the API)
@@ -1244,6 +1295,9 @@ export function DailyGoalsScreen({
         isUpdatingVisibility={isUpdatingVisibility}
         status={modalProps.status}
         isUpdating={modalProps.isUpdating}
+        isUpdatingColor={Boolean(
+          activeGoal && updatingKeys.has(`color-${activeGoal.id}`),
+        )}
         uploadingPhotoSource={uploadingPhotoSource}
         visible={Boolean(activeGoal)}
         onAddPhoto={(source) => {
@@ -1288,6 +1342,7 @@ export function DailyGoalsScreen({
           });
           void handleSetVisibility(activeGoal.id, visibility);
         }}
+        onSetColor={(color) => void handleSetGoalColor(color)}
         onSetStatus={(newStatus: HabitLogStatus, planOptions) => {
           if (!activeGoal) return;
           setCrashContext("goal_actions_modal", {

@@ -8,6 +8,7 @@ import { requireRequestUser, toAuthErrorResponse } from "@/lib/auth";
 const bodySchema = z.object({
   visibleCategoryIds: z.array(z.string().uuid()).optional(),
   visibleGoogleCalendarIds: z.array(z.string().min(1)).optional(),
+  googleCalendarRecentIds: z.array(z.string().min(1)).optional(),
   monthlyGoalSlots: z.number().int().min(1).max(5).optional(),
 });
 
@@ -32,6 +33,9 @@ export async function GET(request: Request) {
     return NextResponse.json({
       visibleCategoryIds: row?.visibleCategoryIds ?? [],
       visibleGoogleCalendarIds: row?.visibleGoogleCalendarIds ?? ["primary"],
+      googleCalendarRecentIds: row?.googleCalendarRecentIds?.length
+        ? row.googleCalendarRecentIds
+        : (row?.visibleGoogleCalendarIds ?? ["primary"]),
       monthlyGoalSlots: row?.monthlyGoalSlots ?? 3,
     });
   } catch (error) {
@@ -67,6 +71,11 @@ export async function POST(request: Request) {
       data.visibleCategoryIds ?? existingSettings?.visibleCategoryIds ?? [];
     const visibleGoogleCalendarIds = data.visibleGoogleCalendarIds ??
       existingSettings?.visibleGoogleCalendarIds ?? ["primary"];
+    const googleCalendarRecentIds =
+      data.googleCalendarRecentIds ??
+      (existingSettings?.googleCalendarRecentIds?.length
+        ? existingSettings.googleCalendarRecentIds
+        : visibleGoogleCalendarIds);
     const monthlyGoalSlots =
       data.monthlyGoalSlots ?? existingSettings?.monthlyGoalSlots ?? 3;
 
@@ -76,6 +85,7 @@ export async function POST(request: Request) {
         userId: user.id,
         visibleCategoryIds,
         visibleGoogleCalendarIds,
+        googleCalendarRecentIds,
         monthlyGoalSlots,
         updatedAt: new Date(),
       })
@@ -84,6 +94,7 @@ export async function POST(request: Request) {
         set: {
           visibleCategoryIds,
           visibleGoogleCalendarIds,
+          googleCalendarRecentIds,
           monthlyGoalSlots,
           updatedAt: new Date(),
         },

@@ -275,24 +275,30 @@ export const updateGoogleCalendarColor = ({
   );
 
 export const fetchGoogleCalendarSelection = (): Promise<{
+  googleCalendarRecentIds: string[];
   visibleGoogleCalendarIds: string[];
 }> =>
   mobileApiFetch("/api/calendar-settings").then((response) =>
-    parseResponse<{ visibleGoogleCalendarIds?: string[] }>(response).then(
-      (settings) => ({
-        visibleGoogleCalendarIds: settings.visibleGoogleCalendarIds ?? [
-          "primary",
-        ],
-      }),
-    ),
+    parseResponse<{
+      googleCalendarRecentIds?: string[];
+      visibleGoogleCalendarIds?: string[];
+    }>(response).then((settings) => ({
+      googleCalendarRecentIds: settings.googleCalendarRecentIds ??
+        settings.visibleGoogleCalendarIds ?? ["primary"],
+      visibleGoogleCalendarIds: settings.visibleGoogleCalendarIds ?? [
+        "primary",
+      ],
+    })),
   );
 
 export const saveGoogleCalendarSelection = (
   visibleGoogleCalendarIds: string[],
+  googleCalendarRecentIds: string[],
 ): Promise<{ ok: true }> =>
   mobileApiFetch("/api/calendar-settings", {
     method: "POST",
     body: JSON.stringify({
+      googleCalendarRecentIds,
       visibleGoogleCalendarIds,
     }),
   }).then((response) => parseResponse<{ ok: true }>(response));

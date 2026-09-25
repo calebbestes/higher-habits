@@ -35,6 +35,7 @@ import {
   type HabitLogStatus,
   type HabitLogsSnapshot,
   type PeriodicHabitInfo,
+  type PlannedRepeat,
   fetchHabitLogsSnapshot,
   getMonthKey,
   setHabitLog,
@@ -475,7 +476,9 @@ export function MonthlyGoalsScreen({
       status: HabitLogStatus,
       options?: {
         endTime?: string | null;
+        repeat?: PlannedRepeat | null;
         repeatPlan?: boolean;
+        repeatStop?: boolean;
         startTime?: string | null;
         timeZone?: string | null;
       },
@@ -509,6 +512,7 @@ export function MonthlyGoalsScreen({
             plannedTimesByHabitDate[key] = {
               startTime: options?.startTime ?? null,
               endTime: options?.endTime ?? null,
+              repeat: options?.repeat ?? null,
               repeatsDaily: options?.repeatPlan ?? false,
             };
           } else {

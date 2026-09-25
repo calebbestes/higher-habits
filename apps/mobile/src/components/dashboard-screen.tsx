@@ -43,6 +43,7 @@ import {
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import type { GoalVisibility } from "@/lib/goals-client";
+import { updateHabitColor } from "@/lib/habits-client";
 
 type SymbolName = SymbolViewProps["name"];
 
@@ -349,6 +350,38 @@ export function DashboardScreen() {
     [],
   );
 
+  const handleSetActiveLogColor = useCallback(
+    async (color: string | null) => {
+      if (!activeLog) return;
+
+      const goalId = activeLog.goal.id;
+      setUpdatingKey(`color-${goalId}`);
+      try {
+        const updatedHabit = await updateHabitColor(goalId, color);
+        setActiveLog((current) =>
+          current?.goal.id === updatedHabit.id
+            ? {
+                ...current,
+                goal: { ...current.goal, color: updatedHabit.color },
+              }
+            : current,
+        );
+        const nextSnapshot = await fetchGoalLogsSnapshot(currentMonthKey);
+        setSnapshot(nextSnapshot);
+      } catch (colorError) {
+        Alert.alert(
+          "Could not update color",
+          colorError instanceof Error
+            ? colorError.message
+            : "Could not update this habit's color.",
+        );
+      } finally {
+        setUpdatingKey(null);
+      }
+    },
+    [activeLog, currentMonthKey],
+  );
+
   const handleSetStatus = useCallback(
     async (
       goalId: string,
@@ -653,6 +686,9 @@ export function DashboardScreen() {
         hasPhoto={activeLogPhotoCount > 0}
         isFutureDate={Boolean(activeLog && activeLog.dateKey > todayKey)}
         isUpdating={Boolean(activeLogKey && updatingKey === activeLogKey)}
+        isUpdatingColor={Boolean(
+          activeLog && updatingKey === `color-${activeLog.goal.id}`,
+        )}
         isUpdatingVisibility={isUpdatingVisibility}
         noteText={activeLogNote}
         plannedTime={activeLogPlannedTime ?? undefined}
@@ -689,6 +725,7 @@ export function DashboardScreen() {
             visibility,
           );
         }}
+        onSetColor={(color) => void handleSetActiveLogColor(color)}
       />
       {noteLog ? (
         <GoalNoteEditorModal

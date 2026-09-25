@@ -729,6 +729,11 @@ export const goalLogs = pgTable(
     plannedRepeatsDaily: boolean("planned_repeats_daily")
       .default(false)
       .notNull(),
+    plannedRepeatCadence: text("planned_repeat_cadence"),
+    plannedRepeatInterval: integer("planned_repeat_interval"),
+    plannedRepeatDays: json("planned_repeat_days").$type<number[]>(),
+    plannedRepeatMonthlyType: text("planned_repeat_monthly_type"),
+    plannedRepeatDisabled: boolean("planned_repeat_disabled"),
     googleCalendarEventId: text("google_calendar_event_id"),
     googleCalendarId: text("google_calendar_id"),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
@@ -1492,6 +1497,10 @@ export const calendarSettings = pgTable("calendar_settings", {
     .array()
     .notNull()
     .default(sql`ARRAY['primary']::text[]`),
+  googleCalendarRecentIds: text("google_calendar_recent_ids")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
   floatGoogleCalendarId: text("float_google_calendar_id"),
   monthlyGoalSlots: integer("monthly_goal_slots").notNull().default(3),
   updatedAt: timestamp("updated_at", { withTimezone: true })

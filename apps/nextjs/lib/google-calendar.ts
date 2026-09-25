@@ -16,6 +16,13 @@ export const GOOGLE_CALENDAR_APP_CREATED_SCOPE =
   "https://www.googleapis.com/auth/calendar.app.created";
 export const FLOAT_GOOGLE_CALENDAR_NAME = "Float";
 
+type PlannedRepeat = {
+  cadence: "daily" | "weekly" | "monthly";
+  interval: number;
+  days: number[] | null;
+  monthlyType: "day_of_month" | "day_of_week" | null;
+};
+
 type GoogleTokenResult =
   | { status: "connected"; accessToken: string; scopes: string[] }
   | {
@@ -292,6 +299,7 @@ export async function upsertGoogleCalendarHabitPlan({
   habitName,
   plannedEndTime,
   plannedStartTime,
+  repeat,
   repeatDaily,
   timeZone,
   userId,
@@ -304,6 +312,7 @@ export async function upsertGoogleCalendarHabitPlan({
   habitName: string;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  repeat?: PlannedRepeat | null;
   repeatDaily?: boolean;
   timeZone?: string | null;
   userId: string;
@@ -325,6 +334,7 @@ export async function upsertGoogleCalendarHabitPlan({
     googleCalendarId,
     plannedEndTime,
     plannedStartTime,
+    repeat,
     repeatDaily,
     sourceId: goalId,
     sourceType: "habit",
@@ -345,6 +355,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   googleCalendarId,
   plannedEndTime,
   plannedStartTime,
+  repeat,
   repeatDaily,
   sourceId,
   sourceType,
@@ -360,6 +371,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   googleCalendarId?: string | null;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  repeat?: PlannedRepeat | null;
   repeatDaily?: boolean;
   sourceId: string;
   sourceType: HigherHabitsPlannedEventSource;
@@ -425,11 +437,13 @@ export async function upsertGoogleCalendarPlannedEvent({
       plannedEndTime,
       plannedStartTime,
       recurrence:
-        repeatDaily === undefined
-          ? undefined
-          : repeatDaily
-            ? ["RRULE:FREQ=DAILY"]
-            : [],
+        repeat !== undefined
+          ? plannedRepeatToRecurrence(dateKey, repeat)
+          : repeatDaily === undefined
+            ? undefined
+            : repeatDaily
+              ? ["RRULE:FREQ=DAILY"]
+              : [],
       sourceId,
       sourceType,
       title,
@@ -470,7 +484,12 @@ export async function upsertGoogleCalendarPlannedEvent({
       description,
       plannedEndTime,
       plannedStartTime,
-      recurrence: repeatDaily ? ["RRULE:FREQ=DAILY"] : undefined,
+      recurrence:
+        repeat !== undefined
+          ? plannedRepeatToRecurrence(dateKey, repeat)
+          : repeatDaily
+            ? ["RRULE:FREQ=DAILY"]
+            : undefined,
       sourceId,
       sourceType,
       title,
@@ -1417,6 +1436,45 @@ function parseGoogleTokenScopes(token: {
   }
 
   return parseOAuthScopes(token.scope);
+}
+
+const GOOGLE_WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+function plannedRepeatToRecurrence(
+  dateKey: string,
+  repeat: PlannedRepeat | null,
+) {
+  if (!repeat) return [];
+
+  const interval = Math.max(1, repeat.interval);
+  if (repeat.cadence === "daily") {
+    return [`RRULE:FREQ=DAILY;INTERVAL=${interval}`];
+  }
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (repeat.cadence === "weekly") {
+    const days = repeat.days?.length ? repeat.days : [date.getDay()];
+    const byDay = days
+      .filter((weekday) => weekday >= 0 && weekday <= 6)
+      .map((weekday) => GOOGLE_WEEKDAY_CODES[weekday])
+      .join(",");
+    return [
+      `RRULE:FREQ=WEEKLY;INTERVAL=${interval}${byDay ? `;BYDAY=${byDay}` : ""}`,
+    ];
+  }
+
+  if (repeat.monthlyType === "day_of_week") {
+    const weekday = GOOGLE_WEEKDAY_CODES[date.getDay()];
+    const ordinal = Math.ceil(date.getDate() / 7);
+    return [
+      `RRULE:FREQ=MONTHLY;INTERVAL=${interval};BYDAY=${ordinal}${weekday}`,
+    ];
+  }
+
+  return [
+    `RRULE:FREQ=MONTHLY;INTERVAL=${interval};BYMONTHDAY=${date.getDate()}`,
+  ];
 }
 
 function buildGoogleCalendarEvent({

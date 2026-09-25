@@ -370,7 +370,7 @@ export function TasksScreen() {
     }
     setFormOpen(false);
     setEditingTask(null);
-    void reloadProjects();
+    void reloadProjects(true);
   };
 
   const toggleComplete = async (task: Task) => {
@@ -399,7 +399,7 @@ export function TasksScreen() {
         writeTasksCache(nextTasks);
         return nextTasks;
       });
-      void reloadProjects();
+      void reloadProjects(true);
     } catch (updateError) {
       setError(
         updateError instanceof Error
@@ -543,7 +543,7 @@ export function TasksScreen() {
                   event.sourceType !== "task" || event.sourceId !== task.id,
               ),
             );
-            void reloadProjects();
+            void reloadProjects(true);
           } catch (deleteError) {
             setError(
               deleteError instanceof Error

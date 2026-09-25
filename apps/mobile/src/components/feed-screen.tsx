@@ -117,14 +117,11 @@ import {
   isNativeFeedAdsEnabled,
   loadNativeFeedAd,
 } from "@/lib/mobile-ads";
+import { flattenMyPosts, myPostsQueryOptions } from "@/lib/my-profile-query";
 import {
   type Goal as PlanGoal,
   fetchPlanGoals,
 } from "@/lib/planning-goals-client";
-import {
-  flattenMyPosts,
-  myPostsQueryOptions,
-} from "@/lib/my-profile-query";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type CreateSharedGoalInput,
@@ -5911,7 +5908,7 @@ const styles = StyleSheet.create({
   addEntryButton: {
     minHeight: 42,
     alignItems: "center",
-    alignSelf: "center",
+    alignSelf: "stretch",
     justifyContent: "center",
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,

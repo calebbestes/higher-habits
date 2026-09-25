@@ -73,6 +73,7 @@ import {
   type HabitLogStatus,
   type HabitLogsSnapshot,
   type PeriodicHabitInfo,
+  type PlannedRepeat,
   fetchHabitLogsSnapshot,
   getMonthKey,
   setHabitLog,
@@ -426,6 +427,7 @@ export function DayPlanScreen({
     isLoading: isLoadingCalendarSelection,
     isSaving: isSavingCalendarSelection,
     load: reloadCalendarSelection,
+    recentCalendarIds,
     selectedCalendarIds,
     toggleCalendar,
   } = useGoogleCalendarSelection();
@@ -611,7 +613,7 @@ export function DayPlanScreen({
         return projectsInFlightRef.current;
       }
 
-      const request = reloadProjects()
+      const request = reloadProjects(force)
         .then(() => {
           if (projectsInFlightRef.current === request) {
             projectsLoadedRef.current = true;
@@ -1152,14 +1154,23 @@ export function DayPlanScreen({
   const activeRepeatingPlan =
     activeHabit &&
     !snapshot?.explicitPlanDatesByHabit[activeHabit.id]?.includes(dateKey)
-      ? snapshot?.repeatingPlansByHabit[activeHabit.id]
+      ? (() => {
+          const plan = snapshot?.repeatingPlansByHabit[activeHabit.id];
+          return plan &&
+            isPlannedRepeatDate(dateKey, plan.originDate, plan.repeat)
+            ? plan
+            : undefined;
+        })()
       : undefined;
   const activePlannedTime = activeKey
     ? (snapshot?.plannedTimesByHabitDate[activeKey] ??
       (activeRepeatingPlan && dateKey >= activeRepeatingPlan.originDate
         ? {
             endTime: activeRepeatingPlan.endTime,
-            repeatsDaily: true,
+            repeat: activeRepeatingPlan.repeat,
+            repeatsDaily:
+              activeRepeatingPlan.repeat.cadence === "daily" &&
+              activeRepeatingPlan.repeat.interval === 1,
             startTime: activeRepeatingPlan.startTime,
           }
         : undefined))
@@ -1494,6 +1505,7 @@ export function DayPlanScreen({
                 ...current.plannedTimesByHabitDate,
                 [key]: {
                   ...(current.plannedTimesByHabitDate[key] ?? {
+                    repeat: null,
                     repeatsDaily: false,
                   }),
                   endTime,
@@ -2164,7 +2176,9 @@ export function DayPlanScreen({
     status: HabitLogStatus,
     options?: {
       endTime?: string | null;
+      repeat?: PlannedRepeat | null;
       repeatPlan?: boolean;
+      repeatStop?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
     },
@@ -2179,6 +2193,7 @@ export function DayPlanScreen({
         status === "complete" && !options && activePlannedTime
           ? {
               endTime: activePlannedTime.endTime,
+              repeat: activePlannedTime.repeat,
               startTime: activePlannedTime.startTime,
               timeZone,
             }
@@ -3316,6 +3331,7 @@ export function DayPlanScreen({
           isUpdatingVisibility={Boolean(activeKey && updatingKey === activeKey)}
           canPlan={isTodayOrFutureDate(selectedDate)}
           isFutureDate={isFutureDate(selectedDate)}
+          repeatDate={selectedDate}
           plannedTime={activePlannedTime}
           color={activeHabit?.color ?? null}
           isUpdatingColor={Boolean(
@@ -3509,6 +3525,7 @@ export function DayPlanScreen({
               .catch(() => undefined);
           }}
           onRetry={() => void reloadCalendarSelection()}
+          recentCalendarIds={recentCalendarIds}
           onSelectDate={selectPickerDate}
           onSync={() => {
             void syncGoogleCalendar().then(() => reloadCalendarSelection());
@@ -5555,11 +5572,16 @@ function buildDayPlanEntries({
       });
     }
 
-    // Project "repeat daily" plans onto every day from their origin forward,
+    // Project repeating plans onto matching days from their origin forward,
     // unless the day already has its own log (which is handled above / wins).
     for (const habit of habitById.values()) {
       const plan = snapshot.repeatingPlansByHabit?.[habit.id];
-      if (!plan || dateKey < plan.originDate) continue;
+      if (
+        !plan ||
+        !isPlannedRepeatDate(dateKey, plan.originDate, plan.repeat)
+      ) {
+        continue;
+      }
       if (snapshot.explicitPlanDatesByHabit?.[habit.id]?.includes(dateKey)) {
         continue;
       }
@@ -5798,7 +5820,7 @@ function getScheduledHabitCounts(
   for (const [habitId, plan] of Object.entries(
     snapshot.repeatingPlansByHabit,
   )) {
-    if (dateKey < plan.originDate) continue;
+    if (!isPlannedRepeatDate(dateKey, plan.originDate, plan.repeat)) continue;
     if (snapshot.explicitPlanDatesByHabit?.[habitId]?.includes(dateKey)) {
       continue;
     }
@@ -6423,6 +6445,50 @@ function snapMinutesDown(minutes: number) {
 function dateFromKey(key: string) {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1);
+}
+
+function isPlannedRepeatDate(
+  dateKey: string,
+  originDateKey: string,
+  repeat: PlannedRepeat,
+) {
+  const date = dateFromKey(dateKey);
+  const originDate = dateFromKey(originDateKey);
+  if (date < startOfDay(originDate)) return false;
+
+  const interval = Math.max(repeat.interval, 1);
+  if (repeat.cadence === "daily") {
+    const days = Math.round(
+      (startOfDay(date).getTime() - startOfDay(originDate).getTime()) /
+        (24 * 60 * 60 * 1000),
+    );
+    return days % interval === 0;
+  }
+
+  if (repeat.cadence === "weekly") {
+    const selectedDays = repeat.days?.length
+      ? repeat.days
+      : [originDate.getDay()];
+    return (
+      weeksBetween(originDate, date) % interval === 0 &&
+      selectedDays.includes(date.getDay())
+    );
+  }
+
+  const monthDifference =
+    (date.getFullYear() - originDate.getFullYear()) * 12 +
+    date.getMonth() -
+    originDate.getMonth();
+  if (monthDifference < 0 || monthDifference % interval !== 0) return false;
+
+  if (repeat.monthlyType === "day_of_week") {
+    return (
+      date.getDay() === originDate.getDay() &&
+      weekOfMonth(date) === weekOfMonth(originDate)
+    );
+  }
+
+  return date.getDate() === originDate.getDate();
 }
 
 function addDays(date: Date, days: number) {

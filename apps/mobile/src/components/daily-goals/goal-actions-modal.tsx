@@ -28,6 +28,7 @@ import type { GoalLogStatus } from "@/lib/goal-logs-client";
 import type { GoalPhotoSource } from "@/lib/goal-photo-picker";
 import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import type { PlannedRepeat } from "@/lib/habit-logs-client";
 import {
   DEFAULT_PLAN_END_TIME,
   DEFAULT_PLAN_PERIOD,
@@ -62,6 +63,42 @@ const PLAN_TIME_HOURS = Array.from({ length: 12 }, (_, index) => index + 1);
 const PLAN_TIME_MINUTES = Array.from({ length: 12 }, (_, index) => index * 5);
 const TAP_MOVE_CANCEL_DISTANCE = 10;
 const PRESS_LOCK_MS = 450;
+const REPEAT_WEEKDAYS = [
+  ["S", 0, "Sunday"],
+  ["M", 1, "Monday"],
+  ["T", 2, "Tuesday"],
+  ["W", 3, "Wednesday"],
+  ["T", 4, "Thursday"],
+  ["F", 5, "Friday"],
+  ["S", 6, "Saturday"],
+] as const;
+
+const DEFAULT_PLANNED_REPEAT: PlannedRepeat = {
+  cadence: "daily",
+  interval: 1,
+  days: null,
+  monthlyType: null,
+};
+
+function arePlannedRepeatsEqual(
+  left: PlannedRepeat | null,
+  right: PlannedRepeat | null,
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.cadence === right.cadence &&
+    left.interval === right.interval &&
+    left.monthlyType === right.monthlyType &&
+    (left.days ?? []).join(",") === (right.days ?? []).join(",")
+  );
+}
+
+function repeatUnitLabel(cadence: PlannedRepeat["cadence"], interval: number) {
+  if (cadence === "daily") return interval === 1 ? "day" : "days";
+  if (cadence === "weekly") return interval === 1 ? "week" : "weeks";
+  return interval === 1 ? "month" : "months";
+}
 
 function ReliablePressable({
   disabled,
@@ -141,6 +178,7 @@ function GoalActionsModalImpl({
   isUpdatingVisibility,
   isFutureDate = false,
   canPlan = isFutureDate,
+  repeatDate,
   color,
   plannedTime,
   completedCount,
@@ -168,10 +206,12 @@ function GoalActionsModalImpl({
   onSetColor?: (color: string | null) => void;
   canPlan?: boolean;
   isFutureDate?: boolean;
+  repeatDate?: Date;
   plannedTime?: {
     startTime: string | null;
     endTime: string | null;
     repeatsDaily?: boolean;
+    repeat?: PlannedRepeat | null;
   };
   completedCount?: number;
   uploadingPhotoSource: GoalPhotoSource | null;
@@ -183,6 +223,8 @@ function GoalActionsModalImpl({
     options?: {
       endTime?: string | null;
       repeatPlan?: boolean;
+      repeat?: PlannedRepeat | null;
+      repeatStop?: boolean;
       startTime?: string | null;
       timeZone?: string | null;
       completedCount?: number;
@@ -217,18 +259,23 @@ function GoalActionsModalImpl({
       ? Math.max(completedCount ?? 0, instanceTarget)
       : (completedCount ?? 0);
   const showCompleteAction = !isFutureDate || isComplete;
-  const showPlanAction = canPlan && !isComplete;
+  const hasExistingPlanTime = Boolean(
+    plannedTime?.startTime || plannedTime?.endTime,
+  );
+  const showPlanAction =
+    (canPlan || isPlanned || hasExistingPlanTime) && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
   const [planStartTime, setPlanStartTime] = useState("");
   const [planEndTime, setPlanEndTime] = useState("");
   const [planStartPeriod, setPlanStartPeriod] = useState<PlanPeriod>("AM");
   const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
-  const [planRepeatsDaily, setPlanRepeatsDaily] = useState(false);
+  const [planRepeat, setPlanRepeat] = useState<PlannedRepeat | null>(null);
+  const [isRepeatOptionsOpen, setIsRepeatOptionsOpen] = useState(false);
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
+  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const autoSavePlanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const repeatEditPromptKeyRef = useRef<string | null>(null);
   const notePreview = richTextToPlainText(noteText);
   const nextPlanStartTime = normalizePlanTimeInput(
     planStartTime,
@@ -238,9 +285,12 @@ function GoalActionsModalImpl({
   const currentPlanStartTime = normalizeStoredPlanTime(plannedTime?.startTime);
   const currentPlanEndTime = normalizeStoredPlanTime(plannedTime?.endTime);
   const canRepeatPlan = goal?.period === "daily";
-  const currentPlanRepeatsDaily = Boolean(
-    canRepeatPlan && plannedTime?.repeatsDaily,
-  );
+  const currentPlanRepeat =
+    canRepeatPlan && plannedTime?.repeat
+      ? plannedTime.repeat
+      : canRepeatPlan && plannedTime?.repeatsDaily
+        ? DEFAULT_PLANNED_REPEAT
+        : null;
   const showPlanEditor = showPlanAction && isPlanEditorOpen;
   const hasAnyPlanTimeInput = Boolean(
     planStartTime.trim() || planEndTime.trim(),
@@ -249,7 +299,8 @@ function GoalActionsModalImpl({
     nextPlanStartTime !== currentPlanStartTime ||
     nextPlanEndTime !== currentPlanEndTime;
   const hasPlanRepeatChanges =
-    Boolean(canRepeatPlan) && planRepeatsDaily !== currentPlanRepeatsDaily;
+    Boolean(canRepeatPlan) &&
+    !arePlannedRepeatsEqual(planRepeat, currentPlanRepeat);
   const hasPlanChanges = hasPlanTimeChanges || hasPlanRepeatChanges;
 
   // A daily plan must carry something useful: a note or a valid time range.
@@ -271,11 +322,17 @@ function GoalActionsModalImpl({
     setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
     setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
     setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
-    setPlanRepeatsDaily(Boolean(plannedTime?.repeatsDaily));
+    const nextRepeat =
+      plannedTime?.repeat ??
+      (plannedTime?.repeatsDaily ? DEFAULT_PLANNED_REPEAT : null);
+    setPlanRepeat(nextRepeat);
+    setIsRepeatOptionsOpen(Boolean(nextRepeat));
     setIsPlanEditorOpen(isPlanned || Boolean(start.time || end.time));
+    setIsColorPickerOpen(false);
   }, [
     isPlanned,
     plannedTime?.endTime,
+    plannedTime?.repeat,
     plannedTime?.repeatsDaily,
     plannedTime?.startTime,
     visible,
@@ -287,49 +344,7 @@ function GoalActionsModalImpl({
     if (!hasNote && !hasPlanTimeRange) return;
     if (isUpdating) return;
 
-    if (!hasPlanChanges) {
-      repeatEditPromptKeyRef.current = null;
-      return;
-    }
-
-    const planChangeKey = `${nextPlanStartTime ?? ""}|${nextPlanEndTime ?? ""}|${planRepeatsDaily ? "repeat" : "single"}`;
-    if (
-      isPlanned &&
-      currentPlanRepeatsDaily &&
-      repeatEditPromptKeyRef.current !== planChangeKey
-    ) {
-      repeatEditPromptKeyRef.current = planChangeKey;
-      Alert.alert(
-        "Update repeating plan?",
-        "This habit repeats daily. Should this change apply to this day only or to this and future days?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "This day only",
-            onPress: () => {
-              onSetStatus("planned", {
-                endTime: nextPlanEndTime,
-                repeatPlan: false,
-                startTime: nextPlanStartTime,
-                timeZone: getLocalTimeZone(),
-              });
-            },
-          },
-          {
-            text: "This and future days",
-            onPress: () => {
-              onSetStatus("planned", {
-                endTime: nextPlanEndTime,
-                repeatPlan: true,
-                startTime: nextPlanStartTime,
-                timeZone: getLocalTimeZone(),
-              });
-            },
-          },
-        ],
-      );
-      return;
-    }
+    if (!hasPlanChanges) return;
 
     if (autoSavePlanTimerRef.current) {
       clearTimeout(autoSavePlanTimerRef.current);
@@ -340,7 +355,8 @@ function GoalActionsModalImpl({
       onSetStatus("planned", {
         startTime: nextPlanStartTime,
         endTime: nextPlanEndTime,
-        repeatPlan: Boolean(canRepeatPlan && planRepeatsDaily),
+        repeat: planRepeat,
+        repeatPlan: Boolean(canRepeatPlan && planRepeat),
         timeZone: getLocalTimeZone(),
       });
     }, 450);
@@ -353,17 +369,15 @@ function GoalActionsModalImpl({
     };
   }, [
     canRepeatPlan,
-    currentPlanRepeatsDaily,
     hasAnyPlanTimeInput,
     hasNote,
     hasPlanChanges,
     hasPlanTimeRange,
-    isPlanned,
     isUpdating,
     nextPlanEndTime,
     nextPlanStartTime,
     onSetStatus,
-    planRepeatsDaily,
+    planRepeat,
     showPlanAction,
     showPlanEditor,
     visible,
@@ -434,12 +448,24 @@ function GoalActionsModalImpl({
                   },
                 ]}
               >
-                <Text
-                  style={[modalStyles.title, { color: theme.text }]}
-                  numberOfLines={2}
-                >
-                  {goal.name}
-                </Text>
+                <View style={modalStyles.titleBlock}>
+                  <Text
+                    style={[modalStyles.title, { color: theme.text }]}
+                    numberOfLines={2}
+                  >
+                    {goal.name}
+                  </Text>
+                  <Text
+                    style={[
+                      modalStyles.subtitle,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {goal.period === "daily"
+                      ? "Daily habit"
+                      : `${goal.period} habit`}
+                  </Text>
+                </View>
                 <ReliablePressable
                   onPress={onDismiss}
                   hitSlop={8}
@@ -861,41 +887,351 @@ function GoalActionsModalImpl({
                       </View>
                     </View>
                     {canRepeatPlan ? (
-                      <Pressable
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: planRepeatsDaily }}
-                        onPress={() =>
-                          setPlanRepeatsDaily((current) => !current)
-                        }
-                        style={({ pressed }) => [
+                      <View
+                        style={[
                           modalStyles.planRepeatRow,
                           { borderTopColor: theme.tabBorder },
-                          pressed && styles.pressed,
                         ]}
                       >
-                        <SymbolView
-                          name={
-                            planRepeatsDaily
-                              ? sym("checkmark.square.fill", "check_box")
-                              : sym("square", "check_box_outline_blank")
-                          }
-                          size={24}
-                          weight="semibold"
-                          tintColor={
-                            planRepeatsDaily
-                              ? theme.primary
-                              : theme.textSecondary
-                          }
-                        />
-                        <Text
-                          style={[
-                            modalStyles.planRepeatText,
-                            { color: theme.text },
+                        <Pressable
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: planRepeat !== null }}
+                          onPress={() => {
+                            if (planRepeat) {
+                              setPlanRepeat(null);
+                              setIsRepeatOptionsOpen(false);
+                            } else {
+                              setPlanRepeat(DEFAULT_PLANNED_REPEAT);
+                              setIsRepeatOptionsOpen(true);
+                            }
+                          }}
+                          style={({ pressed }) => [
+                            modalStyles.planRepeatToggle,
+                            pressed && styles.pressed,
                           ]}
                         >
-                          Repeat daily
-                        </Text>
-                      </Pressable>
+                          <SymbolView
+                            name={
+                              planRepeat
+                                ? sym("checkmark.square.fill", "check_box")
+                                : sym("square", "check_box_outline_blank")
+                            }
+                            size={24}
+                            weight="semibold"
+                            tintColor={
+                              planRepeat ? theme.primary : theme.textSecondary
+                            }
+                          />
+                          <Text
+                            style={[
+                              modalStyles.planRepeatText,
+                              { color: theme.text },
+                            ]}
+                          >
+                            Repeat
+                          </Text>
+                        </Pressable>
+
+                        {planRepeat ? (
+                          <View style={modalStyles.planRepeatOptions}>
+                            <View style={modalStyles.planRepeatControlRow}>
+                              <Text
+                                style={[
+                                  modalStyles.planRepeatControlLabel,
+                                  { color: theme.textSecondary },
+                                ]}
+                              >
+                                Repeat every
+                              </Text>
+                              <View style={modalStyles.planRepeatStepper}>
+                                <Pressable
+                                  accessibilityLabel="Decrease repeat interval"
+                                  disabled={planRepeat.interval <= 1}
+                                  onPress={() =>
+                                    setPlanRepeat((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            interval: Math.max(
+                                              1,
+                                              current.interval - 1,
+                                            ),
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  style={({ pressed }) => [
+                                    modalStyles.planRepeatStepButton,
+                                    {
+                                      borderColor: theme.tabBorder,
+                                      opacity:
+                                        planRepeat.interval <= 1 ? 0.4 : 1,
+                                    },
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <SymbolView
+                                    name={sym("minus", "remove")}
+                                    size={16}
+                                    weight="bold"
+                                    tintColor={theme.textSecondary}
+                                  />
+                                </Pressable>
+                                <Text
+                                  style={[
+                                    modalStyles.planRepeatInterval,
+                                    { color: theme.text },
+                                  ]}
+                                >
+                                  {planRepeat.interval}
+                                </Text>
+                                <Pressable
+                                  accessibilityLabel="Increase repeat interval"
+                                  disabled={planRepeat.interval >= 99}
+                                  onPress={() =>
+                                    setPlanRepeat((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            interval: Math.min(
+                                              99,
+                                              current.interval + 1,
+                                            ),
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  style={({ pressed }) => [
+                                    modalStyles.planRepeatStepButton,
+                                    {
+                                      borderColor: theme.tabBorder,
+                                      opacity:
+                                        planRepeat.interval >= 99 ? 0.4 : 1,
+                                    },
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <SymbolView
+                                    name={sym("plus", "add")}
+                                    size={16}
+                                    weight="bold"
+                                    tintColor={theme.textSecondary}
+                                  />
+                                </Pressable>
+                              </View>
+                            </View>
+
+                            <View style={modalStyles.planRepeatUnitRow}>
+                              {(["daily", "weekly", "monthly"] as const).map(
+                                (cadence) => {
+                                  const isSelected =
+                                    planRepeat.cadence === cadence;
+                                  return (
+                                    <Pressable
+                                      key={cadence}
+                                      accessibilityRole="button"
+                                      accessibilityState={{
+                                        selected: isSelected,
+                                      }}
+                                      onPress={() =>
+                                        setPlanRepeat((current) =>
+                                          current
+                                            ? {
+                                                ...current,
+                                                cadence,
+                                                days:
+                                                  cadence === "weekly"
+                                                    ? current.days?.length
+                                                      ? current.days
+                                                      : [
+                                                          repeatDate?.getDay() ??
+                                                            new Date().getDay(),
+                                                        ]
+                                                    : null,
+                                                monthlyType:
+                                                  cadence === "monthly"
+                                                    ? (current.monthlyType ??
+                                                      "day_of_month")
+                                                    : null,
+                                              }
+                                            : current,
+                                        )
+                                      }
+                                      style={({ pressed }) => [
+                                        modalStyles.planRepeatUnitOption,
+                                        {
+                                          backgroundColor: isSelected
+                                            ? theme.primary
+                                            : "transparent",
+                                          borderColor: theme.tabBorder,
+                                        },
+                                        pressed && styles.pressed,
+                                      ]}
+                                    >
+                                      <Text
+                                        numberOfLines={1}
+                                        style={[
+                                          modalStyles.planRepeatUnitText,
+                                          {
+                                            color: isSelected
+                                              ? theme.primaryForeground
+                                              : theme.textSecondary,
+                                          },
+                                        ]}
+                                      >
+                                        {repeatUnitLabel(
+                                          cadence,
+                                          planRepeat.interval,
+                                        )}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                },
+                              )}
+                            </View>
+
+                            {isRepeatOptionsOpen &&
+                            planRepeat.cadence === "weekly" ? (
+                              <View style={modalStyles.planRepeatControlRow}>
+                                <Text
+                                  style={[
+                                    modalStyles.planRepeatControlLabel,
+                                    { color: theme.textSecondary },
+                                  ]}
+                                >
+                                  Repeat on
+                                </Text>
+                                <View style={modalStyles.planRepeatDays}>
+                                  {REPEAT_WEEKDAYS.map(
+                                    ([label, day, dayName]) => {
+                                      const isSelected = (
+                                        planRepeat.days?.length
+                                          ? planRepeat.days
+                                          : [
+                                              repeatDate?.getDay() ??
+                                                new Date().getDay(),
+                                            ]
+                                      ).includes(day);
+                                      return (
+                                        <Pressable
+                                          key={dayName}
+                                          accessibilityLabel={`${dayName} repeat day`}
+                                          accessibilityRole="checkbox"
+                                          accessibilityState={{
+                                            checked: isSelected,
+                                          }}
+                                          onPress={() =>
+                                            setPlanRepeat((current) => {
+                                              if (!current) return current;
+                                              const days = current.days?.length
+                                                ? current.days
+                                                : [
+                                                    repeatDate?.getDay() ??
+                                                      new Date().getDay(),
+                                                  ];
+                                              const nextDays = isSelected
+                                                ? days.filter(
+                                                    (value) => value !== day,
+                                                  )
+                                                : [...days, day].sort(
+                                                    (a, b) => a - b,
+                                                  );
+                                              return nextDays.length
+                                                ? { ...current, days: nextDays }
+                                                : current;
+                                            })
+                                          }
+                                          style={({ pressed }) => [
+                                            modalStyles.planRepeatDay,
+                                            {
+                                              backgroundColor: isSelected
+                                                ? theme.primary
+                                                : theme.tabBar,
+                                            },
+                                            pressed && styles.pressed,
+                                          ]}
+                                        >
+                                          <Text
+                                            style={[
+                                              modalStyles.planRepeatDayText,
+                                              {
+                                                color: isSelected
+                                                  ? theme.primaryForeground
+                                                  : theme.textSecondary,
+                                              },
+                                            ]}
+                                          >
+                                            {label}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    },
+                                  )}
+                                </View>
+                              </View>
+                            ) : null}
+
+                            {isRepeatOptionsOpen &&
+                            planRepeat.cadence === "monthly" ? (
+                              <View style={modalStyles.planRepeatControlRow}>
+                                <Text
+                                  style={[
+                                    modalStyles.planRepeatControlLabel,
+                                    { color: theme.textSecondary },
+                                  ]}
+                                >
+                                  Monthly on
+                                </Text>
+                                <Pressable
+                                  accessibilityRole="button"
+                                  onPress={() =>
+                                    setPlanRepeat((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            monthlyType:
+                                              current.monthlyType ===
+                                              "day_of_week"
+                                                ? "day_of_month"
+                                                : "day_of_week",
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  style={({ pressed }) => [
+                                    modalStyles.planRepeatMonthlyOption,
+                                    {
+                                      borderColor: theme.tabBorder,
+                                      flex: 1,
+                                    },
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      modalStyles.planRepeatControlLabel,
+                                      { color: theme.text },
+                                    ]}
+                                  >
+                                    {planRepeat.monthlyType === "day_of_week"
+                                      ? "the same weekday"
+                                      : `day ${repeatDate?.getDate() ?? new Date().getDate()}`}
+                                  </Text>
+                                  <SymbolView
+                                    name={sym(
+                                      "chevron.down",
+                                      "arrow_drop_down",
+                                    )}
+                                    size={17}
+                                    weight="semibold"
+                                    tintColor={theme.textSecondary}
+                                  />
+                                </Pressable>
+                              </View>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
                     ) : null}
                   </View>
                 ) : null}
@@ -910,78 +1246,139 @@ function GoalActionsModalImpl({
                       },
                     ]}
                   >
-                    <View style={modalStyles.colorSectionHeader}>
-                      <Text
-                        style={[
-                          modalStyles.colorSectionTitle,
-                          { color: theme.text },
-                        ]}
-                      >
-                        Color
-                      </Text>
-                      <ReliablePressable
-                        accessibilityLabel="Use default calendar color"
-                        accessibilityRole="button"
-                        disabled={
-                          isUpdatingColor ||
-                          color === null ||
-                          color === undefined
-                        }
-                        onPress={() => onSetColor(null)}
-                      >
-                        <Text
-                          style={[
-                            modalStyles.colorSectionValue,
-                            { color: theme.textSecondary },
+                    <ReliablePressable
+                      accessibilityLabel={`${isColorPickerOpen ? "Hide" : "Show"} color options`}
+                      accessibilityRole="button"
+                      disabled={isUpdatingColor}
+                      onPress={() =>
+                        setIsColorPickerOpen((current) => !current)
+                      }
+                      style={({ pressed }) => [
+                        modalStyles.colorHeaderButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={modalStyles.colorSectionHeader}>
+                        <View style={modalStyles.colorLabelRow}>
+                          <View
+                            style={[
+                              modalStyles.colorCurrentSwatch,
+                              {
+                                backgroundColor: color ?? theme.primary,
+                              },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              modalStyles.colorSectionTitle,
+                              { color: theme.text },
+                            ]}
+                          >
+                            Color
+                          </Text>
+                        </View>
+                        <View style={modalStyles.colorValueRow}>
+                          <Text
+                            style={[
+                              modalStyles.colorSectionValue,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {color === null || color === undefined
+                              ? "Default"
+                              : (selectedColorOption?.label ?? "Selected")}
+                          </Text>
+                          <SymbolView
+                            name={sym(
+                              isColorPickerOpen ? "chevron.up" : "chevron.down",
+                              isColorPickerOpen
+                                ? "keyboard_arrow_up"
+                                : "keyboard_arrow_down",
+                            )}
+                            size={17}
+                            tintColor={theme.textSecondary}
+                          />
+                        </View>
+                      </View>
+                    </ReliablePressable>
+                    {isColorPickerOpen ? (
+                      <>
+                        <ReliablePressable
+                          accessibilityLabel="Use default color"
+                          accessibilityRole="radio"
+                          accessibilityState={{
+                            checked: color === null || color === undefined,
+                            disabled: isUpdatingColor,
+                          }}
+                          disabled={isUpdatingColor}
+                          onPress={() => {
+                            setIsColorPickerOpen(false);
+                            onSetColor(null);
+                          }}
+                          style={({ pressed }) => [
+                            modalStyles.colorDefaultOption,
+                            { borderColor: theme.tabBorder },
+                            pressed && styles.pressed,
                           ]}
                         >
-                          {color === null || color === undefined
-                            ? "Default"
-                            : (selectedColorOption?.label ?? "Choose a color")}
-                        </Text>
-                      </ReliablePressable>
-                    </View>
-                    <View style={modalStyles.colorOptions}>
-                      {isLoadingGoogleColors ? (
-                        <ActivityIndicator color={theme.primary} size="small" />
-                      ) : (
-                        colorOptions.map((option) => {
-                          const isSelected = color === option.color;
+                          <Text
+                            style={[
+                              modalStyles.colorSectionValue,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            Default color
+                          </Text>
+                        </ReliablePressable>
+                        <View style={modalStyles.colorOptions}>
+                          {isLoadingGoogleColors ? (
+                            <ActivityIndicator
+                              color={theme.primary}
+                              size="small"
+                            />
+                          ) : (
+                            colorOptions.map((option) => {
+                              const isSelected = color === option.color;
 
-                          return (
-                            <ReliablePressable
-                              accessibilityLabel={`${option.label} color`}
-                              accessibilityRole="radio"
-                              accessibilityState={{
-                                checked: isSelected,
-                                disabled: isUpdatingColor,
-                              }}
-                              disabled={
-                                isUpdatingColor || isLoadingGoogleColors
-                              }
-                              key={option.label}
-                              onPress={() => onSetColor(option.color)}
-                              style={({ pressed }) => [
-                                modalStyles.colorOption,
-                                {
-                                  borderColor: isSelected
-                                    ? theme.text
-                                    : "transparent",
-                                },
-                                pressed && styles.pressed,
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  modalStyles.colorSwatch,
-                                  { backgroundColor: option.color },
-                                ]}
-                              />
-                            </ReliablePressable>
-                          );
-                        })
-                      )}
-                    </View>
+                              return (
+                                <ReliablePressable
+                                  accessibilityLabel={`${option.label} color`}
+                                  accessibilityRole="radio"
+                                  accessibilityState={{
+                                    checked: isSelected,
+                                    disabled: isUpdatingColor,
+                                  }}
+                                  disabled={
+                                    isUpdatingColor || isLoadingGoogleColors
+                                  }
+                                  key={option.label}
+                                  onPress={() => {
+                                    setIsColorPickerOpen(false);
+                                    onSetColor(option.color);
+                                  }}
+                                  style={({ pressed }) => [
+                                    modalStyles.colorOption,
+                                    {
+                                      borderColor: isSelected
+                                        ? theme.text
+                                        : "transparent",
+                                    },
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <View
+                                    style={[
+                                      modalStyles.colorSwatch,
+                                      { backgroundColor: option.color },
+                                    ]}
+                                  />
+                                </ReliablePressable>
+                              );
+                            })
+                          )}
+                        </View>
+                      </>
+                    ) : null}
                   </View>
                 ) : null}
 

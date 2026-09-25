@@ -23,6 +23,7 @@ import {
   isNotNull,
   lt,
   ne,
+  or,
 } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -64,6 +65,41 @@ function normalizeTimeKey(time: string | null | undefined) {
   return `${hours.padStart(2, "0")}:${minutes}`;
 }
 
+type PlannedRepeat = {
+  cadence: "daily" | "weekly" | "monthly";
+  interval: number;
+  days: number[] | null;
+  monthlyType: "day_of_month" | "day_of_week" | null;
+};
+
+function normalizePlannedRepeat(
+  value: {
+    plannedRepeatCadence?: string | null;
+    plannedRepeatDays?: number[] | null;
+    plannedRepeatInterval?: number | null;
+    plannedRepeatMonthlyType?: string | null;
+  },
+  legacyDaily = false,
+): PlannedRepeat | null {
+  const cadence = value.plannedRepeatCadence;
+  if (cadence !== "daily" && cadence !== "weekly" && cadence !== "monthly") {
+    return legacyDaily
+      ? { cadence: "daily", interval: 1, days: null, monthlyType: null }
+      : null;
+  }
+
+  return {
+    cadence,
+    interval: Math.max(1, value.plannedRepeatInterval ?? 1),
+    days: value.plannedRepeatDays ?? null,
+    monthlyType:
+      value.plannedRepeatMonthlyType === "day_of_week" ||
+      value.plannedRepeatMonthlyType === "day_of_month"
+        ? value.plannedRepeatMonthlyType
+        : null,
+  };
+}
+
 const monthQuerySchema = z.object({
   month: z.string().regex(MONTH_KEY_REGEX, "Month must be YYYY-MM"),
 });
@@ -78,6 +114,26 @@ const bodySchema = z.discriminatedUnion("type", [
     plannedStartTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedEndTime: z.string().regex(TIME_KEY_REGEX).nullable().optional(),
     plannedTimeZone: z.string().min(1).max(100).nullable().optional(),
+    plannedRepeatCadence: z
+      .enum(["daily", "weekly", "monthly"])
+      .nullable()
+      .optional(),
+    plannedRepeatInterval: z
+      .number()
+      .int()
+      .min(1)
+      .max(99)
+      .nullable()
+      .optional(),
+    plannedRepeatDays: z
+      .array(z.number().int().min(0).max(31))
+      .nullable()
+      .optional(),
+    plannedRepeatMonthlyType: z
+      .enum(["day_of_month", "day_of_week"])
+      .nullable()
+      .optional(),
+    repeatStop: z.boolean().optional().default(false),
     repeatPlan: z.boolean().optional().default(false),
   }),
   z.object({
@@ -292,6 +348,11 @@ export async function GET(request: Request) {
           plannedStartTime: goalLogs.plannedStartTime,
           plannedEndTime: goalLogs.plannedEndTime,
           plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
+          plannedRepeatCadence: goalLogs.plannedRepeatCadence,
+          plannedRepeatInterval: goalLogs.plannedRepeatInterval,
+          plannedRepeatDays: goalLogs.plannedRepeatDays,
+          plannedRepeatMonthlyType: goalLogs.plannedRepeatMonthlyType,
+          plannedRepeatDisabled: goalLogs.plannedRepeatDisabled,
           visibility: goalLogs.visibility,
         })
         .from(goalLogs)
@@ -598,6 +659,7 @@ export async function GET(request: Request) {
             startTime: log.plannedStartTime ?? null,
             endTime: log.plannedEndTime ?? null,
             repeatsDaily: log.plannedRepeatsDaily,
+            repeat: normalizePlannedRepeat(log, log.plannedRepeatsDaily),
           },
         ]),
     );
@@ -621,13 +683,23 @@ export async function GET(request: Request) {
         date: goalLogs.date,
         plannedStartTime: goalLogs.plannedStartTime,
         plannedEndTime: goalLogs.plannedEndTime,
+        plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
+        plannedRepeatCadence: goalLogs.plannedRepeatCadence,
+        plannedRepeatInterval: goalLogs.plannedRepeatInterval,
+        plannedRepeatDays: goalLogs.plannedRepeatDays,
+        plannedRepeatMonthlyType: goalLogs.plannedRepeatMonthlyType,
+        plannedRepeatDisabled: goalLogs.plannedRepeatDisabled,
       })
       .from(goalLogs)
       .where(
         and(
           eq(goalLogs.userId, user.id),
           eq(goalLogs.status, "planned"),
-          eq(goalLogs.plannedRepeatsDaily, true),
+          or(
+            eq(goalLogs.plannedRepeatsDaily, true),
+            isNotNull(goalLogs.plannedRepeatCadence),
+            eq(goalLogs.plannedRepeatDisabled, true),
+          ),
         ),
       )
       .orderBy(asc(goalLogs.date));
@@ -638,15 +710,26 @@ export async function GET(request: Request) {
           startTime: string | null;
           endTime: string | null;
           originDate: string;
+          repeat: PlannedRepeat;
         }
       >
     >((plans, row) => {
       const existing = plans[row.goalId];
       if (!existing || row.date > existing.originDate) {
+        if (row.plannedRepeatDisabled) {
+          delete plans[row.goalId];
+          return plans;
+        }
         plans[row.goalId] = {
           startTime: row.plannedStartTime ?? null,
           endTime: row.plannedEndTime ?? null,
           originDate: row.date,
+          repeat: normalizePlannedRepeat(row, row.plannedRepeatsDaily) ?? {
+            cadence: "daily",
+            interval: 1,
+            days: null,
+            monthlyType: null,
+          },
         };
       }
       return plans;
@@ -821,10 +904,12 @@ export async function POST(request: Request) {
           : data.status === "complete" && data.plannedEndTime !== undefined
             ? normalizeTimeKey(data.plannedEndTime)
             : null;
+      const requestedRepeat =
+        data.status === "planned" && goal.period === "daily" && data.repeatPlan
+          ? normalizePlannedRepeat(data, true)
+          : null;
       const plannedRepeatsDaily =
-        data.status === "planned" && goal.period === "daily"
-          ? data.repeatPlan
-          : false;
+        requestedRepeat?.cadence === "daily" && requestedRepeat.interval === 1;
       const [existingLog] = await db
         .select({
           id: goalLogs.id,
@@ -833,6 +918,11 @@ export async function POST(request: Request) {
           notes: goalLogs.notes,
           plannedEndTime: goalLogs.plannedEndTime,
           plannedRepeatsDaily: goalLogs.plannedRepeatsDaily,
+          plannedRepeatCadence: goalLogs.plannedRepeatCadence,
+          plannedRepeatDays: goalLogs.plannedRepeatDays,
+          plannedRepeatInterval: goalLogs.plannedRepeatInterval,
+          plannedRepeatMonthlyType: goalLogs.plannedRepeatMonthlyType,
+          plannedRepeatDisabled: goalLogs.plannedRepeatDisabled,
           plannedStartTime: goalLogs.plannedStartTime,
           status: goalLogs.status,
           completedCount: goalLogs.completedCount,
@@ -888,6 +978,11 @@ export async function POST(request: Request) {
           googleCalendarId?: null;
           plannedEndTime: null;
           plannedRepeatsDaily: false;
+          plannedRepeatCadence: null;
+          plannedRepeatDays: null;
+          plannedRepeatInterval: null;
+          plannedRepeatMonthlyType: null;
+          plannedRepeatDisabled: false;
           plannedStartTime: null;
           status: "incomplete";
           updatedAt: Date;
@@ -897,6 +992,11 @@ export async function POST(request: Request) {
           plannedStartTime: null,
           plannedEndTime: null,
           plannedRepeatsDaily: false,
+          plannedRepeatCadence: null,
+          plannedRepeatDays: null,
+          plannedRepeatInterval: null,
+          plannedRepeatMonthlyType: null,
+          plannedRepeatDisabled: false,
           updatedAt: new Date(),
         };
 
@@ -944,6 +1044,17 @@ export async function POST(request: Request) {
         data.status === "complete" && data.repeatPlan === false
           ? (existingLog?.plannedRepeatsDaily ?? false)
           : plannedRepeatsDaily;
+      const nextPlannedRepeat =
+        data.status === "complete" && data.repeatPlan === false
+          ? normalizePlannedRepeat(
+              existingLog ?? {},
+              existingLog?.plannedRepeatsDaily ?? false,
+            )
+          : requestedRepeat;
+      const nextPlannedRepeatDisabled =
+        data.status === "complete" && data.repeatPlan === false
+          ? (existingLog?.plannedRepeatDisabled ?? false)
+          : data.repeatStop;
       const targetCount = Math.max(goal.frequencyGoal ?? 1, 1);
       const completedCount =
         data.completedCount ??
@@ -970,6 +1081,11 @@ export async function POST(request: Request) {
           plannedStartTime: nextPlannedStartTime,
           plannedEndTime: nextPlannedEndTime,
           plannedRepeatsDaily: nextPlannedRepeatsDaily,
+          plannedRepeatCadence: nextPlannedRepeat?.cadence ?? null,
+          plannedRepeatInterval: nextPlannedRepeat?.interval ?? null,
+          plannedRepeatDays: nextPlannedRepeat?.days ?? null,
+          plannedRepeatMonthlyType: nextPlannedRepeat?.monthlyType ?? null,
+          plannedRepeatDisabled: nextPlannedRepeatDisabled,
           visibility: goal.visibility,
           updatedAt: new Date(),
         })
@@ -981,6 +1097,11 @@ export async function POST(request: Request) {
             plannedStartTime: nextPlannedStartTime,
             plannedEndTime: nextPlannedEndTime,
             plannedRepeatsDaily: nextPlannedRepeatsDaily,
+            plannedRepeatCadence: nextPlannedRepeat?.cadence ?? null,
+            plannedRepeatInterval: nextPlannedRepeat?.interval ?? null,
+            plannedRepeatDays: nextPlannedRepeat?.days ?? null,
+            plannedRepeatMonthlyType: nextPlannedRepeat?.monthlyType ?? null,
+            plannedRepeatDisabled: nextPlannedRepeatDisabled,
             updatedAt: new Date(),
             userId: user.id,
           },
@@ -1033,7 +1154,8 @@ export async function POST(request: Request) {
         habitName: goal.name,
         plannedEndTime,
         plannedStartTime,
-        repeatDaily: goal.period === "daily" ? plannedRepeatsDaily : undefined,
+        repeat:
+          goal.period === "daily" ? (nextPlannedRepeat ?? null) : undefined,
         timeZone: data.plannedTimeZone ?? null,
         userId: user.id,
       });

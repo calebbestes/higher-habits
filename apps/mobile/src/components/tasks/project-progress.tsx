@@ -84,7 +84,10 @@ export function ProjectProgressCard({
 }) {
   const theme = useTheme();
   const activeProjects = projects
-    .filter((project) => project.totalTasks > project.completedTasks)
+    .filter(
+      (project) =>
+        project.totalTasks === 0 || project.totalTasks > project.completedTasks,
+    )
     .sort((left, right) => {
       const leftRemaining = Math.max(left.totalTasks - left.completedTasks, 0);
       const rightRemaining = Math.max(

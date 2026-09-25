@@ -29,6 +29,7 @@ export function GoogleCalendarSelectionModal({
   onToggle,
   onSelectDate,
   selectedCalendarIds,
+  recentCalendarIds,
   selectedDate,
   visible,
 }: {
@@ -48,6 +49,7 @@ export function GoogleCalendarSelectionModal({
   onSelectDate?: (date: Date) => void;
   onSync?: () => void;
   onToggle: (calendarId: string) => void;
+  recentCalendarIds: string[];
   selectedCalendarIds: string[];
   selectedDate?: Date;
   visible: boolean;
@@ -66,6 +68,29 @@ export function GoogleCalendarSelectionModal({
   const [calendarMonth, setCalendarMonth] = useState(() =>
     startOfCalendarMonth(selectedDate ?? new Date()),
   );
+  const orderedCalendars = useMemo(() => {
+    const selectedOrder = new Map(
+      selectedCalendarIds.map((calendarId, index) => [calendarId, index]),
+    );
+    const recentOrder = new Map(
+      recentCalendarIds.map((calendarId, index) => [calendarId, index]),
+    );
+
+    return calendars
+      .map((calendar, index) => ({ calendar, index }))
+      .sort((left, right) => {
+        const leftSelected = selectedOrder.has(left.calendar.id);
+        const rightSelected = selectedOrder.has(right.calendar.id);
+        if (leftSelected !== rightSelected) return leftSelected ? -1 : 1;
+
+        const order = leftSelected ? selectedOrder : recentOrder;
+        const leftRank = order.get(left.calendar.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightRank =
+          order.get(right.calendar.id) ?? Number.MAX_SAFE_INTEGER;
+        return leftRank - rightRank || left.index - right.index;
+      })
+      .map(({ calendar }) => calendar);
+  }, [calendars, recentCalendarIds, selectedCalendarIds]);
 
   useEffect(() => {
     if (visible && selectedDate) {
@@ -208,7 +233,7 @@ export function GoogleCalendarSelectionModal({
                 >
                   My calendars
                 </Text>
-                {calendars.map((calendar) => {
+                {orderedCalendars.map((calendar) => {
                   const selected = selectedCalendarIds.includes(calendar.id);
                   const color = calendar.backgroundColor ?? theme.primary;
                   const foreground = calendar.foregroundColor ?? "#FFFFFF";
