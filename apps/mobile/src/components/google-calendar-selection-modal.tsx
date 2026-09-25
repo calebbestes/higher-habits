@@ -580,9 +580,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 22,
-    // Keep the title and close control below the Dynamic Island in native
-    // modals, where SafeAreaView may not report the inset reliably.
-    paddingTop: 76,
+    paddingTop: 16,
   },
   headerActions: { alignItems: "center", flexDirection: "row", gap: 4 },
   headerControls: {

@@ -11,6 +11,13 @@ import {
   Text,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
@@ -23,7 +30,6 @@ import {
   PageHeaderTitle,
 } from "@/components/section-header-tabs";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
-import { TaskActionsModal } from "@/components/tasks/task-actions-modal";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
 import { TaskPlanModal } from "@/components/tasks/task-plan-modal";
 import { MaxContentWidth } from "@/constants/theme";
@@ -43,6 +49,7 @@ import {
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
+  TASK_IMPORTANCES,
   type Task,
   type TaskInput,
   createTask,
@@ -50,6 +57,7 @@ import {
   fetchTasks,
   getTaskUrgency,
   getTaskUrgencyScore,
+  taskToInput,
   todayDateKey,
   updateTask,
   updateTaskCompletion,
@@ -59,6 +67,12 @@ type SymbolName = SymbolViewProps["name"];
 type TaskPriorityGroupKey = "high" | "medium" | "low" | "completed";
 
 const TASKS_SCREEN_CACHE_KEY = "screen:tasks";
+const DELETE_ACTION_WIDTH = 84;
+const RIGHT_ACTION_WIDTH = 248;
+const CLEAR_PLAN_ACTION_WIDTH = 84;
+const SWIPE_OPEN_THRESHOLD = 42;
+
+type SwipeDirection = "delete" | "actions";
 
 type TasksScreenCache = {
   plannedEvents: PlannedEvent[];
@@ -118,12 +132,15 @@ export function TasksScreen() {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [actionTask, setActionTask] = useState<Task | null>(null);
   const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
     cachedScreen?.data.plannedEvents ?? [],
   );
   const [celebrate, setCelebrate] = useState(false);
+  const [openSwipe, setOpenSwipe] = useState<{
+    direction: SwipeDirection;
+    taskId: string;
+  } | null>(null);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
   const plannedEventsRef = useRef<PlannedEvent[]>(
@@ -302,7 +319,7 @@ export function TasksScreen() {
   };
 
   const openEdit = (task: Task) => {
-    setActionTask(null);
+    setOpenSwipe(null);
     setEditingTask(task);
     setFormOpen(true);
   };
@@ -357,7 +374,7 @@ export function TasksScreen() {
   };
 
   const toggleComplete = async (task: Task) => {
-    setActionTask(null);
+    setOpenSwipe(null);
     if (updatingId) return;
 
     setUpdatingId(task.id);
@@ -395,8 +412,52 @@ export function TasksScreen() {
   };
 
   const openPlanTask = (task: Task) => {
-    setActionTask(null);
+    setOpenSwipe(null);
     setPlanningTask(task);
+  };
+
+  const adjustTaskImportance = async (
+    task: Task,
+    direction: "higher" | "lower",
+  ) => {
+    if (updatingId) return;
+
+    const currentIndex = TASK_IMPORTANCES.indexOf(
+      task.importance as (typeof TASK_IMPORTANCES)[number],
+    );
+    const safeCurrentIndex =
+      currentIndex === -1 ? TASK_IMPORTANCES.length - 1 : currentIndex;
+    const nextIndex =
+      direction === "higher" ? safeCurrentIndex - 1 : safeCurrentIndex + 1;
+    const nextImportance = TASK_IMPORTANCES[nextIndex];
+    if (!nextImportance) return;
+
+    setUpdatingId(task.id);
+    setOpenSwipe(null);
+    setError(null);
+    try {
+      const updated = await updateTask(task.id, {
+        ...taskToInput(task),
+        importance: nextImportance,
+      });
+      if (!isMountedRef.current) return;
+      setTasks((current) => {
+        const nextTasks = current.map((item) =>
+          item.id === updated.id ? updated : item,
+        );
+        writeTasksCache(nextTasks);
+        return nextTasks;
+      });
+      playSelectionHaptic();
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update task priority.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingId(null);
+    }
   };
 
   const saveTaskPlan = async ({
@@ -435,7 +496,7 @@ export function TasksScreen() {
   };
 
   const clearTaskPlan = async (task: Task) => {
-    setActionTask(null);
+    setOpenSwipe(null);
 
     try {
       await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
@@ -457,7 +518,7 @@ export function TasksScreen() {
   };
 
   const confirmDelete = (task: Task) => {
-    setActionTask(null);
+    setOpenSwipe(null);
     Alert.alert("Delete task?", `"${task.name}" will be permanently deleted.`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -506,6 +567,7 @@ export function TasksScreen() {
           ]}
           directionalLockEnabled
           keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => setOpenSwipe(null)}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -598,8 +660,25 @@ export function TasksScreen() {
                       <TaskCard
                         key={task.id}
                         isUpdating={updatingId === task.id}
+                        isSwipeOpen={openSwipe?.taskId === task.id}
+                        swipeDirection={
+                          openSwipe?.taskId === task.id
+                            ? openSwipe.direction
+                            : null
+                        }
+                        plannedEvent={plannedEventsByTaskId.get(task.id)}
                         task={task}
-                        onMore={() => setActionTask(task)}
+                        onDelete={() => confirmDelete(task)}
+                        onEdit={() => openEdit(task)}
+                        onPlan={() => openPlanTask(task)}
+                        onClearPlan={() => clearTaskPlan(task)}
+                        onSwipeClose={() => setOpenSwipe(null)}
+                        onSwipeOpen={(direction) =>
+                          setOpenSwipe({ direction, taskId: task.id })
+                        }
+                        onAdjustPriority={(direction) =>
+                          void adjustTaskImportance(task, direction)
+                        }
                         onToggle={() => void toggleComplete(task)}
                       />
                     ))}
@@ -625,17 +704,6 @@ export function TasksScreen() {
         }}
         onSave={saveTask}
       />
-      <TaskActionsModal
-        task={actionTask}
-        plannedEvent={
-          actionTask ? plannedEventsByTaskId.get(actionTask.id) : null
-        }
-        onClose={() => setActionTask(null)}
-        onClearPlan={clearTaskPlan}
-        onDelete={confirmDelete}
-        onEdit={openEdit}
-        onPlan={openPlanTask}
-      />
       <TaskPlanModal
         existingPlan={
           planningTask ? plannedEventsByTaskId.get(planningTask.id) : null
@@ -655,108 +723,332 @@ export function TasksScreen() {
 }
 
 function TaskCard({
+  isSwipeOpen,
   isUpdating,
-  onMore,
+  onAdjustPriority,
+  onClearPlan,
+  onDelete,
+  onEdit,
+  onPlan,
+  onSwipeClose,
+  onSwipeOpen,
   onToggle,
+  plannedEvent,
+  swipeDirection,
   task,
 }: {
+  isSwipeOpen: boolean;
   isUpdating: boolean;
-  onMore: () => void;
+  onAdjustPriority: (direction: "higher" | "lower") => void;
+  onClearPlan: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  onPlan: () => void;
+  onSwipeClose: () => void;
+  onSwipeOpen: (direction: SwipeDirection) => void;
   onToggle: () => void;
+  plannedEvent?: PlannedEvent;
+  swipeDirection: SwipeDirection | null;
   task: Task;
 }) {
   const theme = useTheme();
   const completed = Boolean(task.completedAt);
+  const translateX = useSharedValue(0);
+  const gestureStartX = useSharedValue(0);
+  const rightActionWidth = plannedEvent
+    ? RIGHT_ACTION_WIDTH
+    : RIGHT_ACTION_WIDTH - CLEAR_PLAN_ACTION_WIDTH;
+
+  useEffect(() => {
+    const targetX =
+      swipeDirection === "delete"
+        ? DELETE_ACTION_WIDTH
+        : swipeDirection === "actions"
+          ? -rightActionWidth
+          : 0;
+    translateX.value = withSpring(targetX, { damping: 20, stiffness: 220 });
+  }, [rightActionWidth, swipeDirection, translateX]);
+
+  const panGesture = Gesture.Pan()
+    .enabled(!isUpdating)
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-12, 12])
+    .onStart(() => {
+      gestureStartX.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      const nextX = gestureStartX.value + event.translationX;
+      translateX.value = Math.max(
+        -rightActionWidth,
+        Math.min(DELETE_ACTION_WIDTH, nextX),
+      );
+    })
+    .onEnd(() => {
+      if (translateX.value >= SWIPE_OPEN_THRESHOLD) {
+        translateX.value = withSpring(DELETE_ACTION_WIDTH, {
+          damping: 20,
+          stiffness: 220,
+        });
+        runOnJS(onSwipeOpen)("delete");
+        return;
+      }
+
+      if (translateX.value <= -SWIPE_OPEN_THRESHOLD) {
+        translateX.value = withSpring(-rightActionWidth, {
+          damping: 20,
+          stiffness: 220,
+        });
+        runOnJS(onSwipeOpen)("actions");
+        return;
+      }
+
+      translateX.value = withSpring(0, { damping: 20, stiffness: 220 });
+      runOnJS(onSwipeClose)();
+    });
+
+  const animatedCardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
 
   return (
-    <Pressable
-      accessibilityLabel={
-        completed ? `Reopen ${task.name}` : `Complete ${task.name}`
-      }
-      accessibilityRole="button"
-      disabled={isUpdating}
-      onPress={onToggle}
-      style={({ pressed }) => [
-        styles.taskCard,
-        {
-          borderColor: theme.tabBorder,
-          opacity: completed ? 0.66 : 1,
-        },
-        pressed && styles.pressed,
-      ]}
-    >
-      <Pressable
-        accessibilityLabel={
-          completed ? `Reopen ${task.name}` : `Complete ${task.name}`
-        }
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: completed }}
-        disabled={isUpdating}
-        hitSlop={8}
-        onPress={(event) => {
-          event.stopPropagation();
-          onToggle();
-        }}
-        style={[
-          styles.checkButton,
-          {
-            backgroundColor: completed ? theme.primary : "transparent",
-            borderColor: completed ? theme.primary : `${theme.textSecondary}4D`,
-          },
-        ]}
+    <View style={styles.swipeContainer}>
+      <View
+        style={styles.swipeActions}
+        pointerEvents={isSwipeOpen ? "auto" : "none"}
       >
-        {isUpdating ? (
-          <ActivityIndicator
-            color={completed ? theme.primaryForeground : theme.primary}
-            size="small"
-          />
-        ) : completed ? (
-          <SymbolView
-            name={symbol("checkmark", "check")}
-            size={16}
-            weight="bold"
-            tintColor={theme.primaryForeground}
-          />
-        ) : null}
-      </Pressable>
-      <View style={styles.taskBody}>
-        <Text
-          numberOfLines={2}
-          style={[
-            styles.taskName,
-            { color: theme.text },
-            completed && styles.completedName,
+        <Pressable
+          accessibilityLabel={`Delete ${task.name}`}
+          onPress={onDelete}
+          style={({ pressed }) => [
+            styles.swipeAction,
+            styles.deleteAction,
+            pressed && styles.pressed,
           ]}
         >
-          {task.name}
-        </Text>
-        {task.dueDate ? (
-          <View style={styles.taskMetadata}>
-            <Text style={[styles.metadataText, { color: theme.textSecondary }]}>
-              {formatDueDate(task.dueDate)}
+          <SymbolView
+            name={symbol("trash", "delete")}
+            size={20}
+            tintColor="#FFFFFF"
+          />
+          <Text style={styles.swipeActionLabel}>Delete</Text>
+        </Pressable>
+        <View style={styles.rightSwipeActions}>
+          <Pressable
+            accessibilityLabel={`Edit ${task.name}`}
+            onPress={onEdit}
+            style={({ pressed }) => [
+              styles.swipeAction,
+              styles.editAction,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={symbol("pencil", "edit")}
+              size={19}
+              tintColor={theme.primaryForeground}
+            />
+            <Text
+              style={[
+                styles.swipeActionLabel,
+                { color: theme.primaryForeground },
+              ]}
+            >
+              Edit
             </Text>
-          </View>
-        ) : null}
+          </Pressable>
+          <Pressable
+            accessibilityLabel={
+              plannedEvent
+                ? `Edit calendar plan for ${task.name}`
+                : `Plan ${task.name} on calendar`
+            }
+            onPress={onPlan}
+            style={({ pressed }) => [
+              styles.swipeAction,
+              styles.calendarAction,
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={symbol("calendar", "event")}
+              size={19}
+              tintColor={theme.text}
+            />
+            <Text style={[styles.swipeActionLabel, { color: theme.text }]}>
+              {plannedEvent ? "Edit calendar" : "Plan calendar"}
+            </Text>
+          </Pressable>
+          {plannedEvent ? (
+            <Pressable
+              accessibilityLabel={`Clear calendar plan for ${task.name}`}
+              onPress={onClearPlan}
+              style={({ pressed }) => [
+                styles.swipeAction,
+                styles.clearPlanAction,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("calendar.badge.minus", "event_busy")}
+                size={19}
+                tintColor={theme.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.swipeActionLabel,
+                  { color: theme.textSecondary },
+                ]}
+              >
+                Clear
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
-      <Pressable
-        accessibilityLabel={`More actions for ${task.name}`}
-        hitSlop={8}
-        onPress={(event) => {
-          event.stopPropagation();
-          onMore();
-        }}
-        style={({ pressed }) => [
-          styles.moreButton,
-          pressed && { backgroundColor: theme.backgroundElement },
-        ]}
-      >
-        <SymbolView
-          name={symbol("ellipsis", "more_horiz")}
-          size={21}
-          tintColor={theme.textSecondary}
-        />
-      </Pressable>
-    </Pressable>
+
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={[styles.taskCardMotion, animatedCardStyle]}>
+          <Pressable
+            accessibilityLabel={
+              completed ? `Reopen ${task.name}` : `Complete ${task.name}`
+            }
+            accessibilityRole="button"
+            disabled={isUpdating}
+            onPress={() => {
+              if (isSwipeOpen) {
+                onSwipeClose();
+                return;
+              }
+              onToggle();
+            }}
+            style={({ pressed }) => [
+              styles.taskCard,
+              {
+                backgroundColor: theme.background,
+                borderColor: theme.tabBorder,
+                opacity: completed ? 0.66 : 1,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Pressable
+              accessibilityLabel={
+                completed ? `Reopen ${task.name}` : `Complete ${task.name}`
+              }
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: completed }}
+              disabled={isUpdating}
+              hitSlop={8}
+              onPress={(event) => {
+                event.stopPropagation();
+                onToggle();
+              }}
+              style={[
+                styles.checkButton,
+                {
+                  backgroundColor: completed ? theme.primary : "transparent",
+                  borderColor: completed
+                    ? theme.primary
+                    : `${theme.textSecondary}4D`,
+                },
+              ]}
+            >
+              {isUpdating ? (
+                <ActivityIndicator
+                  color={completed ? theme.primaryForeground : theme.primary}
+                  size="small"
+                />
+              ) : completed ? (
+                <SymbolView
+                  name={symbol("checkmark", "check")}
+                  size={16}
+                  weight="bold"
+                  tintColor={theme.primaryForeground}
+                />
+              ) : null}
+            </Pressable>
+            <View style={styles.taskBody}>
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.taskName,
+                  { color: theme.text },
+                  completed && styles.completedName,
+                ]}
+              >
+                {task.name}
+              </Text>
+              {task.dueDate ? (
+                <View style={styles.taskMetadata}>
+                  <Text
+                    style={[
+                      styles.metadataText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {formatDueDate(task.dueDate)}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.priorityControls}>
+              <Pressable
+                accessibilityLabel={`Increase priority for ${task.name}`}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: task.importance === "High" }}
+                disabled={isUpdating || task.importance === "High"}
+                hitSlop={5}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onAdjustPriority("higher");
+                }}
+                style={({ pressed }) => [
+                  styles.priorityButton,
+                  pressed && styles.priorityButtonPressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("chevron.up", "keyboard_arrow_up")}
+                  size={18}
+                  weight="semibold"
+                  tintColor={
+                    task.importance === "High"
+                      ? `${theme.textSecondary}55`
+                      : theme.textSecondary
+                  }
+                />
+              </Pressable>
+              <Pressable
+                accessibilityLabel={`Decrease priority for ${task.name}`}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: task.importance === "Low" }}
+                disabled={isUpdating || task.importance === "Low"}
+                hitSlop={5}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onAdjustPriority("lower");
+                }}
+                style={({ pressed }) => [
+                  styles.priorityButton,
+                  pressed && styles.priorityButtonPressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("chevron.down", "keyboard_arrow_down")}
+                  size={18}
+                  weight="semibold"
+                  tintColor={
+                    task.importance === "Low"
+                      ? `${theme.textSecondary}55`
+                      : theme.textSecondary
+                  }
+                />
+              </Pressable>
+            </View>
+          </Pressable>
+        </Animated.View>
+      </GestureDetector>
+    </View>
   );
 }
 
@@ -912,6 +1204,55 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 11,
   },
+  swipeContainer: {
+    position: "relative",
+    overflow: "hidden",
+  },
+  taskCardMotion: {
+    zIndex: 1,
+  },
+  swipeActions: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  rightSwipeActions: {
+    flexDirection: "row",
+    height: "100%",
+  },
+  swipeAction: {
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 8,
+  },
+  deleteAction: {
+    width: DELETE_ACTION_WIDTH,
+    backgroundColor: "#B84D54",
+  },
+  editAction: {
+    width: 76,
+    backgroundColor: "#2C5352",
+  },
+  calendarAction: {
+    width: 88,
+    backgroundColor: "#A0D5D5",
+  },
+  clearPlanAction: {
+    width: 84,
+    backgroundColor: "#E8F3F3",
+  },
+  swipeActionLabel: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   checkButton: {
     width: 26,
     height: 26,
@@ -930,12 +1271,21 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   metadataText: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
-  moreButton: {
-    width: 32,
-    height: 32,
+  priorityControls: {
+    width: 30,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 16,
+    gap: 1,
+  },
+  priorityButton: {
+    width: 30,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+  },
+  priorityButtonPressed: {
+    backgroundColor: "#E8F3F3",
   },
   centerState: {
     alignItems: "center",

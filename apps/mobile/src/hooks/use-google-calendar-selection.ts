@@ -10,6 +10,20 @@ import {
 
 const DEFAULT_SELECTED_CALENDAR_IDS = ["primary"];
 
+type GoogleCalendarSelectionCache = {
+  calendars: GoogleCalendar[];
+  selectedCalendarIds: string[];
+};
+
+let googleCalendarSelectionCache: GoogleCalendarSelectionCache | null = null;
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
 function resolvePrimaryCalendarId(
   calendars: GoogleCalendar[],
   calendarId: string,
@@ -19,14 +33,22 @@ function resolvePrimaryCalendarId(
 }
 
 export function useGoogleCalendarSelection() {
-  const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
-  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>(
-    DEFAULT_SELECTED_CALENDAR_IDS,
+  const [calendars, setCalendars] = useState<GoogleCalendar[]>(
+    () => googleCalendarSelectionCache?.calendars ?? [],
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>(
+    () =>
+      googleCalendarSelectionCache?.selectedCalendarIds ??
+      DEFAULT_SELECTED_CALENDAR_IDS,
+  );
+  const [isLoading, setIsLoading] = useState(
+    () => googleCalendarSelectionCache === null,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(
+    () => googleCalendarSelectionCache !== null,
+  );
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -41,9 +63,19 @@ export function useGoogleCalendarSelection() {
       const nextSelectedIds = selectionResult.visibleGoogleCalendarIds.map(
         (calendarId) => resolvePrimaryCalendarId(nextCalendars, calendarId),
       );
+      const uniqueSelectedIds = [...new Set(nextSelectedIds)];
+
+      googleCalendarSelectionCache = {
+        calendars: nextCalendars,
+        selectedCalendarIds: uniqueSelectedIds,
+      };
 
       setCalendars(nextCalendars);
-      setSelectedCalendarIds([...new Set(nextSelectedIds)]);
+      setSelectedCalendarIds((currentSelectedIds) =>
+        areStringArraysEqual(currentSelectedIds, uniqueSelectedIds)
+          ? currentSelectedIds
+          : uniqueSelectedIds,
+      );
       setLoaded(true);
     } catch (loadError) {
       setError(
@@ -68,12 +100,20 @@ export function useGoogleCalendarSelection() {
         : [...selectedCalendarIds, calendarId];
 
       setSelectedCalendarIds(nextSelectedIds);
+      googleCalendarSelectionCache = {
+        calendars,
+        selectedCalendarIds: nextSelectedIds,
+      };
       setIsSaving(true);
       setError(null);
       try {
         await saveGoogleCalendarSelection(nextSelectedIds);
       } catch (saveError) {
         setSelectedCalendarIds(selectedCalendarIds);
+        googleCalendarSelectionCache = {
+          calendars,
+          selectedCalendarIds,
+        };
         const message =
           saveError instanceof Error
             ? saveError.message
@@ -84,7 +124,7 @@ export function useGoogleCalendarSelection() {
         setIsSaving(false);
       }
     },
-    [selectedCalendarIds],
+    [calendars, selectedCalendarIds],
   );
 
   const changeCalendarColor = useCallback(
@@ -111,11 +151,18 @@ export function useGoogleCalendarSelection() {
           );
         }
         const updatedCalendar = result.calendar;
-        setCalendars((currentCalendars) =>
-          currentCalendars.map((calendar) =>
+        setCalendars((currentCalendars) => {
+          const nextCalendars = currentCalendars.map((calendar) =>
             calendar.id === calendarId ? updatedCalendar : calendar,
-          ),
-        );
+          );
+          if (googleCalendarSelectionCache) {
+            googleCalendarSelectionCache = {
+              ...googleCalendarSelectionCache,
+              calendars: nextCalendars,
+            };
+          }
+          return nextCalendars;
+        });
       } catch (changeError) {
         const message =
           changeError instanceof Error

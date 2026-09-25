@@ -107,6 +107,7 @@ const TIME_LABEL_WIDTH = 48;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
 const GRID_START_MINUTES = HOURS[0] * 60;
 const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
+const MAX_INITIAL_TIMELINE_START_HOUR = 9;
 const WEEKLY_CREATE_SNAP_MINUTES = 15;
 const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
 const WEEKLY_CREATE_LONG_PRESS_MS = 500;
@@ -669,9 +670,9 @@ export function WeeklyPlanScreen({
   )
     ? now.getHours() * 60 + now.getMinutes()
     : 8 * 60;
-  const initialTimelineStartHour = Math.max(
-    0,
-    Math.floor(initialTimelineMinutes / 60) - 2,
+  const initialTimelineStartHour = Math.min(
+    MAX_INITIAL_TIMELINE_START_HOUR,
+    Math.max(0, Math.floor(initialTimelineMinutes / 60) - 2),
   );
   const initialTimelineScrollTarget = initialTimelineStartHour * HOUR_HEIGHT;
   const [initialTimelineScrollY] = useState(initialTimelineScrollTarget);
@@ -1027,8 +1028,9 @@ export function WeeklyPlanScreen({
   );
 
   useEffect(() => {
+    if (!calendarSelectionLoaded) return;
     void load();
-  }, [load]);
+  }, [calendarSelectionLoaded, load]);
 
   const selectDate = useCallback(
     (date: Date) => {
@@ -2156,7 +2158,9 @@ export function WeeklyPlanScreen({
         }}
         onClose={() => setCalendarPickerOpen(false)}
         onChangeColor={(color) => {
-          void changeCalendarColor(color).catch(() => undefined);
+          void changeCalendarColor(color)
+            .then(() => load(true))
+            .catch(() => undefined);
         }}
         onRetry={() => void reloadCalendarSelection()}
         onSelectDate={selectCalendarDate}

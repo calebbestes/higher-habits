@@ -1323,10 +1323,10 @@ function ProfileNotesSection({
         state: selectedMonth === "all" ? "on" : undefined,
         title: "All months",
       },
-      ...NOTE_MONTH_NAMES.map((name, index) => ({
+      ...NOTE_MONTH_NAMES.map((_, index) => ({
         id: String(index + 1),
         state: selectedMonth === index + 1 ? ("on" as const) : undefined,
-        title: name,
+        title: NOTE_MONTH_LABELS[index],
       })),
     ],
     [selectedMonth],
@@ -1347,7 +1347,7 @@ function ProfileNotesSection({
     [selectedYear, yearOptions],
   );
   const selectedMonthLabel =
-    selectedMonth === "all" ? "All" : NOTE_MONTH_NAMES[selectedMonth - 1];
+    selectedMonth === "all" ? "All" : NOTE_MONTH_LABELS[selectedMonth - 1];
   const selectedYearLabel =
     selectedYear === "all" ? "All" : String(selectedYear);
   const selectedNotesLabel =

@@ -953,7 +953,9 @@ async function fetchGoogleCalendarList(
   accessToken: string,
 ): Promise<GoogleCalendarListItemWithId[]> {
   const response = await googleCalendarFetch(
-    "/users/me/calendarList?maxResults=250&showHidden=false",
+    // Include special/hidden calendar-list entries such as Birthdays and
+    // Tasks so the app can offer the same sources Google Calendar exposes.
+    "/users/me/calendarList?maxResults=250&showHidden=true",
     accessToken,
     { method: "GET" },
   );

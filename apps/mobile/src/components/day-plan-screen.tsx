@@ -3494,7 +3494,9 @@ export function DayPlanScreen({
           }}
           onClose={() => setCalendarPickerOpen(false)}
           onChangeColor={(color) => {
-            void changeCalendarColor(color).catch(() => undefined);
+            void changeCalendarColor(color)
+              .then(() => load({ force: true }))
+              .catch(() => undefined);
           }}
           onRetry={() => void reloadCalendarSelection()}
           onSelectDate={selectPickerDate}
@@ -5320,8 +5322,7 @@ function TimedEntryBlock({
   const content = (
     <View style={[eventBlockStyle, isTiny && styles.eventBlockTiny]}>
       <Text
-        adjustsFontSizeToFit={isTiny}
-        minimumFontScale={0.7}
+        ellipsizeMode="tail"
         numberOfLines={height >= 56 ? 2 : 1}
         style={[
           styles.eventTitle,
@@ -6926,15 +6927,15 @@ const styles = StyleSheet.create({
     borderStyle: "dotted",
   },
   allDayChipMeta: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "900",
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   allDayChipMetaCompact: {
-    fontSize: 8,
-    lineHeight: 10,
+    fontSize: 9,
+    lineHeight: 11,
   },
   allDayChipText: {
     fontSize: 13,
@@ -7066,12 +7067,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   eventTitleTiny: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 13,
   },
   eventTitleMicro: {
-    fontSize: 8,
-    lineHeight: 9,
+    fontSize: 10,
+    lineHeight: 11,
   },
   eventTitleCompleted: {
     textDecorationLine: "line-through",
