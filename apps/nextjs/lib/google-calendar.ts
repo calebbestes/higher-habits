@@ -889,11 +889,13 @@ export async function listGoogleCalendarEventColors(userId: string): Promise<{
 export async function updateGoogleCalendarColor({
   backgroundColor,
   calendarId,
+  colorId,
   foregroundColor,
   userId,
 }: {
   backgroundColor: string;
   calendarId: string;
+  colorId: string;
   foregroundColor: string;
   userId: string;
 }): Promise<{
@@ -935,10 +937,10 @@ export async function updateGoogleCalendarColor({
     }
 
     const response = await googleCalendarFetch(
-      `/users/me/calendarList/${encodeURIComponent(calendarId)}?colorRgbFormat=true`,
+      `/users/me/calendarList/${encodeURIComponent(calendarId)}?${colorId ? "colorRgbFormat=false" : "colorRgbFormat=true"}`,
       token.accessToken,
       {
-        body: JSON.stringify({ backgroundColor, foregroundColor }),
+        body: JSON.stringify(colorId ? { colorId } : { backgroundColor }),
         method: "PATCH",
       },
     );
@@ -1147,9 +1149,6 @@ async function syncFloatGoogleCalendarColor(
       {
         body: JSON.stringify({
           backgroundColor: primaryCalendar.backgroundColor,
-          ...(primaryCalendar.foregroundColor
-            ? { foregroundColor: primaryCalendar.foregroundColor }
-            : {}),
         }),
         method: "PATCH",
       },

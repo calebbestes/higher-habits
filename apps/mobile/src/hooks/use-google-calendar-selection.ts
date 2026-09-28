@@ -148,20 +148,23 @@ export function useGoogleCalendarSelection() {
     async ({
       backgroundColor,
       calendarId,
+      colorId,
       foregroundColor,
     }: {
       backgroundColor: string;
       calendarId: string;
+      colorId: string;
       foregroundColor: string;
     }) => {
       setIsSaving(true);
       setError(null);
       try {
         const result = await updateGoogleCalendarColor({
-          backgroundColor,
-          calendarId,
-          foregroundColor,
-        });
+        backgroundColor,
+        calendarId,
+        colorId,
+        foregroundColor,
+      });
         if (result.status !== "synced" || !result.calendar) {
           throw new Error(
             result.error ?? `Could not update ${calendarId}'s color.`,

@@ -11,6 +11,7 @@ const colorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
 const updateColorSchema = z.object({
   backgroundColor: colorSchema,
   calendarId: z.string().min(1),
+  colorId: z.string().min(1),
   foregroundColor: colorSchema,
 });
 
@@ -36,6 +37,7 @@ export async function PATCH(request: Request) {
       await updateGoogleCalendarColor({
         backgroundColor: data.backgroundColor,
         calendarId: data.calendarId,
+        colorId: data.colorId,
         foregroundColor: data.foregroundColor,
         userId: user.id,
       }),

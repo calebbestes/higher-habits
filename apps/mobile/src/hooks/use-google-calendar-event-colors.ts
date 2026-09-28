@@ -17,6 +17,27 @@ const GOOGLE_EVENT_COLOR_FALLBACK: GoogleCalendarEventColor[] =
     label: option.label,
   }));
 
+// CalendarList uses Google's calendar palette, which is narrower than the
+// event palette. In particular, event colors such as Mango are not valid
+// calendar colors.
+const GOOGLE_CALENDAR_COLOR_FALLBACK: GoogleCalendarEventColor[] = [
+  ["1", "#7986CB", "#FFFFFF"],
+  ["2", "#33B679", "#FFFFFF"],
+  ["3", "#8E24AA", "#FFFFFF"],
+  ["4", "#E67C73", "#1D1D1D"],
+  ["5", "#F6BF26", "#1D1D1D"],
+  ["6", "#F4511E", "#FFFFFF"],
+  ["7", "#039BE5", "#FFFFFF"],
+  ["8", "#616161", "#FFFFFF"],
+  ["9", "#3F51B5", "#FFFFFF"],
+  ["10", "#0B8043", "#FFFFFF"],
+  ["11", "#D50000", "#FFFFFF"],
+].map(([colorId, backgroundColor, foregroundColor]) => ({
+  backgroundColor,
+  colorId,
+  foregroundColor,
+}));
+
 function getGoogleEventPalette(
   eventLabels: GoogleCalendarEventColor[],
 ): GoogleCalendarEventColor[] {
@@ -49,7 +70,11 @@ export function useGoogleCalendarColors() {
     void fetchGoogleCalendarColors()
       .then((result) => {
         if (mounted) {
-          setCalendarColors(GOOGLE_EVENT_COLOR_FALLBACK);
+          setCalendarColors(
+            result.calendarColors?.length
+              ? result.calendarColors
+              : GOOGLE_CALENDAR_COLOR_FALLBACK,
+          );
           setColors(result.colors ?? []);
           setEventLabels(getGoogleEventPalette(result.eventLabels ?? []));
         }

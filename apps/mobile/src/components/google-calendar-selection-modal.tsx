@@ -44,6 +44,7 @@ export function GoogleCalendarSelectionModal({
   onChangeColor?: (input: {
     backgroundColor: string;
     calendarId: string;
+    colorId: string;
     foregroundColor: string;
   }) => void;
   onConnect?: () => void;
@@ -348,6 +349,7 @@ export function GoogleCalendarSelectionModal({
                                   onChangeColor({
                                     backgroundColor: option.backgroundColor,
                                     calendarId: calendar.id,
+                                    colorId: option.colorId,
                                     foregroundColor: option.foregroundColor,
                                   });
                                 }}

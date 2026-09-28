@@ -253,10 +253,12 @@ export const fetchGoogleCalendarCalendarColors = async () =>
 export const updateGoogleCalendarColor = ({
   backgroundColor,
   calendarId,
+  colorId,
   foregroundColor,
 }: {
   backgroundColor: string;
   calendarId: string;
+  colorId: string;
   foregroundColor: string;
 }): Promise<{
   status: GoogleCalendarEventsResponse["status"];
@@ -265,7 +267,12 @@ export const updateGoogleCalendarColor = ({
 }> =>
   mobileApiFetch("/api/google-calendar/calendars", {
     method: "PATCH",
-    body: JSON.stringify({ backgroundColor, calendarId, foregroundColor }),
+    body: JSON.stringify({
+      backgroundColor,
+      calendarId,
+      colorId,
+      foregroundColor,
+    }),
   }).then((response) =>
     parseResponse<{
       status: GoogleCalendarEventsResponse["status"];
