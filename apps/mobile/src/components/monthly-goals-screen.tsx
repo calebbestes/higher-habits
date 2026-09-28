@@ -1,4 +1,6 @@
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { GoalIcon } from "@/components/goal-icon";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +40,8 @@ import {
   type PlannedRepeat,
   fetchHabitLogsSnapshot,
   getMonthKey,
+  setHabitLogNote,
+  setHabitLogVisibility,
   setHabitLog,
   toDateKey,
 } from "@/lib/habit-logs-client";
@@ -46,6 +50,7 @@ import {
   type Habit,
   type HabitInput,
   type HabitRepeatMonthlyType,
+  type HabitVisibility,
   createCategory,
   createHabit,
   deleteHabit,
@@ -57,6 +62,8 @@ import {
   cancelHabitReminderAsync,
   scheduleHabitReminderAsync,
 } from "@/lib/push-notifications";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import type { HabitsTab } from "@/lib/tab-view-store";
 
 type SymbolName = SymbolViewProps["name"];
@@ -121,23 +128,8 @@ function addMonths(date: Date, months: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + months, 1);
 }
 
-function startOfWeekDate(d: Date): Date {
-  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  s.setDate(s.getDate() - s.getDay());
-  return s;
-}
-
-function weeksBetween(ref: Date, d: Date): number {
-  return Math.round(
-    (startOfWeekDate(d).getTime() - startOfWeekDate(ref).getTime()) /
-      (7 * 24 * 60 * 60 * 1000),
-  );
-}
-
 function weekOfMonth(d: Date): number {
-  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  if (d.getDate() + 7 > daysInMonth) return 4;
-  return Math.ceil(d.getDate() / 7) - 1;
+  return Math.floor((d.getDate() - 1) / 7);
 }
 
 function monthlyWeekdayCell(date: Date) {
@@ -150,36 +142,25 @@ function isGoalScheduledForDate(
 ): boolean {
   if (goal.period === "daily") return true;
   const cadence = goal.repeatCadence ?? goal.period;
-  const interval = goal.repeatInterval ?? 1;
   const dow = date.getDay();
 
   if (cadence === "weekly") {
     const days = goal.repeatDays;
     if (!days?.length) return false;
     if (!days.includes(dow)) return false;
-    if (interval === 1) return true;
-    return weeksBetween(new Date(goal.createdAt), date) % interval === 0;
+    return true;
   }
 
   if (cadence === "monthly") {
-    const ref = new Date(goal.createdAt);
-    const monthDiff =
-      (date.getFullYear() - ref.getFullYear()) * 12 +
-      (date.getMonth() - ref.getMonth());
-    if (monthDiff % interval !== 0) return false;
     const type = goal.repeatMonthlyType ?? "day_of_month";
     if (type === "day_of_month") {
       const dates = goal.repeatDays?.filter((day) => day >= 1 && day <= 31);
       return dates?.length
         ? dates.includes(date.getDate())
-        : date.getDate() === ref.getDate();
+        : false;
     }
     const cells = goal.repeatDays?.filter((day) => day >= 0 && day <= 34);
-    if (!cells?.length)
-      return monthlyWeekdayCell(date) === monthlyWeekdayCell(ref);
-    if (cells.every((day) => day <= 6)) {
-      return cells.includes(dow) && weekOfMonth(date) === weekOfMonth(ref);
-    }
+    if (!cells?.length) return false;
     return cells.includes(monthlyWeekdayCell(date));
   }
 
@@ -311,6 +292,12 @@ export function MonthlyGoalsScreen({
   const [formOpen, setFormOpen] = useState(false);
   const [monthlyNoteOpen, setMonthlyNoteOpen] = useState(false);
   const [monthlyNote, setMonthlyNote] = useState("");
+  const [activeEventGoal, setActiveEventGoal] =
+    useState<PeriodicHabitInfo | null>(null);
+  const [noteEventGoal, setNoteEventGoal] =
+    useState<PeriodicHabitInfo | null>(null);
+  const [uploadingPhotoSource, setUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
 
   const [editingGoal, setEditingGoal] = useState<Habit | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -565,6 +552,79 @@ export function MonthlyGoalsScreen({
     },
     [handleSetStatus, selectedDateKey],
   );
+
+  const openPlannedGoal = useCallback((goal: PeriodicHabitInfo) => {
+    setActiveEventGoal(goal);
+  }, []);
+
+  const activeEventKey = activeEventGoal
+    ? `${activeEventGoal.id}_${selectedDateKey}`
+    : null;
+  const activeEventStatus = activeEventGoal
+    ? (logsByHabitDate[activeEventKey ?? ""] ??
+      (isGoalPlannedForDate({
+        date: dateFromKey(selectedDateKey),
+        dateKey: selectedDateKey,
+        goal: activeEventGoal,
+        logsByHabitDate,
+      })
+        ? "planned"
+        : activeEventGoal.defaultComplete
+          ? "complete"
+          : undefined))
+    : undefined;
+  const activeEventPlannedTime = activeEventKey
+    ? snapshot?.plannedTimesByHabitDate[activeEventKey]
+    : undefined;
+
+  const handleActiveEventPhoto = async (source: GoalPhotoSource) => {
+    if (!activeEventGoal || uploadingPhotoSource) return;
+
+    setUploadingPhotoSource(source);
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+      await uploadGoalPhoto(activeEventGoal.id, selectedDateKey, photo);
+      await load();
+    } catch (photoError) {
+      Alert.alert(
+        "Could not add photo",
+        photoError instanceof Error
+          ? photoError.message
+          : "The photo could not be uploaded.",
+      );
+    } finally {
+      if (isMountedRef.current) setUploadingPhotoSource(null);
+    }
+  };
+
+  const handleActiveEventVisibility = async (visibility: HabitVisibility) => {
+    if (!activeEventGoal || !activeEventKey) return;
+    setUpdatingKeys((current) => new Set(current).add(activeEventKey));
+    try {
+      await setHabitLogVisibility(
+        activeEventGoal.id,
+        selectedDateKey,
+        visibility,
+      );
+      await load();
+    } catch (visibilityError) {
+      Alert.alert(
+        "Could not update visibility",
+        visibilityError instanceof Error
+          ? visibilityError.message
+          : "Could not update visibility.",
+      );
+    } finally {
+      if (isMountedRef.current) {
+        setUpdatingKeys((current) => {
+          const next = new Set(current);
+          next.delete(activeEventKey);
+          return next;
+        });
+      }
+    }
+  };
 
   const openHabitMenu = (goal: PeriodicHabitInfo) => {
     const selectedStatus =
@@ -937,11 +997,81 @@ export function MonthlyGoalsScreen({
               }}
               onAddHabit={() => setFormOpen(true)}
               onMoreGoal={openHabitMenu}
+              onOpenEvent={openPlannedGoal}
               onToggleGoal={toggleHabitForSelectedDay}
             />
           ) : null}
         </ScrollView>
       </SafeAreaView>
+      <GoalActionsModal
+        goal={activeEventGoal}
+        hasNote={Boolean(
+          activeEventKey && snapshot?.notesByHabitDate[activeEventKey]?.trim(),
+        )}
+        noteText={activeEventKey ? snapshot?.notesByHabitDate[activeEventKey] : null}
+        hasPhoto={Boolean(
+          activeEventKey &&
+            (snapshot?.photoCountsByHabitDate[activeEventKey] ?? 0) > 0,
+        )}
+        visibility={
+          activeEventKey
+            ? (snapshot?.visibilityByHabitDate[activeEventKey] ??
+              activeEventGoal?.visibility ??
+              "only_me")
+            : "only_me"
+        }
+        status={activeEventStatus}
+        isUpdating={Boolean(
+          activeEventKey && updatingKeys.has(activeEventKey),
+        )}
+        isUpdatingVisibility={Boolean(
+          activeEventKey && updatingKeys.has(activeEventKey),
+        )}
+        canPlan={selectedDateKey >= todayDateKey}
+        isFutureDate={selectedDateKey > todayDateKey}
+        repeatDate={dateFromKey(selectedDateKey)}
+        plannedTime={activeEventPlannedTime}
+        uploadingPhotoSource={uploadingPhotoSource}
+        visible={Boolean(activeEventGoal)}
+        onAddPhoto={(source) => void handleActiveEventPhoto(source)}
+        onOpenNote={() => {
+          if (!activeEventGoal) return;
+          setNoteEventGoal(activeEventGoal);
+          setActiveEventGoal(null);
+        }}
+        onSetVisibility={(visibility) =>
+          void handleActiveEventVisibility(visibility)
+        }
+        onSetStatus={(status, options) => {
+          if (!activeEventGoal) return;
+          void handleSetStatus(
+            activeEventGoal.id,
+            status,
+            options,
+          );
+          if (status !== "planned") setActiveEventGoal(null);
+        }}
+        onDismiss={() => setActiveEventGoal(null)}
+        onShown={() => undefined}
+      />
+      {noteEventGoal ? (
+        <GoalNoteEditorModal
+          dateKey={selectedDateKey}
+          goalName={noteEventGoal.name}
+          initialValue={
+            snapshot?.notesByHabitDate[
+              `${noteEventGoal.id}_${selectedDateKey}`
+            ] ?? null
+          }
+          onClose={() => setNoteEventGoal(null)}
+          onSave={async (notes) => {
+            await setHabitLogNote(noteEventGoal.id, selectedDateKey, notes);
+            await load();
+            setNoteEventGoal(null);
+            setActiveEventGoal(noteEventGoal);
+          }}
+        />
+      ) : null}
 
       <HabitFormModal
         categories={categories}
@@ -1165,7 +1295,6 @@ const DayCell = memo(function DayCell({
           {visibleGoals.map((goal) => {
             const status = logsByHabitDate[`${goal.id}_${dateKey}`];
             const isComplete = status === "complete";
-            const isPlanned = status === "planned";
             return (
               <View
                 key={goal.id}
@@ -1180,13 +1309,7 @@ const DayCell = memo(function DayCell({
                   filled={isComplete}
                   iconKey={goal.iconKey}
                   size={12}
-                  color={
-                    isComplete
-                      ? theme.primary
-                      : isPlanned
-                        ? theme.primary
-                        : theme.textSecondary
-                  }
+                  color={isComplete ? theme.primary : theme.textSecondary}
                 />
               </View>
             );
@@ -1221,6 +1344,7 @@ function DayDetailPanel({
   onLayout,
   onAddHabit,
   onMoreGoal,
+  onOpenEvent,
   onToggleGoal,
 }: {
   selectedDate: Date;
@@ -1238,6 +1362,7 @@ function DayDetailPanel({
   onLayout?: (y: number) => void;
   onAddHabit: () => void;
   onMoreGoal: (goal: PeriodicHabitInfo) => void;
+  onOpenEvent: (goal: PeriodicHabitInfo) => void;
   onToggleGoal: (goal: PeriodicHabitInfo) => void;
 }) {
   const theme = useTheme();
@@ -1289,7 +1414,7 @@ function DayDetailPanel({
             {formatDayHeader(selectedDate)}
           </Text>
           <Text style={[styles.detailHint, { color: theme.textSecondary }]}>
-            Tap a habit to add or remove it for this day
+            Tap an unplanned habit to add it; tap a planned habit for actions
           </Text>
         </View>
         <Pressable
@@ -1366,6 +1491,7 @@ function DayDetailPanel({
                         `${goal.id}_${selectedDateKey}`,
                       )}
                       onMore={() => onMoreGoal(goal)}
+                      onOpenEvent={() => onOpenEvent(goal)}
                       onToggle={() => onToggleGoal(goal)}
                     />
                   </View>
@@ -1400,6 +1526,7 @@ function PlanningGoalRow({
   isPlanned,
   isUpdating,
   onMore,
+  onOpenEvent,
   onToggle,
 }: {
   goal: PeriodicHabitInfo;
@@ -1408,6 +1535,7 @@ function PlanningGoalRow({
   isPlanned: boolean;
   isUpdating: boolean;
   onMore: () => void;
+  onOpenEvent: () => void;
   onToggle: () => void;
 }) {
   const theme = useTheme();
@@ -1424,7 +1552,7 @@ function PlanningGoalRow({
           ? "Planned for selected day."
           : "Not planned for selected day."
       }`}
-      onPress={onToggle}
+      onPress={isPlanned ? onOpenEvent : onToggle}
       style={({ pressed }) => [
         styles.goalRow,
         isPlanned && { backgroundColor: `${theme.primary}0F` },

@@ -46,6 +46,7 @@ import {
   uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { type Habit, fetchHabits } from "@/lib/habits-client";
 import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
@@ -63,6 +64,7 @@ import {
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
+  linkGoalCheckpoint,
   type Goal,
   type GoalCheckpoint,
   type GoalInput,
@@ -73,7 +75,9 @@ import {
   reorderPlanGoals,
   updatePlanGoal,
   updatePlanGoalCheckpoint,
+  unlinkGoalCheckpoint,
 } from "@/lib/planning-goals-client";
+import { fetchTasks, type Task } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
 type CheckpointDraft = {
@@ -86,6 +90,11 @@ type ActiveCheckpoint = {
   goal: Goal;
   checkpoint: GoalCheckpoint;
 };
+type ToggleCheckpointLink = (
+  checkpoint: GoalCheckpoint,
+  sourceType: "task" | "habit",
+  sourceId: string,
+) => Promise<Goal | null> | void;
 type DateKeyParts = { year: number; month: number; day: number };
 type TargetDatePart = "year" | "month" | "day";
 type GoalDragSlot = { id: string; y: number; height: number };
@@ -218,6 +227,10 @@ export function GoalsScreen() {
     useState<ActiveCheckpoint | null>(null);
   const [planningCheckpoint, setPlanningCheckpoint] =
     useState<ActiveCheckpoint | null>(null);
+  const [activeGoalDetail, setActiveGoalDetail] = useState<Goal | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [linkUpdatingKey, setLinkUpdatingKey] = useState<string | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
     cachedScreen?.data.plannedEvents ?? [],
   );
@@ -262,10 +275,13 @@ export function GoalsScreen() {
     setError(null);
 
     try {
-      const [nextGoals, nextPlannedEvents] = await Promise.all([
-        fetchPlanGoals(),
-        fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
-      ]);
+      const [nextGoals, nextPlannedEvents, nextTasks, nextHabits] =
+        await Promise.all([
+          fetchPlanGoals(),
+          fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
+          fetchTasks(),
+          fetchHabits(),
+        ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
@@ -276,6 +292,8 @@ export function GoalsScreen() {
       goalsRef.current = nextGoals;
       setGoals(nextGoals);
       setPlannedEvents(nextPlannedEvents);
+      setTasks(nextTasks);
+      setHabits(nextHabits);
     } catch (loadError) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
@@ -407,6 +425,9 @@ export function GoalsScreen() {
 
   const handleCheckpointSaved = (updatedGoal: Goal | null) => {
     updateGoalInList(updatedGoal);
+    setActiveGoalDetail((current) =>
+      current?.id === updatedGoal?.id ? updatedGoal : current,
+    );
     if (!updatedGoal) return;
 
     // A completed checkpoint drops its calendar plan.
@@ -427,6 +448,44 @@ export function GoalsScreen() {
       });
       return nextPlannedEvents;
     });
+  };
+
+  const toggleCheckpointLink = async (
+    checkpoint: GoalCheckpoint,
+    sourceType: "task" | "habit",
+    sourceId: string,
+  ): Promise<Goal | null> => {
+    const ownerGoal =
+      goalsRef.current.find((goal) =>
+        goal.checkpoints.some((item) => item.id === checkpoint.id),
+      ) ?? activeGoalDetail;
+    if (!ownerGoal || linkUpdatingKey) return null;
+
+    const linkKey = `${checkpoint.id}:${sourceType}:${sourceId}`;
+    const isLinked = (checkpoint.links ?? []).some(
+      (link) =>
+        link.sourceType === sourceType && link.sourceId === sourceId,
+    );
+    setLinkUpdatingKey(linkKey);
+    try {
+      const updatedGoal = isLinked
+        ? await unlinkGoalCheckpoint(checkpoint.id, sourceType, sourceId)
+        : await linkGoalCheckpoint(checkpoint.id, sourceType, sourceId);
+      updateGoalInList(updatedGoal);
+      setActiveGoalDetail((current) =>
+        current?.id === updatedGoal.id ? updatedGoal : current,
+      );
+      return updatedGoal;
+    } catch (linkError) {
+      setError(
+        linkError instanceof Error
+          ? linkError.message
+          : "Could not update checkpoint links.",
+      );
+      return null;
+    } finally {
+      setLinkUpdatingKey(null);
+    }
   };
 
   const openCheckpointPlan = (active: ActiveCheckpoint) => {
@@ -787,6 +846,7 @@ export function GoalsScreen() {
                     onDragStart={beginGoalDrag}
                     onEdit={() => openEdit(goal)}
                     onMeasure={measureGoalCard}
+                    onPressGoal={() => setActiveGoalDetail(goal)}
                     onPressCheckpoint={(checkpoint) =>
                       setActiveCheckpoint({ goal, checkpoint })
                     }
@@ -836,12 +896,26 @@ export function GoalsScreen() {
 
       <GoalFormModal
         goal={editingGoal}
+        habits={habits}
         isOpen={formOpen}
+        linkUpdatingKey={linkUpdatingKey}
         onClose={() => {
           setFormOpen(false);
           setEditingGoal(null);
         }}
         onSave={saveGoal}
+        onToggleLink={toggleCheckpointLink}
+        tasks={tasks}
+      />
+      <GoalDetailModal
+        goal={activeGoalDetail}
+        habits={habits}
+        linkUpdatingKey={linkUpdatingKey}
+        tasks={tasks}
+        onClose={() => setActiveGoalDetail(null)}
+        onToggleLink={(checkpoint, sourceType, sourceId) => {
+          void toggleCheckpointLink(checkpoint, sourceType, sourceId);
+        }}
       />
       <CheckpointActionsModal
         active={activeCheckpoint}
@@ -891,6 +965,7 @@ function GoalCard({
   onDragStart,
   onEdit,
   onMeasure,
+  onPressGoal,
   onPressCheckpoint,
 }: {
   goal: Goal;
@@ -902,6 +977,7 @@ function GoalCard({
   onDragStart: (goalId: string) => void;
   onEdit: () => void;
   onMeasure: (goalId: string, y: number, height: number) => void;
+  onPressGoal: () => void;
   onPressCheckpoint: (checkpoint: GoalCheckpoint) => void;
 }) {
   const theme = useTheme();
@@ -965,7 +1041,12 @@ function GoalCard({
             tintColor={isDragging ? theme.primary : theme.textSecondary}
           />
         </View>
-        <View style={styles.goalBody}>
+        <Pressable
+          accessibilityLabel={`Open ${goal.title}`}
+          accessibilityRole="button"
+          onPress={onPressGoal}
+          style={({ pressed }) => [styles.goalBody, pressed && styles.pressed]}
+        >
           <View style={styles.goalTitleRow}>
             <Text
               numberOfLines={2}
@@ -1005,7 +1086,7 @@ function GoalCard({
               />
             ) : null}
           </View>
-        </View>
+        </Pressable>
         <MenuView
           actions={actionItems}
           onPressAction={({ nativeEvent }) => {
@@ -1334,6 +1415,458 @@ function NextCheckpointAction({
           tintColor={theme.textSecondary}
         />
       </Pressable>
+    </View>
+  );
+}
+
+function GoalDetailModal({
+  goal,
+  habits,
+  linkUpdatingKey,
+  tasks,
+  onClose,
+  onToggleLink,
+}: {
+  goal: Goal | null;
+  habits: Habit[];
+  linkUpdatingKey: string | null;
+  tasks: Task[];
+  onClose: () => void;
+  onToggleLink: ToggleCheckpointLink;
+}) {
+  const theme = useTheme();
+  const [linkingCheckpointId, setLinkingCheckpointId] = useState<string | null>(
+    null,
+  );
+  if (!goal) return null;
+
+  const linkingCheckpoint =
+    goal.checkpoints.find((checkpoint) => checkpoint.id === linkingCheckpointId) ??
+    null;
+
+  return (
+    <>
+      <Modal animationType="slide" transparent visible onRequestClose={onClose}>
+        <View style={modalStyles.overlay}>
+          <Pressable
+            accessibilityLabel="Close goal details"
+            style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
+            onPress={onClose}
+          />
+          <SafeAreaView
+            edges={["bottom"]}
+            style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+          >
+            <View
+              style={[
+                modalStyles.header,
+                {
+                  backgroundColor: theme.tabBar,
+                  borderBottomColor: theme.tabBorder,
+                },
+              ]}
+            >
+              <View style={modalStyles.titleBlock}>
+                <Text style={[modalStyles.title, { color: theme.text }]}>
+                  {goal.title}
+                </Text>
+                <Text
+                  style={[modalStyles.subtitle, { color: theme.textSecondary }]}
+                >
+                  {goal.checkpoints.length} checkpoints · Link tasks and habits
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Close"
+                hitSlop={8}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  modalStyles.closeBtn,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("xmark", "close")}
+                  size={14}
+                  weight="bold"
+                  tintColor={theme.tabIcon}
+                />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              canCancelContentTouches
+              contentContainerStyle={modalStyles.actions}
+              showsVerticalScrollIndicator={false}
+            >
+              {goal.checkpoints.map((checkpoint, index) => {
+                const links = checkpoint.links ?? [];
+
+                return (
+                  <View
+                    key={checkpoint.id}
+                    style={{
+                      gap: 10,
+                      borderTopColor: theme.tabBorder,
+                      borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
+                      paddingTop: index === 0 ? 0 : 18,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <View
+                        style={{
+                          alignItems: "center",
+                          backgroundColor: checkpoint.completed
+                            ? theme.primary
+                            : theme.backgroundElement,
+                          borderColor: checkpoint.completed
+                            ? theme.primary
+                            : theme.tabBorder,
+                          borderRadius: 14,
+                          borderWidth: 1.5,
+                          height: 28,
+                          justifyContent: "center",
+                          width: 28,
+                        }}
+                      >
+                        {checkpoint.completed ? (
+                          <SymbolView
+                            name={symbol("checkmark", "check")}
+                            size={14}
+                            tintColor={theme.primaryForeground}
+                            weight="bold"
+                          />
+                        ) : null}
+                      </View>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          flex: 1,
+                          fontSize: 18,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {checkpoint.title}
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      accessibilityLabel={`Link tasks or habits to ${checkpoint.title}`}
+                      accessibilityRole="button"
+                      onPress={() => setLinkingCheckpointId(checkpoint.id)}
+                      style={({ pressed }) => [
+                        {
+                          alignItems: "center",
+                          borderColor: theme.tabBorder,
+                          borderRadius: 12,
+                          borderWidth: StyleSheet.hairlineWidth,
+                          flexDirection: "row",
+                          gap: 10,
+                          minHeight: 48,
+                          paddingHorizontal: 12,
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <SymbolView
+                        name={symbol("link", "link")}
+                        size={18}
+                        tintColor={theme.primary}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={{
+                            color: theme.text,
+                            fontSize: 15,
+                            fontWeight: "700",
+                          }}
+                        >
+                          Link tasks or habits
+                        </Text>
+                        {links.length ? (
+                          <Text
+                            style={{
+                              color: theme.textSecondary,
+                              fontSize: 12,
+                            }}
+                          >
+                            {links.length} linked
+                          </Text>
+                        ) : null}
+                      </View>
+                      <SymbolView
+                        name={symbol("chevron.right", "chevron_right")}
+                        size={16}
+                        tintColor={theme.textSecondary}
+                      />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      <LinkCheckpointModal
+        checkpoint={linkingCheckpoint}
+        habits={habits}
+        linkUpdatingKey={linkUpdatingKey}
+        tasks={tasks}
+        onClose={() => setLinkingCheckpointId(null)}
+        onToggleLink={onToggleLink}
+      />
+    </>
+  );
+}
+
+function LinkCheckpointModal({
+  checkpoint,
+  embedded = false,
+  habits,
+  linkUpdatingKey,
+  tasks,
+  onClose,
+  onToggleLink,
+}: {
+  checkpoint: GoalCheckpoint | null;
+  embedded?: boolean;
+  habits: Habit[];
+  linkUpdatingKey: string | null;
+  tasks: Task[];
+  onClose: () => void;
+  onToggleLink: ToggleCheckpointLink;
+}) {
+  const theme = useTheme();
+  if (!checkpoint) return null;
+
+  const links = checkpoint.links ?? [];
+  const linkedTaskIds = new Set(
+    links
+      .filter((link) => link.sourceType === "task")
+      .map((link) => link.sourceId),
+  );
+  const linkedHabitIds = new Set(
+    links
+      .filter((link) => link.sourceType === "habit")
+      .map((link) => link.sourceId),
+  );
+  const visibleTasks = tasks.filter(
+    (task) => !task.completedAt || linkedTaskIds.has(task.id),
+  );
+  const visibleHabits = habits.filter(
+    (habit) => !habit.hidden || linkedHabitIds.has(habit.id),
+  );
+
+  const content = (
+    <View style={modalStyles.overlay}>
+        <Pressable
+          accessibilityLabel="Close link picker"
+          style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
+          onPress={onClose}
+        />
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+        >
+          <View
+            style={[
+              modalStyles.header,
+              {
+                backgroundColor: theme.tabBar,
+                borderBottomColor: theme.tabBorder,
+              },
+            ]}
+          >
+            <View style={modalStyles.titleBlock}>
+              <Text style={[modalStyles.title, { color: theme.text }]}>
+                Link to {checkpoint.title}
+              </Text>
+              <Text
+                style={[modalStyles.subtitle, { color: theme.textSecondary }]}
+              >
+                Choose tasks or habits for this checkpoint
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => [
+                modalStyles.closeBtn,
+                { backgroundColor: theme.backgroundElement },
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("xmark", "close")}
+                size={14}
+                weight="bold"
+                tintColor={theme.tabIcon}
+              />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            canCancelContentTouches
+            contentContainerStyle={modalStyles.actions}
+            showsVerticalScrollIndicator={false}
+          >
+            <LinkOptionGroup
+              emptyLabel="No active tasks available."
+              icon={symbol("checklist", "checklist")}
+              label="Tasks"
+              options={visibleTasks.map((task) => ({
+                id: task.id,
+                subtitle: [task.importance, task.timeRequired]
+                  .filter(Boolean)
+                  .join(" · "),
+                title: task.name,
+              }))}
+              updatingKey={linkUpdatingKey}
+              sourceType="task"
+              linkedIds={linkedTaskIds}
+              checkpoint={checkpoint}
+              onToggle={onToggleLink}
+            />
+            <LinkOptionGroup
+              emptyLabel="No visible habits available."
+              icon={symbol("repeat", "repeat")}
+              label="Habits"
+              options={visibleHabits.map((habit) => ({
+                id: habit.id,
+                subtitle: [habit.categoryName, habit.period]
+                  .filter(Boolean)
+                  .join(" · "),
+                title: habit.name,
+              }))}
+              updatingKey={linkUpdatingKey}
+              sourceType="habit"
+              linkedIds={linkedHabitIds}
+              checkpoint={checkpoint}
+              onToggle={onToggleLink}
+            />
+          </ScrollView>
+        </SafeAreaView>
+    </View>
+  );
+
+  return embedded ? (
+    <View style={StyleSheet.absoluteFill}>{content}</View>
+  ) : (
+    <Modal animationType="slide" transparent visible onRequestClose={onClose}>
+      {content}
+    </Modal>
+  );
+}
+
+function LinkOptionGroup({
+  checkpoint,
+  emptyLabel,
+  icon,
+  label,
+  linkedIds,
+  onToggle,
+  options,
+  sourceType,
+  updatingKey,
+}: {
+  checkpoint: GoalCheckpoint;
+  emptyLabel: string;
+  icon: SymbolName;
+  label: string;
+  linkedIds: Set<string>;
+  onToggle: ToggleCheckpointLink;
+  options: Array<{ id: string; subtitle: string; title: string }>;
+  sourceType: "task" | "habit";
+  updatingKey: string | null;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+        <SymbolView name={icon} size={16} tintColor={theme.primary} />
+        <Text style={{ color: theme.textSecondary, fontSize: 14, fontWeight: "700" }}>
+          {label}
+        </Text>
+      </View>
+      {options.length ? (
+        options.map((option) => {
+          const linked = linkedIds.has(option.id);
+          const isUpdating =
+            updatingKey === `${checkpoint.id}:${sourceType}:${option.id}`;
+          return (
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: linked, disabled: Boolean(updatingKey) }}
+              disabled={Boolean(updatingKey)}
+              key={option.id}
+              onPress={() => onToggle(checkpoint, sourceType, option.id)}
+              style={({ pressed }) => [
+                {
+                  alignItems: "center",
+                  backgroundColor: linked
+                    ? `${theme.primary}14`
+                    : theme.backgroundElement,
+                  borderColor: linked ? theme.primary : theme.tabBorder,
+                  borderRadius: 12,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  flexDirection: "row",
+                  gap: 10,
+                  minHeight: 48,
+                  paddingHorizontal: 12,
+                },
+                pressed && styles.pressed,
+              ]}
+            >
+              <View
+                style={{
+                  alignItems: "center",
+                  backgroundColor: linked ? theme.primary : "transparent",
+                  borderColor: linked ? theme.primary : theme.tabBorder,
+                  borderRadius: 8,
+                  borderWidth: 1.5,
+                  height: 20,
+                  justifyContent: "center",
+                  width: 20,
+                }}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator color={theme.primaryForeground} size="small" />
+                ) : linked ? (
+                  <SymbolView
+                    name={symbol("checkmark", "check")}
+                    size={12}
+                    tintColor={theme.primaryForeground}
+                    weight="bold"
+                  />
+                ) : null}
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>
+                  {option.title}
+                </Text>
+                {option.subtitle ? (
+                  <Text numberOfLines={1} style={{ color: theme.textSecondary, fontSize: 12 }}>
+                    {option.subtitle}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+          );
+        })
+      ) : (
+        <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+          {emptyLabel}
+        </Text>
+      )}
     </View>
   );
 }
@@ -2160,18 +2693,26 @@ function EmptyState({
 
 export function GoalFormModal({
   goal,
+  habits = [],
   initialValues,
   isOpen,
+  linkUpdatingKey = null,
   onClose,
   onSave,
+  onToggleLink = async () => null,
   saveHint,
+  tasks = [],
 }: {
   goal: Goal | null;
+  habits?: Habit[];
   initialValues?: GoalInput;
   isOpen: boolean;
+  linkUpdatingKey?: string | null;
   onClose: () => void;
   onSave: (input: GoalInput) => Promise<void>;
+  onToggleLink?: ToggleCheckpointLink;
   saveHint?: string;
+  tasks?: Task[];
 }) {
   const theme = useTheme();
   const [title, setTitle] = useState("");
@@ -2179,6 +2720,12 @@ export function GoalFormModal({
   const [timing, setTiming] = useState<GoalTiming>("current");
   const [planOnCalendar, setPlanOnCalendar] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
+  const [checkpointLinks, setCheckpointLinks] = useState<
+    Record<string, GoalCheckpoint["links"]>
+  >({});
+  const [linkingCheckpointId, setLinkingCheckpointId] = useState<string | null>(
+    null,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2207,8 +2754,47 @@ export function GoalFormModal({
             }))
           : [createEmptyCheckpoint()],
     );
+    setCheckpointLinks(
+      Object.fromEntries(
+        (goal?.checkpoints ?? []).map((checkpoint) => [
+          checkpoint.id,
+          checkpoint.links ?? [],
+        ]),
+      ),
+    );
+    setLinkingCheckpointId(null);
     setError(null);
   }, [goal, initialValues, isOpen]);
+
+  const linkingCheckpoint = (() => {
+    if (!goal || !linkingCheckpointId) return null;
+    const checkpoint = goal.checkpoints.find(
+      (item) => item.id === linkingCheckpointId,
+    );
+    if (!checkpoint) return null;
+    return {
+      ...checkpoint,
+      links: checkpointLinks[checkpoint.id] ?? checkpoint.links ?? [],
+    };
+  })();
+
+  const handleToggleLink = async (
+    checkpoint: GoalCheckpoint,
+    sourceType: "task" | "habit",
+    sourceId: string,
+  ) => {
+    const updatedGoal = await onToggleLink(checkpoint, sourceType, sourceId);
+    const updatedCheckpoint = updatedGoal?.checkpoints.find(
+      (item) => item.id === checkpoint.id,
+    );
+    if (updatedCheckpoint) {
+      setCheckpointLinks((current) => ({
+        ...current,
+        [updatedCheckpoint.id]: updatedCheckpoint.links ?? [],
+      }));
+    }
+    return updatedGoal ?? null;
+  };
 
   const updateCheckpoint = (
     localId: string,
@@ -2276,17 +2862,18 @@ export function GoalFormModal({
   };
 
   return (
-    <Modal
-      animationType="slide"
-      presentationStyle="pageSheet"
-      visible={isOpen}
-      onRequestClose={onClose}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={[styles.formScreen, { backgroundColor: theme.background }]}
+    <>
+      <Modal
+        animationType="slide"
+        presentationStyle="pageSheet"
+        visible={isOpen}
+        onRequestClose={onClose}
       >
-        <SafeAreaView style={styles.formSafeArea}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={[styles.formScreen, { backgroundColor: theme.background }]}
+        >
+          <SafeAreaView style={styles.formSafeArea}>
           <View
             style={[
               styles.formHeader,
@@ -2487,7 +3074,14 @@ export function GoalFormModal({
                   },
                 ]}
               >
-                {checkpoints.map((checkpoint, index) => (
+                {checkpoints.map((checkpoint, index) => {
+                  const canLink = Boolean(
+                    goal?.checkpoints.some(
+                      (item) => item.id === checkpoint.localId,
+                    ),
+                  );
+
+                  return (
                   <View key={checkpoint.localId} style={styles.checkpointRow}>
                     <View style={styles.checkpointHeader}>
                       <Text
@@ -2573,9 +3167,63 @@ export function GoalFormModal({
                           updateCheckpoint(checkpoint.localId, { targetDate })
                         }
                       />
+                      <Pressable
+                        accessibilityLabel={
+                          canLink
+                            ? `Link tasks or habits to ${checkpoint.title || "this checkpoint"}`
+                            : "Save this checkpoint before linking tasks or habits"
+                        }
+                        accessibilityRole="button"
+                        disabled={!canLink}
+                        onPress={() =>
+                          canLink
+                            ? setLinkingCheckpointId(checkpoint.localId)
+                            : undefined
+                        }
+                        style={({ pressed }) => [
+                          {
+                            alignItems: "center",
+                            borderColor: theme.tabBorder,
+                            borderRadius: 12,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            flexDirection: "row",
+                            gap: 8,
+                            minHeight: 44,
+                            paddingHorizontal: 12,
+                          },
+                          !canLink && { opacity: 0.55 },
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <SymbolView
+                          name={symbol("link", "link")}
+                          size={17}
+                          tintColor={theme.primary}
+                        />
+                        <Text
+                          style={{
+                            color: theme.text,
+                            flex: 1,
+                            fontSize: 14,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {canLink
+                            ? "Link tasks or habits"
+                            : "Save to link tasks or habits"}
+                        </Text>
+                        {canLink ? (
+                          <SymbolView
+                            name={symbol("chevron.right", "chevron_right")}
+                            size={15}
+                            tintColor={theme.textSecondary}
+                          />
+                        ) : null}
+                      </Pressable>
                     </View>
                   </View>
-                ))}
+                  );
+                })}
                 <Pressable
                   accessibilityRole="button"
                   onPress={() =>
@@ -2605,9 +3253,19 @@ export function GoalFormModal({
 
             {error ? <Text style={styles.formError}>{error}</Text> : null}
           </ScrollView>
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </Modal>
+          </SafeAreaView>
+          <LinkCheckpointModal
+            embedded
+            checkpoint={linkingCheckpoint}
+            habits={habits}
+            linkUpdatingKey={linkUpdatingKey}
+            tasks={tasks}
+            onClose={() => setLinkingCheckpointId(null)}
+            onToggleLink={handleToggleLink}
+          />
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   );
 }
 

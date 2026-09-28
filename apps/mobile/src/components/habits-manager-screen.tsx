@@ -90,9 +90,7 @@ const WEEKDAY_NAMES = [
 const ORDINALS = ["1st", "2nd", "3rd", "4th", "last"];
 
 function getWeekOfMonth(d: Date) {
-  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  if (d.getDate() + 7 > daysInMonth) return 4;
-  return Math.ceil(d.getDate() / 7) - 1;
+  return Math.floor((d.getDate() - 1) / 7);
 }
 
 function monthlyWeekdayCell(week: number, day: number) {
@@ -104,11 +102,7 @@ function normalizeMonthlyWeekdayCells(
   fallbackDate: Date,
 ) {
   const valid = (days ?? []).filter((day) => day >= 0 && day <= 34);
-  if (valid.length === 0) {
-    return [
-      monthlyWeekdayCell(getWeekOfMonth(fallbackDate), fallbackDate.getDay()),
-    ];
-  }
+  if (valid.length === 0) return [];
   if (valid.every((day) => day <= 6)) {
     const week = getWeekOfMonth(fallbackDate);
     return valid.map((day) => monthlyWeekdayCell(week, day));
@@ -136,7 +130,7 @@ const EMPTY_HABIT: HabitInput = {
   period: "daily",
   repeatCadence: "daily",
   repeatInterval: 1,
-  repeatDays: [new Date().getDay()],
+  repeatDays: null,
   repeatMonthlyType: "day_of_month",
   categoryId: "",
   goalId: null,
@@ -161,11 +155,7 @@ function symbol(ios: string, android: string): SymbolName {
 function frequencyLabel(habit: Habit) {
   const target = Math.max(habit.frequencyGoal ?? 1, 1);
   const cadence = habit.repeatCadence ?? habit.period;
-  const interval = habit.repeatInterval ?? 1;
-  const unit =
-    cadence === "daily" ? "day" : cadence === "weekly" ? "week" : "month";
-  const base =
-    interval === 1 ? capitalize(cadence) : `Every ${interval} ${unit}s`;
+  const base = capitalize(cadence);
   if (habit.period === "daily" && (habit.frequencyGoal ?? 1) > 1) {
     return `${base} · ${habit.frequencyGoal}/day`;
   }
@@ -206,7 +196,6 @@ function normalizeReminderTimes(
 }
 
 function toInput(habit: Habit): HabitInput {
-  const today = new Date();
   const cadence = habit.repeatCadence ?? habit.period;
   return {
     name: habit.name,
@@ -214,9 +203,8 @@ function toInput(habit: Habit): HabitInput {
     frequencyGoal: habit.frequencyGoal,
     period: habit.period,
     repeatCadence: cadence,
-    repeatInterval: habit.repeatInterval ?? 1,
-    repeatDays:
-      habit.repeatDays ?? (cadence === "monthly" ? [today.getDate()] : null),
+    repeatInterval: 1,
+    repeatDays: habit.repeatDays ?? null,
     repeatMonthlyType:
       (habit.repeatMonthlyType as HabitRepeatMonthlyType | null) ??
       "day_of_month",
@@ -1234,7 +1222,6 @@ export function HabitFormModal({
       setError("Choose a category before saving.");
       return;
     }
-    const today = new Date();
     const weeklyRepeatDays =
       form.repeatDays?.filter((day) => day >= 0 && day <= 6) ?? [];
     const monthlyRepeatDates =
@@ -1273,17 +1260,17 @@ export function HabitFormModal({
         repeatInterval: 1,
         repeatDays:
           repeatCadence === "weekly"
-            ? weeklyRepeatDays.length
-              ? weeklyRepeatDays
-              : null
+              ? weeklyRepeatDays.length
+                ? weeklyRepeatDays
+                : null
             : repeatCadence === "monthly"
               ? form.repeatMonthlyType === "day_of_week"
                 ? monthlyRepeatWeekdays.length
                   ? monthlyRepeatWeekdays
-                  : [monthlyWeekdayCell(getWeekOfMonth(today), today.getDay())]
+                  : null
                 : monthlyRepeatDates.length
                   ? monthlyRepeatDates
-                  : [today.getDate()]
+                  : null
               : null,
         repeatMonthlyType:
           repeatCadence === "monthly" ? form.repeatMonthlyType : null,
@@ -1540,11 +1527,7 @@ export function HabitFormModal({
                                   ? "weekly"
                                   : "monthly",
                             repeatDays:
-                              period === "weekly"
-                                ? [today.getDay()]
-                                : period === "monthly"
-                                  ? [today.getDate()]
-                                  : null,
+                              null,
                             repeatMonthlyType:
                               period === "monthly"
                                 ? "day_of_month"
@@ -1641,7 +1624,7 @@ export function HabitFormModal({
                                 repeatDays:
                                   f.repeatMonthlyType === "day_of_month"
                                     ? f.repeatDays
-                                    : [today.getDate()],
+                                    : null,
                               }))
                             }
                           />
@@ -1655,12 +1638,7 @@ export function HabitFormModal({
                                 repeatDays:
                                   f.repeatMonthlyType === "day_of_week"
                                     ? f.repeatDays
-                                    : [
-                                        monthlyWeekdayCell(
-                                          getWeekOfMonth(today),
-                                          today.getDay(),
-                                        ),
-                                      ],
+                                    : null,
                               }))
                             }
                           />
@@ -1670,7 +1648,7 @@ export function HabitFormModal({
                             {MONTH_DATES.map((date) => {
                               const selected = monthDates.length
                                 ? monthDates.includes(date)
-                                : date === today.getDate();
+                                : false;
                               return (
                                 <Pressable
                                   accessibilityRole="button"
@@ -1684,17 +1662,16 @@ export function HabitFormModal({
                                           (day) => day >= 1 && day <= 31,
                                         ).length
                                           ? current.repeatDays
-                                          : [today.getDate()]
+                                          : []
                                       ) as number[];
                                       const nextDates = selected
                                         ? dates.filter((day) => day !== date)
                                         : [...dates, date];
                                       return {
                                         ...current,
-                                        repeatDays: (nextDates.length
-                                          ? nextDates
-                                          : [today.getDate()]
-                                        ).sort((a, b) => a - b),
+                                        repeatDays: nextDates.length
+                                          ? nextDates.sort((a, b) => a - b)
+                                          : null,
                                       };
                                     });
                                   }}
@@ -1743,7 +1720,7 @@ export function HabitFormModal({
                                         accessibilityLabel={`${ORDINALS[week]} ${WEEKDAY_NAMES[day]}`}
                                         accessibilityRole="button"
                                         accessibilityState={{ selected }}
-                                        key={`${ORDINALS[week]}-${letter}`}
+                                        key={`monthly-weekday-${cell}`}
                                         onPress={() => {
                                           playSelectionHaptic();
                                           setForm((current) => {
@@ -1759,15 +1736,11 @@ export function HabitFormModal({
                                               : [...cells, cell];
                                             return {
                                               ...current,
-                                              repeatDays: (nextCells.length
-                                                ? nextCells
-                                                : [
-                                                    monthlyWeekdayCell(
-                                                      getWeekOfMonth(today),
-                                                      today.getDay(),
-                                                    ),
-                                                  ]
-                                              ).sort((a, b) => a - b),
+                                              repeatDays: nextCells.length
+                                                ? nextCells.sort(
+                                                    (a, b) => a - b,
+                                                  )
+                                                : null,
                                             };
                                           });
                                         }}

@@ -1730,7 +1730,20 @@ export function DayPlanScreen({
         if (response.status !== "synced") {
           throw new Error(getGoogleCalendarStatusMessage(response.status));
         }
-        if (response.event) patchGoogleEvent(eventId, response.event);
+        if (response.event) {
+          patchGoogleEvent(eventId, {
+            ...response.event,
+            backgroundColor:
+              response.event.backgroundColor ?? entry.calendarBackgroundColor,
+            calendarId: response.event.calendarId ?? entry.calendarId,
+            calendarName: response.event.calendarName ?? entry.calendarName,
+            colorId: response.event.colorId ?? entry.calendarColorId,
+            eventLabelId:
+              response.event.eventLabelId ?? entry.calendarEventLabelId,
+            foregroundColor:
+              response.event.foregroundColor ?? entry.calendarForegroundColor,
+          });
+        }
         scheduleEntryNotification(
           {
             ...entry,
@@ -3026,7 +3039,11 @@ export function DayPlanScreen({
                       </Text>
                       <View style={styles.allDayChips}>
                         {calendarAllDayEntries.map((entry) => (
-                          <EntryChip entry={entry} key={entry.id} />
+                          <EntryChip
+                            entry={entry}
+                            key={entry.id}
+                            onPress={() => openInternalEntry(entry)}
+                          />
                         ))}
                       </View>
                     </View>
@@ -6618,13 +6635,7 @@ function weeksBetween(referenceDate: Date, date: Date) {
 }
 
 function weekOfMonth(date: Date) {
-  const daysInMonth = new Date(
-    date.getFullYear(),
-    date.getMonth() + 1,
-    0,
-  ).getDate();
-  if (date.getDate() + 7 > daysInMonth) return 4;
-  return Math.ceil(date.getDate() / 7) - 1;
+  return Math.floor((date.getDate() - 1) / 7);
 }
 
 function monthlyWeekdayCell(date: Date) {
@@ -6634,11 +6645,9 @@ function monthlyWeekdayCell(date: Date) {
 function isPeriodicHabitScheduledForDate(
   habit: Pick<
     PeriodicHabitInfo,
-    | "createdAt"
     | "period"
     | "repeatCadence"
     | "repeatDays"
-    | "repeatInterval"
     | "repeatMonthlyType"
   >,
   date: Date,
@@ -6646,42 +6655,26 @@ function isPeriodicHabitScheduledForDate(
   if (habit.period === "daily") return true;
 
   const cadence = habit.repeatCadence ?? habit.period;
-  const interval = habit.repeatInterval ?? 1;
   const dayOfWeek = date.getDay();
 
   if (cadence === "weekly") {
     const days = habit.repeatDays;
     if (!days?.length) return false;
     if (!days.includes(dayOfWeek)) return false;
-    if (interval === 1) return true;
-    return weeksBetween(new Date(habit.createdAt), date) % interval === 0;
+    return true;
   }
 
   if (cadence === "monthly") {
-    const referenceDate = new Date(habit.createdAt);
-    const monthDiff =
-      (date.getFullYear() - referenceDate.getFullYear()) * 12 +
-      (date.getMonth() - referenceDate.getMonth());
-    if (monthDiff % interval !== 0) return false;
-
     const type = habit.repeatMonthlyType ?? "day_of_month";
     if (type === "day_of_month") {
       const days = habit.repeatDays?.filter((day) => day >= 1 && day <= 31);
       return days?.length
         ? days.includes(date.getDate())
-        : date.getDate() === referenceDate.getDate();
+        : false;
     }
 
     const cells = habit.repeatDays?.filter((day) => day >= 0 && day <= 34);
-    if (!cells?.length) {
-      return monthlyWeekdayCell(date) === monthlyWeekdayCell(referenceDate);
-    }
-    if (cells.every((day) => day <= 6)) {
-      return (
-        cells.includes(dayOfWeek) &&
-        weekOfMonth(date) === weekOfMonth(referenceDate)
-      );
-    }
+    if (!cells?.length) return false;
     return cells.includes(monthlyWeekdayCell(date));
   }
 

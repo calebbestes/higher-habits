@@ -32,9 +32,7 @@ import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import type { PlannedRepeat } from "@/lib/habit-logs-client";
 import {
-  DEFAULT_PLAN_END_TIME,
   DEFAULT_PLAN_PERIOD,
-  DEFAULT_PLAN_START_TIME,
   PLAN_PERIODS,
   type PlanPeriod,
   getPlanTimeInput,
@@ -100,6 +98,17 @@ function repeatUnitLabel(cadence: PlannedRepeat["cadence"], interval: number) {
   if (cadence === "daily") return interval === 1 ? "day" : "days";
   if (cadence === "weekly") return interval === 1 ? "week" : "weeks";
   return interval === 1 ? "month" : "months";
+}
+
+function addStoredPlanHour(value: string | null): string | null {
+  const normalized = normalizeStoredPlanTime(value);
+  if (!normalized) return null;
+
+  const [hours = "0", minutes = "00"] = normalized.split(":");
+  const nextMinutes = (Number(hours) * 60 + Number(minutes) + 60) % (24 * 60);
+  return `${String(Math.floor(nextMinutes / 60)).padStart(2, "0")}:${String(
+    nextMinutes % 60,
+  ).padStart(2, "0")}`;
 }
 
 function ReliablePressable({
@@ -269,6 +278,13 @@ function GoalActionsModalImpl({
   const hasExistingPlanTime = Boolean(
     plannedTime?.startTime || plannedTime?.endTime,
   );
+  const reminderPlanStartTime =
+    goal?.reminderEnabled === true
+      ? normalizeStoredPlanTime(
+          goal.reminderTimes?.[0] ?? goal.reminderTime,
+        )
+      : null;
+  const reminderPlanEndTime = addStoredPlanHour(reminderPlanStartTime);
   const showPlanAction =
     (canPlan || isPlanned || hasExistingPlanTime) && !isComplete;
   const isUploadingPhoto = uploadingPhotoSource !== null;
@@ -325,10 +341,24 @@ function GoalActionsModalImpl({
     if (!visible) return;
     const start = getPlanTimeInput(plannedTime?.startTime);
     const end = getPlanTimeInput(plannedTime?.endTime);
-    setPlanStartTime(start.time || DEFAULT_PLAN_START_TIME);
-    setPlanStartPeriod(start.time ? start.period : DEFAULT_PLAN_PERIOD);
-    setPlanEndTime(end.time || DEFAULT_PLAN_END_TIME);
-    setPlanEndPeriod(end.time ? end.period : DEFAULT_PLAN_PERIOD);
+    const reminderStart = getPlanTimeInput(reminderPlanStartTime);
+    const reminderEnd = getPlanTimeInput(reminderPlanEndTime);
+    setPlanStartTime(start.time || reminderStart.time);
+    setPlanStartPeriod(
+      start.time
+        ? start.period
+        : reminderStart.time
+          ? reminderStart.period
+          : DEFAULT_PLAN_PERIOD,
+    );
+    setPlanEndTime(end.time || reminderEnd.time);
+    setPlanEndPeriod(
+      end.time
+        ? end.period
+        : reminderEnd.time
+          ? reminderEnd.period
+          : DEFAULT_PLAN_PERIOD,
+    );
     const nextRepeat =
       plannedTime?.repeat ??
       (plannedTime?.repeatsDaily ? DEFAULT_PLANNED_REPEAT : null);
@@ -342,6 +372,8 @@ function GoalActionsModalImpl({
     plannedTime?.repeat,
     plannedTime?.repeatsDaily,
     plannedTime?.startTime,
+    reminderPlanEndTime,
+    reminderPlanStartTime,
     visible,
   ]);
 

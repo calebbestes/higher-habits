@@ -60,6 +60,8 @@ import {
 } from "@/lib/google-calendar-client";
 import {
   type HabitLogsSnapshot,
+  type PeriodicHabitInfo,
+  type PlannedRepeat,
   fetchHabitLogsSnapshot,
   getMonthKey,
   toDateKey,
@@ -73,6 +75,7 @@ import type {
   PlannedEvent,
   PlannedEventSourceType,
 } from "@/lib/planned-events-client";
+import { upsertPlannedEvent } from "@/lib/planned-events-client";
 import type { Task } from "@/lib/tasks-client";
 import {
   type WeeklyPlanNoteHeader,
@@ -96,6 +99,7 @@ export type WeekEvent = Pick<
   calendarName?: string;
   plannedEventId?: string;
   sourceId?: string;
+  sourceParentId?: string | null;
   sourceType: WeekEventSourceType;
 };
 
@@ -110,8 +114,10 @@ const GRID_END_MINUTES = (HOURS[HOURS.length - 1] + 1) * 60;
 const MAX_INITIAL_TIMELINE_START_HOUR = 9;
 const WEEKLY_CREATE_SNAP_MINUTES = 15;
 const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
-const WEEKLY_CREATE_LONG_PRESS_MS = 500;
-const WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE = 8;
+const WEEKLY_MIN_EVENT_DURATION_MINUTES = 15;
+const WEEKLY_EVENT_VERTICAL_INSET = 12;
+const WEEKLY_CREATE_LONG_PRESS_MS = 350;
+const WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE = 14;
 const WEEK_SWIPE_DISTANCE = 64;
 const WEEK_SWIPE_VELOCITY = 720;
 const EDITOR_ACTIONS = [
@@ -133,6 +139,17 @@ type LaidOutWeekEvent = {
   event: WeekEvent;
   laneCount: number;
   laneIndex: number;
+};
+
+type WeeklyEventDrag = {
+  anchorPageY: number;
+  anchorStartMinutes: number;
+  durationMinutes: number;
+  endMinutes: number;
+  event: WeekEvent;
+  laneCount: number;
+  laneIndex: number;
+  startMinutes: number;
 };
 
 type WeeklyPlanCacheEntry = {
@@ -336,6 +353,7 @@ function plannedEventToWeekEvent(
     id: event.id,
     plannedEventId: event.id,
     sourceId: event.sourceId,
+    sourceParentId: event.sourceParentId,
     sourceType: event.sourceType,
     startTime: event.startTime,
     title: event.title,
@@ -355,9 +373,117 @@ function getEventMinutes(event: WeekEvent) {
   const start = timeToMinutes(event.startTime) ?? GRID_START_MINUTES;
   const end = timeToMinutes(event.endTime) ?? start + 45;
   return {
-    end: Math.min(Math.max(end, start + 30), GRID_END_MINUTES),
+    end: Math.min(
+      Math.max(end, start + WEEKLY_MIN_EVENT_DURATION_MINUTES),
+      GRID_END_MINUTES,
+    ),
     start: Math.max(start, GRID_START_MINUTES),
   };
+}
+
+function minutesToTime(minutes: number) {
+  const clamped = Math.max(GRID_START_MINUTES, Math.min(minutes, GRID_END_MINUTES));
+  const hours = Math.floor(clamped / 60);
+  const remainder = clamped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function snapWeeklyEventMinutes(minutes: number) {
+  return Math.round(minutes / WEEKLY_CREATE_SNAP_MINUTES) *
+    WEEKLY_CREATE_SNAP_MINUTES;
+}
+
+function isPlannedRepeatDate(
+  dateKey: string,
+  originDateKey: string,
+  repeat: PlannedRepeat,
+) {
+  const date = dateFromKey(dateKey);
+  const originDate = dateFromKey(originDateKey);
+  if (date < startOfDay(originDate)) return false;
+
+  const interval = Math.max(repeat.interval, 1);
+  if (repeat.cadence === "daily") {
+    const days = Math.round(
+      (startOfDay(date).getTime() - startOfDay(originDate).getTime()) /
+        (24 * 60 * 60 * 1000),
+    );
+    return days % interval === 0;
+  }
+
+  if (repeat.cadence === "weekly") {
+    const selectedDays = repeat.days?.length
+      ? repeat.days
+      : [originDate.getDay()];
+    return (
+      weeksBetween(originDate, date) % interval === 0 &&
+      selectedDays.includes(date.getDay())
+    );
+  }
+
+  const monthDifference =
+    (date.getFullYear() - originDate.getFullYear()) * 12 +
+    date.getMonth() -
+    originDate.getMonth();
+  if (monthDifference < 0 || monthDifference % interval !== 0) return false;
+
+  if (repeat.monthlyType === "day_of_week") {
+    return (
+      date.getDay() === originDate.getDay() &&
+      weekOfMonth(date) === weekOfMonth(originDate)
+    );
+  }
+
+  return date.getDate() === originDate.getDate();
+}
+
+function isPeriodicHabitScheduledForDate(
+  habit: Pick<
+    PeriodicHabitInfo,
+    | "period"
+    | "repeatCadence"
+    | "repeatDays"
+    | "repeatMonthlyType"
+  >,
+  dateKey: string,
+) {
+  const date = dateFromKey(dateKey);
+  if (habit.period === "daily") return true;
+
+  const cadence = habit.repeatCadence ?? habit.period;
+  const dayOfWeek = date.getDay();
+
+  if (cadence === "weekly") {
+    const days = habit.repeatDays;
+    if (!days?.length || !days.includes(dayOfWeek)) return false;
+    return true;
+  }
+
+  if ((habit.repeatMonthlyType ?? "day_of_month") === "day_of_month") {
+    const days = habit.repeatDays?.filter((day) => day >= 1 && day <= 31);
+    return days?.length
+      ? days.includes(date.getDate())
+      : false;
+  }
+
+  const cells = habit.repeatDays?.filter((day) => day >= 0 && day <= 34);
+  if (!cells?.length) return false;
+  return cells.includes(monthlyWeekdayCell(date));
+}
+
+function weeksBetween(referenceDate: Date, date: Date) {
+  return Math.round(
+    (startOfWeek(date).getTime() - startOfWeek(referenceDate).getTime()) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+function weekOfMonth(date: Date) {
+  return Math.floor((date.getDate() - 1) / 7);
+}
+
+function monthlyWeekdayCell(date: Date) {
+  return weekOfMonth(date) * 7 + date.getDay();
 }
 
 function snapWeeklyCreateMinutes(locationY: number) {
@@ -461,14 +587,51 @@ function snapshotHabitEventsForWeek({
       const habitId = key.slice(0, -dateKey.length - 1);
       const habit = habitsById.get(habitId);
       if (!habit) continue;
+      const status = snapshot.logsByHabitDate[`${habitId}_${dateKey}`];
+      const hasTimeRange = Boolean(
+        plannedTime.startTime && plannedTime.endTime,
+      );
+      if (status !== "planned" && !(status === "complete" && hasTimeRange)) {
+        continue;
+      }
       seen.add(`${habitId}_${dateKey}`);
       events.push({
         date: dateKey,
         endTime: plannedTime.endTime,
         id: `habit-snapshot-${habitId}-${dateKey}`,
         sourceId: habitId,
+        sourceParentId: habitId,
         sourceType: "habit_instance",
         startTime: plannedTime.startTime,
+        title: habit.name,
+        calendarColor: habit.color,
+      });
+    }
+
+    for (const habit of snapshot.periodicHabits) {
+      const key = `${habit.id}_${dateKey}`;
+      const status = snapshot.logsByHabitDate[key];
+      if (
+        !habit.planOnCalendar ||
+        !isPeriodicHabitScheduledForDate(habit, dateKey)
+      ) {
+        continue;
+      }
+      if (status === "planned") continue;
+      if (status === "complete" && snapshot.plannedTimesByHabitDate[key]) {
+        continue;
+      }
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      events.push({
+        date: dateKey,
+        endTime: null,
+        id: `habit-periodic-${habit.id}-${dateKey}`,
+        sourceId: habit.id,
+        sourceParentId: habit.id,
+        sourceType: "habit_instance",
+        startTime: null,
         title: habit.name,
         calendarColor: habit.color,
       });
@@ -477,11 +640,15 @@ function snapshotHabitEventsForWeek({
     for (const [habitId, plan] of Object.entries(
       snapshot.repeatingPlansByHabit,
     )) {
-      if (dateKey < plan.originDate) continue;
+      if (!isPlannedRepeatDate(dateKey, plan.originDate, plan.repeat)) {
+        continue;
+      }
       if (snapshot.explicitPlanDatesByHabit?.[habitId]?.includes(dateKey)) {
         continue;
       }
       if (seen.has(`${habitId}_${dateKey}`)) continue;
+      const status = snapshot.logsByHabitDate[`${habitId}_${dateKey}`];
+      if (status === "planned" || status === "complete") continue;
       const habit = habitsById.get(habitId);
       if (!habit) continue;
       events.push({
@@ -489,6 +656,7 @@ function snapshotHabitEventsForWeek({
         endTime: plan.endTime,
         id: `habit-repeat-${habitId}-${dateKey}`,
         sourceId: habitId,
+        sourceParentId: habitId,
         sourceType: "habit_instance",
         startTime: plan.startTime,
         title: habit.name,
@@ -629,6 +797,11 @@ export function WeeklyPlanScreen({
   const [weeklyCreatePreview, setWeeklyCreatePreview] =
     useState<WeeklyCreateRange | null>(null);
   const [isWeeklyCreateGestureActive, setIsWeeklyCreateGestureActive] =
+    useState(false);
+  const weeklyEventDragRef = useRef<WeeklyEventDrag | null>(null);
+  const [weeklyEventDrag, setWeeklyEventDrag] =
+    useState<WeeklyEventDrag | null>(null);
+  const [isWeeklyEventDragActive, setIsWeeklyEventDragActive] =
     useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
@@ -937,14 +1110,18 @@ export function WeeklyPlanScreen({
           snapshotResultsResult.status === "fulfilled"
             ? snapshotResultsResult.value
             : [];
-        const habitWeekEvents = fulfilledSnapshots.flatMap((result) =>
-          result.status === "fulfilled"
-            ? snapshotHabitEventsForWeek({
-                snapshot: result.value,
-                weekDateKeys,
-              })
-            : [],
-        );
+        const habitWeekEvents = fulfilledSnapshots.flatMap((result, index) => {
+          if (result.status !== "fulfilled") return [];
+
+          const snapshotMonthKey = monthKeys[index];
+          const snapshotDateKeys = weekDateKeys.filter(
+            (dateKey) => getMonthKey(dateFromKey(dateKey)) === snapshotMonthKey,
+          );
+          return snapshotHabitEventsForWeek({
+            snapshot: result.value,
+            weekDateKeys: snapshotDateKeys,
+          });
+        });
         const habitColorById = new Map<string, string | null>();
         for (const result of fulfilledSnapshots) {
           if (result.status !== "fulfilled") continue;
@@ -1033,6 +1210,111 @@ export function WeeklyPlanScreen({
     void load();
   }, [calendarSelectionLoaded, load]);
 
+  const beginWeeklyEventMove = useCallback(
+    (
+      event: WeekEvent,
+      laneCount: number,
+      laneIndex: number,
+      touch: { pageY: number },
+    ) => {
+      if (event.sourceType === "google" || !event.sourceId) return;
+
+      const { end, start } = getEventMinutes(event);
+      const durationMinutes = Math.max(
+        end - start,
+        WEEKLY_MIN_EVENT_DURATION_MINUTES,
+      );
+      const drag: WeeklyEventDrag = {
+        anchorPageY: touch.pageY,
+        anchorStartMinutes: start,
+        durationMinutes,
+        endMinutes: start + durationMinutes,
+        event,
+        laneCount,
+        laneIndex,
+        startMinutes: start,
+      };
+      weeklyEventDragRef.current = drag;
+      setWeeklyEventDrag(drag);
+      setIsWeeklyEventDragActive(true);
+    },
+    [],
+  );
+
+  const moveWeeklyEvent = useCallback((event: GestureResponderEvent) => {
+    const drag = weeklyEventDragRef.current;
+    if (!drag) return;
+
+    const deltaMinutes =
+      ((event.nativeEvent.pageY - drag.anchorPageY) / HOUR_HEIGHT) * 60;
+    const maxStart = GRID_END_MINUTES - drag.durationMinutes;
+    const startMinutes = Math.max(
+      GRID_START_MINUTES,
+      Math.min(
+        maxStart,
+        snapWeeklyEventMinutes(drag.anchorStartMinutes + deltaMinutes),
+      ),
+    );
+    const nextDrag = {
+      ...drag,
+      endMinutes: startMinutes + drag.durationMinutes,
+      startMinutes,
+    };
+    weeklyEventDragRef.current = nextDrag;
+    setWeeklyEventDrag(nextDrag);
+  }, []);
+
+  const cancelWeeklyEventMove = useCallback(() => {
+    weeklyEventDragRef.current = null;
+    setWeeklyEventDrag(null);
+    setIsWeeklyEventDragActive(false);
+  }, []);
+
+  const finishWeeklyEventMove = useCallback(async () => {
+    const drag = weeklyEventDragRef.current;
+    if (!drag) return;
+
+    weeklyEventDragRef.current = null;
+    setWeeklyEventDrag(null);
+    setIsWeeklyEventDragActive(false);
+
+    const startTime = minutesToTime(drag.startMinutes);
+    const endTime = minutesToTime(drag.endMinutes);
+    try {
+      const response = await upsertPlannedEvent({
+        calendarColor: drag.event.calendarColor,
+        dateKey: drag.event.date,
+        endTime,
+        sourceId: drag.event.sourceId,
+        sourceParentId: drag.event.sourceParentId ?? null,
+        sourceType: drag.event.sourceType as PlannedEventSourceType,
+        startTime,
+        timeZone,
+        title: drag.event.title,
+      });
+      setWeekEvents((current) =>
+        current.map((event) =>
+          event.id === drag.event.id
+            ? {
+                ...event,
+                endTime: response.event.endTime,
+                id: response.event.id,
+                plannedEventId: response.event.id,
+                sourceParentId: response.event.sourceParentId,
+                startTime: response.event.startTime,
+              }
+            : event,
+        ),
+      );
+    } catch (moveError) {
+      Alert.alert(
+        "Could not move event",
+        moveError instanceof Error ? moveError.message : "Please try again.",
+      );
+      void load(true);
+    }
+  }, [load, timeZone]);
+
   const selectDate = useCallback(
     (date: Date) => {
       const dateKey = toDateKey(date);
@@ -1082,6 +1364,7 @@ export function WeeklyPlanScreen({
   }));
 
   const weekSwipeGesture = Gesture.Pan()
+    .enabled(!isWeeklyCreateGestureActive && !isWeeklyEventDragActive)
     .activeOffsetX([-24, 24])
     .failOffsetY([-20, 20])
     .onUpdate((event) => {
@@ -1461,7 +1744,9 @@ export function WeeklyPlanScreen({
             />
           }
           onScrollBeginDrag={cancelPendingWeeklyCreate}
-          scrollEnabled={!isWeeklyCreateGestureActive}
+          scrollEnabled={
+            !isWeeklyCreateGestureActive && !isWeeklyEventDragActive
+          }
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.pageHeader}>
@@ -1708,6 +1993,10 @@ export function WeeklyPlanScreen({
                       <ScrollView
                         contentOffset={{ x: 0, y: initialTimelineScrollY }}
                         nestedScrollEnabled
+                        scrollEnabled={
+                          !isWeeklyCreateGestureActive &&
+                          !isWeeklyEventDragActive
+                        }
                         showsVerticalScrollIndicator={false}
                         style={[
                           styles.timelineScroll,
@@ -1758,6 +2047,10 @@ export function WeeklyPlanScreen({
                                   ?.filter((event) => event.startTime) ?? [];
                               const laidOutEvents =
                                 layoutWeekDayEvents(timedEvents);
+                              const visibleLaidOutEvents = laidOutEvents.filter(
+                                ({ event }) =>
+                                  event.id !== weeklyEventDrag?.event.id,
+                              );
                               return (
                                 <View
                                   key={dateKey}
@@ -1776,14 +2069,11 @@ export function WeeklyPlanScreen({
                                   ]}
                                 >
                                   <View
-                                    onMoveShouldSetResponderCapture={() =>
+                                    onMoveShouldSetResponder={() =>
                                       Boolean(
                                         onCreateRange &&
                                           weeklyCreateLongPressReadyRef.current,
                                       )
-                                    }
-                                    onStartShouldSetResponderCapture={() =>
-                                      false
                                     }
                                     onTouchCancel={cancelWeeklyCreate}
                                     onTouchEnd={handleWeeklyCreateTouchEnd}
@@ -1799,20 +2089,58 @@ export function WeeklyPlanScreen({
                                     }
                                     onResponderMove={handleWeeklyCreateMove}
                                     onResponderRelease={finishWeeklyCreate}
+                                    onResponderTerminationRequest={() =>
+                                      !weeklyCreateGestureRef.current
+                                    }
                                     onResponderTerminate={cancelWeeklyCreate}
                                     style={styles.weeklyCreateSurface}
                                   />
-                                  {laidOutEvents.map(
+                                  {visibleLaidOutEvents.map(
                                     ({ event, laneCount, laneIndex }) => (
                                       <EventBlock
                                         key={event.id}
                                         event={event}
                                         laneCount={laneCount}
                                         laneIndex={laneIndex}
+                                        onBeginMove={
+                                          event.sourceType === "google"
+                                            ? undefined
+                                            : (touch) =>
+                                                beginWeeklyEventMove(
+                                                  event,
+                                                  laneCount,
+                                                  laneIndex,
+                                                  touch,
+                                                )
+                                        }
+                                        onMove={
+                                          event.sourceType === "google"
+                                            ? undefined
+                                            : moveWeeklyEvent
+                                        }
                                         onPress={() => onSelectEvent?.(event)}
+                                        onCancel={cancelWeeklyEventMove}
+                                        onRelease={finishWeeklyEventMove}
                                       />
                                     ),
                                   )}
+                                  {weeklyEventDrag?.event.date === dateKey ? (
+                                    <EventBlock
+                                      event={{
+                                        ...weeklyEventDrag.event,
+                                        endTime: minutesToTime(
+                                          weeklyEventDrag.endMinutes,
+                                        ),
+                                        startTime: minutesToTime(
+                                          weeklyEventDrag.startMinutes,
+                                        ),
+                                      }}
+                                      isDragPreview
+                                      laneCount={weeklyEventDrag.laneCount}
+                                      laneIndex={weeklyEventDrag.laneIndex}
+                                      onPress={() => undefined}
+                                    />
+                                  ) : null}
                                   {weeklyCreatePreview?.dateKey === dateKey ? (
                                     <View
                                       pointerEvents="none"
@@ -2474,40 +2802,172 @@ function EventBlock({
   event,
   laneCount,
   laneIndex,
+  isDragPreview = false,
+  onBeginMove,
+  onCancel,
+  onMove,
   onPress,
+  onRelease,
 }: {
   event: WeekEvent;
+  isDragPreview?: boolean;
   laneCount: number;
   laneIndex: number;
+  onBeginMove?: (touch: { pageY: number }) => void;
+  onCancel?: () => void;
+  onMove?: (event: GestureResponderEvent) => void;
   onPress: () => void;
+  onRelease?: () => void;
 }) {
   const theme = useTheme();
+  const dragStartRef = useRef<{
+    didMove: boolean;
+    didStartDrag: boolean;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const palette = eventPalette(event, theme);
   const { end, start } = getEventMinutes(event);
-  const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + 3;
-  const height = ((end - start) / 60) * HOUR_HEIGHT - 3;
+  const naturalHeight = ((end - start) / 60) * HOUR_HEIGHT;
+  const verticalInset = Math.min(
+    WEEKLY_EVENT_VERTICAL_INSET,
+    naturalHeight / 3,
+  );
+  const top =
+    ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + verticalInset;
+  const height = naturalHeight - verticalInset;
   const laneWidth = 100 / laneCount;
+
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+
+  useEffect(
+    () => () => clearLongPressTimer(),
+    [],
+  );
+
+  const startMove = () => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart || dragStart.didStartDrag) return;
+    dragStart.didStartDrag = true;
+    clearLongPressTimer();
+    onBeginMove?.({ pageY: dragStart.pageY });
+  };
+
+  const handleTouchStart = (event: GestureResponderEvent) => {
+    const { pageX, pageY } = event.nativeEvent;
+    dragStartRef.current = {
+      didMove: false,
+      didStartDrag: false,
+      pageX,
+      pageY,
+    };
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(
+      startMove,
+      WEEKLY_CREATE_LONG_PRESS_MS,
+    );
+  };
+
+  const handleTouchMove = (event: GestureResponderEvent) => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart) return;
+    if (!dragStart.didStartDrag) {
+      const touch = event.nativeEvent.touches[0];
+      const pageX = touch?.pageX ?? event.nativeEvent.pageX;
+      const pageY = touch?.pageY ?? event.nativeEvent.pageY;
+      if (
+        Math.hypot(pageX - dragStart.pageX, pageY - dragStart.pageY) >
+        WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE
+      ) {
+        dragStart.didMove = true;
+        clearLongPressTimer();
+      }
+      return;
+    }
+    onMove?.(event);
+  };
+
+  const handleTouchEnd = () => {
+    const dragStart = dragStartRef.current;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (dragStart?.didStartDrag) {
+      onRelease?.();
+    } else if (!dragStart?.didMove) {
+      onPress();
+    }
+  };
+
+  const handleTouchCancel = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (didStartDrag) onCancel?.();
+  };
+
+  const blockStyle = [
+    styles.eventBlock,
+    {
+      backgroundColor: palette.bg,
+      height: Math.max(height, 1),
+      left: `${laneIndex * laneWidth}%` as `${number}%`,
+      top,
+      width: `${laneWidth}%` as `${number}%`,
+    },
+  ];
+  const content = (
+    <Text style={[styles.eventTitle, { color: palette.text }]}>
+      {event.title}
+    </Text>
+  );
+
+  if (isDragPreview) {
+    return (
+      <View pointerEvents="none" style={blockStyle}>
+        {content}
+      </View>
+    );
+  }
+
+  if (!onBeginMove) {
+    return (
+      <Pressable
+        accessibilityLabel={event.title}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [blockStyle, pressed && styles.pressed]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
   return (
-    <Pressable
+    <View
       accessibilityLabel={event.title}
       accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.eventBlock,
-        {
-          backgroundColor: palette.bg,
-          height: Math.max(height, 24),
-          left: `${laneIndex * laneWidth}%`,
-          top,
-          width: `${laneWidth}%`,
-        },
-        pressed && styles.pressed,
-      ]}
+      onMoveShouldSetResponder={() =>
+        Boolean(dragStartRef.current?.didStartDrag)
+      }
+      onResponderMove={handleTouchMove}
+      onResponderRelease={handleTouchEnd}
+      onResponderTerminate={handleTouchCancel}
+      onResponderTerminationRequest={() =>
+        !(dragStartRef.current?.didStartDrag ?? false)
+      }
+      onTouchCancel={handleTouchCancel}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+      onTouchStart={handleTouchStart}
+      style={blockStyle}
     >
-      <Text style={[styles.eventTitle, { color: palette.text }]}>
-        {event.title}
-      </Text>
-    </Pressable>
+      {content}
+    </View>
   );
 }
 

@@ -481,6 +481,33 @@ export const goalCheckpoints = pgTable(
   ],
 );
 
+export const goalCheckpointLinks = pgTable(
+  "goal_checkpoint_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    checkpointId: uuid("checkpoint_id")
+      .notNull()
+      .references(() => goalCheckpoints.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_checkpoint_links_checkpoint_id_idx").on(table.checkpointId),
+    index("goal_checkpoint_links_user_id_idx").on(table.userId),
+    unique("goal_checkpoint_links_source_uidx").on(
+      table.checkpointId,
+      table.sourceType,
+      table.sourceId,
+    ),
+  ],
+);
+
 export const plannedEvents = pgTable(
   "planned_events",
   {

@@ -1,9 +1,12 @@
 import {
   GOAL_VISIBILITIES,
   getDb,
+  goalCheckpointLinks,
   goalCheckpointPhotos,
   goalCheckpoints,
   goals,
+  habits,
+  tasks,
 } from "@habit/db";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -55,6 +58,18 @@ const updateCheckpointSchema = z.object({
   notes: z.string().max(20_000).nullable().optional(),
   visibility: z.enum(GOAL_VISIBILITIES).optional(),
 });
+const checkpointLinkSchema = z.object({
+  type: z.literal("linkCheckpoint"),
+  checkpointId: z.string().uuid(),
+  sourceType: z.enum(["task", "habit"]),
+  sourceId: z.string().uuid(),
+});
+const checkpointUnlinkSchema = z.object({
+  type: z.literal("unlinkCheckpoint"),
+  checkpointId: z.string().uuid(),
+  sourceType: z.enum(["task", "habit"]),
+  sourceId: z.string().uuid(),
+});
 const deleteSchema = z.object({
   type: z.literal("delete"),
   id: z.string().uuid(),
@@ -68,6 +83,8 @@ const bodySchema = z.discriminatedUnion("type", [
   createSchema,
   updateSchema,
   updateCheckpointSchema,
+  checkpointLinkSchema,
+  checkpointUnlinkSchema,
   deleteSchema,
   reorderSchema,
 ]);
@@ -112,8 +129,16 @@ type CheckpointRow = {
   createdAt: Date;
   updatedAt: Date;
 };
+type CheckpointLinkRow = {
+  checkpointId: string;
+  sourceType: string;
+  sourceId: string;
+};
 
-function serializeCheckpoint(row: CheckpointRow) {
+function serializeCheckpoint(
+  row: CheckpointRow,
+  links: CheckpointLinkRow[] = [],
+) {
   return {
     id: row.id,
     title: row.title,
@@ -125,6 +150,15 @@ function serializeCheckpoint(row: CheckpointRow) {
     visibility: row.visibility,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    links: links
+      .filter(
+        (link) =>
+          link.sourceType === "task" || link.sourceType === "habit",
+      )
+      .map((link) => ({
+        sourceId: link.sourceId,
+        sourceType: link.sourceType as "task" | "habit",
+      })),
   };
 }
 
@@ -141,6 +175,7 @@ function serializeGoal(
     | "updatedAt"
   >,
   checkpoints: CheckpointRow[],
+  linksByCheckpointId: Map<string, CheckpointLinkRow[]> = new Map(),
 ) {
   return {
     id: goal.id,
@@ -149,7 +184,12 @@ function serializeGoal(
     timing: goal.timing === "later" ? "later" : "current",
     planOnCalendar: goal.planOnCalendar,
     sortOrder: goal.sortOrder,
-    checkpoints: checkpoints.map(serializeCheckpoint),
+    checkpoints: checkpoints.map((checkpoint) =>
+      serializeCheckpoint(
+        checkpoint,
+        linksByCheckpointId.get(checkpoint.id) ?? [],
+      ),
+    ),
     createdAt: goal.createdAt.toISOString(),
     updatedAt: goal.updatedAt.toISOString(),
   };
@@ -177,7 +217,32 @@ async function getSerializedGoal(db: Database, userId: string, goalId: string) {
     )
     .orderBy(asc(goalCheckpoints.sortOrder), asc(goalCheckpoints.createdAt));
 
-  return serializeGoal(goal, checkpoints);
+  const links = checkpoints.length
+    ? await db
+        .select({
+          checkpointId: goalCheckpointLinks.checkpointId,
+          sourceType: goalCheckpointLinks.sourceType,
+          sourceId: goalCheckpointLinks.sourceId,
+        })
+        .from(goalCheckpointLinks)
+        .where(
+          and(
+            eq(goalCheckpointLinks.userId, userId),
+            inArray(
+              goalCheckpointLinks.checkpointId,
+              checkpoints.map((checkpoint) => checkpoint.id),
+            ),
+          ),
+        )
+    : [];
+  const linksByCheckpointId = new Map<string, CheckpointLinkRow[]>();
+  for (const link of links) {
+    const current = linksByCheckpointId.get(link.checkpointId) ?? [];
+    current.push(link);
+    linksByCheckpointId.set(link.checkpointId, current);
+  }
+
+  return serializeGoal(goal, checkpoints, linksByCheckpointId);
 }
 
 async function syncGoalCheckpoints(
@@ -274,6 +339,31 @@ export async function GET(request: Request) {
         ),
     ]);
 
+    const checkpointLinks = checkpointRows.length
+      ? await db
+          .select({
+            checkpointId: goalCheckpointLinks.checkpointId,
+            sourceType: goalCheckpointLinks.sourceType,
+            sourceId: goalCheckpointLinks.sourceId,
+          })
+          .from(goalCheckpointLinks)
+          .where(
+            and(
+              eq(goalCheckpointLinks.userId, user.id),
+              inArray(
+                goalCheckpointLinks.checkpointId,
+                checkpointRows.map((checkpoint) => checkpoint.id),
+              ),
+            ),
+          )
+      : [];
+    const linksByCheckpointId = new Map<string, CheckpointLinkRow[]>();
+    for (const link of checkpointLinks) {
+      const current = linksByCheckpointId.get(link.checkpointId) ?? [];
+      current.push(link);
+      linksByCheckpointId.set(link.checkpointId, current);
+    }
+
     const checkpointsByGoalId = checkpointRows.reduce<
       Record<string, typeof checkpointRows>
     >((groups, checkpoint) => {
@@ -284,7 +374,11 @@ export async function GET(request: Request) {
 
     return NextResponse.json(
       goalRows.map((goal) =>
-        serializeGoal(goal, checkpointsByGoalId[goal.id] ?? []),
+        serializeGoal(
+          goal,
+          checkpointsByGoalId[goal.id] ?? [],
+          linksByCheckpointId,
+        ),
       ),
     );
   } catch (error) {
@@ -456,6 +550,66 @@ export async function POST(request: Request) {
         }).catch((error) => {
           console.error("Plan goal completion notifications failed", error);
         });
+      }
+
+      return NextResponse.json(
+        await getSerializedGoal(db, user.id, checkpoint.goalId),
+      );
+    }
+
+    if (
+      data.type === "linkCheckpoint" ||
+      data.type === "unlinkCheckpoint"
+    ) {
+      const [checkpoint] = await db
+        .select({ id: goalCheckpoints.id, goalId: goalCheckpoints.goalId })
+        .from(goalCheckpoints)
+        .where(
+          and(
+            eq(goalCheckpoints.id, data.checkpointId),
+            eq(goalCheckpoints.userId, user.id),
+          ),
+        )
+        .limit(1);
+
+      if (!checkpoint) {
+        return NextResponse.json({ error: "Checkpoint not found" }, { status: 404 });
+      }
+
+      const sourceTable = data.sourceType === "task" ? tasks : habits;
+      const [source] = await db
+        .select({ id: sourceTable.id })
+        .from(sourceTable)
+        .where(
+          and(eq(sourceTable.id, data.sourceId), eq(sourceTable.userId, user.id)),
+        )
+        .limit(1);
+
+      if (!source) {
+        return NextResponse.json({ error: "Link target not found" }, { status: 404 });
+      }
+
+      if (data.type === "linkCheckpoint") {
+        await db
+          .insert(goalCheckpointLinks)
+          .values({
+            checkpointId: data.checkpointId,
+            sourceId: data.sourceId,
+            sourceType: data.sourceType,
+            userId: user.id,
+          })
+          .onConflictDoNothing();
+      } else {
+        await db
+          .delete(goalCheckpointLinks)
+          .where(
+            and(
+              eq(goalCheckpointLinks.checkpointId, data.checkpointId),
+              eq(goalCheckpointLinks.sourceType, data.sourceType),
+              eq(goalCheckpointLinks.sourceId, data.sourceId),
+              eq(goalCheckpointLinks.userId, user.id),
+            ),
+          );
       }
 
       return NextResponse.json(

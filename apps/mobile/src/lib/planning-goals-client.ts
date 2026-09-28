@@ -27,6 +27,12 @@ export type GoalCheckpoint = {
   visibility: GoalVisibility;
   createdAt: string;
   updatedAt: string;
+  links: GoalCheckpointLink[];
+};
+
+export type GoalCheckpointLink = {
+  sourceType: "task" | "habit";
+  sourceId: string;
 };
 
 export type GoalCheckpointInput = {
@@ -88,6 +94,36 @@ export const updatePlanGoalCheckpoint = (
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
     body: JSON.stringify({ type: "updateCheckpoint", id, ...update }),
+  }).then((response) => parseResponse<Goal>(response));
+
+export const linkGoalCheckpoint = (
+  checkpointId: string,
+  sourceType: "task" | "habit",
+  sourceId: string,
+) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "linkCheckpoint",
+      checkpointId,
+      sourceType,
+      sourceId,
+    }),
+  }).then((response) => parseResponse<Goal>(response));
+
+export const unlinkGoalCheckpoint = (
+  checkpointId: string,
+  sourceType: "task" | "habit",
+  sourceId: string,
+) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "unlinkCheckpoint",
+      checkpointId,
+      sourceType,
+      sourceId,
+    }),
   }).then((response) => parseResponse<Goal>(response));
 
 export const deletePlanGoal = (id: string) =>

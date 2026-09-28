@@ -971,13 +971,25 @@ export async function updateGoogleCalendarColor({
 async function fetchGoogleCalendarList(
   accessToken: string,
 ): Promise<GoogleCalendarListItemWithId[]> {
-  const response = await googleCalendarFetch(
+  let response = await googleCalendarFetch(
     // Include special/hidden calendar-list entries such as Birthdays and
     // Tasks so the app can offer the same sources Google Calendar exposes.
     "/users/me/calendarList?maxResults=250&showHidden=true",
     accessToken,
     { method: "GET" },
   );
+
+  // Some Google Calendar accounts reject the optional hidden-calendar query
+  // parameters with a generic 400/invalid response. Fall back to the normal
+  // calendar list so a single unsupported option cannot break calendar setup.
+  if (response.status === 400) {
+    response = await googleCalendarFetch(
+      "/users/me/calendarList",
+      accessToken,
+      { method: "GET" },
+    );
+  }
+
   await throwIfGoogleCalendarError(response);
   const body = (await response
     .json()
@@ -1371,6 +1383,15 @@ export async function updateGoogleCalendarPrimaryEvent({
       .json()
       .catch(() => null)) as GoogleCalendarApiEvent | null;
 
+    let calendar: GoogleCalendarListItemWithId | undefined;
+    try {
+      calendar = (await fetchGoogleCalendarList(token.accessToken)).find(
+        (item) => item.id === calendarId,
+      );
+    } catch {
+      // The event update already succeeded; color metadata is optional here.
+    }
+
     return {
       status: "synced",
       event: updated
@@ -1378,6 +1399,7 @@ export async function updateGoogleCalendarPrimaryEvent({
             token.accessToken,
             updated,
             calendarId,
+            calendar,
           )
         : null,
     };
@@ -1721,6 +1743,7 @@ async function normalizeGoogleCalendarEventWithColors(
   accessToken: string,
   event: GoogleCalendarApiEvent,
   calendarId = "primary",
+  calendar?: GoogleCalendarListItem,
 ): Promise<GoogleCalendarEvent | null> {
   const [colors, eventLabels] = await Promise.all([
     getGoogleCalendarColors(accessToken),
@@ -1732,6 +1755,7 @@ async function normalizeGoogleCalendarEventWithColors(
     colors?.event,
     eventLabels,
     calendarId,
+    calendar,
   );
 }
 
