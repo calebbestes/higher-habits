@@ -3483,7 +3483,7 @@ function ReflectionComposerModal({
                 placeholder="Write a real little piece of your day..."
                 placeholderTextColor={theme.textSecondary}
                 selectionColor={theme.primary}
-                style={[
+                inputStyle={[
                   styles.reflectionInput,
                   {
                     backgroundColor: theme.tabBar,

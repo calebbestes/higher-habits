@@ -178,6 +178,16 @@ type PlanTargetType = "dailyHabit" | "goal" | "monthlyHabit" | "task";
 type SuggestedPlanEntry = DayPlanEntry & {
   defaultDurationMinutes?: number;
 };
+type SuggestedEntryFilter = "goal" | "habit" | "task";
+
+const SUGGESTED_ENTRY_FILTERS: {
+  key: SuggestedEntryFilter;
+  label: string;
+}[] = [
+  { key: "habit", label: "Habits" },
+  { key: "task", label: "Tasks" },
+  { key: "goal", label: "Goals" },
+];
 type PlanTargetOption = {
   id: string;
   subtitle?: string;
@@ -341,6 +351,8 @@ export function DayPlanScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dismissedSuggestionIdsByDate, setDismissedSuggestionIdsByDate] =
     useState<Record<string, string[]>>({});
+  const [suggestedEntryFilter, setSuggestedEntryFilter] =
+    useState<SuggestedEntryFilter | null>(null);
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const [activeHabit, setActiveHabit] = useState<ActionHabit | null>(null);
   const [activeEntry, setActiveEntry] = useState<DayPlanEntry | null>(null);
@@ -380,6 +392,9 @@ export function DayPlanScreen({
     startOfMonth(initialDateKey ? dateFromKey(initialDateKey) : new Date()),
   );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+  useEffect(() => {
+    setSuggestedEntryFilter(null);
+  }, [dateKey]);
   useEffect(() => {
     let cancelled = false;
     setDayNote("");
@@ -1120,6 +1135,15 @@ export function DayPlanScreen({
       (entry) => !dismissedIds.has(entry.id),
     );
   }, [dateKey, dismissedSuggestionIdsByDate, rawSuggestedPlanEntries]);
+  const visibleSuggestedPlanEntries = useMemo(
+    () =>
+      suggestedEntryFilter
+        ? suggestedPlanEntries.filter(
+            (entry) => entry.kind === suggestedEntryFilter,
+          )
+        : [],
+    [suggestedEntryFilter, suggestedPlanEntries],
+  );
   const dismissSuggestedEntry = useCallback(
     (entryId: string) => {
       playSelectionHaptic();
@@ -3050,21 +3074,94 @@ export function DayPlanScreen({
                           style={styles.unscheduledScroll}
                         >
                           <View style={styles.unscheduledRail}>
-                            {suggestedPlanEntries.map((entry) => (
-                              <EntryChip
-                                entry={entry}
-                                key={entry.id}
-                                onBeginSchedule={(pageX, pageY) =>
-                                  beginScheduleEntry(entry, pageX, pageY)
-                                }
-                                onMove={handleTimelinePressMove}
-                                onPress={() => openInternalEntry(entry)}
-                                onRelease={finishTimelineGesture}
-                                onDismiss={() =>
-                                  dismissSuggestedEntry(entry.id)
-                                }
-                              />
-                            ))}
+                            {suggestedEntryFilter ? (
+                              <>
+                                <Pressable
+                                  accessibilityLabel="Back to plan filters"
+                                  accessibilityRole="button"
+                                  hitSlop={8}
+                                  onPress={() => setSuggestedEntryFilter(null)}
+                                  style={({ pressed }) => [
+                                    styles.unscheduledBackButton,
+                                    {
+                                      backgroundColor: theme.backgroundElement,
+                                    },
+                                    pressed && styles.pressed,
+                                  ]}
+                                >
+                                  <SymbolView
+                                    name={sym("chevron.left", "chevron_left")}
+                                    size={17}
+                                    weight="bold"
+                                    tintColor={theme.text}
+                                  />
+                                </Pressable>
+                                {visibleSuggestedPlanEntries.map((entry) => (
+                                  <EntryChip
+                                    entry={entry}
+                                    key={entry.id}
+                                    onBeginSchedule={(pageX, pageY) =>
+                                      beginScheduleEntry(entry, pageX, pageY)
+                                    }
+                                    onMove={handleTimelinePressMove}
+                                    onPress={() => openInternalEntry(entry)}
+                                    onRelease={finishTimelineGesture}
+                                    onDismiss={() =>
+                                      dismissSuggestedEntry(entry.id)
+                                    }
+                                  />
+                                ))}
+                              </>
+                            ) : (
+                              SUGGESTED_ENTRY_FILTERS.map((filter) => {
+                                const representative =
+                                  suggestedPlanEntries.find(
+                                    (entry) => entry.kind === filter.key,
+                                  );
+                                const accentColor = representative
+                                  ? getEntryColors(representative, theme)
+                                      .accentColor
+                                  : theme.backgroundElement;
+
+                                return (
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityState={{
+                                      disabled: !representative,
+                                    }}
+                                    disabled={!representative}
+                                    key={filter.key}
+                                    onPress={() =>
+                                      setSuggestedEntryFilter(filter.key)
+                                    }
+                                    style={({ pressed }) => [
+                                      styles.unscheduledFilterButton,
+                                      {
+                                        backgroundColor: accentColor,
+                                        borderColor: representative
+                                          ? accentColor
+                                          : theme.tabBorder,
+                                      },
+                                      !representative && styles.disabled,
+                                      pressed && styles.pressed,
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.unscheduledFilterButtonText,
+                                        {
+                                          color: representative
+                                            ? "#FFFFFF"
+                                            : theme.textSecondary,
+                                        },
+                                      ]}
+                                    >
+                                      {filter.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })
+                            )}
                           </View>
                         </ScrollView>
                       </View>
@@ -3866,7 +3963,12 @@ function InternalEventActionsModal({
   const isGoogleEvent = entry?.kind === "google";
   const isTitleEditable = isOtherEvent || isGoogleEvent;
   const isEditablePlannedBlock =
-    Boolean(entry?.sourceId) && (isOtherEvent || isHabitEvent || isGoogleEvent);
+    Boolean(entry?.sourceId) &&
+    (entry?.kind === "task" ||
+      entry?.kind === "goal" ||
+      isOtherEvent ||
+      isHabitEvent ||
+      isGoogleEvent);
   const currentStartTime = formatPlanApiTime(entry?.startMinutes ?? 9 * 60);
   const currentEndTime = formatPlanApiTime(entry?.endMinutes ?? 10 * 60);
   const currentGoogleColor =
@@ -4180,7 +4282,10 @@ function InternalEventActionsModal({
                 ) : null}
               </>
             ) : null}
-            {!isEditablePlannedBlock || isHabitEvent ? (
+            {!isEditablePlannedBlock ||
+            isHabitEvent ||
+            entry.kind === "task" ||
+            entry.kind === "goal" ? (
               <>
                 <Pressable
                   disabled={isUpdating}
@@ -6021,34 +6126,34 @@ function buildSuggestedPlanEntries({
       }),
     );
 
-  const goalEntries = planGoals.flatMap((goal) =>
-    goal.planOnCalendar
-      ? goal.checkpoints
-          .filter(
-            (checkpoint) =>
-              !checkpoint.completed &&
-              !scheduledCheckpointIds.has(checkpoint.id),
-          )
-          .map((checkpoint) =>
-            suggestedEntry({
-              calendarColor: goal.color ?? defaultCalendarColor,
-              defaultDurationMinutes: DEFAULT_UNSCHEDULED_DROP_MINUTES,
-              description: [
-                goal.title,
-                checkpoint.targetDate
-                  ? formatDisplayDate(checkpoint.targetDate)
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · "),
-              id: `suggested-goal-${checkpoint.id}`,
-              kind: "goal",
-              sourceId: checkpoint.id,
-              title: checkpoint.title,
-            }),
-          )
-      : [],
-  );
+  const goalEntries = planGoals.flatMap((goal) => {
+    if (goal.timing === "later") return [];
+
+    const checkpoint = goal.checkpoints.find(
+      (candidate) =>
+        !candidate.completed && !scheduledCheckpointIds.has(candidate.id),
+    );
+    if (!checkpoint) return [];
+
+    return [
+      suggestedEntry({
+        calendarColor: goal.color ?? defaultCalendarColor,
+        defaultDurationMinutes: DEFAULT_UNSCHEDULED_DROP_MINUTES,
+        description: [
+          goal.title,
+          checkpoint.targetDate
+            ? formatDisplayDate(checkpoint.targetDate)
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        id: `suggested-goal-${checkpoint.id}`,
+        kind: "goal",
+        sourceId: checkpoint.id,
+        title: checkpoint.title,
+      }),
+    ];
+  });
 
   return [
     ...periodicEntries,
@@ -6988,6 +7093,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     paddingRight: 12,
+  },
+  unscheduledBackButton: {
+    alignItems: "center",
+    borderRadius: 9,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  unscheduledFilterButton: {
+    alignItems: "center",
+    borderRadius: 9,
+    borderWidth: 1.5,
+    justifyContent: "center",
+    minWidth: 94,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  unscheduledFilterButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+    lineHeight: 15,
   },
   floatingScheduleChip: {
     position: "absolute",

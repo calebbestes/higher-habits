@@ -22,7 +22,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import RenderHTML, { type MixedStyleRecord } from "react-native-render-html";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
@@ -2171,6 +2174,7 @@ function PhotoViewer({
 }) {
   const { width: viewportWidth, height: viewportHeight } =
     useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [photoSize, setPhotoSize] = useState<ViewerPhotoSize | null>(null);
   const activePhotoId = photo?.id ?? null;
   const activePhotoSize =
@@ -2242,7 +2246,7 @@ function PhotoViewer({
           accessibilityLabel="Close photo"
           disabled={isBusy}
           onPress={onClose}
-          style={styles.viewerClose}
+          style={[styles.viewerClose, { top: insets.top + 8 }]}
         >
           <SymbolView
             name={sym("xmark", "close")}

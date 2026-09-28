@@ -19,7 +19,10 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
@@ -256,6 +259,7 @@ export function FriendProfileScreen({
   onBack?: () => void;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const router = useRouter();
   const tabBarHeight = useTabBarHeight();
@@ -1042,6 +1046,10 @@ export function FriendProfileScreen({
             onPress={() => setProfileImageViewerUrl(null)}
             style={({ pressed }) => [
               styles.profileImageViewerClose,
+              {
+                right: Math.max(insets.right, 16),
+                top: insets.top + 8,
+              },
               pressed && styles.pressed,
             ]}
           >

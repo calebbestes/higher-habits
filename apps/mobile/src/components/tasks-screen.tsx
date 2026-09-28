@@ -31,7 +31,6 @@ import {
 } from "@/components/section-header-tabs";
 import { ProjectProgressCard } from "@/components/tasks/project-progress";
 import { TaskFormModal } from "@/components/tasks/task-form-modal";
-import { TaskPlanModal } from "@/components/tasks/task-plan-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTaskProjects } from "@/hooks/use-task-projects";
@@ -68,8 +67,7 @@ type TaskPriorityGroupKey = "high" | "medium" | "low" | "completed";
 
 const TASKS_SCREEN_CACHE_KEY = "screen:tasks";
 const DELETE_ACTION_WIDTH = 84;
-const RIGHT_ACTION_WIDTH = 248;
-const CLEAR_PLAN_ACTION_WIDTH = 84;
+const RIGHT_ACTION_WIDTH = 204;
 const SWIPE_OPEN_THRESHOLD = 42;
 
 type SwipeDirection = "delete" | "actions";
@@ -132,7 +130,6 @@ export function TasksScreen() {
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [planningTask, setPlanningTask] = useState<Task | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
     cachedScreen?.data.plannedEvents ?? [],
   );
@@ -411,11 +408,6 @@ export function TasksScreen() {
     }
   };
 
-  const openPlanTask = (task: Task) => {
-    setOpenSwipe(null);
-    setPlanningTask(task);
-  };
-
   const adjustTaskImportance = async (
     task: Task,
     direction: "higher" | "lower",
@@ -460,60 +452,50 @@ export function TasksScreen() {
     }
   };
 
-  const saveTaskPlan = async ({
-    dateKey,
-    endTime,
-    startTime,
-    timeZone,
-  }: {
-    dateKey: string;
-    endTime: string | null;
-    startTime: string | null;
-    timeZone: string | null;
-  }) => {
-    if (!planningTask) return;
-    const taskId = planningTask.id;
-    const taskName = planningTask.name;
-
-    const result = await upsertPlannedEvent({
-      dateKey,
-      endTime,
-      sourceId: taskId,
-      sourceType: "task",
-      startTime,
-      timeZone,
-      title: taskName,
-    });
-    if (!isMountedRef.current || planningTask?.id !== taskId) return;
-    setPlannedEvents((current) => {
-      const filtered = current.filter(
-        (event) => event.sourceType !== "task" || event.sourceId !== taskId,
-      );
-      const nextPlannedEvents = [...filtered, result.event];
-      writeTasksCache(undefined, nextPlannedEvents);
-      return nextPlannedEvents;
-    });
-  };
-
-  const clearTaskPlan = async (task: Task) => {
+  const toggleCalendarPlanner = async (
+    task: Task,
+    hasPlannedEvent: boolean,
+  ) => {
     setOpenSwipe(null);
+    if (updatingId) return;
 
+    const addToCalendar = !(task.planOnCalendar || hasPlannedEvent);
+    setUpdatingId(task.id);
+    setError(null);
     try {
-      await deletePlannedEvent({ sourceId: task.id, sourceType: "task" });
+      const updated = await updateTask(task.id, {
+        ...taskToInput(task),
+        planOnCalendar: addToCalendar,
+      });
       if (!isMountedRef.current) return;
-      setPlannedEvents((current) => {
-        const nextPlannedEvents = current.filter(
+
+      let nextPlannedEvents = plannedEvents;
+      if (!addToCalendar) {
+        if (hasPlannedEvent) {
+          await deletePlannedEvent({
+            sourceId: task.id,
+            sourceType: "task",
+          });
+        }
+        nextPlannedEvents = plannedEvents.filter(
           (event) => event.sourceType !== "task" || event.sourceId !== task.id,
         );
-        writeTasksCache(undefined, nextPlannedEvents);
-        return nextPlannedEvents;
-      });
+      }
+      const nextTasks = tasks.map((item) =>
+        item.id === updated.id ? updated : item,
+      );
+      setTasks(nextTasks);
+      setPlannedEvents(nextPlannedEvents);
+      writeTasksCache(nextTasks, nextPlannedEvents);
+      playSelectionHaptic();
     } catch (clearError) {
       setError(
         clearError instanceof Error
           ? clearError.message
-          : "Could not clear task plan.",
+          : "Could not update calendar planner setting.",
       );
+    } finally {
+      if (isMountedRef.current) setUpdatingId(null);
     }
   };
 
@@ -670,8 +652,12 @@ export function TasksScreen() {
                         task={task}
                         onDelete={() => confirmDelete(task)}
                         onEdit={() => openEdit(task)}
-                        onPlan={() => openPlanTask(task)}
-                        onClearPlan={() => clearTaskPlan(task)}
+                        onToggleCalendar={() =>
+                          void toggleCalendarPlanner(
+                            task,
+                            plannedEventsByTaskId.has(task.id),
+                          )
+                        }
                         onSwipeClose={() => setOpenSwipe(null)}
                         onSwipeOpen={(direction) =>
                           setOpenSwipe({ direction, taskId: task.id })
@@ -704,14 +690,6 @@ export function TasksScreen() {
         }}
         onSave={saveTask}
       />
-      <TaskPlanModal
-        existingPlan={
-          planningTask ? plannedEventsByTaskId.get(planningTask.id) : null
-        }
-        task={planningTask}
-        onClose={() => setPlanningTask(null)}
-        onSave={saveTaskPlan}
-      />
       <CelebrationOverlay
         visible={celebrate}
         source={confettiSource}
@@ -726,10 +704,9 @@ function TaskCard({
   isSwipeOpen,
   isUpdating,
   onAdjustPriority,
-  onClearPlan,
   onDelete,
   onEdit,
-  onPlan,
+  onToggleCalendar,
   onSwipeClose,
   onSwipeOpen,
   onToggle,
@@ -740,10 +717,9 @@ function TaskCard({
   isSwipeOpen: boolean;
   isUpdating: boolean;
   onAdjustPriority: (direction: "higher" | "lower") => void;
-  onClearPlan: () => void;
   onDelete: () => void;
   onEdit: () => void;
-  onPlan: () => void;
+  onToggleCalendar: () => void;
   onSwipeClose: () => void;
   onSwipeOpen: (direction: SwipeDirection) => void;
   onToggle: () => void;
@@ -753,11 +729,10 @@ function TaskCard({
 }) {
   const theme = useTheme();
   const completed = Boolean(task.completedAt);
+  const isInCalendarPlanner = task.planOnCalendar || Boolean(plannedEvent);
   const translateX = useSharedValue(0);
   const gestureStartX = useSharedValue(0);
-  const rightActionWidth = plannedEvent
-    ? RIGHT_ACTION_WIDTH
-    : RIGHT_ACTION_WIDTH - CLEAR_PLAN_ACTION_WIDTH;
+  const rightActionWidth = RIGHT_ACTION_WIDTH;
 
   useEffect(() => {
     const targetX =
@@ -857,12 +832,8 @@ function TaskCard({
             </Text>
           </Pressable>
           <Pressable
-            accessibilityLabel={
-              plannedEvent
-                ? `Edit calendar plan for ${task.name}`
-                : `Plan ${task.name} on calendar`
-            }
-            onPress={onPlan}
+            accessibilityLabel={`${isInCalendarPlanner ? "Remove from" : "Add to"} calendar for ${task.name}`}
+            onPress={onToggleCalendar}
             style={({ pressed }) => [
               styles.swipeAction,
               styles.calendarAction,
@@ -870,39 +841,21 @@ function TaskCard({
             ]}
           >
             <SymbolView
-              name={symbol("calendar", "event")}
+              name={symbol(
+                isInCalendarPlanner
+                  ? "calendar.badge.minus"
+                  : "calendar.badge.plus",
+                isInCalendarPlanner ? "event_busy" : "event_available",
+              )}
               size={19}
               tintColor={theme.text}
             />
             <Text style={[styles.swipeActionLabel, { color: theme.text }]}>
-              {plannedEvent ? "Edit calendar" : "Plan calendar"}
+              {isInCalendarPlanner
+                ? "Remove from calendar"
+                : "Add to calendar"}
             </Text>
           </Pressable>
-          {plannedEvent ? (
-            <Pressable
-              accessibilityLabel={`Clear calendar plan for ${task.name}`}
-              onPress={onClearPlan}
-              style={({ pressed }) => [
-                styles.swipeAction,
-                styles.clearPlanAction,
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={symbol("calendar.badge.minus", "event_busy")}
-                size={19}
-                tintColor={theme.textSecondary}
-              />
-              <Text
-                style={[
-                  styles.swipeActionLabel,
-                  { color: theme.textSecondary },
-                ]}
-              >
-                Clear
-              </Text>
-            </Pressable>
-          ) : null}
         </View>
       </View>
 
@@ -926,124 +879,130 @@ function TaskCard({
               {
                 backgroundColor: theme.background,
                 borderColor: theme.tabBorder,
-                opacity: completed ? 0.66 : 1,
               },
               pressed && styles.pressed,
             ]}
           >
-            <Pressable
-              accessibilityLabel={
-                completed ? `Reopen ${task.name}` : `Complete ${task.name}`
-              }
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: completed }}
-              disabled={isUpdating}
-              hitSlop={8}
-              onPress={(event) => {
-                event.stopPropagation();
-                onToggle();
-              }}
+            <View
               style={[
-                styles.checkButton,
-                {
-                  backgroundColor: completed ? theme.primary : "transparent",
-                  borderColor: completed
-                    ? theme.primary
-                    : `${theme.textSecondary}4D`,
-                },
+                styles.taskCardContent,
+                completed && styles.completedTaskContent,
               ]}
             >
-              {isUpdating ? (
-                <ActivityIndicator
-                  color={completed ? theme.primaryForeground : theme.primary}
-                  size="small"
-                />
-              ) : completed ? (
-                <SymbolView
-                  name={symbol("checkmark", "check")}
-                  size={16}
-                  weight="bold"
-                  tintColor={theme.primaryForeground}
-                />
-              ) : null}
-            </Pressable>
-            <View style={styles.taskBody}>
-              <Text
-                numberOfLines={2}
+              <Pressable
+                accessibilityLabel={
+                  completed ? `Reopen ${task.name}` : `Complete ${task.name}`
+                }
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: completed }}
+                disabled={isUpdating}
+                hitSlop={8}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onToggle();
+                }}
                 style={[
-                  styles.taskName,
-                  { color: theme.text },
-                  completed && styles.completedName,
+                  styles.checkButton,
+                  {
+                    backgroundColor: completed ? theme.primary : "transparent",
+                    borderColor: completed
+                      ? theme.primary
+                      : `${theme.textSecondary}4D`,
+                  },
                 ]}
               >
-                {task.name}
-              </Text>
-              {task.dueDate ? (
-                <View style={styles.taskMetadata}>
-                  <Text
-                    style={[
-                      styles.metadataText,
-                      { color: theme.textSecondary },
-                    ]}
-                  >
-                    {formatDueDate(task.dueDate)}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-            <View style={styles.priorityControls}>
-              <Pressable
-                accessibilityLabel={`Increase priority for ${task.name}`}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: task.importance === "High" }}
-                disabled={isUpdating || task.importance === "High"}
-                hitSlop={5}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  onAdjustPriority("higher");
-                }}
-                style={({ pressed }) => [
-                  styles.priorityButton,
-                  pressed && styles.priorityButtonPressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("chevron.up", "keyboard_arrow_up")}
-                  size={18}
-                  weight="semibold"
-                  tintColor={
-                    task.importance === "High"
-                      ? `${theme.textSecondary}55`
-                      : theme.textSecondary
-                  }
-                />
+                {isUpdating ? (
+                  <ActivityIndicator
+                    color={completed ? theme.primaryForeground : theme.primary}
+                    size="small"
+                  />
+                ) : completed ? (
+                  <SymbolView
+                    name={symbol("checkmark", "check")}
+                    size={16}
+                    weight="bold"
+                    tintColor={theme.primaryForeground}
+                  />
+                ) : null}
               </Pressable>
-              <Pressable
-                accessibilityLabel={`Decrease priority for ${task.name}`}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: task.importance === "Low" }}
-                disabled={isUpdating || task.importance === "Low"}
-                hitSlop={5}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  onAdjustPriority("lower");
-                }}
-                style={({ pressed }) => [
-                  styles.priorityButton,
-                  pressed && styles.priorityButtonPressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("chevron.down", "keyboard_arrow_down")}
-                  size={18}
-                  weight="semibold"
-                  tintColor={
-                    task.importance === "Low"
-                      ? `${theme.textSecondary}55`
-                      : theme.textSecondary
-                  }
-                />
-              </Pressable>
+              <View style={styles.taskBody}>
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    styles.taskName,
+                    { color: theme.text },
+                    completed && styles.completedName,
+                  ]}
+                >
+                  {task.name}
+                </Text>
+                {task.dueDate ? (
+                  <View style={styles.taskMetadata}>
+                    <Text
+                      style={[
+                        styles.metadataText,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
+                      {formatDueDate(task.dueDate)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.priorityControls}>
+                <Pressable
+                  accessibilityLabel={`Increase priority for ${task.name}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: task.importance === "High" }}
+                  disabled={isUpdating || task.importance === "High"}
+                  hitSlop={5}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onAdjustPriority("higher");
+                  }}
+                  style={({ pressed }) => [
+                    styles.priorityButton,
+                    pressed && styles.priorityButtonPressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("chevron.up", "keyboard_arrow_up")}
+                    size={18}
+                    weight="semibold"
+                    tintColor={
+                      task.importance === "High"
+                        ? `${theme.textSecondary}55`
+                        : theme.textSecondary
+                    }
+                  />
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`Decrease priority for ${task.name}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: task.importance === "Low" }}
+                  disabled={isUpdating || task.importance === "Low"}
+                  hitSlop={5}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    onAdjustPriority("lower");
+                  }}
+                  style={({ pressed }) => [
+                    styles.priorityButton,
+                    pressed && styles.priorityButtonPressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("chevron.down", "keyboard_arrow_down")}
+                    size={18}
+                    weight="semibold"
+                    tintColor={
+                      task.importance === "Low"
+                        ? `${theme.textSecondary}55`
+                        : theme.textSecondary
+                    }
+                  />
+                </Pressable>
+              </View>
             </View>
           </Pressable>
         </Animated.View>
@@ -1200,10 +1159,16 @@ const styles = StyleSheet.create({
     minHeight: 60,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 11,
   },
+  taskCardContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  completedTaskContent: { opacity: 0.66 },
   swipeContainer: {
     position: "relative",
     overflow: "hidden",
@@ -1240,12 +1205,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#2C5352",
   },
   calendarAction: {
-    width: 88,
+    width: 128,
     backgroundColor: "#A0D5D5",
-  },
-  clearPlanAction: {
-    width: 84,
-    backgroundColor: "#E8F3F3",
   },
   swipeActionLabel: {
     color: "#FFFFFF",

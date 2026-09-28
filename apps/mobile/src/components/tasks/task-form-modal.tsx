@@ -1,5 +1,5 @@
 import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -65,7 +65,6 @@ export function TaskFormModal({
   const theme = useTheme();
   const [form, setForm] = useState<TaskInput>(EMPTY_TASK);
   const [createdProject, setCreatedProject] = useState<Project | null>(null);
-  const plannerToggleTouchedRef = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
@@ -73,7 +72,6 @@ export function TaskFormModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    plannerToggleTouchedRef.current = false;
     setCreatedProject(null);
     setForm(
       task
@@ -346,9 +344,6 @@ export function TaskFormModal({
                       setForm((current) => ({
                         ...current,
                         importance,
-                        ...(!task && !plannerToggleTouchedRef.current
-                          ? { planOnCalendar: importance === "High" }
-                          : {}),
                       }));
                     }}
                   />
@@ -544,7 +539,6 @@ export function TaskFormModal({
                 <Switch
                   onValueChange={(planOnCalendar) => {
                     playSelectionHaptic();
-                    plannerToggleTouchedRef.current = true;
                     setForm((current) => ({ ...current, planOnCalendar }));
                   }}
                   trackColor={{

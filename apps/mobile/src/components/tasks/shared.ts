@@ -15,7 +15,7 @@ export const EMPTY_TASK: TaskInput = {
   dueDate: null,
   completedAt: null,
   timeRequired: "~1 hr",
-  planOnCalendar: false,
+  planOnCalendar: true,
   recurrence: "none",
   recurrenceWeekday: null,
   recurrenceMonthDay: null,
