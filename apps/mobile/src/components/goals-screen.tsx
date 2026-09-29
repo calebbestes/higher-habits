@@ -1,6 +1,9 @@
+import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import { FloatingLogoLoader } from "@/components/floating-logo-loader";
+import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { type MenuAction, MenuView } from "@expo/ui/community/menu";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,10 +22,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CalendarColorPicker } from "@/components/calendar-color-picker";
@@ -49,15 +49,24 @@ import {
   uploadCheckpointPhoto,
 } from "@/lib/checkpoint-photos-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
-import { type Habit, fetchHabits } from "@/lib/habits-client";
 import {
+  type GoalPhoto,
+  fetchGoalPhotosForRange,
+  uploadGoalPhoto,
+} from "@/lib/goal-photos-client";
+import type { GoalVisibility } from "@/lib/goals-client";
+import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import {
+  type HabitLogStatus,
   fetchAllHabitLogsSnapshot,
   fetchHabitLogsSnapshot,
   getMonthKey,
+  setHabitLog,
+  setHabitLogNote,
+  setHabitLogVisibility,
   toDateKey,
 } from "@/lib/habit-logs-client";
-import type { GoalVisibility } from "@/lib/goals-client";
-import { getLocalTimeZone } from "@/lib/google-calendar-client";
+import { type Habit, fetchHabits } from "@/lib/habits-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import {
   PLAN_PERIODS,
@@ -73,20 +82,22 @@ import {
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
-  linkGoal,
   type Goal,
   type GoalCheckpoint,
   type GoalInput,
-  type GoalTiming,
+  archivePlanGoal,
   createPlanGoal,
   deletePlanGoal,
   fetchPlanGoals,
+  linkGoal,
   reorderPlanGoals,
+  unarchivePlanGoal,
+  unlinkGoal,
   updatePlanGoal,
   updatePlanGoalCheckpoint,
-  unlinkGoal,
 } from "@/lib/planning-goals-client";
-import { fetchTasks, type Task } from "@/lib/tasks-client";
+import { richTextToPlainText } from "@/lib/rich-text";
+import { type Task, fetchTasks } from "@/lib/tasks-client";
 
 type SymbolName = SymbolViewProps["name"];
 type CheckpointDraft = {
@@ -104,7 +115,7 @@ type ToggleGoalLink = (
   goal: Goal,
   sourceType: "task" | "habit",
   sourceId: string,
-) => Promise<Goal | null> | void;
+) => Promise<Goal | null> | undefined;
 type DateKeyParts = { year: number; month: number; day: number };
 type TargetDatePart = "year" | "month" | "day";
 type GoalDragSlot = { id: string; y: number; height: number };
@@ -113,6 +124,27 @@ type GoalsScreenCache = {
   plannedEvents: PlannedEvent[];
 };
 type HabitProgressById = Record<string, string[]>;
+type HabitEvidenceByDate = Record<
+  string,
+  { hasNote: boolean; hasPhoto: boolean; noteText: string | null }
+>;
+
+function isGoalCompleted(goal: Goal) {
+  return (
+    Boolean(goal.archivedAt) ||
+    (goal.checkpoints.length > 0 &&
+      goal.checkpoints.every((checkpoint) => checkpoint.completed))
+  );
+}
+
+function isGoalCurrent(goal: Goal) {
+  return (
+    !isGoalCompleted(goal) &&
+    goal.checkpoints.some(
+      (checkpoint) => checkpoint.started || checkpoint.completed,
+    )
+  );
+}
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
@@ -147,7 +179,9 @@ function getLast30DateKeys(referenceDate = new Date()) {
 
 function timestampToDateKey(timestamp: string) {
   const dateKey = timestamp.slice(0, 10);
-  return DATE_KEY_REGEX.test(dateKey) ? dateKey : toDateKey(new Date(timestamp));
+  return DATE_KEY_REGEX.test(dateKey)
+    ? dateKey
+    : toDateKey(new Date(timestamp));
 }
 
 function buildHabitProgressById(
@@ -175,6 +209,37 @@ function buildHabitProgressById(
       Array.from(dates).sort(),
     ]),
   );
+}
+
+function buildHabitEvidenceByDate(
+  snapshots: Array<Awaited<ReturnType<typeof fetchHabitLogsSnapshot>> | null>,
+  existing: HabitEvidenceByDate = {},
+): HabitEvidenceByDate {
+  const evidence = { ...existing };
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) continue;
+    const keys = new Set([
+      ...Object.keys(snapshot.notesByHabitDate),
+      ...Object.keys(snapshot.photoCountsByHabitDate),
+    ]);
+    for (const key of keys) {
+      const current = evidence[key] ?? {
+        hasNote: false,
+        hasPhoto: false,
+        noteText: null,
+      };
+      const noteText = snapshot.notesByHabitDate[key]?.trim() ?? "";
+      evidence[key] = {
+        hasNote: current.hasNote || Boolean(noteText),
+        hasPhoto:
+          current.hasPhoto || (snapshot.photoCountsByHabitDate[key] ?? 0) > 0,
+        noteText: current.noteText ?? (noteText || null),
+      };
+    }
+  }
+
+  return evidence;
 }
 
 function symbol(ios: string, android: string): SymbolName {
@@ -286,14 +351,28 @@ export function GoalsScreen() {
   const [activeGoalDetail, setActiveGoalDetail] = useState<Goal | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
-  const [habitProgressById, setHabitProgressById] =
-    useState<HabitProgressById>({});
+  const [habitProgressById, setHabitProgressById] = useState<HabitProgressById>(
+    {},
+  );
+  const [habitEvidenceByDate, setHabitEvidenceByDate] =
+    useState<HabitEvidenceByDate>({});
+  const [activeLinkedHabit, setActiveLinkedHabit] = useState<Habit | null>(
+    null,
+  );
+  const [linkedHabitSnapshot, setLinkedHabitSnapshot] = useState<Awaited<
+    ReturnType<typeof fetchHabitLogsSnapshot>
+  > | null>(null);
+  const [noteLinkedHabit, setNoteLinkedHabit] = useState<Habit | null>(null);
+  const [linkedHabitUploadingPhotoSource, setLinkedHabitUploadingPhotoSource] =
+    useState<GoalPhotoSource | null>(null);
+  const [isUpdatingLinkedHabit, setIsUpdatingLinkedHabit] = useState(false);
   const [linkUpdatingKey, setLinkUpdatingKey] = useState<string | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
     cachedScreen?.data.plannedEvents ?? [],
   );
   const [celebrate, setCelebrate] = useState(false);
   const [showLaterGoals, setShowLaterGoals] = useState(false);
+  const [showCompletedGoals, setShowCompletedGoals] = useState(false);
   const [draggingGoalId, setDraggingGoalId] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -367,9 +446,12 @@ export function GoalsScreen() {
       setHabits(nextHabits);
       setHabitProgressById(
         buildHabitProgressById(
-          allHabitLogs
-            ? [allHabitLogs]
-            : [currentHabitLogs, previousHabitLogs],
+          allHabitLogs ? [allHabitLogs] : [currentHabitLogs, previousHabitLogs],
+        ),
+      );
+      setHabitEvidenceByDate(
+        buildHabitEvidenceByDate(
+          allHabitLogs ? [allHabitLogs] : [currentHabitLogs, previousHabitLogs],
         ),
       );
     } catch (loadError) {
@@ -408,20 +490,26 @@ export function GoalsScreen() {
     );
   }, [goals, query]);
   const queryIsActive = query.trim().length > 0;
-  const currentGoals = useMemo(
-    () => searchedGoals.filter((goal) => goal.timing !== "later"),
+  const activeSearchedGoals = useMemo(
+    () => searchedGoals.filter((goal) => !isGoalCompleted(goal)),
     [searchedGoals],
   );
+  const currentGoals = useMemo(
+    () => activeSearchedGoals.filter(isGoalCurrent),
+    [activeSearchedGoals],
+  );
   const laterGoals = useMemo(
-    () => searchedGoals.filter((goal) => goal.timing === "later"),
+    () => activeSearchedGoals.filter((goal) => !isGoalCurrent(goal)),
+    [activeSearchedGoals],
+  );
+  const completedGoals = useMemo(
+    () => searchedGoals.filter(isGoalCompleted),
     [searchedGoals],
   );
   const visibleGoals = useMemo(
     () =>
-      queryIsActive || showLaterGoals
-        ? searchedGoals
-        : searchedGoals.filter((goal) => goal.timing !== "later"),
-    [queryIsActive, searchedGoals, showLaterGoals],
+      queryIsActive || showLaterGoals ? activeSearchedGoals : currentGoals,
+    [activeSearchedGoals, currentGoals, queryIsActive, showLaterGoals],
   );
   const onlyLaterGoalsHidden =
     !queryIsActive &&
@@ -618,6 +706,108 @@ export function GoalsScreen() {
     );
   };
 
+  const refreshLinkedHabitSnapshot = async () => {
+    const snapshot = await fetchHabitLogsSnapshot(getMonthKey(new Date()));
+    if (isMountedRef.current) {
+      setLinkedHabitSnapshot(snapshot);
+      setHabitEvidenceByDate((current) =>
+        buildHabitEvidenceByDate([snapshot], current),
+      );
+    }
+  };
+
+  const openLinkedHabit = (habit: Habit) => {
+    setActiveLinkedHabit(habit);
+    setLinkedHabitSnapshot(null);
+    void fetchHabitLogsSnapshot(getMonthKey(new Date()))
+      .then((snapshot) => {
+        if (isMountedRef.current) {
+          setLinkedHabitSnapshot(snapshot);
+          setHabitEvidenceByDate((current) =>
+            buildHabitEvidenceByDate([snapshot], current),
+          );
+        }
+      })
+      .catch(() => undefined);
+  };
+
+  const updateLinkedHabitStatus = async (status: HabitLogStatus) => {
+    if (!activeLinkedHabit || isUpdatingLinkedHabit) return;
+
+    const dateKey = toDateKey(new Date());
+    const habitId = activeLinkedHabit.id;
+    const currentDates = habitProgressById[habitId] ?? [];
+    const nextDates =
+      status === "complete"
+        ? Array.from(new Set([...currentDates, dateKey])).sort()
+        : currentDates.filter((date) => date !== dateKey);
+
+    setIsUpdatingLinkedHabit(true);
+    setHabitProgressById((current) => ({ ...current, [habitId]: nextDates }));
+    try {
+      await setHabitLog(habitId, dateKey, status);
+      await refreshLinkedHabitSnapshot();
+    } catch (habitError) {
+      setHabitProgressById((current) => ({
+        ...current,
+        [habitId]: currentDates,
+      }));
+      Alert.alert(
+        "Could not update habit",
+        habitError instanceof Error ? habitError.message : "Please try again.",
+      );
+    } finally {
+      setIsUpdatingLinkedHabit(false);
+    }
+  };
+
+  const updateLinkedHabitVisibility = async (
+    visibility: Parameters<typeof setHabitLogVisibility>[2],
+  ) => {
+    if (!activeLinkedHabit || isUpdatingLinkedHabit) return;
+
+    setIsUpdatingLinkedHabit(true);
+    try {
+      await setHabitLogVisibility(
+        activeLinkedHabit.id,
+        toDateKey(new Date()),
+        visibility,
+      );
+      await refreshLinkedHabitSnapshot();
+    } catch (visibilityError) {
+      Alert.alert(
+        "Could not update visibility",
+        visibilityError instanceof Error
+          ? visibilityError.message
+          : "The habit visibility could not be updated.",
+      );
+    } finally {
+      setIsUpdatingLinkedHabit(false);
+    }
+  };
+
+  const addLinkedHabitPhoto = async (source: GoalPhotoSource) => {
+    if (!activeLinkedHabit || linkedHabitUploadingPhotoSource) return;
+
+    setLinkedHabitUploadingPhotoSource(source);
+    try {
+      const photo = await pickGoalPhoto(source);
+      if (!photo) return;
+
+      await uploadGoalPhoto(activeLinkedHabit.id, toDateKey(new Date()), photo);
+      await refreshLinkedHabitSnapshot();
+    } catch (photoError) {
+      Alert.alert(
+        "Could not add photo",
+        photoError instanceof Error
+          ? photoError.message
+          : "The photo could not be uploaded.",
+      );
+    } finally {
+      if (isMountedRef.current) setLinkedHabitUploadingPhotoSource(null);
+    }
+  };
+
   const toggleGoalLink = async (
     goal: Goal,
     sourceType: "task" | "habit",
@@ -627,8 +817,7 @@ export function GoalsScreen() {
 
     const linkKey = `${goal.id}:${sourceType}:${sourceId}`;
     const isLinked = (goal.links ?? []).some(
-      (link) =>
-        link.sourceType === sourceType && link.sourceId === sourceId,
+      (link) => link.sourceType === sourceType && link.sourceId === sourceId,
     );
     setLinkUpdatingKey(linkKey);
     try {
@@ -778,6 +967,65 @@ export function GoalsScreen() {
     );
   };
 
+  const confirmArchive = (goal: Goal) => {
+    Alert.alert(
+      "Archive goal?",
+      `“${goal.title}” will move to Completed goals.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          onPress: async () => {
+            try {
+              const archivedGoal = await archivePlanGoal(goal.id);
+              updateGoalInList(archivedGoal);
+              setActiveGoalDetail((current) =>
+                current?.id === archivedGoal.id ? archivedGoal : current,
+              );
+              setFormOpen(false);
+              setEditingGoal(null);
+              setPlannedEvents((current) => {
+                const nextPlannedEvents = current.filter(
+                  (event) =>
+                    event.sourceType !== "goal_checkpoint" ||
+                    !goal.checkpoints.some(
+                      (checkpoint) => checkpoint.id === event.sourceId,
+                    ),
+                );
+                writeGoalsCache(goalsRef.current, nextPlannedEvents);
+                return nextPlannedEvents;
+              });
+            } catch (archiveError) {
+              setError(
+                archiveError instanceof Error
+                  ? archiveError.message
+                  : "Could not archive goal.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const unarchiveGoal = async (goal: Goal) => {
+    try {
+      const restoredGoal = await unarchivePlanGoal(goal.id);
+      updateGoalInList(restoredGoal);
+      setActiveGoalDetail((current) =>
+        current?.id === restoredGoal.id ? restoredGoal : current,
+      );
+      setFormOpen(false);
+      setEditingGoal(null);
+    } catch (unarchiveError) {
+      setError(
+        unarchiveError instanceof Error
+          ? unarchiveError.message
+          : "Could not unarchive goal.",
+      );
+    }
+  };
+
   const measureGoalCard = useCallback(
     (goalId: string, y: number, height: number) => {
       goalLayoutsRef.current[goalId] = { y, height };
@@ -894,173 +1142,228 @@ export function GoalsScreen() {
     });
   }, [load]);
 
+  const linkedHabitDateKey = toDateKey(new Date());
+  const linkedHabitLogKey = activeLinkedHabit
+    ? `${activeLinkedHabit.id}_${linkedHabitDateKey}`
+    : null;
+  const linkedHabitStatus = activeLinkedHabit
+    ? (linkedHabitSnapshot?.logsByHabitDate[linkedHabitLogKey ?? ""] ??
+      ((habitProgressById[activeLinkedHabit.id] ?? []).includes(
+        linkedHabitDateKey,
+      )
+        ? "complete"
+        : "incomplete"))
+    : undefined;
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
-      <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-        <ScrollView
-          canCancelContentTouches
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: tabBarHeight + 16 },
-          ]}
-          directionalLockEnabled
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              tintColor={theme.primary}
-              onRefresh={() => void load(true)}
-            />
-          }
-          scrollEnabled={!draggingGoalId}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.pageHeader}>
-            <View style={styles.pageHeaderLeft}>
-              <View style={styles.pageHeaderText}>
-                <PageHeaderTitle title="Create" />
-                <CreateSectionHeaderTabs currentSection="goals" />
-              </View>
-            </View>
-            <View style={styles.headerActions}>
-              <Pressable
-                accessibilityLabel="Add goal"
-                accessibilityRole="button"
-                onPress={openCreate}
-                style={({ pressed }) => [
-                  styles.addButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("plus", "add")}
-                  size={28}
-                  weight="semibold"
-                  tintColor={theme.primary}
-                />
-              </Pressable>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.search,
-              {
-                backgroundColor: "transparent",
-                borderColor: `${theme.tabBorder}AA`,
-              },
+      {activeGoalDetail ? (
+        <GoalDetailModal
+          goal={activeGoalDetail}
+          habits={habits}
+          habitEvidenceByDate={habitEvidenceByDate}
+          habitProgressById={habitProgressById}
+          tasks={tasks}
+          onClose={() => setActiveGoalDetail(null)}
+          onPressHabit={openLinkedHabit}
+          onPressCheckpoint={openCheckpoint}
+        />
+      ) : (
+        <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
+          <ScrollView
+            canCancelContentTouches
+            contentContainerStyle={[
+              styles.content,
+              { paddingBottom: tabBarHeight + 16 },
             ]}
-          >
-            <SymbolView
-              name={symbol("magnifyingglass", "search")}
-              size={18}
-              tintColor={theme.textSecondary}
-            />
-            <TextInput
-              accessibilityLabel="Search goals"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setQuery}
-              placeholder="Search goals"
-              placeholderTextColor={theme.textSecondary}
-              selectionColor={theme.primary}
-              style={[styles.searchInput, { color: theme.text }]}
-              value={query}
-            />
-            {query ? (
-              <Pressable
-                accessibilityLabel="Clear search"
-                hitSlop={10}
-                onPress={() => setQuery("")}
-              >
-                <SymbolView
-                  name={symbol("xmark.circle.fill", "cancel")}
-                  size={18}
-                  tintColor={theme.textSecondary}
-                />
-              </Pressable>
-            ) : null}
-          </View>
-
-          {error ? (
-            <View style={styles.errorBanner}>
-              <SymbolView
-                name={symbol("exclamationmark.circle.fill", "error")}
-                size={18}
-                tintColor="#9D474D"
+            directionalLockEnabled
+            keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                tintColor={theme.primary}
+                onRefresh={() => void load(true)}
               />
-              <Text style={styles.errorText}>{error}</Text>
-              <Pressable onPress={() => void load()}>
-                <Text style={styles.retryText}>Retry</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
-          {isLoading ? (
-            <View style={styles.centerState}>
-              <FloatingLogoLoader />
-            </View>
-          ) : visibleGoals.length ? (
-            <>
-              <View style={styles.goalList}>
-                {visibleGoals.map((goal) => (
-                  <GoalCard
-                    key={goal.id}
-                    goal={goal}
-                    isDragging={draggingGoalId === goal.id}
-                    plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-                    onDragEnd={endGoalDrag}
-                    onDragMove={handleGoalDragMove}
-                    onDragStart={beginGoalDrag}
-                    onEdit={() => openEdit(goal)}
-                    onMeasure={measureGoalCard}
-                    onPressGoal={() => setActiveGoalDetail(goal)}
-                    onPressCheckpoint={(checkpoint) =>
-                      openCheckpoint(goal, checkpoint)
-                    }
-                  />
-                ))}
+            }
+            scrollEnabled={!draggingGoalId}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.pageHeader}>
+              <View style={styles.pageHeaderLeft}>
+                <View style={styles.pageHeaderText}>
+                  <PageHeaderTitle title="Create" />
+                  <CreateSectionHeaderTabs currentSection="goals" />
+                </View>
               </View>
-              {!queryIsActive && laterGoals.length > 0 ? (
+              <View style={styles.headerActions}>
+                <Pressable
+                  accessibilityLabel="Add goal"
+                  accessibilityRole="button"
+                  onPress={openCreate}
+                  style={({ pressed }) => [
+                    styles.addButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("plus", "add")}
+                    size={28}
+                    weight="semibold"
+                    tintColor={theme.primary}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.search,
+                {
+                  backgroundColor: "transparent",
+                  borderColor: `${theme.tabBorder}AA`,
+                },
+              ]}
+            >
+              <SymbolView
+                name={symbol("magnifyingglass", "search")}
+                size={18}
+                tintColor={theme.textSecondary}
+              />
+              <TextInput
+                accessibilityLabel="Search goals"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setQuery}
+                placeholder="Search goals"
+                placeholderTextColor={theme.textSecondary}
+                selectionColor={theme.primary}
+                style={[styles.searchInput, { color: theme.text }]}
+                value={query}
+              />
+              {query ? (
+                <Pressable
+                  accessibilityLabel="Clear search"
+                  hitSlop={10}
+                  onPress={() => setQuery("")}
+                >
+                  <SymbolView
+                    name={symbol("xmark.circle.fill", "cancel")}
+                    size={18}
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            {error ? (
+              <View style={styles.errorBanner}>
+                <SymbolView
+                  name={symbol("exclamationmark.circle.fill", "error")}
+                  size={18}
+                  tintColor="#9D474D"
+                />
+                <Text style={styles.errorText}>{error}</Text>
+                <Pressable onPress={() => void load()}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {isLoading ? (
+              <View style={styles.centerState}>
+                <FloatingLogoLoader />
+              </View>
+            ) : visibleGoals.length ? (
+              <>
+                <View style={styles.goalList}>
+                  {visibleGoals.map((goal) => (
+                    <GoalCard
+                      key={goal.id}
+                      goal={goal}
+                      isDragging={draggingGoalId === goal.id}
+                      onDragEnd={endGoalDrag}
+                      onDragMove={handleGoalDragMove}
+                      onDragStart={beginGoalDrag}
+                      onEdit={() => openEdit(goal)}
+                      onMeasure={measureGoalCard}
+                      onPressGoal={() => setActiveGoalDetail(goal)}
+                      onPressCheckpoint={(checkpoint) =>
+                        openCheckpoint(goal, checkpoint)
+                      }
+                    />
+                  ))}
+                </View>
+                {!queryIsActive && laterGoals.length > 0 ? (
+                  <LaterGoalsToggle
+                    count={laterGoals.length}
+                    expanded={showLaterGoals}
+                    onPress={() => setShowLaterGoals((current) => !current)}
+                  />
+                ) : null}
+              </>
+            ) : onlyLaterGoalsHidden ? (
+              <>
+                <View style={styles.centerState}>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                    No current goals
+                  </Text>
+                  <Text
+                    style={[
+                      styles.emptyDescription,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Later goals are hidden.
+                  </Text>
+                </View>
                 <LaterGoalsToggle
                   count={laterGoals.length}
                   expanded={showLaterGoals}
                   onPress={() => setShowLaterGoals((current) => !current)}
                 />
-              ) : null}
-            </>
-          ) : onlyLaterGoalsHidden ? (
-            <>
-              <View style={styles.centerState}>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                  No current goals
-                </Text>
-                <Text
-                  style={[
-                    styles.emptyDescription,
-                    { color: theme.textSecondary },
-                  ]}
-                >
-                  Later goals are hidden.
-                </Text>
-              </View>
-              <LaterGoalsToggle
-                count={laterGoals.length}
-                expanded={showLaterGoals}
-                onPress={() => setShowLaterGoals((current) => !current)}
-              />
-            </>
-          ) : (
-            <>
-              <EmptyState
-                hasGoals={goals.length > 0}
-                onAdd={openCreate}
-                query={query}
-              />
-            </>
-          )}
-        </ScrollView>
-      </SafeAreaView>
+              </>
+            ) : completedGoals.length > 0 ? null : (
+              <>
+                <EmptyState
+                  hasGoals={goals.length > 0}
+                  onAdd={openCreate}
+                  query={query}
+                />
+              </>
+            )}
+            {!isLoading && completedGoals.length > 0 ? (
+              <>
+                <LaterGoalsToggle
+                  count={completedGoals.length}
+                  expanded={showCompletedGoals}
+                  label="completed"
+                  onPress={() => setShowCompletedGoals((current) => !current)}
+                />
+                {showCompletedGoals ? (
+                  <View style={styles.goalList}>
+                    {completedGoals.map((goal) => (
+                      <GoalCard
+                        key={goal.id}
+                        goal={goal}
+                        isDragging={false}
+                        onDragEnd={() => undefined}
+                        onDragMove={() => undefined}
+                        onDragStart={() => undefined}
+                        onEdit={() => openEdit(goal)}
+                        onMeasure={() => undefined}
+                        onPressGoal={() => setActiveGoalDetail(goal)}
+                        onPressCheckpoint={(checkpoint) =>
+                          openCheckpoint(goal, checkpoint)
+                        }
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+          </ScrollView>
+        </SafeAreaView>
+      )}
 
       <GoalFormModal
         goal={editingGoal}
@@ -1074,17 +1377,15 @@ export function GoalsScreen() {
         onDelete={() => {
           if (editingGoal) confirmDelete(editingGoal);
         }}
+        onArchive={() => {
+          if (editingGoal) confirmArchive(editingGoal);
+        }}
+        onUnarchive={() => {
+          if (editingGoal) void unarchiveGoal(editingGoal);
+        }}
         onSave={saveGoal}
         onToggleLink={toggleGoalLink}
         tasks={tasks}
-      />
-      <GoalDetailModal
-        goal={activeGoalDetail}
-        habits={habits}
-        habitProgressById={habitProgressById}
-        tasks={tasks}
-        onClose={() => setActiveGoalDetail(null)}
-        onPressCheckpoint={openCheckpoint}
       />
       <CheckpointActionsModal
         active={activeCheckpoint}
@@ -1104,6 +1405,78 @@ export function GoalsScreen() {
         onCompleted={offerNextCheckpoint}
         onError={setError}
       />
+      <GoalActionsModal
+        goal={activeLinkedHabit}
+        visible={Boolean(activeLinkedHabit)}
+        hasNote={Boolean(
+          linkedHabitLogKey &&
+            linkedHabitSnapshot?.notesByHabitDate[linkedHabitLogKey]?.trim(),
+        )}
+        noteText={
+          linkedHabitLogKey
+            ? linkedHabitSnapshot?.notesByHabitDate[linkedHabitLogKey]
+            : null
+        }
+        hasPhoto={Boolean(
+          linkedHabitLogKey &&
+            (linkedHabitSnapshot?.photoCountsByHabitDate[linkedHabitLogKey] ??
+              0) > 0,
+        )}
+        visibility={
+          linkedHabitLogKey
+            ? (linkedHabitSnapshot?.visibilityByHabitDate[linkedHabitLogKey] ??
+              activeLinkedHabit?.visibility ??
+              "only_me")
+            : (activeLinkedHabit?.visibility ?? "only_me")
+        }
+        status={linkedHabitStatus}
+        completedCount={
+          linkedHabitLogKey
+            ? linkedHabitSnapshot?.completedCountsByHabitDate[linkedHabitLogKey]
+            : undefined
+        }
+        isUpdating={isUpdatingLinkedHabit}
+        isUpdatingVisibility={isUpdatingLinkedHabit}
+        canPlan={false}
+        isFutureDate={false}
+        uploadingPhotoSource={linkedHabitUploadingPhotoSource}
+        onAddPhoto={(source) => void addLinkedHabitPhoto(source)}
+        onOpenNote={() => {
+          if (!activeLinkedHabit) return;
+          setNoteLinkedHabit(activeLinkedHabit);
+          setActiveLinkedHabit(null);
+        }}
+        onSetVisibility={(visibility) =>
+          void updateLinkedHabitVisibility(visibility)
+        }
+        onSetStatus={(status) => void updateLinkedHabitStatus(status)}
+        onDismiss={() => {
+          setActiveLinkedHabit(null);
+          setLinkedHabitSnapshot(null);
+        }}
+        onShown={() => undefined}
+      />
+      {noteLinkedHabit ? (
+        <GoalNoteEditorModal
+          dateKey={linkedHabitDateKey}
+          goalName={noteLinkedHabit.name}
+          initialValue={
+            linkedHabitSnapshot?.notesByHabitDate[
+              `${noteLinkedHabit.id}_${linkedHabitDateKey}`
+            ] ?? null
+          }
+          onClose={() => setNoteLinkedHabit(null)}
+          onSave={async (notes) => {
+            await setHabitLogNote(
+              noteLinkedHabit.id,
+              linkedHabitDateKey,
+              notes,
+            );
+            await refreshLinkedHabitSnapshot();
+            setActiveLinkedHabit(noteLinkedHabit);
+          }}
+        />
+      ) : null}
       <CheckpointPlanModal
         active={planningCheckpoint}
         existingPlan={
@@ -1127,7 +1500,6 @@ export function GoalsScreen() {
 function GoalCard({
   goal,
   isDragging,
-  plannedEventsByCheckpointId,
   onDragEnd,
   onDragMove,
   onDragStart,
@@ -1138,7 +1510,6 @@ function GoalCard({
 }: {
   goal: Goal;
   isDragging: boolean;
-  plannedEventsByCheckpointId: Map<string, PlannedEvent>;
   onDragEnd: () => void;
   onDragMove: (event: GestureResponderEvent) => void;
   onDragStart: (goalId: string) => void;
@@ -1149,10 +1520,6 @@ function GoalCard({
 }) {
   const theme = useTheme();
   const cardRef = useRef<View>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const completedCount = goal.checkpoints.filter(
-    (checkpoint) => checkpoint.completed,
-  ).length;
   return (
     <View
       ref={cardRef}
@@ -1172,7 +1539,7 @@ function GoalCard({
         isDragging && styles.goalCardDragging,
       ]}
     >
-      <View style={styles.goalCardTop}>
+      <View style={styles.goalCardContent}>
         <View
           accessible
           accessibilityHint="Hold and drag to reorder this goal."
@@ -1186,98 +1553,99 @@ function GoalCard({
           onResponderTerminate={onDragEnd}
           onResponderTerminationRequest={() => false}
           onStartShouldSetResponder={() => true}
-          style={styles.dragHandle}
-        >
-          <SymbolView
-            name={symbol("line.3.horizontal", "drag_handle")}
-            size={19}
-            weight="semibold"
-            tintColor={isDragging ? theme.primary : theme.textSecondary}
-          />
-        </View>
-        <Pressable
-          accessibilityLabel={`Open ${goal.title}`}
-          accessibilityRole="button"
-          onPress={onPressGoal}
-          style={({ pressed }) => [styles.goalBody, pressed && styles.pressed]}
-        >
-          <View style={styles.goalTitleRow}>
-            <Text
-              numberOfLines={2}
-              style={[styles.goalTitle, { color: theme.text }]}
-            >
-              {goal.title}
-            </Text>
-          </View>
-          <Text
-            style={[styles.goalMeta, { color: theme.textSecondary }]}
-          >{`${completedCount}/${goal.checkpoints.length} checkpoints`}</Text>
-          <View
-            accessibilityLabel={`${completedCount} of ${goal.checkpoints.length} checkpoints complete`}
-            accessibilityRole="progressbar"
-            accessibilityValue={{
-              max: goal.checkpoints.length,
-              min: 0,
-              now: completedCount,
-            }}
-            style={[
-              styles.goalProgressTrack,
-              { backgroundColor: theme.backgroundElement },
-            ]}
-          >
-            {completedCount > 0 ? (
-              <View
-                style={[
-                  styles.goalProgressFill,
-                  {
-                    backgroundColor: theme.primary,
-                    width: `${Math.round(
-                      (completedCount / Math.max(goal.checkpoints.length, 1)) *
-                        100,
-                    )}%`,
-                  },
-                ]}
-              />
-            ) : null}
-          </View>
-        </Pressable>
-        <Pressable
-          accessibilityLabel={`Edit ${goal.title}`}
-          accessibilityRole="button"
-          onPress={onEdit}
-          style={({ pressed }) => [
-            styles.iconButton,
-            pressed && styles.pressed,
+          style={[
+            styles.goalAccent,
+            { backgroundColor: goal.color ?? theme.primary },
           ]}
-        >
-          <SymbolView
-            name={symbol("pencil", "edit")}
-            size={18}
-            weight="semibold"
-            tintColor={theme.textSecondary}
-          />
-        </Pressable>
-      </View>
+        />
+        <View style={styles.goalCardMain}>
+          <View style={styles.goalCardTop}>
+            <Pressable
+              accessibilityLabel={`Open ${goal.title}`}
+              accessibilityRole="button"
+              onPress={onPressGoal}
+              style={({ pressed }) => [
+                styles.goalBody,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                numberOfLines={2}
+                style={[styles.goalTitle, { color: theme.text }]}
+              >
+                {goal.title}
+              </Text>
+              <Text style={[styles.goalMeta, { color: theme.textSecondary }]}>
+                Tap for details
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel={`Edit ${goal.title}`}
+              accessibilityRole="button"
+              onPress={onEdit}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <SymbolView
+                name={symbol("pencil", "edit")}
+                size={18}
+                weight="semibold"
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          </View>
 
-      {goal.checkpoints.length ? (
-        <>
-          <NextCheckpointAction
-            checkpoints={goal.checkpoints}
-            expanded={isExpanded}
-            plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-            onPressCheckpoint={onPressCheckpoint}
-            onToggleExpanded={() => setIsExpanded((current) => !current)}
-          />
-          {isExpanded ? (
-            <GoalTimeline
-              checkpoints={goal.checkpoints}
-              plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-              onPressCheckpoint={onPressCheckpoint}
-              onViewAll={onEdit}
-            />
+          {goal.checkpoints.length ? (
+            <View style={styles.goalCheckpointList}>
+              {goal.checkpoints.map((checkpoint) => (
+                <Pressable
+                  accessibilityLabel={`Open ${checkpoint.title} checkpoint actions`}
+                  accessibilityRole="button"
+                  key={checkpoint.id}
+                  onPress={() => onPressCheckpoint(checkpoint)}
+                  style={({ pressed }) => [
+                    styles.goalCheckpointRow,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol(
+                      checkpoint.completed
+                        ? "checkmark.circle.fill"
+                        : checkpoint.started
+                          ? "play.circle.fill"
+                          : "circle",
+                      checkpoint.completed
+                        ? "check_circle"
+                        : checkpoint.started
+                          ? "play_circle"
+                          : "circle",
+                    )}
+                    size={20}
+                    tintColor={
+                      checkpoint.completed || checkpoint.started
+                        ? theme.primary
+                        : theme.textSecondary
+                    }
+                  />
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.goalCheckpointText,
+                      { color: theme.text },
+                      checkpoint.completed && styles.completedTimelineTitle,
+                    ]}
+                  >
+                    {checkpoint.title}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           ) : null}
-        </>
-      ) : null}
+        </View>
+      </View>
     </View>
   );
 }
@@ -1639,26 +2007,143 @@ function HabitProgressGrid({
   );
 }
 
+function getCheckpointDetailText(checkpoint: GoalCheckpoint) {
+  if (checkpoint.completed) {
+    const completedAge = formatCheckpointAge(checkpoint.completedAt);
+    const duration = getCheckpointDuration(
+      checkpoint.startedAt,
+      checkpoint.completedAt,
+    );
+    return [
+      `Completed ${completedAge ?? ""}`.trim(),
+      duration ? `Took ${duration}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  if (checkpoint.started) {
+    return `Started ${formatCheckpointAge(checkpoint.startedAt) ?? "recently"}`;
+  }
+
+  return "Not started";
+}
+
+function getCheckpointTargetText(checkpoint: GoalCheckpoint) {
+  if (!checkpoint.targetDate) return "No target date";
+  const isOverdue =
+    !checkpoint.completed && checkpoint.targetDate < todayDateKey();
+  return `${isOverdue ? "Overdue" : "Target"} ${formatCheckpointDate(
+    checkpoint.targetDate,
+  )}`;
+}
+
+function formatCheckpointAge(timestamp: string | null) {
+  if (!timestamp) return null;
+  const timestampDate = new Date(timestamp);
+  if (Number.isNaN(timestampDate.getTime())) return null;
+
+  const days = Math.max(
+    0,
+    Math.floor((Date.now() - timestampDate.getTime()) / 86_400_000),
+  );
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
+function getCheckpointDuration(
+  startedAt: string | null,
+  completedAt: string | null,
+) {
+  if (!startedAt || !completedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = new Date(completedAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+
+  const days = Math.floor((end - start) / 86_400_000);
+  if (days === 0) return "less than a day";
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
 function GoalDetailModal({
   goal,
   habits,
+  habitEvidenceByDate,
   habitProgressById,
   tasks,
   onClose,
+  onPressHabit,
   onPressCheckpoint,
 }: {
   goal: Goal | null;
   habits: Habit[];
+  habitEvidenceByDate: HabitEvidenceByDate;
   habitProgressById: HabitProgressById;
   tasks: Task[];
   onClose: () => void;
-  onPressCheckpoint: (
-    goal: Goal,
-    checkpoint: GoalCheckpoint,
-  ) => void;
+  onPressHabit: (habit: Habit) => void;
+  onPressCheckpoint: (goal: Goal, checkpoint: GoalCheckpoint) => void;
 }) {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
+  const [linkedHabitPhotos, setLinkedHabitPhotos] = useState<GoalPhoto[]>([]);
+  const [selectedLinkedHabitPhoto, setSelectedLinkedHabitPhoto] =
+    useState<GoalPhoto | null>(null);
+  const [detailHabitProgressById, setDetailHabitProgressById] =
+    useState(habitProgressById);
+  const [detailHabitEvidenceByDate, setDetailHabitEvidenceByDate] =
+    useState(habitEvidenceByDate);
+  const linkedHabitIdsForFetch = (goal?.links ?? [])
+    .filter((link) => link.sourceType === "habit")
+    .map((link) => link.sourceId);
+  const linkedHabitIdsKey = linkedHabitIdsForFetch.join("|");
+
+  useEffect(() => {
+    setDetailHabitProgressById(habitProgressById);
+    setDetailHabitEvidenceByDate(habitEvidenceByDate);
+  }, [habitEvidenceByDate, habitProgressById]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLinkedHabitPhotos([]);
+    setSelectedLinkedHabitPhoto(null);
+    if (!goal || !linkedHabitIdsKey) return;
+    const linkedHabitIds = linkedHabitIdsKey.split("|");
+
+    const startDateKey = goal.checkpoints.reduce((earliest, checkpoint) => {
+      const checkpointStart = timestampToDateKey(
+        checkpoint.startedAt ?? checkpoint.createdAt,
+      );
+      return checkpointStart < earliest ? checkpointStart : earliest;
+    }, timestampToDateKey(goal.createdAt));
+    const endDateKey = todayDateKey();
+
+    void Promise.all([
+      fetchAllHabitLogsSnapshot().catch(() => null),
+      Promise.all(
+        linkedHabitIds.map((habitId) =>
+          fetchGoalPhotosForRange(habitId, startDateKey, endDateKey),
+        ),
+      ),
+    ])
+      .then(([snapshot, photoGroups]) => {
+        if (cancelled) return;
+        if (snapshot) {
+          setDetailHabitProgressById(buildHabitProgressById([snapshot]));
+          setDetailHabitEvidenceByDate(buildHabitEvidenceByDate([snapshot]));
+        }
+        setLinkedHabitPhotos(photoGroups.flat());
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [goal, linkedHabitIdsKey]);
+
   if (!goal) return null;
 
   type LinkedGoalItem = {
@@ -1668,305 +2153,495 @@ function GoalDetailModal({
     title: string;
   };
   const links = goal.links ?? [];
-  const linkedItems = links.flatMap((link): LinkedGoalItem[] => {
-    if (link.sourceType === "task") {
-      const task = tasks.find((item) => item.id === link.sourceId);
-      return task
-        ? [{
-            icon: symbol("checklist", "checklist"),
-            id: link.sourceId,
-            kind: "Task" as const,
-            title: task.name,
-          }]
+  const linkedItems = links
+    .flatMap((link): LinkedGoalItem[] => {
+      if (link.sourceType === "task") {
+        const task = tasks.find((item) => item.id === link.sourceId);
+        return task && !task.completedAt
+          ? [
+              {
+                icon: symbol("checklist", "checklist"),
+                id: link.sourceId,
+                kind: "Task" as const,
+                title: task.name,
+              },
+            ]
+          : [];
+      }
+
+      const habit = habits.find((item) => item.id === link.sourceId);
+      return habit
+        ? [
+            {
+              icon: symbol("repeat", "repeat"),
+              id: link.sourceId,
+              kind: "Habit" as const,
+              title: habit.name,
+            },
+          ]
         : [];
+    })
+    .sort((left, right) => {
+      if (left.kind === right.kind) return 0;
+      return left.kind === "Task" ? -1 : 1;
+    });
+  const linkedHabitIds = links
+    .filter((link) => link.sourceType === "habit")
+    .map((link) => link.sourceId);
+  const getLinkedHabitEvidence = (checkpoint: GoalCheckpoint) => {
+    if (!checkpoint.started && !checkpoint.completed) {
+      return { hasNote: false, hasPhoto: false, noteText: null, photos: [] };
     }
 
-    const habit = habits.find((item) => item.id === link.sourceId);
-    return habit
-      ? [{
-          icon: symbol("repeat", "repeat"),
-          id: link.sourceId,
-          kind: "Habit" as const,
-          title: habit.name,
-        }]
-      : [];
-  });
+    const startDateKey = timestampToDateKey(
+      checkpoint.startedAt ?? checkpoint.createdAt,
+    );
+    const endDateKey = checkpoint.completedAt
+      ? timestampToDateKey(checkpoint.completedAt)
+      : todayDateKey();
+    const evidence: {
+      hasNote: boolean;
+      hasPhoto: boolean;
+      noteText: string | null;
+      photos: GoalPhoto[];
+    } = { hasNote: false, hasPhoto: false, noteText: null, photos: [] };
+
+    for (const habitId of linkedHabitIds) {
+      for (const dateKey of detailHabitProgressById[habitId] ?? []) {
+        if (dateKey < startDateKey || dateKey > endDateKey) continue;
+        const habitEvidence =
+          detailHabitEvidenceByDate[`${habitId}_${dateKey}`];
+        if (habitEvidence) {
+          evidence.hasNote ||= habitEvidence.hasNote;
+          evidence.noteText ??= habitEvidence.noteText;
+        }
+        const photos = linkedHabitPhotos.filter(
+          (photo) => photo.goalId === habitId && photo.dateKey === dateKey,
+        );
+        evidence.photos.push(...photos);
+        evidence.hasPhoto ||= photos.length > 0;
+      }
+    }
+
+    return evidence;
+  };
   const activeCheckpoint =
-    goal.checkpoints.find((checkpoint) => checkpoint.started && !checkpoint.completed) ??
-    null;
+    goal.checkpoints.find(
+      (checkpoint) => checkpoint.started && !checkpoint.completed,
+    ) ?? null;
 
   return (
-    <Modal
-        animationType="slide"
-        presentationStyle="fullScreen"
-        visible
-        onRequestClose={onClose}
+    <SafeAreaView
+      edges={["top", "bottom"]}
+      style={{ backgroundColor: theme.background, flex: 1 }}
+    >
+      <View
+        style={{
+          alignItems: "center",
+          backgroundColor: theme.tabBar,
+          borderBottomColor: theme.tabBorder,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          flexDirection: "row",
+          gap: 12,
+          justifyContent: "space-between",
+          minHeight: 62,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+        }}
       >
-        <SafeAreaView
-          edges={["bottom"]}
-          style={{ backgroundColor: theme.background, flex: 1 }}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={[
+              {
+                color: theme.text,
+                fontSize: 18,
+                fontWeight: "800",
+                lineHeight: 24,
+              },
+            ]}
+          >
+            {goal.title}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel="Close"
+          hitSlop={8}
+          onPress={onClose}
+          style={({ pressed }) => [
+            modalStyles.closeBtn,
+            {
+              backgroundColor: theme.backgroundElement,
+              flexShrink: 0,
+            },
+            pressed && styles.pressed,
+          ]}
         >
-            <View
-              style={[
-                modalStyles.header,
-                {
-                  alignItems: "flex-start",
-                  backgroundColor: theme.tabBar,
-                  borderBottomColor: theme.tabBorder,
-                  paddingTop: Math.max(28, insets.top + 8),
-                },
-              ]}
-            >
-              <View style={[modalStyles.titleBlock, { paddingRight: 4 }]}>
-                <Text
-                  style={[
-                    modalStyles.title,
-                    {
-                      color: theme.text,
-                      flexBasis: "auto",
-                      flexGrow: 0,
-                      flexShrink: 1,
-                    },
-                  ]}
-                >
-                  {goal.title}
-                </Text>
-                <Text
-                  style={[modalStyles.subtitle, { color: theme.textSecondary }]}
-                >
-                  {goal.checkpoints.length} checkpoints
-                </Text>
-              </View>
-              <Pressable
-                accessibilityLabel="Close"
-                hitSlop={8}
-                onPress={onClose}
-                style={({ pressed }) => [
-                  modalStyles.closeBtn,
-                  {
-                    backgroundColor: theme.backgroundElement,
-                    flexShrink: 0,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("xmark", "close")}
-                  size={14}
-                  weight="bold"
-                  tintColor={theme.tabIcon}
-                />
-              </Pressable>
-            </View>
+          <SymbolView
+            name={symbol("xmark", "close")}
+            size={14}
+            weight="bold"
+            tintColor={theme.tabIcon}
+          />
+        </Pressable>
+      </View>
 
-            <ScrollView
-              canCancelContentTouches
-              contentContainerStyle={modalStyles.actions}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={{ gap: 10 }}>
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontSize: 14,
-                    fontWeight: "700",
-                  }}
-                >
-                  Linked tasks and habits
-                </Text>
-                {linkedItems.length ? (
-                  <View style={{ gap: 10, paddingLeft: 6 }}>
-                    {linkedItems.map((item) => (
-                      item.kind === "Habit" ? (
-                        <View key={`${item.kind}:${item.id}`} style={{ gap: 5 }}>
-                          <View
-                            style={{
-                              alignItems: "center",
-                              flexDirection: "row",
-                              gap: 8,
-                              minHeight: 28,
-                            }}
-                          >
-                            <SymbolView
-                              name={item.icon}
-                              size={16}
-                              tintColor={theme.primary}
-                            />
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                color: theme.text,
-                                flex: 1,
-                                fontSize: 14,
-                                fontWeight: "600",
-                              }}
-                            >
-                              {item.title}
-                            </Text>
-                            <Text
-                              style={{ color: theme.textSecondary, fontSize: 11 }}
-                            >
-                              Habit
-                            </Text>
-                          </View>
-                          {activeCheckpoint ? (
-                            <HabitProgressGrid
-                              completedDates={habitProgressById[item.id] ?? []}
-                              goalCreatedAt={goal.createdAt}
-                              checkpointCreatedAt={activeCheckpoint.createdAt}
-                              checkpointCompletedAt={activeCheckpoint.completedAt}
-                            />
-                          ) : null}
-                        </View>
-                      ) : (
-                        <View
-                          key={`${item.kind}:${item.id}`}
-                          style={{
-                            alignItems: "center",
-                            flexDirection: "row",
-                            gap: 8,
-                            minHeight: 28,
-                          }}
-                        >
-                          <SymbolView
-                            name={item.icon}
-                            size={16}
-                            tintColor={theme.primary}
-                          />
-                          <Text
-                            numberOfLines={1}
-                            style={{
-                              color: theme.text,
-                              flex: 1,
-                              fontSize: 14,
-                              fontWeight: "600",
-                            }}
-                          >
-                            {item.title}
-                          </Text>
-                          <Text
-                            style={{ color: theme.textSecondary, fontSize: 11 }}
-                          >
-                            Task
-                          </Text>
-                        </View>
-                      )
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
-                    No tasks or habits linked.
-                  </Text>
-                )}
-              </View>
-
-              <View
-                style={{
-                  borderTopColor: theme.tabBorder,
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                  gap: 10,
-                  paddingTop: 18,
-                }}
-              >
-                <Text
-                  style={{
-                    color: theme.textSecondary,
-                    fontSize: 14,
-                    fontWeight: "700",
-                  }}
-                >
-                  Checkpoints
-                </Text>
-                {goal.checkpoints.map((checkpoint, index) => (
-                  <View
-                    key={checkpoint.id}
-                    style={{
-                      gap: 10,
-                      borderTopColor: theme.tabBorder,
-                      borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
-                      paddingTop: index === 0 ? 0 : 14,
+      <ScrollView
+        canCancelContentTouches
+        contentContainerStyle={modalStyles.actions}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={{ gap: 10 }}>
+          <Text
+            style={{
+              color: theme.textSecondary,
+              fontSize: 14,
+              fontWeight: "700",
+            }}
+          >
+            Linked tasks and habits
+          </Text>
+          {linkedItems.length ? (
+            <View style={{ gap: 10, paddingLeft: 6 }}>
+              {linkedItems.map((item) =>
+                item.kind === "Habit" ? (
+                  <Pressable
+                    accessibilityLabel={`Open ${item.title} habit actions`}
+                    accessibilityRole="button"
+                    key={`${item.kind}:${item.id}`}
+                    onPress={() => {
+                      const habit = habits.find(
+                        (candidate) => candidate.id === item.id,
+                      );
+                      if (habit) onPressHabit(habit);
                     }}
+                    style={({ pressed }) => [
+                      { gap: 5 },
+                      pressed && styles.pressed,
+                    ]}
                   >
                     <View
                       style={{
-                        flexDirection: "row",
                         alignItems: "center",
-                        gap: 10,
+                        flexDirection: "row",
+                        gap: 8,
+                        minHeight: 28,
                       }}
                     >
-                      <Pressable
-                        accessibilityLabel={
-                          checkpoint.completed
-                            ? `${checkpoint.title} completed`
-                            : checkpoint.started
-                              ? `Complete ${checkpoint.title}`
-                              : `Start ${checkpoint.title}`
-                        }
-                        accessibilityRole="button"
-                        disabled={checkpoint.completed}
-                        onPress={() => onPressCheckpoint(goal, checkpoint)}
+                      <SymbolView
+                        name={item.icon}
+                        size={16}
+                        tintColor={theme.primary}
+                      />
+                      <Text
+                        numberOfLines={1}
                         style={{
-                          alignItems: "center",
-                          backgroundColor: checkpoint.completed
-                            ? theme.primary
-                            : checkpoint.started
-                              ? `${theme.primary}26`
-                              : theme.backgroundElement,
-                          borderColor: checkpoint.completed
-                            ? theme.primary
-                            : checkpoint.started
-                              ? theme.primary
-                              : theme.tabBorder,
-                          borderRadius: 14,
-                          borderWidth: 1.5,
-                          height: 28,
-                          justifyContent: "center",
-                          width: 28,
+                          color: theme.text,
+                          flex: 1,
+                          fontSize: 14,
+                          fontWeight: "600",
                         }}
                       >
-                        {checkpoint.completed ? (
-                          <SymbolView
-                            name={symbol("checkmark", "check")}
-                            size={14}
-                            tintColor={theme.primaryForeground}
-                            weight="bold"
-                          />
-                        ) : checkpoint.started ? (
-                          <SymbolView
-                            name={symbol("play.fill", "play_arrow")}
-                            size={12}
-                            tintColor={theme.primary}
-                            weight="bold"
-                          />
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={{ color: theme.textSecondary, fontSize: 11 }}
+                      >
+                        Habit
+                      </Text>
+                    </View>
+                    {activeCheckpoint ? (
+                      <HabitProgressGrid
+                        completedDates={habitProgressById[item.id] ?? []}
+                        goalCreatedAt={goal.createdAt}
+                        checkpointCreatedAt={activeCheckpoint.createdAt}
+                        checkpointCompletedAt={activeCheckpoint.completedAt}
+                      />
+                    ) : null}
+                  </Pressable>
+                ) : (
+                  <View
+                    key={`${item.kind}:${item.id}`}
+                    style={{
+                      alignItems: "center",
+                      flexDirection: "row",
+                      gap: 8,
+                      minHeight: 28,
+                    }}
+                  >
+                    <SymbolView
+                      name={item.icon}
+                      size={16}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: theme.text,
+                        flex: 1,
+                        fontSize: 14,
+                        fontWeight: "600",
+                      }}
+                    >
+                      {item.title}
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+                      Task
+                    </Text>
+                  </View>
+                ),
+              )}
+            </View>
+          ) : (
+            <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+              No tasks or habits linked.
+            </Text>
+          )}
+        </View>
+
+        <View
+          style={{
+            borderTopColor: theme.tabBorder,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            gap: 10,
+            paddingTop: 18,
+          }}
+        >
+          <Text
+            style={{
+              color: theme.textSecondary,
+              fontSize: 14,
+              fontWeight: "700",
+            }}
+          >
+            Checkpoints
+          </Text>
+          {goal.checkpoints.map((checkpoint, index) => {
+            const linkedHabitEvidence = getLinkedHabitEvidence(checkpoint);
+
+            return (
+              <View
+                key={checkpoint.id}
+                style={{
+                  gap: 10,
+                  borderTopColor: theme.tabBorder,
+                  borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
+                  paddingTop: index === 0 ? 0 : 14,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Pressable
+                    accessibilityLabel={
+                      checkpoint.completed
+                        ? `${checkpoint.title} completed`
+                        : checkpoint.started
+                          ? `Complete ${checkpoint.title}`
+                          : `Start ${checkpoint.title}`
+                    }
+                    accessibilityRole="button"
+                    disabled={checkpoint.completed}
+                    onPress={() => onPressCheckpoint(goal, checkpoint)}
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: checkpoint.completed
+                        ? theme.primary
+                        : checkpoint.started
+                          ? `${theme.primary}26`
+                          : theme.backgroundElement,
+                      borderColor: checkpoint.completed
+                        ? theme.primary
+                        : checkpoint.started
+                          ? theme.primary
+                          : theme.tabBorder,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      height: 28,
+                      justifyContent: "center",
+                      width: 28,
+                    }}
+                  >
+                    {checkpoint.completed ? (
+                      <SymbolView
+                        name={symbol("checkmark", "check")}
+                        size={14}
+                        tintColor={theme.primaryForeground}
+                        weight="bold"
+                      />
+                    ) : checkpoint.started ? (
+                      <SymbolView
+                        name={symbol("play.fill", "play_arrow")}
+                        size={12}
+                        tintColor={theme.primary}
+                        weight="bold"
+                      />
+                    ) : null}
+                  </Pressable>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontSize: 18,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {checkpoint.title}
+                    </Text>
+                    <View style={{ gap: 3, marginTop: 2 }}>
+                      <Text
+                        style={{ color: theme.textSecondary, fontSize: 12 }}
+                      >
+                        {getCheckpointDetailText(checkpoint)}
+                      </Text>
+                      <View
+                        style={{
+                          alignItems: "center",
+                          flexDirection: "row",
+                          flexWrap: "wrap",
+                          gap: 7,
+                        }}
+                      >
+                        {getCheckpointTargetText(checkpoint) ? (
+                          <Text
+                            style={{
+                              color:
+                                !checkpoint.completed &&
+                                Boolean(
+                                  checkpoint.targetDate &&
+                                    checkpoint.targetDate < todayDateKey(),
+                                )
+                                  ? theme.primary
+                                  : theme.textSecondary,
+                              fontSize: 12,
+                            }}
+                          >
+                            {getCheckpointTargetText(checkpoint)}
+                          </Text>
                         ) : null}
-                      </Pressable>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text
+                      </View>
+                      {linkedHabitEvidence.noteText ? (
+                        <View
                           style={{
-                            color: theme.text,
-                            fontSize: 18,
-                            fontWeight: "700",
+                            backgroundColor: theme.backgroundElement,
+                            borderRadius: 8,
+                            marginTop: 7,
+                            paddingHorizontal: 9,
+                            paddingVertical: 7,
                           }}
                         >
-                          {checkpoint.title}
-                        </Text>
-                        <Text
-                          style={{ color: theme.textSecondary, fontSize: 12 }}
+                          <Text
+                            numberOfLines={4}
+                            style={{
+                              color: theme.text,
+                              fontSize: 12,
+                              lineHeight: 17,
+                            }}
+                          >
+                            {richTextToPlainText(linkedHabitEvidence.noteText)}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {linkedHabitEvidence.photos.length > 0 ? (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={{ marginTop: 7 }}
                         >
-                          {checkpoint.completed
-                            ? "Completed"
-                            : checkpoint.started
-                              ? "Started"
-                              : "Not started"}
-                        </Text>
-                      </View>
+                          {linkedHabitEvidence.photos.map((photo) => (
+                            <Pressable
+                              accessibilityLabel="Open linked habit photo"
+                              accessibilityRole="button"
+                              key={photo.id}
+                              onPress={() => setSelectedLinkedHabitPhoto(photo)}
+                              style={({ pressed }) => [
+                                {
+                                  borderRadius: 8,
+                                  marginRight: 7,
+                                  overflow: "hidden",
+                                },
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <Image
+                                contentFit="cover"
+                                source={{ uri: photo.url }}
+                                style={{
+                                  backgroundColor: theme.backgroundElement,
+                                  height: 78,
+                                  width: 96,
+                                }}
+                                transition={180}
+                              />
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      ) : null}
                     </View>
                   </View>
-                ))}
+                </View>
               </View>
-            </ScrollView>
-        </SafeAreaView>
-    </Modal>
+            );
+          })}
+        </View>
+      </ScrollView>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setSelectedLinkedHabitPhoto(null)}
+        statusBarTranslucent
+        transparent
+        visible={Boolean(selectedLinkedHabitPhoto)}
+      >
+        <View
+          style={{
+            backgroundColor: "rgba(0, 0, 0, 0.96)",
+            flex: 1,
+            justifyContent: "center",
+          }}
+        >
+          <Pressable
+            accessibilityLabel="Close linked habit photo"
+            onPress={() => setSelectedLinkedHabitPhoto(null)}
+            style={StyleSheet.absoluteFill}
+          />
+          {selectedLinkedHabitPhoto ? (
+            <Image
+              contentFit="contain"
+              source={{ uri: selectedLinkedHabitPhoto.url }}
+              style={{ height: "100%", width: "100%" }}
+            />
+          ) : null}
+          <Pressable
+            accessibilityLabel="Close linked habit photo"
+            accessibilityRole="button"
+            onPress={() => setSelectedLinkedHabitPhoto(null)}
+            style={({ pressed }) => [
+              {
+                alignItems: "center",
+                backgroundColor: theme.backgroundElement,
+                borderRadius: 22,
+                height: 44,
+                justifyContent: "center",
+                position: "absolute",
+                right: 18,
+                top: 48,
+                width: 44,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <SymbolView
+              name={symbol("xmark", "close")}
+              size={20}
+              tintColor={theme.text}
+            />
+          </Pressable>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
@@ -2010,94 +2685,94 @@ function LinkGoalModal({
 
   const content = (
     <View style={modalStyles.overlay}>
-        <Pressable
-          accessibilityLabel="Close link picker"
-          style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
-          onPress={onClose}
-        />
-        <SafeAreaView
-          edges={["bottom"]}
-          style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+      <Pressable
+        accessibilityLabel="Close link picker"
+        style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
+        onPress={onClose}
+      />
+      <SafeAreaView
+        edges={["bottom"]}
+        style={[modalStyles.sheet, { backgroundColor: theme.background }]}
+      >
+        <View
+          style={[
+            modalStyles.header,
+            {
+              backgroundColor: theme.tabBar,
+              borderBottomColor: theme.tabBorder,
+            },
+          ]}
         >
-          <View
-            style={[
-              modalStyles.header,
-              {
-                backgroundColor: theme.tabBar,
-                borderBottomColor: theme.tabBorder,
-              },
+          <View style={modalStyles.titleBlock}>
+            <Text style={[modalStyles.title, { color: theme.text }]}>
+              Link to {goal.title}
+            </Text>
+            <Text
+              style={[modalStyles.subtitle, { color: theme.textSecondary }]}
+            >
+              Choose tasks or habits for this goal
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Close"
+            hitSlop={8}
+            onPress={onClose}
+            style={({ pressed }) => [
+              modalStyles.closeBtn,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
             ]}
           >
-            <View style={modalStyles.titleBlock}>
-              <Text style={[modalStyles.title, { color: theme.text }]}>
-                Link to {goal.title}
-              </Text>
-              <Text
-                style={[modalStyles.subtitle, { color: theme.textSecondary }]}
-              >
-                Choose tasks or habits for this goal
-              </Text>
-            </View>
-            <Pressable
-              accessibilityLabel="Close"
-              hitSlop={8}
-              onPress={onClose}
-              style={({ pressed }) => [
-                modalStyles.closeBtn,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={symbol("xmark", "close")}
-                size={14}
-                weight="bold"
-                tintColor={theme.tabIcon}
-              />
-            </Pressable>
-          </View>
+            <SymbolView
+              name={symbol("xmark", "close")}
+              size={14}
+              weight="bold"
+              tintColor={theme.tabIcon}
+            />
+          </Pressable>
+        </View>
 
-          <ScrollView
-            canCancelContentTouches
-            contentContainerStyle={modalStyles.actions}
-            showsVerticalScrollIndicator={false}
-          >
-            <LinkOptionGroup
-              emptyLabel="No active tasks available."
-              icon={symbol("checklist", "checklist")}
-              label="Tasks"
-              options={visibleTasks.map((task) => ({
-                id: task.id,
-                subtitle: [task.importance, task.timeRequired]
-                  .filter(Boolean)
-                  .join(" · "),
-                title: task.name,
-              }))}
-              updatingKey={linkUpdatingKey}
-              sourceType="task"
-              linkedIds={linkedTaskIds}
-              goal={goal}
-              onToggle={onToggleLink}
-            />
-            <LinkOptionGroup
-              emptyLabel="No visible habits available."
-              icon={symbol("repeat", "repeat")}
-              label="Habits"
-              options={visibleHabits.map((habit) => ({
-                id: habit.id,
-                subtitle: [habit.categoryName, habit.period]
-                  .filter(Boolean)
-                  .join(" · "),
-                title: habit.name,
-              }))}
-              updatingKey={linkUpdatingKey}
-              sourceType="habit"
-              linkedIds={linkedHabitIds}
-              goal={goal}
-              onToggle={onToggleLink}
-            />
-          </ScrollView>
-        </SafeAreaView>
+        <ScrollView
+          canCancelContentTouches
+          contentContainerStyle={modalStyles.actions}
+          showsVerticalScrollIndicator={false}
+        >
+          <LinkOptionGroup
+            emptyLabel="No active tasks available."
+            icon={symbol("checklist", "checklist")}
+            label="Tasks"
+            options={visibleTasks.map((task) => ({
+              id: task.id,
+              subtitle: [task.importance, task.timeRequired]
+                .filter(Boolean)
+                .join(" · "),
+              title: task.name,
+            }))}
+            updatingKey={linkUpdatingKey}
+            sourceType="task"
+            linkedIds={linkedTaskIds}
+            goal={goal}
+            onToggle={onToggleLink}
+          />
+          <LinkOptionGroup
+            emptyLabel="No visible habits available."
+            icon={symbol("repeat", "repeat")}
+            label="Habits"
+            options={visibleHabits.map((habit) => ({
+              id: habit.id,
+              subtitle: [habit.categoryName, habit.period]
+                .filter(Boolean)
+                .join(" · "),
+              title: habit.name,
+            }))}
+            updatingKey={linkUpdatingKey}
+            sourceType="habit"
+            linkedIds={linkedHabitIds}
+            goal={goal}
+            onToggle={onToggleLink}
+          />
+        </ScrollView>
+      </SafeAreaView>
     </View>
   );
 
@@ -2136,7 +2811,13 @@ function LinkOptionGroup({
     <View style={{ gap: 6 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
         <SymbolView name={icon} size={16} tintColor={theme.primary} />
-        <Text style={{ color: theme.textSecondary, fontSize: 14, fontWeight: "700" }}>
+        <Text
+          style={{
+            color: theme.textSecondary,
+            fontSize: 14,
+            fontWeight: "700",
+          }}
+        >
           {label}
         </Text>
       </View>
@@ -2148,7 +2829,10 @@ function LinkOptionGroup({
           return (
             <Pressable
               accessibilityRole="checkbox"
-              accessibilityState={{ checked: linked, disabled: Boolean(updatingKey) }}
+              accessibilityState={{
+                checked: linked,
+                disabled: Boolean(updatingKey),
+              }}
               disabled={Boolean(updatingKey)}
               key={option.id}
               onPress={() => onToggle(goal, sourceType, option.id)}
@@ -2182,7 +2866,10 @@ function LinkOptionGroup({
                 }}
               >
                 {isUpdating ? (
-                  <ActivityIndicator color={theme.primaryForeground} size="small" />
+                  <ActivityIndicator
+                    color={theme.primaryForeground}
+                    size="small"
+                  />
                 ) : linked ? (
                   <SymbolView
                     name={symbol("checkmark", "check")}
@@ -2193,11 +2880,17 @@ function LinkOptionGroup({
                 ) : null}
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text numberOfLines={1} style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}>
+                <Text
+                  numberOfLines={1}
+                  style={{ color: theme.text, fontSize: 15, fontWeight: "600" }}
+                >
                   {option.title}
                 </Text>
                 {option.subtitle ? (
-                  <Text numberOfLines={1} style={{ color: theme.textSecondary, fontSize: 12 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{ color: theme.textSecondary, fontSize: 12 }}
+                  >
                     {option.subtitle}
                   </Text>
                 ) : null}
@@ -2214,7 +2907,7 @@ function LinkOptionGroup({
   );
 }
 
-function CheckpointActionsModal({
+export function CheckpointActionsModal({
   active,
   plannedEvent,
   onClearPlan,
@@ -2227,11 +2920,11 @@ function CheckpointActionsModal({
 }: {
   active: ActiveCheckpoint | null;
   plannedEvent?: PlannedEvent | null;
-  onClearPlan: (active: ActiveCheckpoint) => void;
+  onClearPlan?: (active: ActiveCheckpoint) => void;
   onClose: () => void;
-  onEditGoal: (goal: Goal) => void;
+  onEditGoal?: (goal: Goal) => void;
   onCompleted: (updatedGoal: Goal | null, checkpointId: string) => void;
-  onPlan: (active: ActiveCheckpoint) => void;
+  onPlan?: (active: ActiveCheckpoint) => void;
   onSaved: (updatedGoal: Goal | null) => void;
   onError: (message: string | null) => void;
 }) {
@@ -2415,7 +3108,7 @@ function CheckpointActionsModal({
             </Text>
 
             <Pressable
-                onPress={() =>
+              onPress={() =>
                 void save({
                   started: completed ? true : !started,
                   completed: completed ? false : started,
@@ -2453,25 +3146,27 @@ function CheckpointActionsModal({
               </Text>
             </Pressable>
 
-            <Pressable
-              onPress={() => onPlan(active)}
-              style={({ pressed }) => [
-                modalStyles.actionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={symbol("calendar.badge.plus", "event_available")}
-                size={26}
-                tintColor={theme.secondary}
-              />
-              <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                {plannedEvent ? "Edit calendar plan" : "Plan to calendar"}
-              </Text>
-            </Pressable>
+            {onPlan ? (
+              <Pressable
+                onPress={() => onPlan(active)}
+                style={({ pressed }) => [
+                  modalStyles.actionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("calendar.badge.plus", "event_available")}
+                  size={26}
+                  tintColor={theme.secondary}
+                />
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  {plannedEvent ? "Edit calendar plan" : "Plan to calendar"}
+                </Text>
+              </Pressable>
+            ) : null}
 
-            {plannedEvent ? (
+            {plannedEvent && onClearPlan ? (
               <Pressable
                 onPress={() => onClearPlan(active)}
                 style={({ pressed }) => [
@@ -2642,23 +3337,25 @@ function CheckpointActionsModal({
               />
             ) : null}
 
-            <Pressable
-              onPress={() => onEditGoal(goal)}
-              style={({ pressed }) => [
-                modalStyles.actionRow,
-                { backgroundColor: theme.backgroundElement },
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={symbol("pencil", "edit")}
-                size={26}
-                tintColor={theme.tabIcon}
-              />
-              <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                Edit goal
-              </Text>
-            </Pressable>
+            {onEditGoal ? (
+              <Pressable
+                onPress={() => onEditGoal(goal)}
+                style={({ pressed }) => [
+                  modalStyles.actionRow,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("pencil", "edit")}
+                  size={26}
+                  tintColor={theme.tabIcon}
+                />
+                <Text style={[modalStyles.actionText, { color: theme.text }]}>
+                  Edit goal
+                </Text>
+              </Pressable>
+            ) : null}
           </ScrollView>
         </SafeAreaView>
       </View>
@@ -2950,10 +3647,12 @@ function CheckpointPlanTimeField({
 function LaterGoalsToggle({
   count,
   expanded,
+  label = "later",
   onPress,
 }: {
   count: number;
   expanded: boolean;
+  label?: "later" | "completed";
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -2972,7 +3671,7 @@ function LaterGoalsToggle({
       ]}
     >
       <Text style={[styles.laterGoalsToggleText, { color: theme.text }]}>
-        {expanded ? "Hide later goals" : `Show later goals (${count})`}
+        {expanded ? `Hide ${label} goals` : `Show ${label} goals (${count})`}
       </Text>
       <SymbolView
         name={symbol(
@@ -3058,7 +3757,9 @@ export function GoalFormModal({
   isOpen,
   linkUpdatingKey = null,
   onClose,
+  onArchive,
   onDelete,
+  onUnarchive,
   onSave,
   onToggleLink = async () => null,
   saveHint,
@@ -3070,7 +3771,9 @@ export function GoalFormModal({
   isOpen: boolean;
   linkUpdatingKey?: string | null;
   onClose: () => void;
+  onArchive?: () => void;
   onDelete?: () => void;
+  onUnarchive?: () => void;
   onSave: (input: GoalInput) => Promise<void>;
   onToggleLink?: ToggleGoalLink;
   saveHint?: string;
@@ -3079,7 +3782,6 @@ export function GoalFormModal({
   const theme = useTheme();
   const [title, setTitle] = useState("");
   const [color, setColor] = useState<string | null>(null);
-  const [timing, setTiming] = useState<GoalTiming>("current");
   const [planOnCalendar, setPlanOnCalendar] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
   const [goalLinks, setGoalLinks] = useState<Goal["links"]>([]);
@@ -3091,7 +3793,6 @@ export function GoalFormModal({
     if (!isOpen) return;
     setTitle(goal?.title ?? initialValues?.title ?? "");
     setColor(goal?.color ?? initialValues?.color ?? null);
-    setTiming(goal?.timing ?? initialValues?.timing ?? "current");
     setPlanOnCalendar(
       goal?.planOnCalendar ?? initialValues?.planOnCalendar ?? false,
     );
@@ -3162,6 +3863,11 @@ export function GoalFormModal({
         completed: checkpoint.completed,
       }))
       .filter((checkpoint) => checkpoint.title.length > 0);
+    const derivedTiming = checkpointInput.some(
+      (checkpoint) => checkpoint.started || checkpoint.completed,
+    )
+      ? "current"
+      : "later";
     const invalidDate = checkpointInput.find(
       (checkpoint) =>
         checkpoint.targetDate.length > 0 &&
@@ -3180,7 +3886,7 @@ export function GoalFormModal({
       await onSave({
         title: trimmedTitle,
         color,
-        timing,
+        timing: derivedTiming,
         planOnCalendar,
         checkpoints: checkpointInput.map((checkpoint) => ({
           title: checkpoint.title,
@@ -3211,442 +3917,484 @@ export function GoalFormModal({
           style={[styles.formScreen, { backgroundColor: theme.background }]}
         >
           <SafeAreaView style={styles.formSafeArea}>
-          <View
-            style={[
-              styles.formHeader,
-              {
-                backgroundColor: theme.tabBar,
-                borderBottomColor: theme.tabBorder,
-              },
-            ]}
-          >
-            <Pressable onPress={onClose} style={styles.formHeaderButton}>
-              <Text
-                style={[styles.formHeaderButtonText, { color: theme.primary }]}
-              >
-                Cancel
-              </Text>
-            </Pressable>
-            <Text style={[styles.formTitle, { color: theme.text }]}>
-              {goal ? "Edit Goal" : "New Goal"}
-            </Text>
-            <Pressable
-              disabled={!title.trim() || isSaving}
-              onPress={() => void save()}
-              style={styles.formHeaderButton}
-            >
-              {isSaving ? (
-                <ActivityIndicator color={theme.primary} size="small" />
-              ) : (
-                <Text
-                  style={[
-                    styles.formHeaderButtonText,
-                    {
-                      color: title.trim() ? theme.primary : theme.textSecondary,
-                    },
-                  ]}
-                >
-                  Save
-                </Text>
-              )}
-            </Pressable>
-          </View>
-          {saveHint ? (
             <View
               style={[
-                styles.saveHint,
+                styles.formHeader,
                 {
-                  backgroundColor: theme.backgroundElement,
+                  backgroundColor: theme.tabBar,
                   borderBottomColor: theme.tabBorder,
                 },
               ]}
             >
-              <Text style={[styles.saveHintText, { color: theme.text }]}>
-                {saveHint}
+              <Pressable onPress={onClose} style={styles.formHeaderButton}>
+                <Text
+                  style={[
+                    styles.formHeaderButtonText,
+                    { color: theme.primary },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+              <Text style={[styles.formTitle, { color: theme.text }]}>
+                {goal ? "Edit Goal" : "New Goal"}
               </Text>
-            </View>
-          ) : null}
-
-          <ScrollView
-            canCancelContentTouches
-            contentContainerStyle={styles.formContent}
-            directionalLockEnabled
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.formSection}>
-              <Text
-                style={[styles.sectionTitle, { color: theme.textSecondary }]}
+              <Pressable
+                disabled={!title.trim() || isSaving}
+                onPress={() => void save()}
+                style={styles.formHeaderButton}
               >
-                Goal
-              </Text>
+                {isSaving ? (
+                  <ActivityIndicator color={theme.primary} size="small" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.formHeaderButtonText,
+                      {
+                        color: title.trim()
+                          ? theme.primary
+                          : theme.textSecondary,
+                      },
+                    ]}
+                  >
+                    Save
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+            {saveHint ? (
               <View
                 style={[
-                  styles.sectionSurface,
+                  styles.saveHint,
                   {
-                    backgroundColor: theme.tabBar,
-                    borderColor: theme.tabBorder,
+                    backgroundColor: theme.backgroundElement,
+                    borderBottomColor: theme.tabBorder,
                   },
                 ]}
               >
-                <View style={styles.inputField}>
-                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                    Title
-                  </Text>
-                  <TextInput
-                    autoFocus
-                    onChangeText={setTitle}
-                    placeholder="What are you working toward?"
-                    placeholderTextColor={theme.textSecondary}
-                    returnKeyType="done"
-                    selectionColor={theme.primary}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.tabBorder,
-                        color: theme.text,
-                      },
-                    ]}
-                    value={title}
-                  />
-                </View>
-                <CalendarColorPicker value={color} onChange={setColor} />
-                <View style={styles.inputField}>
-                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                    Timing
-                  </Text>
-                  <View style={styles.goalTimingRow}>
-                    {(["current", "later"] as GoalTiming[]).map((option) => {
-                      const selected = timing === option;
-                      return (
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                          key={option}
-                          onPress={() => {
-                            playSelectionHaptic();
-                            setTiming(option);
-                          }}
-                          style={({ pressed }) => [
-                            styles.goalTimingChip,
-                            {
-                              backgroundColor: selected
-                                ? theme.primary
-                                : theme.backgroundElement,
-                              borderColor: selected
-                                ? theme.primary
-                                : theme.tabBorder,
-                            },
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.goalTimingChipText,
-                              {
-                                color: selected
-                                  ? theme.primaryForeground
-                                  : theme.textSecondary,
-                              },
-                            ]}
-                          >
-                            {option === "current" ? "Current" : "Later"}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
+                <Text style={[styles.saveHintText, { color: theme.text }]}>
+                  {saveHint}
+                </Text>
+              </View>
+            ) : null}
+
+            <ScrollView
+              canCancelContentTouches
+              contentContainerStyle={styles.formContent}
+              directionalLockEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.formSection}>
+                <Text
+                  style={[styles.sectionTitle, { color: theme.textSecondary }]}
+                >
+                  Goal
+                </Text>
                 <View
                   style={[
-                    styles.switchRow,
+                    styles.sectionSurface,
                     {
-                      backgroundColor: theme.backgroundElement,
+                      backgroundColor: theme.tabBar,
                       borderColor: theme.tabBorder,
                     },
                   ]}
                 >
-                  <View style={styles.switchCopy}>
-                    <Text style={[styles.switchTitle, { color: theme.text }]}>
-                      Add to calendar planner
+                  <View style={styles.inputField}>
+                    <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                      Title
                     </Text>
-                    <Text
+                    <TextInput
+                      autoFocus
+                      onChangeText={setTitle}
+                      placeholder="What are you working toward?"
+                      placeholderTextColor={theme.textSecondary}
+                      returnKeyType="done"
+                      selectionColor={theme.primary}
                       style={[
-                        styles.switchDescription,
-                        { color: theme.textSecondary },
+                        styles.input,
+                        {
+                          backgroundColor: theme.backgroundElement,
+                          borderColor: theme.tabBorder,
+                          color: theme.text,
+                        },
                       ]}
-                    >
-                      Show this goal's incomplete checkpoints as draggable items
-                      when planning your schedule.
-                    </Text>
+                      value={title}
+                    />
                   </View>
-                  <Switch
-                    onValueChange={(value) => {
-                      playSelectionHaptic();
-                      setPlanOnCalendar(value);
-                    }}
-                    trackColor={{
-                      false: theme.backgroundSelected,
-                      true: theme.primary,
-                    }}
-                    value={planOnCalendar}
-                  />
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.formSection}>
-              <Text
-                style={[styles.sectionTitle, { color: theme.textSecondary }]}
-              >
-                Goal links
-              </Text>
-              <Pressable
-                accessibilityLabel={
-                  goal
-                    ? "Link tasks or habits to this goal"
-                    : "Save the goal before linking tasks or habits"
-                }
-                accessibilityRole="button"
-                disabled={!goal}
-                onPress={() => setLinkingGoalOpen(true)}
-                style={({ pressed }) => [
-                  {
-                    alignItems: "center",
-                    borderColor: theme.tabBorder,
-                    borderRadius: 12,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    flexDirection: "row",
-                    gap: 8,
-                    minHeight: 48,
-                    paddingHorizontal: 12,
-                  },
-                  !goal && { opacity: 0.55 },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("link", "link")}
-                  size={18}
-                  tintColor={theme.primary}
-                />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text
-                    style={{
-                      color: theme.text,
-                      fontSize: 15,
-                      fontWeight: "700",
-                    }}
+                  <CalendarColorPicker value={color} onChange={setColor} />
+                  <View
+                    style={[
+                      styles.switchRow,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
                   >
-                    {goal ? "Link tasks or habits" : "Save goal to add links"}
-                  </Text>
-                  {goalLinks.length ? (
-                    <Text
-                      style={{ color: theme.textSecondary, fontSize: 12 }}
-                    >
-                      {goalLinks.length} linked
-                    </Text>
-                  ) : null}
-                </View>
-                {goal ? (
-                  <SymbolView
-                    name={symbol("chevron.right", "chevron_right")}
-                    size={16}
-                    tintColor={theme.textSecondary}
-                  />
-                ) : null}
-              </Pressable>
-            </View>
-
-            <View style={styles.formSection}>
-              <Text
-                style={[styles.sectionTitle, { color: theme.textSecondary }]}
-              >
-                Checkpoints
-              </Text>
-              <View
-                style={[
-                  styles.sectionSurface,
-                  {
-                    backgroundColor: theme.tabBar,
-                    borderColor: theme.tabBorder,
-                  },
-                ]}
-              >
-                {checkpoints.map((checkpoint, index) => {
-                  return (
-                  <View key={checkpoint.localId} style={styles.checkpointRow}>
-                    <View style={styles.checkpointHeader}>
+                    <View style={styles.switchCopy}>
+                      <Text style={[styles.switchTitle, { color: theme.text }]}>
+                        Add to calendar planner
+                      </Text>
                       <Text
                         style={[
-                          styles.checkpointNumber,
+                          styles.switchDescription,
                           { color: theme.textSecondary },
                         ]}
                       >
-                        {index + 1}
+                        Show this goal's incomplete checkpoints as draggable
+                        items when planning your schedule.
                       </Text>
-                      <Pressable
-                        accessibilityRole="checkbox"
-                        accessibilityState={{
-                          checked: checkpoint.completed,
-                          selected: checkpoint.started,
-                        }}
-                        onPress={() => {
-                          playSelectionHaptic();
-                          updateCheckpoint(checkpoint.localId, {
-                            started: checkpoint.completed
-                              ? false
-                              : true,
-                            completed: checkpoint.completed
-                              ? false
-                              : checkpoint.started,
-                          });
-                        }}
-                        style={({ pressed }) => [
-                          styles.checkpointToggle,
-                          {
-                            backgroundColor: checkpoint.completed
-                              ? theme.primary
-                              : checkpoint.started
-                                ? `${theme.primary}26`
-                              : theme.backgroundElement,
-                            borderColor: checkpoint.completed
-                              ? theme.primary
-                              : checkpoint.started
-                                ? theme.primary
-                              : theme.tabBorder,
-                          },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        {checkpoint.completed ? (
-                          <SymbolView
-                            name={symbol("checkmark", "check")}
-                            size={14}
-                            weight="semibold"
-                            tintColor={theme.primaryForeground}
-                          />
-                        ) : checkpoint.started ? (
-                          <SymbolView
-                            name={symbol("play.fill", "play_arrow")}
-                            size={12}
-                            tintColor={theme.primary}
-                            weight="bold"
-                          />
-                        ) : null}
-                      </Pressable>
-                      <Pressable
-                        accessibilityLabel="Remove checkpoint"
-                        hitSlop={8}
-                        onPress={() => removeCheckpoint(checkpoint.localId)}
-                        style={({ pressed }) => [
-                          styles.removeCheckpoint,
-                          pressed && {
-                            backgroundColor: theme.backgroundElement,
-                          },
-                        ]}
-                      >
-                        <SymbolView
-                          name={symbol("minus.circle", "remove_circle")}
-                          size={18}
-                          tintColor={theme.textSecondary}
-                        />
-                      </Pressable>
                     </View>
-                    <View style={styles.checkpointInputs}>
-                      <TextInput
-                        onChangeText={(checkpointTitle) =>
-                          updateCheckpoint(checkpoint.localId, {
-                            title: checkpointTitle,
-                          })
-                        }
-                        placeholder="Checkpoint"
-                        placeholderTextColor={theme.textSecondary}
-                        selectionColor={theme.primary}
-                        style={[
-                          styles.input,
-                          {
-                            backgroundColor: theme.backgroundElement,
-                            borderColor: theme.tabBorder,
-                            color: theme.text,
-                          },
-                        ]}
-                        value={checkpoint.title}
-                      />
-                      <TargetDateSelect
-                        value={checkpoint.targetDate}
-                        onChange={(targetDate) =>
-                          updateCheckpoint(checkpoint.localId, { targetDate })
-                        }
-                      />
-                    </View>
+                    <Switch
+                      onValueChange={(value) => {
+                        playSelectionHaptic();
+                        setPlanOnCalendar(value);
+                      }}
+                      trackColor={{
+                        false: theme.backgroundSelected,
+                        true: theme.primary,
+                      }}
+                      value={planOnCalendar}
+                    />
                   </View>
-                  );
-                })}
+                </View>
+              </View>
+
+              <View style={styles.formSection}>
+                <Text
+                  style={[styles.sectionTitle, { color: theme.textSecondary }]}
+                >
+                  Goal links
+                </Text>
                 <Pressable
-                  accessibilityRole="button"
-                  onPress={() =>
-                    setCheckpoints((current) => [
-                      ...current,
-                      createEmptyCheckpoint(),
-                    ])
+                  accessibilityLabel={
+                    goal
+                      ? "Link tasks or habits to this goal"
+                      : "Save the goal before linking tasks or habits"
                   }
+                  accessibilityRole="button"
+                  disabled={!goal}
+                  onPress={() => setLinkingGoalOpen(true)}
                   style={({ pressed }) => [
-                    styles.inlineAdd,
+                    {
+                      alignItems: "center",
+                      borderColor: theme.tabBorder,
+                      borderRadius: 12,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      flexDirection: "row",
+                      gap: 8,
+                      minHeight: 48,
+                      paddingHorizontal: 12,
+                    },
+                    !goal && { opacity: 0.55 },
                     pressed && styles.pressed,
                   ]}
                 >
                   <SymbolView
-                    name={symbol("plus.circle", "add_circle")}
+                    name={symbol("link", "link")}
                     size={18}
                     tintColor={theme.primary}
                   />
-                  <Text
-                    style={[styles.inlineAddLabel, { color: theme.primary }]}
-                  >
-                    Add checkpoint
-                  </Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontSize: 15,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {goal ? "Link tasks or habits" : "Save goal to add links"}
+                    </Text>
+                    {goalLinks.length ? (
+                      <Text
+                        style={{ color: theme.textSecondary, fontSize: 12 }}
+                      >
+                        {goalLinks.length} linked
+                      </Text>
+                    ) : null}
+                  </View>
+                  {goal ? (
+                    <SymbolView
+                      name={symbol("chevron.right", "chevron_right")}
+                      size={16}
+                      tintColor={theme.textSecondary}
+                    />
+                  ) : null}
                 </Pressable>
               </View>
-            </View>
 
-            {goal && onDelete ? (
-              <Pressable
-                accessibilityLabel={`Delete ${goal.title}`}
-                accessibilityRole="button"
-                onPress={onDelete}
-                style={({ pressed }) => [
-                  {
-                    alignItems: "center",
-                    borderColor: "#C94B58",
-                    borderRadius: 12,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    flexDirection: "row",
-                    gap: 8,
-                    justifyContent: "center",
-                    marginTop: 16,
-                    minHeight: 48,
-                    paddingHorizontal: 12,
-                  },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <SymbolView
-                  name={symbol("trash", "delete")}
-                  size={17}
-                  tintColor="#C94B58"
-                />
+              <View style={styles.formSection}>
                 <Text
-                  style={{ color: "#C94B58", fontSize: 15, fontWeight: "700" }}
+                  style={[styles.sectionTitle, { color: theme.textSecondary }]}
                 >
-                  Delete goal
+                  Checkpoints
                 </Text>
-              </Pressable>
-            ) : null}
+                <View
+                  style={[
+                    styles.sectionSurface,
+                    {
+                      backgroundColor: theme.tabBar,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
+                  {checkpoints.map((checkpoint, index) => {
+                    return (
+                      <View
+                        key={checkpoint.localId}
+                        style={styles.checkpointRow}
+                      >
+                        <View style={styles.checkpointHeader}>
+                          <Text
+                            style={[
+                              styles.checkpointNumber,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            {index + 1}
+                          </Text>
+                          <Pressable
+                            accessibilityRole="checkbox"
+                            accessibilityState={{
+                              checked: checkpoint.completed,
+                              selected: checkpoint.started,
+                            }}
+                            onPress={() => {
+                              playSelectionHaptic();
+                              updateCheckpoint(checkpoint.localId, {
+                                started: !checkpoint.completed,
+                                completed: checkpoint.completed
+                                  ? false
+                                  : checkpoint.started,
+                              });
+                            }}
+                            style={({ pressed }) => [
+                              styles.checkpointToggle,
+                              {
+                                backgroundColor: checkpoint.completed
+                                  ? theme.primary
+                                  : checkpoint.started
+                                    ? `${theme.primary}26`
+                                    : theme.backgroundElement,
+                                borderColor: checkpoint.completed
+                                  ? theme.primary
+                                  : checkpoint.started
+                                    ? theme.primary
+                                    : theme.tabBorder,
+                              },
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            {checkpoint.completed ? (
+                              <SymbolView
+                                name={symbol("checkmark", "check")}
+                                size={14}
+                                weight="semibold"
+                                tintColor={theme.primaryForeground}
+                              />
+                            ) : checkpoint.started ? (
+                              <SymbolView
+                                name={symbol("play.fill", "play_arrow")}
+                                size={12}
+                                tintColor={theme.primary}
+                                weight="bold"
+                              />
+                            ) : null}
+                          </Pressable>
+                          <Pressable
+                            accessibilityLabel="Remove checkpoint"
+                            hitSlop={8}
+                            onPress={() => removeCheckpoint(checkpoint.localId)}
+                            style={({ pressed }) => [
+                              styles.removeCheckpoint,
+                              pressed && {
+                                backgroundColor: theme.backgroundElement,
+                              },
+                            ]}
+                          >
+                            <SymbolView
+                              name={symbol("minus.circle", "remove_circle")}
+                              size={18}
+                              tintColor={theme.textSecondary}
+                            />
+                          </Pressable>
+                        </View>
+                        <View style={styles.checkpointInputs}>
+                          <TextInput
+                            onChangeText={(checkpointTitle) =>
+                              updateCheckpoint(checkpoint.localId, {
+                                title: checkpointTitle,
+                              })
+                            }
+                            placeholder="Checkpoint"
+                            placeholderTextColor={theme.textSecondary}
+                            selectionColor={theme.primary}
+                            style={[
+                              styles.input,
+                              {
+                                backgroundColor: theme.backgroundElement,
+                                borderColor: theme.tabBorder,
+                                color: theme.text,
+                              },
+                            ]}
+                            value={checkpoint.title}
+                          />
+                          <TargetDateSelect
+                            value={checkpoint.targetDate}
+                            onChange={(targetDate) =>
+                              updateCheckpoint(checkpoint.localId, {
+                                targetDate,
+                              })
+                            }
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      setCheckpoints((current) => [
+                        ...current,
+                        createEmptyCheckpoint(),
+                      ])
+                    }
+                    style={({ pressed }) => [
+                      styles.inlineAdd,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={symbol("plus.circle", "add_circle")}
+                      size={18}
+                      tintColor={theme.primary}
+                    />
+                    <Text
+                      style={[styles.inlineAddLabel, { color: theme.primary }]}
+                    >
+                      Add checkpoint
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
 
-            {error ? <Text style={styles.formError}>{error}</Text> : null}
-          </ScrollView>
+              {goal && !goal.archivedAt && onArchive ? (
+                <Pressable
+                  accessibilityLabel={`Archive ${goal.title}`}
+                  accessibilityRole="button"
+                  onPress={onArchive}
+                  style={({ pressed }) => [
+                    {
+                      alignItems: "center",
+                      borderColor: theme.primary,
+                      borderRadius: 12,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      flexDirection: "row",
+                      gap: 8,
+                      justifyContent: "center",
+                      marginTop: 16,
+                      minHeight: 48,
+                      paddingHorizontal: 12,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("archivebox", "archive")}
+                    size={17}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={{
+                      color: theme.primary,
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Archive goal
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {goal?.archivedAt && onUnarchive ? (
+                <Pressable
+                  accessibilityLabel={`Unarchive ${goal.title}`}
+                  accessibilityRole="button"
+                  onPress={onUnarchive}
+                  style={({ pressed }) => [
+                    {
+                      alignItems: "center",
+                      borderColor: theme.primary,
+                      borderRadius: 12,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      flexDirection: "row",
+                      gap: 8,
+                      justifyContent: "center",
+                      marginTop: 16,
+                      minHeight: 48,
+                      paddingHorizontal: 12,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("arrow.uturn.left", "undo")}
+                    size={17}
+                    tintColor={theme.primary}
+                  />
+                  <Text
+                    style={{
+                      color: theme.primary,
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Unarchive goal
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {goal?.archivedAt && onDelete ? (
+                <Pressable
+                  accessibilityLabel={`Delete ${goal.title}`}
+                  accessibilityRole="button"
+                  onPress={onDelete}
+                  style={({ pressed }) => [
+                    {
+                      alignItems: "center",
+                      borderColor: "#C94B58",
+                      borderRadius: 12,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      flexDirection: "row",
+                      gap: 8,
+                      justifyContent: "center",
+                      marginTop: 12,
+                      minHeight: 48,
+                      paddingHorizontal: 12,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <SymbolView
+                    name={symbol("trash", "delete")}
+                    size={17}
+                    tintColor="#C94B58"
+                  />
+                  <Text
+                    style={{
+                      color: "#C94B58",
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Delete goal
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {error ? <Text style={styles.formError}>{error}</Text> : null}
+            </ScrollView>
           </SafeAreaView>
           <LinkGoalModal
             embedded
@@ -3883,13 +4631,45 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  goalCardContent: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 11,
+  },
+  goalCardMain: {
+    flex: 1,
+    minWidth: 0,
+    gap: 14,
+  },
   goalBody: { flex: 1, minWidth: 0, gap: 4 },
   goalTitleRow: {
     flexDirection: "row",
     alignItems: "flex-start",
   },
-  goalTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
-  goalMeta: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
+  goalTitle: { flex: 1, fontSize: 19, lineHeight: 24, fontWeight: "900" },
+  goalMeta: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  goalAccent: {
+    width: 5,
+    minHeight: 42,
+    alignSelf: "stretch",
+    borderRadius: 999,
+  },
+  goalCheckpointList: {
+    gap: 10,
+    paddingLeft: 5,
+  },
+  goalCheckpointRow: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  goalCheckpointText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
   goalProgressTrack: {
     height: 3,
     overflow: "hidden",

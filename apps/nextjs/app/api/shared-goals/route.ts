@@ -6,7 +6,11 @@ import {
   habits,
   sharedGoalParticipants,
   sharedGoals,
+  socialFeedPollOptions,
+  socialFeedPolls,
+  socialFeedPostAudienceFriends,
   socialFeedPosts,
+  users,
 } from "@habit/db";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -176,6 +180,42 @@ export async function POST(request: Request) {
       );
     }
 
+    const competitorUserIds = [user.id, ...uniqueInvitedUserIds];
+    const competitorRows =
+      data.mode === "competitive" && competitorUserIds.length >= 2
+        ? await db
+            .select({ id: users.id, name: users.name })
+            .from(users)
+            .where(inArray(users.id, competitorUserIds))
+        : [];
+    const competitorNames = new Map(
+      competitorRows.map((competitor) => [competitor.id, competitor.name]),
+    );
+    const competitorFriendRows =
+      competitorNames.size >= 2
+        ? await db
+            .select({ userId1: friends.userId1, userId2: friends.userId2 })
+            .from(friends)
+            .where(
+              and(
+                eq(friends.status, "accepted"),
+                or(
+                  inArray(friends.userId1, [...competitorNames.keys()]),
+                  inArray(friends.userId2, [...competitorNames.keys()]),
+                ),
+              ),
+            )
+        : [];
+    const competitorIdSet = new Set(competitorNames.keys());
+    const pollAudienceUserIds = [
+      ...new Set(
+        competitorFriendRows.flatMap((friendship) => [
+          friendship.userId1,
+          friendship.userId2,
+        ]),
+      ),
+    ].filter((id) => !competitorIdSet.has(id));
+
     const sharedGoalId = await db.transaction(async (tx) => {
       let personalGoalId =
         data.scoringType === "one_time" ? null : data.personalGoalId;
@@ -283,20 +323,62 @@ export async function POST(request: Request) {
         })),
       ]);
 
-      await tx
+      const [createdPost] = await tx
         .insert(socialFeedPosts)
         .values({
           userId: user.id,
           kind: "shared_goal",
           sourceType: "shared_goal",
           sourceId: created.id,
+          visibility: competitorNames.size >= 2 ? "goal_friends" : null,
           title: `Created "${data.name}"`,
           body:
-            data.stakeType === "none" || !data.stakeDescription
-              ? "Started a shared goal."
-              : `Started a shared goal with ${data.stakeType === "carrot" ? "a reward" : "a consequence"}: ${data.stakeDescription}`,
+            competitorNames.size >= 2
+              ? "Started a competitive shared goal. Vote for who you think will win."
+              : data.stakeType === "none" || !data.stakeDescription
+                ? "Started a shared goal."
+                : `Started a shared goal with ${data.stakeType === "carrot" ? "a reward" : "a consequence"}: ${data.stakeDescription}`,
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: socialFeedPosts.id });
+
+      if (createdPost && competitorNames.size >= 2) {
+        const [poll] = await tx
+          .insert(socialFeedPolls)
+          .values({
+            socialFeedPostId: createdPost.id,
+            userId: user.id,
+            question: `Who will win "${data.name}"?`,
+          })
+          .returning({ id: socialFeedPolls.id });
+
+        if (poll) {
+          await tx.insert(socialFeedPollOptions).values(
+            competitorUserIds.flatMap((competitorId, sortOrder) => {
+              const label = competitorNames.get(competitorId);
+              return label
+                ? [
+                    {
+                      pollId: poll.id,
+                      competitorUserId: competitorId,
+                      label,
+                      sortOrder,
+                    },
+                  ]
+                : [];
+            }),
+          );
+          if (pollAudienceUserIds.length > 0) {
+            await tx.insert(socialFeedPostAudienceFriends).values(
+              pollAudienceUserIds.map((friendUserId) => ({
+                socialFeedPostId: createdPost.id,
+                userId: user.id,
+                friendUserId,
+              })),
+            );
+          }
+        }
+      }
 
       return created.id;
     });

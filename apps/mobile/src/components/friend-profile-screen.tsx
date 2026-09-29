@@ -5,6 +5,7 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -29,17 +30,20 @@ import { GoalActionsModal } from "@/components/daily-goals/goal-actions-modal";
 import type { ActionGoal } from "@/components/daily-goals/shared";
 import { GoalIcon } from "@/components/goal-icon";
 import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
+import { CheckpointActionsModal } from "@/components/goals-screen";
 import { Fonts, MaxContentWidth } from "@/constants/theme";
 import { useTabBarHeight } from "@/hooks/use-tab-bar-height";
 import { useTheme } from "@/hooks/use-theme";
 import {
   type FriendFeedEntry,
   type FriendProfile,
+  type FriendProfileGoal,
   type FriendProfileHabit,
   type FriendProfilePeriodicHabit,
   type FriendRow,
   fetchFriendProfile,
   fetchFriendProfileByFriendId,
+  fetchFriendProfileGoals,
   fetchFriendProfilePosts,
   fetchFriends,
   fetchMyPostsPage,
@@ -65,6 +69,11 @@ import {
   myProfileQueryOptions,
 } from "@/lib/my-profile-query";
 import { type PlanNote, fetchPlanNotes } from "@/lib/plan-notes-client";
+import {
+  type Goal,
+  type GoalCheckpoint,
+  fetchPlanGoals,
+} from "@/lib/planning-goals-client";
 import { richTextToPlainText } from "@/lib/rich-text";
 import {
   type WeeklyPlanNote,
@@ -72,7 +81,8 @@ import {
 } from "@/lib/weekly-plan-notes-client";
 
 type SymbolName = SymbolViewProps["name"];
-type ProfileBodySection = "posts" | "notes" | "daily" | "periodic";
+type ProfileBodySection = "posts" | "notes" | "habits" | "goals";
+type ProfileHabitSection = "daily" | "periodic";
 type ProfileNoteFilter = "weekly" | "daily" | "monthly";
 type ProfilePostFilter =
   | "all"
@@ -82,6 +92,7 @@ type ProfilePostFilter =
   | "reflections"
   | `goal:${string}`;
 type ActiveHabitDay = { dateKey: string; habit: FriendProfileHabit };
+type ActiveProfileCheckpoint = { goal: Goal; checkpoint: GoalCheckpoint };
 
 const PROFILE_BODY_SECTIONS: Array<{
   key: ProfileBodySection;
@@ -89,6 +100,14 @@ const PROFILE_BODY_SECTIONS: Array<{
 }> = [
   { key: "posts", label: "Posts" },
   { key: "notes", label: "Journal" },
+  { key: "habits", label: "Habits" },
+  { key: "goals", label: "Goals" },
+];
+
+const PROFILE_HABIT_SECTIONS: Array<{
+  key: ProfileHabitSection;
+  label: string;
+}> = [
   { key: "daily", label: "Daily" },
   { key: "periodic", label: "Periodic" },
 ];
@@ -268,6 +287,7 @@ export function FriendProfileScreen({
   const loadRequestIdRef = useRef(0);
   const [profile, setProfile] = useState<FriendProfile | null>(null);
   const [posts, setPosts] = useState<FriendFeedEntry[]>([]);
+  const [profileGoals, setProfileGoals] = useState<FriendProfileGoal[]>([]);
   const [friends, setFriends] = useState<FriendRow[]>([]);
   const [weeklyPlanNotes, setWeeklyPlanNotes] = useState<WeeklyPlanNote[]>([]);
   const [dailyPlanNotes, setDailyPlanNotes] = useState<PlanNote[]>([]);
@@ -285,11 +305,15 @@ export function FriendProfileScreen({
   >(null);
   const [activeBodySection, setActiveBodySection] =
     useState<ProfileBodySection>("posts");
+  const [activeHabitSection, setActiveHabitSection] =
+    useState<ProfileHabitSection>("daily");
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>("all");
   const [noteFilter, setNoteFilter] = useState<ProfileNoteFilter>("daily");
   const [activeHabitDay, setActiveHabitDay] = useState<ActiveHabitDay | null>(
     null,
   );
+  const [activeProfileCheckpoint, setActiveProfileCheckpoint] =
+    useState<ActiveProfileCheckpoint | null>(null);
   const [noteHabitDay, setNoteHabitDay] = useState<ActiveHabitDay | null>(null);
   const [updatingHabitDayKey, setUpdatingHabitDayKey] = useState<string | null>(
     null,
@@ -320,6 +344,7 @@ export function FriendProfileScreen({
           createPrivateProfilePreview({ friendId, initialImage, initialName }),
         );
         setPosts([]);
+        setProfileGoals([]);
         setPostsCursor(null);
         setFriends([]);
         setWeeklyPlanNotes([]);
@@ -366,6 +391,7 @@ export function FriendProfileScreen({
             nextWeeklyPlanNotes,
             nextDailyPlanNotes,
             nextMonthlyPlanNotes,
+            nextProfileGoals,
           ] = await Promise.all([
             (refresh
               ? queryClient.fetchInfiniteQuery({
@@ -389,6 +415,7 @@ export function FriendProfileScreen({
               period: "monthly",
               year: currentMonth.getFullYear(),
             }).catch(() => []),
+            fetchPlanGoals().catch(() => []),
           ]);
           let myPosts = flattenMyPosts(initialMyPostsData ?? undefined);
           let myPostsCursor = getMyPostsNextCursor(
@@ -440,6 +467,7 @@ export function FriendProfileScreen({
           setWeeklyPlanNotes(nextWeeklyPlanNotes);
           setDailyPlanNotes(nextDailyPlanNotes);
           setMonthlyPlanNotes(nextMonthlyPlanNotes);
+          setProfileGoals(nextProfileGoals);
           setArePostsLoading(false);
         } else {
           const nextProfile = friendId
@@ -452,6 +480,7 @@ export function FriendProfileScreen({
 
           setProfile(nextProfile);
           setFriends([]);
+          setProfileGoals([]);
           setWeeklyPlanNotes([]);
           setDailyPlanNotes([]);
           setMonthlyPlanNotes([]);
@@ -466,6 +495,12 @@ export function FriendProfileScreen({
               }))
             : { items: [], nextCursor: null };
 
+          const nextProfileGoals = nextProfile.friend.friendshipId
+            ? await fetchFriendProfileGoals(
+                nextProfile.friend.friendshipId,
+              ).catch(() => [])
+            : [];
+
           if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
             return;
           }
@@ -477,6 +512,7 @@ export function FriendProfileScreen({
               .sort((left, right) => right.dateKey.localeCompare(left.dateKey)),
           );
           setPostsCursor(null);
+          setProfileGoals(nextProfileGoals);
           setArePostsLoading(false);
         }
       } catch (loadError) {
@@ -488,6 +524,7 @@ export function FriendProfileScreen({
           );
           setProfile(null);
           setPosts([]);
+          setProfileGoals([]);
           setPostsCursor(null);
           setWeeklyPlanNotes([]);
           setDailyPlanNotes([]);
@@ -678,6 +715,45 @@ export function FriendProfileScreen({
     await refreshOwnProfile();
     setActiveHabitDay(target);
   };
+
+  const openProfileCheckpoint = useCallback(
+    (
+      goal: FriendProfileGoal,
+      checkpoint: FriendProfileGoal["checkpoints"][number],
+    ) => {
+      if (!self) return;
+      const planGoal = toProfilePlanGoal(goal);
+      const planCheckpoint = planGoal.checkpoints.find(
+        (candidate) => candidate.id === checkpoint.id,
+      );
+      if (planCheckpoint) {
+        setActiveProfileCheckpoint({
+          checkpoint: planCheckpoint,
+          goal: planGoal,
+        });
+      }
+    },
+    [self],
+  );
+
+  const handleProfileCheckpointSaved = useCallback(
+    (updatedGoal: Goal | null) => {
+      if (!updatedGoal) return;
+      setProfileGoals((current) =>
+        current.map((goal) =>
+          goal.id === updatedGoal.id ? updatedGoal : goal,
+        ),
+      );
+      setActiveProfileCheckpoint((current) => {
+        if (!current || current.goal.id !== updatedGoal.id) return current;
+        const checkpoint = updatedGoal.checkpoints.find(
+          (candidate) => candidate.id === current.checkpoint.id,
+        );
+        return checkpoint ? { checkpoint, goal: updatedGoal } : current;
+      });
+    },
+    [],
+  );
 
   useEffect(
     () => () => {
@@ -941,26 +1017,46 @@ export function FriendProfileScreen({
                   weeklyNotes={weeklyPlanNotes}
                   onChangeFilter={setNoteFilter}
                 />
-              ) : visibleActiveBodySection === "daily" ? (
-                <ProfileDailyHabits
-                  dateKeys={profile.dateKeys}
-                  habits={habits}
-                  logsByHabitDate={profile.logsByHabitDate}
-                  profile={profile}
-                  onPressHabitDay={
-                    self
-                      ? (habit, dateKey) => {
-                          playSelectionHaptic();
-                          setActiveHabitDay({ dateKey, habit });
-                        }
-                      : undefined
+              ) : visibleActiveBodySection === "habits" ? (
+                <ProfileHabitsSection
+                  activeSection={activeHabitSection}
+                  daily={
+                    <ProfileDailyHabits
+                      dateKeys={profile.dateKeys}
+                      habits={habits}
+                      logsByHabitDate={profile.logsByHabitDate}
+                      profile={profile}
+                      onPressHabitDay={
+                        self
+                          ? (habit, dateKey) => {
+                              playSelectionHaptic();
+                              setActiveHabitDay({ dateKey, habit });
+                            }
+                          : undefined
+                      }
+                    />
                   }
+                  periodic={
+                    <ProfilePeriodicHabits
+                      dateKeys={profile.dateKeys}
+                      habits={profile.periodicHabits}
+                      logsByHabitDate={profile.logsByHabitDate}
+                      onPressHabitDay={
+                        self
+                          ? (habit, dateKey) => {
+                              playSelectionHaptic();
+                              setActiveHabitDay({ dateKey, habit });
+                            }
+                          : undefined
+                      }
+                    />
+                  }
+                  onChange={setActiveHabitSection}
                 />
               ) : (
-                <ProfilePeriodicHabits
-                  dateKeys={profile.dateKeys}
-                  habits={profile.periodicHabits}
-                  logsByHabitDate={profile.logsByHabitDate}
+                <ProfileGoalsSection
+                  goals={profileGoals}
+                  onPressCheckpoint={self ? openProfileCheckpoint : undefined}
                 />
               )}
             </>
@@ -1006,6 +1102,13 @@ export function FriendProfileScreen({
             void setActiveHabitVisibility(visibility)
           }
           onShown={() => undefined}
+        />
+        <CheckpointActionsModal
+          active={activeProfileCheckpoint}
+          onClose={() => setActiveProfileCheckpoint(null)}
+          onCompleted={() => undefined}
+          onError={setError}
+          onSaved={handleProfileCheckpointSaved}
         />
         {noteHabitDay ? (
           <GoalNoteEditorModal
@@ -1138,9 +1241,9 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
       ? "Posts"
       : section === "notes"
         ? "Journal"
-        : section === "daily"
-          ? "Daily habits"
-          : "Periodic habits";
+        : section === "habits"
+          ? "Habits"
+          : "Goals";
 
   return (
     <View style={styles.privateSection}>
@@ -1163,6 +1266,192 @@ function PrivateProfileSection({ section }: { section: ProfileBodySection }) {
       <Text style={[styles.privateText, { color: theme.textSecondary }]}>
         Add them as a friend to see shared activity.
       </Text>
+    </View>
+  );
+}
+
+function ProfileHabitsSection({
+  activeSection,
+  daily,
+  onChange,
+  periodic,
+}: {
+  activeSection: ProfileHabitSection;
+  daily: ReactNode;
+  onChange: (section: ProfileHabitSection) => void;
+  periodic: ReactNode;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View>
+      <View style={[styles.profileSubTabs, { borderColor: theme.tabBorder }]}>
+        {PROFILE_HABIT_SECTIONS.map((section) => {
+          const isActive = section.key === activeSection;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: isActive }}
+              key={section.key}
+              onPress={() => onChange(section.key)}
+              style={({ pressed }) => [
+                styles.profileSubTab,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.profileSubTabText,
+                  { color: isActive ? theme.text : theme.textSecondary },
+                ]}
+              >
+                {section.label}
+              </Text>
+              <View
+                style={[
+                  styles.profileSubTabIndicator,
+                  {
+                    backgroundColor: isActive ? theme.primary : "transparent",
+                  },
+                ]}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+      {activeSection === "daily" ? daily : periodic}
+    </View>
+  );
+}
+
+function ProfileGoalsSection({
+  goals,
+  onPressCheckpoint,
+}: {
+  goals: FriendProfileGoal[];
+  onPressCheckpoint?: (
+    goal: FriendProfileGoal,
+    checkpoint: FriendProfileGoal["checkpoints"][number],
+  ) => void;
+}) {
+  const theme = useTheme();
+
+  if (goals.length === 0) {
+    return (
+      <View style={styles.profileGoalsEmpty}>
+        <Text style={[styles.mutedText, { color: theme.textSecondary }]}>
+          No visible goals yet.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.profileGoalsList}>
+      {goals.map((goal) => {
+        const completedCount = goal.checkpoints.filter(
+          (checkpoint) => checkpoint.completed,
+        ).length;
+        return (
+          <View
+            key={goal.id}
+            style={[
+              styles.profileGoalCard,
+              { borderColor: theme.tabBorder, backgroundColor: theme.tabBar },
+            ]}
+          >
+            <View style={styles.profileGoalHeader}>
+              <View
+                style={[
+                  styles.profileGoalAccent,
+                  { backgroundColor: goal.color ?? theme.primary },
+                ]}
+              />
+              <View style={styles.profileGoalHeaderText}>
+                <Text style={[styles.profileGoalTitle, { color: theme.text }]}>
+                  {goal.title}
+                </Text>
+                <Text
+                  style={[
+                    styles.profileGoalMeta,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {goal.timing === "later" ? "Later" : "Current"} ·{" "}
+                  {completedCount}/{goal.checkpoints.length} checkpoints
+                </Text>
+              </View>
+            </View>
+            <View style={styles.profileGoalCheckpoints}>
+              {goal.checkpoints.map((checkpoint) =>
+                onPressCheckpoint ? (
+                  <Pressable
+                    accessibilityLabel={`Open ${checkpoint.title} checkpoint actions`}
+                    accessibilityRole="button"
+                    key={checkpoint.id}
+                    onPress={() => onPressCheckpoint(goal, checkpoint)}
+                    style={({ pressed }) => [
+                      styles.profileGoalCheckpoint,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym(
+                        checkpoint.completed
+                          ? "checkmark.circle.fill"
+                          : "circle",
+                        checkpoint.completed ? "check_circle" : "circle",
+                      )}
+                      size={16}
+                      tintColor={
+                        checkpoint.completed
+                          ? theme.primary
+                          : theme.textSecondary
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.profileGoalCheckpointText,
+                        { color: theme.text },
+                      ]}
+                    >
+                      {checkpoint.title}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View
+                    key={checkpoint.id}
+                    style={styles.profileGoalCheckpoint}
+                  >
+                    <SymbolView
+                      name={sym(
+                        checkpoint.completed
+                          ? "checkmark.circle.fill"
+                          : "circle",
+                        checkpoint.completed ? "check_circle" : "circle",
+                      )}
+                      size={16}
+                      tintColor={
+                        checkpoint.completed
+                          ? theme.primary
+                          : theme.textSecondary
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.profileGoalCheckpointText,
+                        { color: theme.text },
+                      ]}
+                    >
+                      {checkpoint.title}
+                    </Text>
+                  </View>
+                ),
+              )}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -1877,10 +2166,15 @@ function ProfilePeriodicHabits({
   dateKeys,
   habits,
   logsByHabitDate,
+  onPressHabitDay,
 }: {
   dateKeys: string[];
   habits: FriendProfilePeriodicHabit[];
   logsByHabitDate: FriendProfile["logsByHabitDate"];
+  onPressHabitDay?: (
+    habit: FriendProfilePeriodicHabit,
+    dateKey: string,
+  ) => void;
 }) {
   const theme = useTheme();
 
@@ -1902,6 +2196,7 @@ function ProfilePeriodicHabits({
           dateKeys={dateKeys}
           habit={habit}
           logsByHabitDate={logsByHabitDate}
+          onPressHabitDay={onPressHabitDay}
         />
       ))}
     </View>
@@ -1912,10 +2207,15 @@ function PeriodicHabitRow({
   dateKeys,
   habit,
   logsByHabitDate,
+  onPressHabitDay,
 }: {
   dateKeys: string[];
   habit: FriendProfilePeriodicHabit;
   logsByHabitDate: FriendProfile["logsByHabitDate"];
+  onPressHabitDay?: (
+    habit: FriendProfilePeriodicHabit,
+    dateKey: string,
+  ) => void;
 }) {
   const theme = useTheme();
   const completed = dateKeys.filter(
@@ -1924,7 +2224,7 @@ function PeriodicHabitRow({
   const target = Math.max(1, habit.frequencyGoal ?? 1);
   const progress = Math.min(1, completed / target);
 
-  return (
+  const row = (
     <View style={[styles.periodicRow, { borderBottomColor: theme.tabBorder }]}>
       <View style={[styles.periodicIcon, { backgroundColor: theme.secondary }]}>
         <GoalIcon
@@ -1945,6 +2245,19 @@ function PeriodicHabitRow({
         {completed}/{target}
       </Text>
     </View>
+  );
+
+  return onPressHabitDay ? (
+    <Pressable
+      accessibilityLabel={`Open ${habit.name} habit actions`}
+      accessibilityRole="button"
+      onPress={() => onPressHabitDay(habit, toDateKey(new Date()))}
+      style={({ pressed }) => [pressed && styles.pressed]}
+    >
+      {row}
+    </Pressable>
+  ) : (
+    row
   );
 }
 
@@ -2326,17 +2639,20 @@ function getFriendHabitStatus(
   return habit.defaultComplete ? "complete" : undefined;
 }
 
-function toProfileActionGoal(habit: FriendProfileHabit): ActionGoal {
+function toProfileActionGoal(
+  habit: FriendProfileHabit | FriendProfilePeriodicHabit,
+): ActionGoal {
+  const periodicHabit = "period" in habit ? habit : null;
   return {
     ...habit,
     audienceFriendIds: [],
     audienceGroupIds: [],
     categoryId: "",
-    frequencyGoal: null,
+    frequencyGoal: periodicHabit?.frequencyGoal ?? null,
     goalId: null,
     goalTitle: null,
     hidden: false,
-    period: "daily",
+    period: periodicHabit?.period ?? "daily",
     planOnCalendar: true,
     requireEvidence: habit.requireEvidence,
     reminderEnabled: false,
@@ -2345,6 +2661,20 @@ function toProfileActionGoal(habit: FriendProfileHabit): ActionGoal {
     repeatDays: null,
     repeatInterval: null,
     repeatMonthlyType: null,
+  };
+}
+
+function toProfilePlanGoal(profileGoal: FriendProfileGoal): Goal {
+  return {
+    ...profileGoal,
+    archivedAt: null,
+    checkpoints: profileGoal.checkpoints.map((checkpoint) => ({
+      ...checkpoint,
+      createdAt: profileGoal.createdAt,
+      notes: null,
+      updatedAt: profileGoal.updatedAt,
+    })),
+    links: [],
   };
 }
 
@@ -2545,6 +2875,31 @@ const styles = StyleSheet.create({
     height: 1.5,
     width: "100%",
     borderRadius: 0,
+  },
+  profileSubTabs: {
+    flexDirection: "row",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 20,
+  },
+  profileSubTab: {
+    minHeight: 42,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  profileSubTabText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  profileSubTabIndicator: {
+    position: "absolute",
+    bottom: -1,
+    height: 2,
+    left: 12,
+    right: 12,
+    borderRadius: 999,
   },
   compactDashboard: {
     gap: 7,
@@ -2757,6 +3112,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 17,
     fontWeight: "900",
+  },
+  profileGoalsList: {
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 20,
+  },
+  profileGoalsEmpty: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 28,
+    paddingBottom: 24,
+  },
+  profileGoalCard: {
+    gap: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 15,
+  },
+  profileGoalHeader: {
+    flexDirection: "row",
+    gap: 11,
+  },
+  profileGoalAccent: {
+    width: 5,
+    minHeight: 42,
+    borderRadius: 999,
+  },
+  profileGoalHeaderText: {
+    flex: 1,
+    gap: 3,
+  },
+  profileGoalTitle: {
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+  profileGoalMeta: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  profileGoalCheckpoints: {
+    gap: 10,
+    paddingLeft: 16,
+  },
+  profileGoalCheckpoint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  profileGoalCheckpointText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "600",
   },
   profilePostFilterMenu: {
     alignSelf: "flex-start",

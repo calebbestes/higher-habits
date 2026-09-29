@@ -86,6 +86,7 @@ const USER_SETTING_DEFAULTS = {
   defaultAppStartPage: "collab",
   defaultCollabSection: "feed",
   defaultPlanReportView: "day-plan",
+  defaultHabitView: "priority",
 } as const;
 
 const notificationSchemaShape = Object.fromEntries(
@@ -130,6 +131,7 @@ const bodySchema = z
       "friends",
     ]),
     defaultPlanReportView: z.enum(["day-plan", "monthly-plan"]),
+    defaultHabitView: z.enum(["priority", "visibility", "cadence"]),
     timeZone: z.string().min(1).max(100),
     ...notificationSchemaShape,
     ...timeSchemaShape,
@@ -164,6 +166,8 @@ export async function GET(request: Request) {
       defaultPlanReportView:
         row?.defaultPlanReportView ??
         USER_SETTING_DEFAULTS.defaultPlanReportView,
+      defaultHabitView:
+        row?.defaultHabitView ?? USER_SETTING_DEFAULTS.defaultHabitView,
       ...Object.fromEntries(
         NOTIFICATION_KEYS.map((key) => [key, row?.[key] ?? DEFAULTS[key]]),
       ),

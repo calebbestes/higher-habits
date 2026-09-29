@@ -435,6 +435,7 @@ export const goals = pgTable(
     title: text("title").notNull(),
     color: text("color"),
     timing: text("timing").default("current").notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
     planOnCalendar: boolean("plan_on_calendar").default(false).notNull(),
     sortOrder: integer("sort_order").default(0).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1106,6 +1107,76 @@ export const socialFeedPosts = pgTable(
   ],
 );
 
+export const socialFeedPolls = pgTable(
+  "social_feed_polls",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    socialFeedPostId: uuid("social_feed_post_id")
+      .notNull()
+      .references(() => socialFeedPosts.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("social_feed_polls_post_uidx").on(table.socialFeedPostId),
+    index("social_feed_polls_post_id_idx").on(table.socialFeedPostId),
+  ],
+);
+
+export const socialFeedPollOptions = pgTable(
+  "social_feed_poll_options",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pollId: uuid("poll_id")
+      .notNull()
+      .references(() => socialFeedPolls.id, { onDelete: "cascade" }),
+    competitorUserId: text("competitor_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+  },
+  (table) => [
+    unique("social_feed_poll_options_poll_competitor_uidx").on(
+      table.pollId,
+      table.competitorUserId,
+    ),
+    index("social_feed_poll_options_poll_id_idx").on(table.pollId),
+  ],
+);
+
+export const socialFeedPollVotes = pgTable(
+  "social_feed_poll_votes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pollId: uuid("poll_id")
+      .notNull()
+      .references(() => socialFeedPolls.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => socialFeedPollOptions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("social_feed_poll_votes_poll_user_uidx").on(
+      table.pollId,
+      table.userId,
+    ),
+    index("social_feed_poll_votes_poll_id_idx").on(table.pollId),
+    index("social_feed_poll_votes_option_id_idx").on(table.optionId),
+  ],
+);
+
 export const socialFeedPostPhotos = pgTable(
   "social_feed_post_photos",
   {
@@ -1579,6 +1650,7 @@ export const userSettings = pgTable("user_settings", {
   defaultAppStartPage: text("default_app_start_page")
     .notNull()
     .default("collab"),
+  defaultHabitView: text("default_habit_view").notNull().default("priority"),
   // Notification preferences.
   notifyFriendRequests: boolean("notify_friend_requests")
     .notNull()

@@ -29,6 +29,7 @@ export type PlannedEventInput = {
   sourceParentId?: string | null;
   title?: string;
   calendarColor?: string | null;
+  googleCalendarId?: string | null;
   dateKey: string;
   startTime?: string | null;
   endTime?: string | null;
@@ -81,6 +82,7 @@ export const upsertPlannedEvent = ({
   timeZone,
   title,
   calendarColor,
+  googleCalendarId,
 }: PlannedEventInput) =>
   mobileApiFetch("/api/planned-events", {
     method: "POST",
@@ -91,6 +93,7 @@ export const upsertPlannedEvent = ({
       sourceParentId: sourceParentId ?? null,
       title,
       ...(calendarColor === undefined ? {} : { calendarColor }),
+      ...(googleCalendarId === undefined ? {} : { googleCalendarId }),
       dateKey,
       plannedStartTime: startTime ?? null,
       plannedEndTime: endTime ?? null,

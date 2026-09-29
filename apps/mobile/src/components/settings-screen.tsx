@@ -81,6 +81,7 @@ import {
   setThemePreference,
 } from "@/lib/theme-preference";
 import {
+  type HabitViewMode,
   USER_SETTING_DEFAULTS,
   type UserSettings,
   fetchUserSettings,
@@ -92,7 +93,8 @@ const abiLogoSource = require("@/assets/images/abi-logo-no-background.png");
 type NavigationDefaultKey =
   | "defaultAppStartPage"
   | "defaultCollabSection"
-  | "defaultPlanReportView";
+  | "defaultPlanReportView"
+  | "defaultHabitView";
 type NavigationDefaults = Pick<UserSettings, NavigationDefaultKey>;
 type SettingsSubmenu =
   | "account"
@@ -121,6 +123,15 @@ const APP_START_DEFAULT_OPTIONS: { label: string; value: AppStartPage }[] = [
   { label: "Collab", value: "collab" },
   { label: "Friends", value: "friends" },
   { label: "Profile", value: "history" },
+];
+
+const HABIT_VIEW_DEFAULT_OPTIONS: {
+  label: string;
+  value: HabitViewMode;
+}[] = [
+  { label: "Priority", value: "priority" },
+  { label: "Visibility", value: "visibility" },
+  { label: "Cadence", value: "cadence" },
 ];
 
 function sym(ios: string, android: string): SymbolName {
@@ -181,6 +192,7 @@ export function SettingsScreen() {
       defaultAppStartPage: USER_SETTING_DEFAULTS.defaultAppStartPage,
       defaultCollabSection: USER_SETTING_DEFAULTS.defaultCollabSection,
       defaultPlanReportView: USER_SETTING_DEFAULTS.defaultPlanReportView,
+      defaultHabitView: USER_SETTING_DEFAULTS.defaultHabitView,
     });
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -396,6 +408,16 @@ export function SettingsScreen() {
         text: option.label,
         onPress: () =>
           saveNavigationDefault("defaultPlanReportView", option.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
+
+  const chooseHabitViewDefault = () => {
+    Alert.alert("Habits default", "Choose the default Habits view.", [
+      ...HABIT_VIEW_DEFAULT_OPTIONS.map((option) => ({
+        text: option.label,
+        onPress: () => saveNavigationDefault("defaultHabitView", option.value),
       })),
       { text: "Cancel", style: "cancel" as const },
     ]);
@@ -986,6 +1008,14 @@ export function SettingsScreen() {
                 onPress={choosePlanReportDefault}
               />
               <SettingsRow
+                icon={sym("repeat", "repeat")}
+                title="Habits default"
+                value={getHabitViewDefaultLabel(
+                  navigationDefaults.defaultHabitView,
+                )}
+                onPress={chooseHabitViewDefault}
+              />
+              <SettingsRow
                 icon={sym("person.2.fill", "groups")}
                 title="Collab default"
                 value={getCollabDefaultLabel(
@@ -1332,22 +1362,8 @@ function ColorThemePickerRow({
             >
               <View
                 style={[
-                  styles.colorSwatchHalf,
-                  {
-                    backgroundColor: option.colors.primary,
-                    borderTopLeftRadius: 999,
-                    borderBottomLeftRadius: 999,
-                  },
-                ]}
-              />
-              <View
-                style={[
-                  styles.colorSwatchHalf,
-                  {
-                    backgroundColor: option.colors.secondary,
-                    borderTopRightRadius: 999,
-                    borderBottomRightRadius: 999,
-                  },
+                  styles.colorSwatchFill,
+                  { backgroundColor: option.colors.primary },
                 ]}
               />
             </Pressable>
@@ -1517,6 +1533,7 @@ function pickNavigationDefaults(settings: UserSettings): NavigationDefaults {
     defaultAppStartPage: settings.defaultAppStartPage,
     defaultCollabSection: settings.defaultCollabSection,
     defaultPlanReportView: settings.defaultPlanReportView,
+    defaultHabitView: settings.defaultHabitView,
   };
 }
 
@@ -1538,6 +1555,13 @@ function getAppStartDefaultLabel(value: AppStartPage): string {
   return (
     APP_START_DEFAULT_OPTIONS.find((option) => option.value === value)?.label ??
     (value === "journal" || value === "dashboard" ? "Profile" : "Collab")
+  );
+}
+
+function getHabitViewDefaultLabel(value: HabitViewMode): string {
+  return (
+    HABIT_VIEW_DEFAULT_OPTIONS.find((option) => option.value === value)
+      ?.label ?? "Priority"
   );
 }
 
@@ -1778,7 +1802,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderRadius: 17,
   },
-  colorSwatchHalf: { flex: 1 },
+  colorSwatchFill: { flex: 1 },
   nameRowCard: {
     gap: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,

@@ -76,6 +76,14 @@ const deleteSchema = z.object({
   type: z.literal("delete"),
   id: z.string().uuid(),
 });
+const archiveSchema = z.object({
+  type: z.literal("archive"),
+  id: z.string().uuid(),
+});
+const unarchiveSchema = z.object({
+  type: z.literal("unarchive"),
+  id: z.string().uuid(),
+});
 const reorderSchema = z.object({
   type: z.literal("reorder"),
   goalIds: z.array(z.string().uuid()),
@@ -87,6 +95,8 @@ const bodySchema = z.discriminatedUnion("type", [
   updateCheckpointSchema,
   goalLinkSchema,
   goalUnlinkSchema,
+  archiveSchema,
+  unarchiveSchema,
   deleteSchema,
   reorderSchema,
 ]);
@@ -97,6 +107,7 @@ const selectGoalShape = {
   color: goals.color,
   timing: goals.timing,
   planOnCalendar: goals.planOnCalendar,
+  archivedAt: goals.archivedAt,
   sortOrder: goals.sortOrder,
   createdAt: goals.createdAt,
   updatedAt: goals.updatedAt,
@@ -139,15 +150,13 @@ type GoalLinkRow = {
   sourceId: string;
 };
 
-function serializeCheckpoint(
-  row: CheckpointRow,
-) {
+function serializeCheckpoint(row: CheckpointRow) {
   return {
     id: row.id,
     title: row.title,
     targetDate: row.targetDate ?? null,
     sortOrder: row.sortOrder,
-    started: Boolean(row.startedAt),
+    started: Boolean(row.startedAt || row.completedAt),
     startedAt: row.startedAt?.toISOString() ?? null,
     completed: Boolean(row.completedAt),
     completedAt: row.completedAt?.toISOString() ?? null,
@@ -167,6 +176,7 @@ function serializeGoal(
     | "timing"
     | "planOnCalendar"
     | "sortOrder"
+    | "archivedAt"
     | "createdAt"
     | "updatedAt"
   >,
@@ -177,10 +187,17 @@ function serializeGoal(
     id: goal.id,
     title: goal.title,
     color: goal.color ?? null,
-    timing: goal.timing === "later" ? "later" : "current",
+    timing: checkpoints.some((checkpoint) =>
+      Boolean(checkpoint.startedAt || checkpoint.completedAt),
+    )
+      ? "current"
+      : "later",
+    archivedAt: goal.archivedAt?.toISOString() ?? null,
     planOnCalendar: goal.planOnCalendar,
     sortOrder: goal.sortOrder,
-    checkpoints: checkpoints.map((checkpoint) => serializeCheckpoint(checkpoint)),
+    checkpoints: checkpoints.map((checkpoint) =>
+      serializeCheckpoint(checkpoint),
+    ),
     links: links
       .filter(
         (link) => link.sourceType === "task" || link.sourceType === "habit",
@@ -223,9 +240,7 @@ async function getSerializedGoal(db: Database, userId: string, goalId: string) {
       sourceId: goalLinks.sourceId,
     })
     .from(goalLinks)
-    .where(
-      and(eq(goalLinks.userId, userId), eq(goalLinks.goalId, goalId)),
-    );
+    .where(and(eq(goalLinks.userId, userId), eq(goalLinks.goalId, goalId)));
 
   return serializeGoal(goal, checkpoints, links);
 }
@@ -256,7 +271,10 @@ async function syncGoalCheckpoints(
     userId,
   });
 
-  const retainedCount = Math.min(existingCheckpoints.length, checkpoints.length);
+  const retainedCount = Math.min(
+    existingCheckpoints.length,
+    checkpoints.length,
+  );
   const activeCheckpointIndex = checkpoints.findIndex(
     (checkpoint) => checkpoint.started && !checkpoint.completed,
   );
@@ -305,7 +323,8 @@ async function syncGoalCheckpoints(
     .slice(existingCheckpoints.length)
     .map((checkpoint, index) => ({
       startedAt:
-        checkpoint.completed || existingCheckpoints.length + index === activeCheckpointIndex
+        checkpoint.completed ||
+        existingCheckpoints.length + index === activeCheckpointIndex
           ? new Date()
           : null,
       completedAt: checkpoint.completed ? new Date() : null,
@@ -316,16 +335,13 @@ async function syncGoalCheckpoints(
       userId,
     }));
   const insertedCheckpoints = newCheckpointValues.length
-    ? await db
-        .insert(goalCheckpoints)
-        .values(newCheckpointValues)
-        .returning({
-          completedAt: goalCheckpoints.completedAt,
-          id: goalCheckpoints.id,
-          startedAt: goalCheckpoints.startedAt,
-          targetDate: goalCheckpoints.targetDate,
-          title: goalCheckpoints.title,
-        })
+    ? await db.insert(goalCheckpoints).values(newCheckpointValues).returning({
+        completedAt: goalCheckpoints.completedAt,
+        id: goalCheckpoints.id,
+        startedAt: goalCheckpoints.startedAt,
+        targetDate: goalCheckpoints.targetDate,
+        title: goalCheckpoints.title,
+      })
     : [];
 
   const insertedByIndex = new Map(
@@ -352,9 +368,10 @@ async function syncGoalCheckpoints(
 
   await Promise.all(
     finalCheckpoints
-      .filter(
-        (checkpoint): checkpoint is typeof checkpoint & { id: string } =>
-          Boolean(checkpoint.id && checkpoint.targetDate && !checkpoint.completedAt),
+      .filter((checkpoint): checkpoint is typeof checkpoint & { id: string } =>
+        Boolean(
+          checkpoint.id && checkpoint.targetDate && !checkpoint.completedAt,
+        ),
       )
       .map((checkpoint) =>
         upsertPlannedEvent(db, {
@@ -524,6 +541,45 @@ export async function POST(request: Request) {
       return NextResponse.json(await getSerializedGoal(db, user.id, data.id));
     }
 
+    if (data.type === "archive" || data.type === "unarchive") {
+      const [goal] = await db
+        .select({ archivedAt: goals.archivedAt, id: goals.id })
+        .from(goals)
+        .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)))
+        .limit(1);
+
+      if (!goal) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+
+      if (data.type === "archive") {
+        const checkpointRows = await db
+          .select({ id: goalCheckpoints.id })
+          .from(goalCheckpoints)
+          .where(
+            and(
+              eq(goalCheckpoints.goalId, data.id),
+              eq(goalCheckpoints.userId, user.id),
+            ),
+          );
+        await deletePlannedEventsForSources(db, {
+          sourceIds: checkpointRows.map((checkpoint) => checkpoint.id),
+          sourceType: "goal_checkpoint",
+          userId: user.id,
+        });
+      }
+
+      await db
+        .update(goals)
+        .set({
+          archivedAt: data.type === "archive" ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)));
+
+      return NextResponse.json(await getSerializedGoal(db, user.id, data.id));
+    }
+
     if (data.type === "updateCheckpoint") {
       if (data.completed && !data.started) {
         return NextResponse.json(
@@ -551,7 +607,7 @@ export async function POST(request: Request) {
                 eq(goalCheckpointPhotos.userId, user.id),
               ),
             )
-        .limit(1)
+            .limit(1)
         : [];
       if (data.started && previousCheckpoint) {
         await db
@@ -637,9 +693,7 @@ export async function POST(request: Request) {
       const [goal] = await db
         .select({ id: goals.id })
         .from(goals)
-        .where(
-          and(eq(goals.id, data.goalId), eq(goals.userId, user.id)),
-        )
+        .where(and(eq(goals.id, data.goalId), eq(goals.userId, user.id)))
         .limit(1);
 
       if (!goal) {
@@ -651,12 +705,18 @@ export async function POST(request: Request) {
         .select({ id: sourceTable.id })
         .from(sourceTable)
         .where(
-          and(eq(sourceTable.id, data.sourceId), eq(sourceTable.userId, user.id)),
+          and(
+            eq(sourceTable.id, data.sourceId),
+            eq(sourceTable.userId, user.id),
+          ),
         )
         .limit(1);
 
       if (!source) {
-        return NextResponse.json({ error: "Link target not found" }, { status: 404 });
+        return NextResponse.json(
+          { error: "Link target not found" },
+          { status: 404 },
+        );
       }
 
       if (data.type === "linkGoal") {
@@ -682,7 +742,9 @@ export async function POST(request: Request) {
           );
       }
 
-      return NextResponse.json(await getSerializedGoal(db, user.id, data.goalId));
+      return NextResponse.json(
+        await getSerializedGoal(db, user.id, data.goalId),
+      );
     }
 
     if (data.type === "reorder") {
@@ -708,6 +770,22 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ ok: true });
+    }
+
+    const [goal] = await db
+      .select({ archivedAt: goals.archivedAt })
+      .from(goals)
+      .where(and(eq(goals.id, data.id), eq(goals.userId, user.id)))
+      .limit(1);
+
+    if (!goal) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (!goal.archivedAt) {
+      return NextResponse.json(
+        { error: "Archive the goal before deleting it permanently." },
+        { status: 400 },
+      );
     }
 
     const checkpointRows = await db

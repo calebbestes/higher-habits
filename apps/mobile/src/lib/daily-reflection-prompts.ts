@@ -11,10 +11,13 @@ export const DAILY_REFLECTION_PROMPTS: DailyReflectionPrompt[] = [
     // { id: "plot-twist", text: "What was the biggest plot twist of your day?" },
     { id: "tiny-win", text: "What tiny win are you weirdly proud of?" },
     // { id: "best-meme", text: "What's the best meme you saw today?" },
-    { id: "random-thing", text: "What's the most random thing that happened?" },
+    {
+        id: "random-thing",
+        text: "What's the most random thing that happened today?",
+    },
     { id: "unexpected-good", text: "What went better than you expected?" },
     { id: "learned", text: "What random fact did you learn today?" },
-    { id: "day-title", text: "If today had a title, what would it be?" },
+    // { id: "day-title", text: "If today had a title, what would it be?" },
     // { id: "helped-you", text: "Who made your day a little easier?" },
     // { id: "reset", text: "What helped you reset today?" },
     { id: "neat-moment", text: "What made you go 'huh, neat' today?" },
@@ -29,7 +32,17 @@ export const DAILY_REFLECTION_PROMPTS: DailyReflectionPrompt[] = [
     //     text: "What internet rabbit hole did you fall into?",
     // },
     // { id: "unread-messages", text: "How many unread messages do you have?" },
-    { id: "shout-out", text: "Who deserves a shout-out today?" },
+    {
+        id: "shout-out",
+        text: "Post a pic of someone who deserves a shout-out today",
+    },
+    { id: "shoes-check", text: "Show us the shoes you're wearing today." },
+    {
+        id: "view-right-now",
+        text: "Take a photo of whatever you're looking at right now.",
+    },
+
+    { id: "sky-check", text: "What does the sunset look like where you are?" },
     {
         id: "quote",
         text: "What quote did you hear or read recently that stuck with you?",
@@ -68,7 +81,7 @@ export const DAILY_REFLECTION_PROMPTS: DailyReflectionPrompt[] = [
         text: "What would 5-years-ago you be surprised to see you doing?",
     },
     // { id: "un-invent", text: "If you could un-invent one thing, what would it be?" },
-    { id: "made-you-old", text: "What made you feel old today?" },
+    { id: "made-you-humble", text: "What humbled you today?" },
     // { id: "first-thing", text: "What was the first thing you thought of when you woke up?" },
     {
         id: "grateful-weird",

@@ -45,7 +45,7 @@ export const ColorThemeOptions = {
     },
   },
   dolphins: {
-    label: "Dolphins",
+    label: "Creamsicle",
     colors: {
       primary: "#ff875a",
       primaryForeground: "#1A1225",

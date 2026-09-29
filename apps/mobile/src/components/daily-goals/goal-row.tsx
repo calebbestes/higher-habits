@@ -36,7 +36,6 @@ function GoalRowImpl({
 }) {
   const theme = useTheme();
   const isComplete = status === "complete";
-  const hasSlip = status === "incomplete";
   const isPlanned = status === "planned";
   const plannedTimeDisplay = isPlanned
     ? formatStoredPlanTimeDisplay(plannedTime?.startTime)
@@ -45,10 +44,8 @@ function GoalRowImpl({
     ? sym("checkmark", "check")
     : isPlanned
       ? sym("clock", "schedule")
-      : hasSlip
-        ? sym("xmark", "close")
-        : null;
-  const statusColor = hasSlip ? "#B84D54" : theme.primary;
+      : null;
+  const statusColor = theme.primary;
   const instanceTarget =
     goal.period === "daily" ? Math.max(goal.frequencyGoal ?? 1, 1) : 1;
   const progressLabel =
@@ -71,7 +68,7 @@ function GoalRowImpl({
     <View style={styles.goalRow}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${goal.name}, ${hasSlip ? "slip recorded" : (status ?? "not reported")}. Tap to open actions.`}
+        accessibilityLabel={`${goal.name}, ${isComplete ? "complete" : isPlanned ? "planned" : "not reported"}. Tap to open actions.`}
         onPress={onPress}
         style={({ pressed }) => [styles.goalRowMain, pressed && styles.pressed]}
       >
@@ -83,7 +80,7 @@ function GoalRowImpl({
                 ? `${theme.primary}24`
                 : "transparent",
               borderColor:
-                isComplete || isPlanned || hasSlip
+                isComplete || isPlanned
                   ? `${statusColor}AA`
                   : theme.tabBorder,
             },

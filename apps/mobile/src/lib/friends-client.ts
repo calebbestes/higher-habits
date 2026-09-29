@@ -4,6 +4,28 @@ import { recordReviewMilestone } from "@/lib/in-app-review";
 import { mobileApiFetch } from "@/lib/mobile-api";
 import type { SharedGoalScoringType } from "@/lib/shared-goals-client";
 
+export type FriendProfileGoal = {
+  id: string;
+  title: string;
+  color: string | null;
+  timing: "current" | "later";
+  planOnCalendar: boolean;
+  sortOrder: number;
+  checkpoints: Array<{
+    id: string;
+    title: string;
+    targetDate: string | null;
+    sortOrder: number;
+    started: boolean;
+    startedAt: string | null;
+    completed: boolean;
+    completedAt: string | null;
+    visibility: "only_me" | "goal_friends" | "all_friends";
+  }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StreakGoalScope = "all" | "shared" | "single" | "high";
 export type IncentiveTargetType = "habit" | "goal";
 
@@ -463,7 +485,11 @@ function normalizeSharedGoalFeedDetails(
         ? value.status
         : "active",
     currentUserStatus:
-      value.currentUserStatus === "accepted" ? "accepted" : "invited",
+      value.currentUserStatus === "accepted"
+        ? "accepted"
+        : value.currentUserStatus === "invited"
+          ? "invited"
+          : null,
     participants,
   };
 }
@@ -547,6 +573,7 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
         : undefined,
     sourceId: typeof value.sourceId === "string" ? value.sourceId : undefined,
     sharedGoal: normalizeSharedGoalFeedDetails(value.sharedGoal),
+    poll: normalizeFeedPoll(value.poll),
     repostedBy: isRecord(value.repostedBy)
       ? {
           id: stringOrFallback(value.repostedBy.id),
@@ -575,6 +602,37 @@ function normalizeFeedEntry(value: unknown): FriendFeedEntry | null {
             : [],
         )
       : [],
+  };
+}
+
+function normalizeFeedPoll(value: unknown): FriendFeedEntry["poll"] {
+  if (!isRecord(value) || typeof value.id !== "string") return undefined;
+
+  const options = Array.isArray(value.options)
+    ? value.options.flatMap((option) =>
+        isRecord(option) && typeof option.id === "string"
+          ? [
+              {
+                id: option.id,
+                competitorUserId: stringOrFallback(option.competitorUserId),
+                label: stringOrFallback(option.label, "Competitor"),
+                sortOrder: numberOrFallback(option.sortOrder),
+                voteCount: numberOrFallback(option.voteCount),
+              },
+            ]
+          : [],
+      )
+    : [];
+
+  return {
+    id: value.id,
+    question: stringOrFallback(value.question, "Who will win?"),
+    totalVotes: numberOrFallback(value.totalVotes),
+    currentUserOptionId:
+      typeof value.currentUserOptionId === "string"
+        ? value.currentUserOptionId
+        : null,
+    options,
   };
 }
 
@@ -713,13 +771,26 @@ export type FriendFeedEntry = {
     endsOn: string | null;
     openInvite: boolean;
     status: "active" | "completed" | "archived";
-    currentUserStatus: "invited" | "accepted";
+    currentUserStatus: "invited" | "accepted" | null;
     participants: Array<{
       id: string;
       userId: string;
       name: string;
       image: string | null;
       status: "invited" | "accepted";
+    }>;
+  };
+  poll?: {
+    id: string;
+    question: string;
+    totalVotes: number;
+    currentUserOptionId: string | null;
+    options: Array<{
+      id: string;
+      competitorUserId: string;
+      label: string;
+      sortOrder: number;
+      voteCount: number;
     }>;
   };
   mentions: FeedMention[];
@@ -816,6 +887,17 @@ export const fetchFriendProfile = (
 export const fetchFriendProfileByFriendId = (
   friendId: string,
 ): Promise<FriendProfile> => fetchFriendProfileWithFallback({ friendId });
+
+export const fetchFriendProfileGoals = (
+  friendshipId: string,
+): Promise<FriendProfileGoal[]> =>
+  mobileApiFetch(
+    `/api/friends/${encodeURIComponent(friendshipId)}/profile/goals`,
+  )
+    .then((response) => parseResponse<unknown>(response))
+    .then((value) =>
+      Array.isArray(value) ? (value as FriendProfileGoal[]) : [],
+    );
 
 export async function fetchMyProfile(): Promise<FriendProfile> {
   const profile = await mobileApiFetch("/api/users/profile").then((r) =>
@@ -1163,6 +1245,12 @@ export const toggleSocialPostProp = (postId: string) =>
     method: "POST",
     body: JSON.stringify({ type: "toggleProp" }),
   }).then((r) => parseResponse<Record<string, unknown>>(r));
+
+export const voteOnFeedPoll = (postId: string, optionId: string) =>
+  mobileApiFetch(`/api/friends/feed/social/${postId}/poll`, {
+    method: "POST",
+    body: JSON.stringify({ optionId }),
+  }).then((r) => parseResponse<{ optionId: string }>(r));
 
 export const toggleFeedRepost = (
   sourceType: FeedRepostSourceType,

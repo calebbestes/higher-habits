@@ -4,6 +4,10 @@ import { GoalNoteEditorModal } from "@/components/goal-note-editor-modal";
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import {
+  deleteCheckpointPhoto,
+  uploadCheckpointPhoto,
+} from "@/lib/checkpoint-photos-client";
+import {
   type FeedRepostSourceType,
   type FriendFeedComment,
   type FriendFeedEntry,
@@ -19,15 +23,23 @@ import {
   fetchMyPosts,
   reportContent,
   setReflectionBody,
+  setReflectionVisibility,
   toggleFeedProp,
   toggleFeedRepost,
   toggleReflectionProp,
+  uploadDailyReflectionPhoto,
 } from "@/lib/friends-client";
 import {
   getCachedFriendsFeedEntry,
   updateCachedFriendsFeedEntries,
 } from "@/lib/friends-feed-query";
-import { deleteGoalLog, setGoalLogNote } from "@/lib/goal-logs-client";
+import {
+  deleteGoalLog,
+  setGoalLogNote,
+  setGoalLogVisibility,
+} from "@/lib/goal-logs-client";
+import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
+import { deleteGoalPhoto, uploadGoalPhoto } from "@/lib/goal-photos-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
 import { getCachedMyPost, updateCachedMyPost } from "@/lib/my-profile-query";
 import { useQueryClient } from "@tanstack/react-query";
@@ -103,6 +115,8 @@ export function PostScreen({
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [isDeletingPost, setIsDeletingPost] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isDeletingPhoto, setIsDeletingPhoto] = useState(false);
   const [isTogglingRepost, setIsTogglingRepost] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -411,6 +425,171 @@ export function PostScreen({
 
   const canManagePost = source === "self" && entry !== null;
 
+  const handleSetPostVisibility = useCallback(
+    async (visibility: FriendFeedEntry["visibility"]) => {
+      if (!entry || !canManagePost || visibility === entry.visibility) return;
+
+      try {
+        if (entry.kind === "reflection") {
+          await setReflectionVisibility(entry.sourceId ?? entry.id, visibility);
+        } else if (entry.kind === "habit") {
+          await setGoalLogVisibility(entry.goal.id, entry.dateKey, visibility);
+        } else {
+          return;
+        }
+        await load(true);
+      } catch (visibilityError) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not change visibility",
+          visibilityError instanceof Error
+            ? visibilityError.message
+            : "The post visibility could not be changed.",
+        );
+      }
+    },
+    [canManagePost, entry, load],
+  );
+
+  const handleAddPhoto = useCallback(
+    async (photoSource: GoalPhotoSource) => {
+      if (!entry || !canManagePost || isUploadingPhoto) return;
+
+      try {
+        const photo = await pickGoalPhoto(photoSource);
+        if (!photo) return;
+        setIsUploadingPhoto(true);
+
+        if (entry.kind === "reflection") {
+          await uploadDailyReflectionPhoto(entry.sourceId ?? entry.id, photo);
+        } else if (entry.kind === "habit") {
+          await uploadGoalPhoto(entry.goal.id, entry.dateKey, photo);
+        } else if (entry.kind === "goal_checkpoint") {
+          await uploadCheckpointPhoto(entry.sourceId ?? entry.id, photo);
+        } else {
+          return;
+        }
+
+        await load(true);
+      } catch (photoError) {
+        if (!isMountedRef.current) return;
+        Alert.alert(
+          "Could not update picture",
+          photoError instanceof Error
+            ? photoError.message
+            : "The picture could not be added.",
+        );
+      } finally {
+        if (isMountedRef.current) setIsUploadingPhoto(false);
+      }
+    },
+    [canManagePost, entry, isUploadingPhoto, load],
+  );
+
+  const handleDeletePhoto = useCallback(
+    (photo: FriendFeedEntry["photos"][number]) => {
+      if (!entry || !canManagePost || isDeletingPhoto) return;
+
+      Alert.alert("Delete picture?", "This permanently removes this picture.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setIsDeletingPhoto(true);
+            try {
+              if (entry.kind === "habit") {
+                await deleteGoalPhoto(photo.id);
+              } else if (entry.kind === "goal_checkpoint") {
+                await deleteCheckpointPhoto(photo.id);
+              } else {
+                throw new Error("Pictures cannot be deleted here yet.");
+              }
+              await load(true);
+            } catch (deleteError) {
+              if (isMountedRef.current) {
+                Alert.alert(
+                  "Could not delete picture",
+                  deleteError instanceof Error
+                    ? deleteError.message
+                    : "The picture could not be deleted.",
+                );
+              }
+            } finally {
+              if (isMountedRef.current) setIsDeletingPhoto(false);
+            }
+          },
+        },
+      ]);
+    },
+    [canManagePost, entry, isDeletingPhoto, load],
+  );
+
+  const openDeletePictureActions = useCallback(() => {
+    if (!entry || !canManagePost || entry.photos.length === 0) return;
+
+    Alert.alert("Delete picture", "Choose a picture to remove.", [
+      ...entry.photos.map((photo, index) => ({
+        text: `Picture ${index + 1}`,
+        onPress: () => handleDeletePhoto(photo),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  }, [canManagePost, entry, handleDeletePhoto]);
+
+  const openPictureActions = useCallback(() => {
+    if (!canManagePost || !entry) return;
+
+    Alert.alert(
+      entry.photos.length > 0 ? "Edit picture" : "Add picture",
+      "Choose a picture source.",
+      [
+        {
+          text: "Take photo",
+          onPress: () => void handleAddPhoto("camera"),
+        },
+        {
+          text: "Choose from library",
+          onPress: () => void handleAddPhoto("library"),
+        },
+        ...(entry.photos.length > 0
+          ? [
+              {
+                text: "Delete picture",
+                style: "destructive" as const,
+                onPress: openDeletePictureActions,
+              },
+            ]
+          : []),
+        { text: "Cancel", style: "cancel" },
+      ],
+    );
+  }, [canManagePost, entry, handleAddPhoto, openDeletePictureActions]);
+
+  const openVisibilityActions = useCallback(() => {
+    if (!canManagePost || !entry) return;
+
+    const options: Array<{
+      label: string;
+      value: FriendFeedEntry["visibility"];
+    }> = [
+      { label: "Only me", value: "only_me" },
+      { label: "Goal friends", value: "goal_friends" },
+      { label: "All friends", value: "all_friends" },
+    ];
+
+    Alert.alert("Edit visibility", "Choose who can see this post.", [
+      ...options.map((option) => ({
+        text:
+          option.value === entry.visibility
+            ? `${option.label} ✓`
+            : option.label,
+        onPress: () => void handleSetPostVisibility(option.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  }, [canManagePost, entry, handleSetPostVisibility]);
+
   const handleEditPost = useCallback(() => {
     if (!canManagePost) return;
     setIsEditingNote(true);
@@ -502,10 +681,18 @@ export function PostScreen({
     }
 
     Alert.alert("Post options", "Choose an action.", [
-      ...(repostAction ? [repostAction] : []),
+      ...(!canManagePost && repostAction ? [repostAction] : []),
       {
         text: entry.notes.trim() ? "Edit note" : "Add note",
         onPress: handleEditPost,
+      },
+      {
+        text: entry.photos.length > 0 ? "Edit picture" : "Add picture",
+        onPress: openPictureActions,
+      },
+      {
+        text: "Edit visibility",
+        onPress: openVisibilityActions,
       },
       {
         text: entry.kind === "reflection" ? "Delete reflection" : "Delete log",
@@ -520,6 +707,8 @@ export function PostScreen({
     entry,
     handleEditPost,
     handleToggleRepost,
+    openPictureActions,
+    openVisibilityActions,
   ]);
 
   return (

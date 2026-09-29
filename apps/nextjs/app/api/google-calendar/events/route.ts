@@ -39,6 +39,7 @@ const updateEventSchema = createEventSchema.extend({
   color: colorSchema.optional(),
   eventLabelId: z.string().max(1024).nullable().optional(),
   eventId: z.string().min(1).max(1024),
+  targetCalendarId: z.string().min(1).optional(),
 });
 const deleteEventSchema = z.object({
   calendarId: z.string().min(1).optional(),
@@ -128,6 +129,7 @@ export async function PATCH(request: Request) {
       eventId: data.eventId,
       plannedEndTime: data.plannedEndTime,
       plannedStartTime: data.plannedStartTime,
+      targetCalendarId: data.targetCalendarId,
       timeZone: data.plannedTimeZone ?? null,
       title: data.title,
       userId: user.id,

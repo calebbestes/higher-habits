@@ -15,6 +15,8 @@ export const GOOGLE_CALENDAR_LIST_WRITE_SCOPE =
 export const GOOGLE_CALENDAR_APP_CREATED_SCOPE =
   "https://www.googleapis.com/auth/calendar.app.created";
 export const FLOAT_GOOGLE_CALENDAR_NAME = "Float";
+export const GOOGLE_BIRTHDAYS_CALENDAR_ID = "__google_birthdays__";
+const GOOGLE_BIRTHDAYS_CALENDAR_NAME = "Birthdays";
 
 type PlannedRepeat = {
   cadence: "daily" | "weekly" | "monthly";
@@ -93,6 +95,7 @@ type GoogleCalendarListItem = {
   primary?: boolean;
   summary?: string;
   summaryOverride?: string;
+  specialType?: "birthdays";
 };
 
 type GoogleCalendarListItemWithId = GoogleCalendarListItem & { id: string };
@@ -123,6 +126,7 @@ export type GoogleCalendar = {
   id: string;
   primary: boolean;
   summary: string;
+  specialType?: "birthdays";
 };
 
 const GOOGLE_CALENDAR_COLORS_CACHE_MS = 60 * 60 * 1000;
@@ -353,6 +357,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   description,
   existingEventId,
   googleCalendarId,
+  targetCalendarId,
   plannedEndTime,
   plannedStartTime,
   repeat,
@@ -369,6 +374,7 @@ export async function upsertGoogleCalendarPlannedEvent({
   description?: string | null;
   existingEventId?: string | null;
   googleCalendarId?: string | null;
+  targetCalendarId?: string | null;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
   repeat?: PlannedRepeat | null;
@@ -398,7 +404,11 @@ export async function upsertGoogleCalendarPlannedEvent({
     }
 
     let calendarId = existingEventId ? (googleCalendarId ?? "primary") : null;
-    if (!existingEventId) {
+    let activeEventId = existingEventId;
+    if (
+      !existingEventId ||
+      (sourceType === "other_event" && !googleCalendarId)
+    ) {
       const floatCalendar = await ensureFloatGoogleCalendarWithToken(
         userId,
         token,
@@ -406,7 +416,28 @@ export async function upsertGoogleCalendarPlannedEvent({
       if (floatCalendar.status !== "synced" || !floatCalendar.calendar) {
         return { status: floatCalendar.status };
       }
-      calendarId = floatCalendar.calendar.id;
+      if (!existingEventId || !googleCalendarId) {
+        calendarId = floatCalendar.calendar.id;
+      }
+    }
+
+    if (
+      activeEventId &&
+      targetCalendarId &&
+      calendarId &&
+      targetCalendarId !== calendarId
+    ) {
+      const moveResponse = await googleCalendarFetch(
+        `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(activeEventId)}/move?destination=${encodeURIComponent(targetCalendarId)}`,
+        token.accessToken,
+        { method: "POST" },
+      );
+      await throwIfGoogleCalendarError(moveResponse);
+      const moved = (await moveResponse
+        .json()
+        .catch(() => null)) as GoogleCalendarEventResponse | null;
+      calendarId = targetCalendarId;
+      activeEventId = moved?.id ?? activeEventId;
     }
 
     const colorSelection =
@@ -451,9 +482,9 @@ export async function upsertGoogleCalendarPlannedEvent({
       extraPrivateProperties,
     });
 
-    if (existingEventId) {
+    if (activeEventId) {
       const updateResponse = await googleCalendarFetch(
-        `/calendars/${encodeURIComponent(calendarId ?? "primary")}/events/${encodeURIComponent(existingEventId)}${eventLabelId === undefined ? "" : "?eventLabelVersion=1"}`,
+        `/calendars/${encodeURIComponent(calendarId ?? "primary")}/events/${encodeURIComponent(activeEventId)}${eventLabelId === undefined ? "" : "?eventLabelVersion=1"}`,
         token.accessToken,
         {
           body: JSON.stringify(updateBody),
@@ -468,7 +499,7 @@ export async function upsertGoogleCalendarPlannedEvent({
         return {
           status: "synced",
           calendarId,
-          eventId: updated?.id ?? existingEventId,
+          eventId: updated?.id ?? activeEventId,
         };
       }
 
@@ -703,16 +734,22 @@ export async function listGoogleCalendarPrimaryEventsForRange({
     );
     const calendarResults = await Promise.all(
       selectedCalendarIds.map(async (calendarId) => {
+        const calendar = calendarsById.get(calendarId);
+        const isBirthdaysCalendar = calendar?.specialType === "birthdays";
+        const sourceCalendarId = isBirthdaysCalendar
+          ? (calendarList.find((item) => item.primary)?.id ?? "primary")
+          : calendarId;
         const params = new URLSearchParams({
           orderBy: "startTime",
           singleEvents: "true",
           timeMax,
           timeMin,
         });
+        if (isBirthdaysCalendar) params.set("eventTypes", "birthday");
         if (timeZone) params.set("timeZone", timeZone);
 
         const response = await googleCalendarFetch(
-          `/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
+          `/calendars/${encodeURIComponent(sourceCalendarId)}/events?${params.toString()}`,
           token.accessToken,
           { method: "GET" },
         );
@@ -728,7 +765,7 @@ export async function listGoogleCalendarPrimaryEventsForRange({
               colors?.event,
               eventLabels,
               calendarId,
-              calendarsById.get(calendarId),
+              calendar,
             ),
           )
           .filter((event): event is GoogleCalendarEvent => Boolean(event));
@@ -771,6 +808,7 @@ export async function listGoogleCalendars(userId: string): Promise<{
           calendar.summaryOverride?.trim() ||
           calendar.summary?.trim() ||
           "Untitled calendar",
+        ...(calendar.specialType ? { specialType: calendar.specialType } : {}),
       }),
     );
 
@@ -997,10 +1035,38 @@ async function fetchGoogleCalendarList(
     .json()
     .catch(() => null)) as GoogleCalendarListResponse | null;
 
-  return (body?.items ?? []).filter(
-    (calendar): calendar is GoogleCalendarListItemWithId =>
+  return (body?.items ?? [])
+    .filter((calendar): calendar is GoogleCalendarListItemWithId =>
       Boolean(calendar.id),
-  );
+    )
+    .map((calendar) => {
+      const label =
+        calendar.summaryOverride?.trim() || calendar.summary?.trim() || "";
+      return label.toLowerCase() ===
+        GOOGLE_BIRTHDAYS_CALENDAR_NAME.toLowerCase()
+        ? { ...calendar, specialType: "birthdays" as const }
+        : calendar;
+    })
+    .concat(
+      (body?.items ?? []).some((calendar) => {
+        const label =
+          calendar.summaryOverride?.trim() || calendar.summary?.trim() || "";
+        return (
+          label.toLowerCase() === GOOGLE_BIRTHDAYS_CALENDAR_NAME.toLowerCase()
+        );
+      })
+        ? []
+        : [
+            {
+              id: GOOGLE_BIRTHDAYS_CALENDAR_ID,
+              backgroundColor: "#34A853",
+              foregroundColor: "#FFFFFF",
+              primary: false,
+              summary: GOOGLE_BIRTHDAYS_CALENDAR_NAME,
+              specialType: "birthdays" as const,
+            },
+          ],
+    );
 }
 
 type FloatCalendarSyncResult = {
@@ -1294,6 +1360,7 @@ export async function updateGoogleCalendarPrimaryEvent({
   eventId,
   plannedEndTime,
   plannedStartTime,
+  targetCalendarId,
   timeZone,
   title,
   userId,
@@ -1307,6 +1374,7 @@ export async function updateGoogleCalendarPrimaryEvent({
   eventId: string;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  targetCalendarId?: string;
   timeZone?: string | null;
   title: string;
   userId: string;
@@ -1326,6 +1394,42 @@ export async function updateGoogleCalendarPrimaryEvent({
       return { status: token.status };
     }
 
+    let activeCalendarId = calendarId;
+    let activeEventId = eventId;
+    let calendarList: GoogleCalendarListItemWithId[] | null = null;
+    if (targetCalendarId && targetCalendarId !== calendarId) {
+      calendarList = await fetchGoogleCalendarList(token.accessToken);
+      const sourceCalendar = calendarList.find(
+        (item) => item.id === calendarId,
+      );
+      const targetCalendar = calendarList.find(
+        (item) => item.id === targetCalendarId,
+      );
+
+      if (
+        (sourceCalendar?.summaryOverride?.trim() ||
+          sourceCalendar?.summary?.trim()) === FLOAT_GOOGLE_CALENDAR_NAME
+      ) {
+        throw new Error("Float calendar events cannot be moved.");
+      }
+      if (!targetCalendar) {
+        throw new Error("That calendar is not available.");
+      }
+
+      const moveResponse = await googleCalendarFetch(
+        `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}/move?destination=${encodeURIComponent(targetCalendarId)}`,
+        token.accessToken,
+        { method: "POST" },
+      );
+      await throwIfGoogleCalendarError(moveResponse);
+      const moved = (await moveResponse
+        .json()
+        .catch(() => null)) as GoogleCalendarApiEvent | null;
+
+      activeCalendarId = targetCalendarId;
+      activeEventId = moved?.id ?? eventId;
+    }
+
     const trimmedDescription = description?.trim();
     const colorSelection =
       color === undefined
@@ -1336,7 +1440,7 @@ export async function updateGoogleCalendarPrimaryEvent({
             : { colorId: "" }
           : await resolveGoogleCalendarEventColorSelection(
               token.accessToken,
-              calendarId,
+              activeCalendarId,
               color,
             );
     if (color !== undefined && color !== null && !colorSelection) {
@@ -1367,7 +1471,7 @@ export async function updateGoogleCalendarPrimaryEvent({
           })),
     };
     const response = await googleCalendarFetch(
-      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}${
+      `/calendars/${encodeURIComponent(activeCalendarId)}/events/${encodeURIComponent(activeEventId)}${
         usesEventLabels ? "?eventLabelVersion=1" : ""
       }`,
       token.accessToken,
@@ -1384,9 +1488,9 @@ export async function updateGoogleCalendarPrimaryEvent({
 
     let calendar: GoogleCalendarListItemWithId | undefined;
     try {
-      calendar = (await fetchGoogleCalendarList(token.accessToken)).find(
-        (item) => item.id === calendarId,
-      );
+      calendar = (
+        calendarList ?? (await fetchGoogleCalendarList(token.accessToken))
+      ).find((item) => item.id === activeCalendarId);
     } catch {
       // The event update already succeeded; color metadata is optional here.
     }
@@ -1397,7 +1501,7 @@ export async function updateGoogleCalendarPrimaryEvent({
         ? await normalizeGoogleCalendarEventWithColors(
             token.accessToken,
             updated,
-            calendarId,
+            activeCalendarId,
             calendar,
           )
         : null,

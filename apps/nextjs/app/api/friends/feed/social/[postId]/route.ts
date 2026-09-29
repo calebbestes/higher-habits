@@ -100,6 +100,18 @@ async function findAccessibleSocialPost(
 
   if (post.kind !== "shared_goal" || !post.sharedGoalId) return null;
 
+  const [pollAudience] = await db
+    .select({ id: socialFeedPostAudienceFriends.id })
+    .from(socialFeedPostAudienceFriends)
+    .where(
+      and(
+        eq(socialFeedPostAudienceFriends.socialFeedPostId, post.id),
+        eq(socialFeedPostAudienceFriends.friendUserId, userId),
+      ),
+    )
+    .limit(1);
+  if (pollAudience) return post;
+
   const [membership] = await db
     .select({ id: sharedGoalParticipants.id })
     .from(sharedGoalParticipants)

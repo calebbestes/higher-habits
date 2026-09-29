@@ -27,6 +27,7 @@ const calendarColorSchema = z
   .regex(/^#[0-9A-Fa-f]{6}$/)
   .nullable()
   .optional();
+const googleCalendarIdSchema = z.string().min(1).nullable().optional();
 
 const querySchema = z.object({
   dateKey: dateKeySchema.optional(),
@@ -40,6 +41,7 @@ const upsertSchema = z.object({
   sourceParentId: z.string().uuid().nullable().optional(),
   title: z.string().trim().min(1).max(200).optional(),
   calendarColor: calendarColorSchema,
+  googleCalendarId: googleCalendarIdSchema,
   dateKey: dateKeySchema,
   plannedStartTime: timeSchema,
   plannedEndTime: timeSchema,
@@ -201,6 +203,8 @@ export async function POST(request: Request) {
       timeZone: data.plannedTimeZone ?? null,
       title: data.title?.trim() || sourceTitle,
       calendarColor: data.calendarColor,
+      googleCalendarId:
+        data.sourceType === "other_event" ? data.googleCalendarId : undefined,
       userId: user.id,
     });
 

@@ -36,6 +36,7 @@ export type GoogleCalendar = {
   id: string;
   primary: boolean;
   summary: string;
+  specialType?: "birthdays";
 };
 
 export type GoogleCalendarEventColor = {
@@ -84,6 +85,7 @@ export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
   color?: string | null;
   eventLabelId?: string | null;
   eventId: string;
+  targetCalendarId?: string;
 };
 
 export type CreateGoogleCalendarEventResponse = {
@@ -342,6 +344,7 @@ export const updateGoogleCalendarEvent = ({
   eventLabelId,
   eventId,
   startTime,
+  targetCalendarId,
   timeZone,
   title,
 }: UpdateGoogleCalendarEventInput): Promise<UpdateGoogleCalendarEventResponse> =>
@@ -355,6 +358,7 @@ export const updateGoogleCalendarEvent = ({
       ...(allDay === undefined ? {} : { allDay }),
       ...(color === undefined ? {} : { color }),
       ...(eventLabelId === undefined ? {} : { eventLabelId }),
+      ...(targetCalendarId === undefined ? {} : { targetCalendarId }),
       plannedStartTime: startTime ?? null,
       plannedEndTime: endTime ?? null,
       plannedTimeZone: timeZone ?? null,

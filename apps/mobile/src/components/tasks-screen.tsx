@@ -746,8 +746,8 @@ function TaskCard({
 
   const panGesture = Gesture.Pan()
     .enabled(!isUpdating)
-    .activeOffsetX([-10, 10])
-    .failOffsetY([-12, 12])
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-18, 18])
     .onStart(() => {
       gestureStartX.value = translateX.value;
     })
@@ -788,7 +788,7 @@ function TaskCard({
   return (
     <View style={styles.swipeContainer}>
       <View
-        style={styles.swipeActions}
+        style={[styles.swipeActions, { opacity: isSwipeOpen ? 1 : 0 }]}
         pointerEvents={isSwipeOpen ? "auto" : "none"}
       >
         <Pressable
@@ -1175,6 +1175,7 @@ const styles = StyleSheet.create({
   },
   taskCardMotion: {
     zIndex: 1,
+    width: "100%",
   },
   swipeActions: {
     position: "absolute",

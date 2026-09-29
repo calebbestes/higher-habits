@@ -289,7 +289,7 @@ export function GoogleCalendarSelectionModal({
                             {calendar.summary}
                           </Text>
                         </Pressable>
-                        {onChangeColor ? (
+                        {onChangeColor && !calendar.specialType ? (
                           <Pressable
                             accessibilityLabel={`Change ${calendar.summary} color`}
                             accessibilityRole="button"
@@ -325,7 +325,9 @@ export function GoogleCalendarSelectionModal({
                           </Pressable>
                         ) : null}
                       </View>
-                      {onChangeColor && openColorCalendarId === calendar.id ? (
+                      {onChangeColor &&
+                      !calendar.specialType &&
+                      openColorCalendarId === calendar.id ? (
                         <View style={styles.colorOptions}>
                           {isLoadingGoogleColors ? (
                             <ActivityIndicator

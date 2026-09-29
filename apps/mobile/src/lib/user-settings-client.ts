@@ -41,17 +41,21 @@ export type NotificationSettings = {
   timeZone: string;
 };
 
+export type HabitViewMode = "priority" | "visibility" | "cadence";
+
 export type UserSettings = NotificationSettings & {
   onboardingCompleted?: boolean;
   defaultAppStartPage: AppStartPage;
   defaultCollabSection: CollabSection;
   defaultPlanReportView: PlanReportView;
+  defaultHabitView: HabitViewMode;
 };
 
 export const USER_SETTING_DEFAULTS: UserSettings = {
   defaultAppStartPage: "collab",
   defaultCollabSection: "feed",
   defaultPlanReportView: "day-plan",
+  defaultHabitView: "priority",
   timeZone: "America/Denver",
   notifyFriendRequests: true,
   notifyMonthlyGoalToday: true,
@@ -144,6 +148,12 @@ export const fetchUserSettings = (): Promise<UserSettings> =>
         defaultPlanReportView: isPlanReportView(merged.defaultPlanReportView)
           ? merged.defaultPlanReportView
           : USER_SETTING_DEFAULTS.defaultPlanReportView,
+        defaultHabitView:
+          merged.defaultHabitView === "priority" ||
+          merged.defaultHabitView === "visibility" ||
+          merged.defaultHabitView === "cadence"
+            ? merged.defaultHabitView
+            : USER_SETTING_DEFAULTS.defaultHabitView,
       };
     }),
   );

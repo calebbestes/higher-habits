@@ -280,9 +280,7 @@ function GoalActionsModalImpl({
   );
   const reminderPlanStartTime =
     goal?.reminderEnabled === true
-      ? normalizeStoredPlanTime(
-          goal.reminderTimes?.[0] ?? goal.reminderTime,
-        )
+      ? normalizeStoredPlanTime(goal.reminderTimes?.[0] ?? goal.reminderTime)
       : null;
   const reminderPlanEndTime = addStoredPlanHour(reminderPlanStartTime);
   const showPlanAction =
@@ -325,6 +323,34 @@ function GoalActionsModalImpl({
     Boolean(canRepeatPlan) &&
     !arePlannedRepeatsEqual(planRepeat, currentPlanRepeat);
   const hasPlanChanges = hasPlanTimeChanges || hasPlanRepeatChanges;
+
+  const dismissWithCompletionPrompt = () => {
+    const shouldAskToComplete =
+      Boolean(goal) &&
+      !isComplete &&
+      !isDefaultComplete &&
+      (hasNote || hasPhoto);
+
+    if (!shouldAskToComplete) {
+      onDismiss();
+      return;
+    }
+
+    Alert.alert(
+      "Mark habit complete?",
+      "You added evidence to this habit. Would you like to mark it complete first?",
+      [
+        { text: "No", style: "cancel", onPress: onDismiss },
+        {
+          text: "Yes",
+          onPress: () => {
+            onSetStatus("complete");
+            onDismiss();
+          },
+        },
+      ],
+    );
+  };
 
   // A daily plan must carry something useful: a note or a valid time range.
   const hasPlanTimeRange = Boolean(nextPlanStartTime && nextPlanEndTime);
@@ -464,13 +490,13 @@ function GoalActionsModalImpl({
       statusBarTranslucent
       visible={visible}
       onShow={onShown}
-      onRequestClose={onDismiss}
+      onRequestClose={dismissWithCompletionPrompt}
     >
       <View style={modalStyles.overlay}>
         <ReliablePressable
           accessibilityLabel="Close"
           style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
-          onPress={onDismiss}
+          onPress={dismissWithCompletionPrompt}
         />
         <SafeAreaView
           edges={["bottom"]}
@@ -506,7 +532,7 @@ function GoalActionsModalImpl({
                   </Text>
                 </View>
                 <ReliablePressable
-                  onPress={onDismiss}
+                  onPress={dismissWithCompletionPrompt}
                   hitSlop={8}
                   style={({ pressed }) => [
                     modalStyles.closeBtn,

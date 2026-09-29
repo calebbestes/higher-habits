@@ -56,12 +56,18 @@ import { useTaskProjects } from "@/hooks/use-task-projects";
 import { useTheme } from "@/hooks/use-theme";
 import { authClient } from "@/lib/auth-client";
 import { uploadCheckpointPhoto } from "@/lib/checkpoint-photos-client";
+import {
+  getDismissedSuggestions,
+  setDismissedSuggestions,
+} from "@/lib/day-plan-preferences";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { uploadGoalPhoto } from "@/lib/goal-photos-client";
 import { GOOGLE_CALENDAR_SCOPES } from "@/lib/google-auth-scopes";
 import {
+  type GoogleCalendar,
   type GoogleCalendarDayEvent,
   type GoogleCalendarEventsResponse,
+  deleteGoogleCalendarEvent,
   ensureFloatGoogleCalendar,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendarStatus,
@@ -368,6 +374,20 @@ export function DayPlanScreen({
     pageX: number;
     pageY: number;
   } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDismissedSuggestions()
+      .then((stored) => {
+        if (cancelled) return;
+        setDismissedSuggestionIdsByDate(stored);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [draftPlanRange, setDraftPlanRange] = useState<PlanRange | null>(null);
   const [otherEventRange, setOtherEventRange] = useState<PlanRange | null>(
     null,
@@ -393,6 +413,7 @@ export function DayPlanScreen({
   );
   const dateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
   useEffect(() => {
+    if (!dateKey) return;
     setSuggestedEntryFilter(null);
   }, [dateKey]);
   useEffect(() => {
@@ -1064,6 +1085,7 @@ export function DayPlanScreen({
   const entries = useMemo(
     () =>
       buildDayPlanEntries({
+        calendars,
         checkpointById,
         dateKey,
         defaultCalendarColor: floatCalendarColor,
@@ -1078,6 +1100,7 @@ export function DayPlanScreen({
       }),
     [
       checkpointById,
+      calendars,
       dateKey,
       googleEvents,
       habitById,
@@ -1150,7 +1173,9 @@ export function DayPlanScreen({
       setDismissedSuggestionIdsByDate((current) => {
         const currentIds = current[dateKey] ?? [];
         if (currentIds.includes(entryId)) return current;
-        return { ...current, [dateKey]: [...currentIds, entryId] };
+        const next = { ...current, [dateKey]: [...currentIds, entryId] };
+        void setDismissedSuggestions(next).catch(() => undefined);
+        return next;
       });
     },
     [dateKey],
@@ -1621,6 +1646,7 @@ export function DayPlanScreen({
       googleAllDay?: boolean;
       googleEventLabelId?: string | null;
       googleColor?: string | null;
+      googleCalendarId?: string;
       title?: string;
     },
   ): Promise<{
@@ -1705,7 +1731,18 @@ export function DayPlanScreen({
           title: options?.title?.trim() || entry.title,
           calendarColor:
             entry.kind === "other" ? options?.calendarColor : undefined,
+          googleCalendarId:
+            entry.kind === "other" ? options?.googleCalendarId : undefined,
         });
+        if (
+          response.calendarSync &&
+          response.calendarSync.status !== "synced"
+        ) {
+          throw new Error(
+            response.calendarSync.error ??
+              `Google Calendar sync was ${response.calendarSync.status}.`,
+          );
+        }
         patchPlannedEvent(response.event);
         notificationEntry = {
           ...entry,
@@ -1724,6 +1761,7 @@ export function DayPlanScreen({
           eventId,
           eventLabelId: options?.googleEventLabelId,
           startTime,
+          targetCalendarId: options?.googleCalendarId,
           timeZone,
           title: options?.title?.trim() || entry.title,
         });
@@ -2512,11 +2550,53 @@ export function DayPlanScreen({
     }
   };
 
+  const deleteActiveEntry = async () => {
+    if (!activeEntry?.sourceId) return;
+
+    const entry = activeEntry;
+    const sourceId = entry.sourceId;
+    if (!sourceId) return;
+    setUpdatingKey(entry.id);
+    try {
+      if (entry.kind === "google") {
+        const result = await deleteGoogleCalendarEvent({
+          calendarId: entry.calendarId,
+          eventId: sourceId,
+        });
+        if (result.status !== "deleted" && result.status !== "skipped") {
+          throw new Error("The calendar event could not be deleted.");
+        }
+      } else {
+        await deletePlannedEvent({
+          sourceId,
+          sourceType: getPlannedEventSourceTypeForEntry(entry),
+        });
+      }
+
+      cancelEntryNotification(entry);
+      invalidateCurrentCaches({ google: true, planned: true });
+      if (!isMountedRef.current) return;
+      setActiveEntry(null);
+      await load({ quiet: true });
+    } catch (deleteError) {
+      if (!isMountedRef.current) return;
+      Alert.alert(
+        "Could not delete event",
+        deleteError instanceof Error
+          ? deleteError.message
+          : "The event could not be deleted.",
+      );
+    } finally {
+      if (isMountedRef.current) setUpdatingKey(null);
+    }
+  };
+
   const saveActiveEntryTimeRange = async (
     range: PlanRange,
     eventColor?: string | null,
     preserveGoogleAllDay = false,
     title?: string,
+    googleCalendarId?: string,
   ) => {
     if (!activeEntry) return;
     const entry = activeEntry;
@@ -2525,6 +2605,7 @@ export function DayPlanScreen({
       googleAllDay: preserveGoogleAllDay,
       googleEventLabelId: entry.calendarEventLabelId,
       googleColor: eventColor,
+      googleCalendarId,
       title,
     });
     if (!isMountedRef.current) return;
@@ -2534,12 +2615,22 @@ export function DayPlanScreen({
       ...(saveResult.googleEvent
         ? {
             calendarBackgroundColor: saveResult.googleEvent.backgroundColor,
+            calendarId: saveResult.googleEvent.calendarId,
+            calendarName: saveResult.googleEvent.calendarName,
             calendarColorId: saveResult.googleEvent.colorId,
             calendarEventLabelId: saveResult.googleEvent.eventLabelId,
             calendarForegroundColor: saveResult.googleEvent.foregroundColor,
           }
         : {}),
       ...(entry.kind === "other" ? { calendarColor: eventColor ?? null } : {}),
+      ...(entry.kind === "other" && googleCalendarId
+        ? {
+            calendarId: googleCalendarId,
+            calendarName: calendars.find(
+              (calendar) => calendar.id === googleCalendarId,
+            )?.summary,
+          }
+        : {}),
       ...(title?.trim() && (entry.kind === "google" || entry.kind === "other")
         ? { title: title.trim() }
         : {}),
@@ -3470,6 +3561,7 @@ export function DayPlanScreen({
           onShown={() => undefined}
         />
         <InternalEventActionsModal
+          calendars={calendars}
           entry={activeEntry}
           hasNote={activeEntryHasNote}
           hasPhoto={activeEntryHasPhoto}
@@ -3487,6 +3579,7 @@ export function DayPlanScreen({
           onAddPhoto={() => void addCheckpointPhotoForActiveEntry("library")}
           onClearPlan={() => void clearActiveEntryPlan()}
           onClose={() => setActiveEntry(null)}
+          onDeleteEvent={() => void deleteActiveEntry()}
           onOpenNote={openAttachmentForActiveEntry}
           defaultOtherEventColor={
             calendars.find((calendar) => calendar.summary === "Float")
@@ -3496,12 +3589,19 @@ export function DayPlanScreen({
             calendars.find((calendar) => calendar.summary === "Float")
               ?.foregroundColor ?? theme.primaryForeground
           }
-          onSaveTimeRange={(range, eventColor, preserveGoogleAllDay, title) =>
+          onSaveTimeRange={(
+            range,
+            eventColor,
+            preserveGoogleAllDay,
+            title,
+            googleCalendarId,
+          ) =>
             void saveActiveEntryTimeRange(
               range,
               eventColor,
               preserveGoogleAllDay,
               title,
+              googleCalendarId,
             )
           }
           onSetVisibility={(visibility) =>
@@ -3930,6 +4030,7 @@ function DayPlanDatePicker({
 }
 
 function InternalEventActionsModal({
+  calendars,
   defaultOtherEventColor,
   defaultOtherEventForeground,
   entry,
@@ -3939,6 +4040,7 @@ function InternalEventActionsModal({
   onAddPhoto,
   onClearPlan,
   onClose,
+  onDeleteEvent,
   onOpenNote,
   onSaveTimeRange,
   onSetVisibility,
@@ -3947,6 +4049,7 @@ function InternalEventActionsModal({
   statusLabel,
   visibility,
 }: {
+  calendars: GoogleCalendar[];
   defaultOtherEventColor?: string;
   defaultOtherEventForeground?: string;
   entry: DayPlanEntry | null;
@@ -3956,12 +4059,14 @@ function InternalEventActionsModal({
   onAddPhoto: () => void;
   onClearPlan: () => void;
   onClose: () => void;
+  onDeleteEvent: () => void;
   onOpenNote: () => void;
   onSaveTimeRange: (
     range: PlanRange,
     googleColor?: string | null,
     preserveGoogleAllDay?: boolean,
     title?: string,
+    targetCalendarId?: string,
   ) => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
@@ -4005,6 +4110,24 @@ function InternalEventActionsModal({
     ? (entry?.calendarColor ?? null)
     : currentGoogleColor;
   const [eventColor, setEventColor] = useState<string | null>(null);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(
+    null,
+  );
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
+  const floatCalendar = calendars.find(
+    (calendar) => calendar.summary === "Float",
+  );
+  const currentCalendarId =
+    entry?.calendarId ??
+    (entry?.kind === "google" ? undefined : floatCalendar?.id);
+  const selectedCalendar = calendars.find(
+    (calendar) => calendar.id === (selectedCalendarId ?? currentCalendarId),
+  );
+  const calendarName =
+    selectedCalendar?.summary ?? entry?.calendarName ?? "Float";
+  const isFloatCalendar =
+    entry?.kind === "task" || entry?.kind === "goal" || entry?.kind === "habit";
   const nextStartTime = normalizePlanTimeInput(planStartTime, planStartPeriod);
   const nextEndTime = normalizePlanTimeInput(planEndTime, planEndPeriod);
   const nextStartMinutes = timeToMinutes(nextStartTime);
@@ -4015,8 +4138,15 @@ function InternalEventActionsModal({
     (isGoogleEvent || isOtherEvent) && eventColor !== currentEventColor;
   const hasEventTitleChanges =
     isTitleEditable && eventTitle.trim() !== (entry?.title ?? "");
+  const hasCalendarChanges =
+    (entry?.kind === "google" || entry?.kind === "other") &&
+    Boolean(selectedCalendarId) &&
+    selectedCalendarId !== entry.calendarId;
   const hasSaveChanges =
-    hasTimeRangeChanges || hasEventColorChanges || hasEventTitleChanges;
+    hasTimeRangeChanges ||
+    hasEventColorChanges ||
+    hasEventTitleChanges ||
+    hasCalendarChanges;
   const canSaveTimeRange =
     nextStartMinutes !== null &&
     nextEndMinutes !== null &&
@@ -4042,7 +4172,10 @@ function InternalEventActionsModal({
     setPlanEndTime(end.time || DEFAULT_PLAN_START_TIME);
     setPlanEndPeriod(end.period);
     setEventColor(currentEventColor);
+    setColorPickerOpen(false);
     setEventTitle(entry.title);
+    setSelectedCalendarId(entry.calendarId ?? null);
+    setCalendarPickerOpen(false);
   }, [
     currentEndTime,
     currentEventColor,
@@ -4126,6 +4259,7 @@ function InternalEventActionsModal({
             canCancelContentTouches
             contentContainerStyle={styles.eventActionContent}
             keyboardShouldPersistTaps="always"
+            scrollEnabled={false}
             showsVerticalScrollIndicator={false}
           >
             {isTitleEditable ? (
@@ -4156,6 +4290,115 @@ function InternalEventActionsModal({
                   ]}
                   value={eventTitle}
                 />
+              </View>
+            ) : null}
+            {isEditablePlannedBlock ? (
+              <View style={styles.eventActionSection}>
+                <Text
+                  style={[
+                    modalStyles.planTimeSectionTitle,
+                    { color: theme.text },
+                  ]}
+                >
+                  Calendar
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isFloatCalendar }}
+                  disabled={isFloatCalendar || calendars.length === 0}
+                  onPress={() => setCalendarPickerOpen((open) => !open)}
+                  style={({ pressed }) => [
+                    styles.eventCalendarSelect,
+                    {
+                      backgroundColor: theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                      opacity: isFloatCalendar ? 0.72 : 1,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.eventCalendarDot,
+                      {
+                        backgroundColor:
+                          selectedCalendar?.backgroundColor ?? theme.primary,
+                      },
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.eventCalendarName, { color: theme.text }]}
+                  >
+                    {calendarName}
+                  </Text>
+                  <SymbolView
+                    name={sym("chevron.down", "arrow_drop_down")}
+                    size={22}
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+                {calendarPickerOpen && !isFloatCalendar ? (
+                  <View
+                    style={[
+                      styles.eventCalendarOptions,
+                      {
+                        backgroundColor: theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
+                    {calendars.map((calendar) => (
+                      <Pressable
+                        key={calendar.id}
+                        onPress={() => {
+                          setSelectedCalendarId(calendar.id);
+                          setCalendarPickerOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.eventCalendarOption,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.eventCalendarDot,
+                            {
+                              backgroundColor:
+                                calendar.backgroundColor ?? theme.primary,
+                            },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.eventCalendarName,
+                            { color: theme.text },
+                          ]}
+                        >
+                          {calendar.summary}
+                        </Text>
+                        {calendar.id ===
+                        (selectedCalendarId ?? currentCalendarId) ? (
+                          <SymbolView
+                            name={sym("checkmark", "check")}
+                            size={20}
+                            tintColor={theme.primary}
+                          />
+                        ) : null}
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
+                {isFloatCalendar ? (
+                  <Text
+                    style={[
+                      styles.eventCalendarHint,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Float habits, goals, and tasks cannot be moved.
+                  </Text>
+                ) : null}
               </View>
             ) : null}
             {isEditablePlannedBlock ? (
@@ -4280,24 +4523,81 @@ function InternalEventActionsModal({
                 </View>
                 {isGoogleEvent || isOtherEvent ? (
                   <View style={styles.eventActionSection}>
-                    <CalendarColorPicker
-                      defaultColor={
-                        isGoogleEvent
-                          ? DEFAULT_GOOGLE_CALENDAR_COLOR
-                          : defaultOtherEventColor
-                      }
-                      defaultForeground={
-                        isGoogleEvent ? "#FFFFFF" : defaultOtherEventForeground
-                      }
+                    <Pressable
+                      accessibilityRole="button"
                       disabled={isUpdating}
-                      defaultHint={
-                        isGoogleEvent
-                          ? "Default uses Google's default event color."
-                          : "Default uses your Float calendar color."
-                      }
-                      onChange={setEventColor}
-                      value={eventColor}
-                    />
+                      onPress={() => setColorPickerOpen((open) => !open)}
+                      style={({ pressed }) => [
+                        styles.eventActionRow,
+                        styles.eventActionRowCompact,
+                        { backgroundColor: theme.backgroundElement },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.eventCalendarDot,
+                          {
+                            backgroundColor:
+                              eventColor ??
+                              (isGoogleEvent
+                                ? DEFAULT_GOOGLE_CALENDAR_COLOR
+                                : (defaultOtherEventColor ?? theme.primary)),
+                          },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.eventActionLabel,
+                          styles.eventActionLabelCompact,
+                          { color: theme.text },
+                        ]}
+                      >
+                        Calendar color
+                      </Text>
+                      <Text
+                        style={[
+                          styles.eventCompactValue,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {eventColor ? "Custom" : "Default"}
+                      </Text>
+                      <SymbolView
+                        name={sym("chevron.down", "arrow_drop_down")}
+                        size={20}
+                        tintColor={theme.textSecondary}
+                      />
+                    </Pressable>
+                    {colorPickerOpen ? (
+                      <View
+                        style={[
+                          styles.eventCompactPicker,
+                          { backgroundColor: theme.backgroundElement },
+                        ]}
+                      >
+                        <CalendarColorPicker
+                          defaultColor={
+                            isGoogleEvent
+                              ? DEFAULT_GOOGLE_CALENDAR_COLOR
+                              : defaultOtherEventColor
+                          }
+                          defaultForeground={
+                            isGoogleEvent
+                              ? "#FFFFFF"
+                              : defaultOtherEventForeground
+                          }
+                          disabled={isUpdating}
+                          defaultHint={
+                            isGoogleEvent
+                              ? "Default uses Google's default event color."
+                              : "Default uses your Float calendar color."
+                          }
+                          onChange={setEventColor}
+                          value={eventColor}
+                        />
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
               </>
@@ -4423,78 +4723,132 @@ function InternalEventActionsModal({
             ) : null}
 
             {isEditablePlannedBlock ? (
-              <Pressable
-                disabled={
-                  isUpdating ||
-                  (hasTimeRangeChanges && !canSaveTimeRange) ||
-                  !canSaveEventTitle ||
-                  (!hasSaveChanges && isGoogleEvent)
-                }
-                onPress={() =>
-                  runPressAction("save-or-clear", () => {
-                    if (
-                      hasSaveChanges &&
-                      nextStartMinutes !== null &&
-                      nextEndMinutes !== null
-                    ) {
-                      onSaveTimeRange(
-                        {
-                          endMinutes: normalizeEndMinutes(
-                            nextStartMinutes,
-                            nextEndMinutes,
-                          ),
-                          startMinutes: nextStartMinutes,
-                        },
-                        isGoogleEvent || isOtherEvent ? eventColor : undefined,
-                        isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
-                        isTitleEditable ? eventTitle.trim() : undefined,
-                      );
-                      return;
-                    }
+              <>
+                <Pressable
+                  disabled={
+                    isUpdating ||
+                    (hasTimeRangeChanges && !canSaveTimeRange) ||
+                    !canSaveEventTitle ||
+                    (isOtherEvent && !hasSaveChanges) ||
+                    (!hasSaveChanges && isGoogleEvent)
+                  }
+                  onPress={() =>
+                    runPressAction("save-or-clear", () => {
+                      if (
+                        hasSaveChanges &&
+                        nextStartMinutes !== null &&
+                        nextEndMinutes !== null
+                      ) {
+                        onSaveTimeRange(
+                          {
+                            endMinutes: normalizeEndMinutes(
+                              nextStartMinutes,
+                              nextEndMinutes,
+                            ),
+                            startMinutes: nextStartMinutes,
+                          },
+                          isGoogleEvent || isOtherEvent
+                            ? eventColor
+                            : undefined,
+                          isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
+                          isTitleEditable ? eventTitle.trim() : undefined,
+                          hasCalendarChanges
+                            ? (selectedCalendarId ?? undefined)
+                            : undefined,
+                        );
+                        return;
+                      }
 
-                    if (isGoogleEvent) return;
-                    onClearPlan();
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.eventActionRow,
-                  styles.eventActionRowCompact,
-                  { backgroundColor: theme.backgroundElement },
-                  hasTimeRangeChanges &&
-                    !canSaveTimeRange &&
-                    modalStyles.disabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {isUpdating ? (
-                  <ActivityIndicator color={theme.primary} size="small" />
-                ) : (
-                  <SymbolView
-                    name={
-                      hasSaveChanges
-                        ? sym("calendar.badge.plus", "event_available")
-                        : sym("calendar.badge.minus", "event_busy")
-                    }
-                    size={26}
-                    tintColor={
-                      hasSaveChanges ? theme.primary : theme.textSecondary
-                    }
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.eventActionLabel,
-                    styles.eventActionLabelCompact,
-                    { color: theme.text },
+                      if (isGoogleEvent || isOtherEvent) return;
+                      onClearPlan();
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.eventActionRow,
+                    styles.eventActionRowCompact,
+                    { backgroundColor: theme.backgroundElement },
+                    hasTimeRangeChanges &&
+                      !canSaveTimeRange &&
+                      modalStyles.disabled,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  {hasSaveChanges || isGoogleEvent
-                    ? hasSaveChanges
-                      ? "Save changes"
-                      : "Save plan"
-                    : "Clear plan"}
-                </Text>
-              </Pressable>
+                  {isUpdating ? (
+                    <ActivityIndicator color={theme.primary} size="small" />
+                  ) : (
+                    <SymbolView
+                      name={
+                        hasSaveChanges
+                          ? sym("calendar.badge.plus", "event_available")
+                          : sym("calendar.badge.minus", "event_busy")
+                      }
+                      size={26}
+                      tintColor={
+                        hasSaveChanges ? theme.primary : theme.textSecondary
+                      }
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.eventActionLabel,
+                      styles.eventActionLabelCompact,
+                      { color: theme.text },
+                    ]}
+                  >
+                    {isOtherEvent
+                      ? hasSaveChanges
+                        ? "Save changes"
+                        : "Save plan"
+                      : hasSaveChanges || isGoogleEvent
+                        ? hasSaveChanges
+                          ? "Save changes"
+                          : "Save plan"
+                        : "Clear plan"}
+                  </Text>
+                </Pressable>
+                {isGoogleEvent || isOtherEvent ? (
+                  <Pressable
+                    disabled={isUpdating}
+                    onPress={() =>
+                      runPressAction("delete-event", () =>
+                        Alert.alert(
+                          "Delete event?",
+                          `This will permanently delete “${entry.title}”.`,
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Delete",
+                              style: "destructive",
+                              onPress: onDeleteEvent,
+                            },
+                          ],
+                        ),
+                      )
+                    }
+                    style={({ pressed }) => [
+                      styles.eventActionRow,
+                      styles.eventActionRowCompact,
+                      { backgroundColor: theme.backgroundElement },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <SymbolView
+                      name={sym("trash", "delete")}
+                      size={26}
+                      tintColor="#D94F5C"
+                    />
+                    <Text
+                      style={[
+                        styles.eventActionLabel,
+                        styles.eventActionLabelCompact,
+                        { color: "#D94F5C" },
+                      ]}
+                    >
+                      Delete event
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </>
             ) : null}
           </ScrollView>
         </SafeAreaView>
@@ -5540,6 +5894,7 @@ function getEntryColors(
 }
 
 function buildDayPlanEntries({
+  calendars,
   checkpointById,
   dateKey,
   defaultCalendarColor,
@@ -5552,6 +5907,7 @@ function buildDayPlanEntries({
   snapshot,
   taskById,
 }: {
+  calendars: GoogleCalendar[];
   checkpointById: Map<string, CheckpointRef>;
   dateKey: string;
   defaultCalendarColor: string;
@@ -5566,6 +5922,9 @@ function buildDayPlanEntries({
 }): DayPlanEntry[] {
   const dayStart = startOfDay(selectedDate);
   const dayEnd = addDays(dayStart, 1);
+  const calendarNameById = new Map(
+    calendars.map((calendar) => [calendar.id, calendar.summary]),
+  );
   const categoryNameById = new Map(
     (snapshot?.categories ?? []).map((category) => [
       category.id,
@@ -5618,6 +5977,7 @@ function buildDayPlanEntries({
       }
 
       const entry = plannedEventToEntry(event, {
+        calendarNameById,
         checkpointById,
         categoryNameById,
         defaultCalendarColor,
@@ -5742,6 +6102,7 @@ function buildDayPlanEntries({
 function plannedEventToEntry(
   event: PlannedEvent,
   {
+    calendarNameById,
     categoryNameById,
     checkpointById,
     defaultCalendarColor,
@@ -5749,6 +6110,7 @@ function plannedEventToEntry(
     liveCalendarColor,
     taskById,
   }: {
+    calendarNameById: Map<string, string>;
     categoryNameById: Map<string, string>;
     checkpointById: Map<string, CheckpointRef>;
     defaultCalendarColor: string;
@@ -5788,6 +6150,12 @@ function plannedEventToEntry(
       goal?.color ??
       defaultCalendarColor,
     categoryName: habit ? categoryNameById.get(habit.categoryId) : undefined,
+    calendarId: event.googleCalendarId ?? undefined,
+    calendarName: event.googleCalendarId
+      ? calendarNameById.get(event.googleCalendarId)
+      : event.sourceType === "other_event"
+        ? "Float"
+        : undefined,
     completed,
     description:
       event.sourceType === "habit_instance" ? "Daily habit" : undefined,
@@ -6648,10 +7016,7 @@ function monthlyWeekdayCell(date: Date) {
 function isPeriodicHabitScheduledForDate(
   habit: Pick<
     PeriodicHabitInfo,
-    | "period"
-    | "repeatCadence"
-    | "repeatDays"
-    | "repeatMonthlyType"
+    "period" | "repeatCadence" | "repeatDays" | "repeatMonthlyType"
   >,
   date: Date,
 ) {
@@ -6671,9 +7036,7 @@ function isPeriodicHabitScheduledForDate(
     const type = habit.repeatMonthlyType ?? "day_of_month";
     if (type === "day_of_month") {
       const days = habit.repeatDays?.filter((day) => day >= 1 && day <= 31);
-      return days?.length
-        ? days.includes(date.getDate())
-        : false;
+      return days?.length ? days.includes(date.getDate()) : false;
     }
 
     const cells = habit.repeatDays?.filter((day) => day >= 0 && day <= 34);
@@ -7343,7 +7706,7 @@ const styles = StyleSheet.create({
   eventActionSheet: {
     position: "relative",
     overflow: "hidden",
-    maxHeight: "82%",
+    maxHeight: "94%",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     shadowColor: "#000000",
@@ -7385,9 +7748,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     fontSize: 17,
     fontWeight: "600",
-    minHeight: 54,
+    minHeight: 48,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   eventActionSubtitle: {
     fontSize: 16,
@@ -7402,15 +7765,63 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   eventActionContent: {
-    gap: 12,
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 22,
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   eventActionSection: {
-    gap: 10,
+    gap: 7,
     paddingHorizontal: 2,
-    paddingVertical: 4,
+    paddingVertical: 2,
+  },
+  eventCalendarSelect: {
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+  },
+  eventCalendarDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+  },
+  eventCalendarName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "800",
+  },
+  eventCalendarOptions: {
+    overflow: "hidden",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  eventCalendarOption: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+  },
+  eventCalendarHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  eventCompactValue: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  eventCompactPicker: {
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   eventActionRow: {
     minHeight: 82,

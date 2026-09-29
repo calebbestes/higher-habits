@@ -255,6 +255,7 @@ export async function upsertPlannedEvent(
     sourceId,
     sourceParentId,
     sourceType,
+    googleCalendarId,
     timeZone,
     title,
     calendarColor,
@@ -269,6 +270,7 @@ export async function upsertPlannedEvent(
     timeZone?: string | null;
     title: string;
     calendarColor?: string | null;
+    googleCalendarId?: string | null;
     userId: string;
   },
 ) {
@@ -301,6 +303,8 @@ export async function upsertPlannedEvent(
     title,
     timeZone,
     color: calendarColor,
+    targetCalendarId:
+      sourceType === "other_event" ? googleCalendarId : undefined,
     userId,
   });
 

@@ -20,6 +20,9 @@ import {
   habits,
   sharedGoalParticipants,
   sharedGoals,
+  socialFeedPollOptions,
+  socialFeedPollVotes,
+  socialFeedPolls,
   socialFeedPostAudienceFriends,
   socialFeedPostAudienceGroups,
   socialFeedPostComments,
@@ -138,8 +141,22 @@ type SharedGoalFeedDetails = {
   endsOn: string | null;
   openInvite: boolean;
   status: "active" | "completed" | "archived";
-  currentUserStatus: "invited" | "accepted";
+  currentUserStatus: "invited" | "accepted" | null;
   participants: SharedGoalFeedParticipant[];
+};
+
+type SocialFeedPollDetails = {
+  id: string;
+  question: string;
+  totalVotes: number;
+  currentUserOptionId: string | null;
+  options: Array<{
+    id: string;
+    competitorUserId: string;
+    label: string;
+    sortOrder: number;
+    voteCount: number;
+  }>;
 };
 
 type SerializedFeedComment = {
@@ -782,6 +799,7 @@ export async function GET(request: Request) {
           | "social_feed_post";
         sourceId?: string;
         sharedGoal?: SharedGoalFeedDetails;
+        poll?: SocialFeedPollDetails;
         repostedBy?: {
           id: string;
           name: string;
@@ -1360,7 +1378,47 @@ export async function GET(request: Request) {
       )
       .where(
         and(
-          inArray(socialFeedPosts.userId, socialAuthorIds),
+          or(
+            inArray(socialFeedPosts.userId, socialAuthorIds),
+            and(
+              eq(socialFeedPosts.kind, "shared_goal"),
+              eq(socialFeedPosts.visibility, "goal_friends"),
+              or(
+                exists(
+                  db
+                    .select({ id: socialFeedPostAudienceFriends.id })
+                    .from(socialFeedPostAudienceFriends)
+                    .where(
+                      and(
+                        eq(
+                          socialFeedPostAudienceFriends.socialFeedPostId,
+                          socialFeedPosts.id,
+                        ),
+                        eq(socialFeedPostAudienceFriends.friendUserId, user.id),
+                      ),
+                    ),
+                ),
+                exists(
+                  db
+                    .select({ id: sharedGoalParticipants.id })
+                    .from(sharedGoalParticipants)
+                    .where(
+                      and(
+                        eq(
+                          sharedGoalParticipants.sharedGoalId,
+                          socialFeedPosts.sourceId,
+                        ),
+                        eq(sharedGoalParticipants.userId, user.id),
+                        or(
+                          eq(sharedGoalParticipants.status, "invited"),
+                          eq(sharedGoalParticipants.status, "accepted"),
+                        ),
+                      ),
+                    ),
+                ),
+              ),
+            ),
+          ),
           profilePostsOnly ? eq(socialFeedPosts.kind, "post") : undefined,
           or(
             ne(socialFeedPosts.kind, "post"),
@@ -1427,6 +1485,44 @@ export async function GET(request: Request) {
                 ),
               ),
             ),
+            and(
+              eq(socialFeedPosts.kind, "shared_goal"),
+              eq(socialFeedPosts.visibility, "goal_friends"),
+              or(
+                exists(
+                  db
+                    .select({ id: socialFeedPostAudienceFriends.id })
+                    .from(socialFeedPostAudienceFriends)
+                    .where(
+                      and(
+                        eq(
+                          socialFeedPostAudienceFriends.socialFeedPostId,
+                          socialFeedPosts.id,
+                        ),
+                        eq(socialFeedPostAudienceFriends.friendUserId, user.id),
+                      ),
+                    ),
+                ),
+                exists(
+                  db
+                    .select({ id: sharedGoalParticipants.id })
+                    .from(sharedGoalParticipants)
+                    .where(
+                      and(
+                        eq(
+                          sharedGoalParticipants.sharedGoalId,
+                          socialFeedPosts.sourceId,
+                        ),
+                        eq(sharedGoalParticipants.userId, user.id),
+                        or(
+                          eq(sharedGoalParticipants.status, "invited"),
+                          eq(sharedGoalParticipants.status, "accepted"),
+                        ),
+                      ),
+                    ),
+                ),
+              ),
+            ),
           ),
           cursorDate
             ? cursorHasUuid
@@ -1477,11 +1573,47 @@ export async function GET(request: Request) {
                   ),
                 ),
             ),
+            exists(
+              db
+                .select({ id: socialFeedPostAudienceFriends.id })
+                .from(socialFeedPostAudienceFriends)
+                .where(
+                  and(
+                    eq(
+                      socialFeedPostAudienceFriends.socialFeedPostId,
+                      socialFeedPosts.id,
+                    ),
+                    eq(socialFeedPostAudienceFriends.friendUserId, user.id),
+                  ),
+                ),
+            ),
           ),
         ),
       )
       .orderBy(desc(socialFeedPosts.createdAt), desc(socialFeedPosts.id))
       .limit(candidateLimit + repostSocialPostIds.length);
+
+    const missingSocialAuthorIds = [
+      ...new Set(
+        socialRows
+          .map((row) => row.friendId)
+          .filter((friendId) => !socialAuthorById.has(friendId)),
+      ),
+    ];
+    if (missingSocialAuthorIds.length > 0) {
+      const socialAuthors = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          image: users.image,
+          phoneNumber: users.phoneNumber,
+        })
+        .from(users)
+        .where(inArray(users.id, missingSocialAuthorIds));
+      for (const author of socialAuthors) {
+        socialAuthorById.set(author.id, author);
+      }
+    }
 
     const socialSharedGoalIds = [
       ...new Set(
@@ -1581,6 +1713,95 @@ export async function GET(request: Request) {
       return photosByPostId;
     }, new Map());
 
+    const pollPostIds = socialRows
+      .filter((row) => row.kind === "shared_goal")
+      .map((row) => row.entryId);
+    const pollRows =
+      pollPostIds.length > 0
+        ? await db
+            .select({
+              id: socialFeedPolls.id,
+              postId: socialFeedPolls.socialFeedPostId,
+              question: socialFeedPolls.question,
+            })
+            .from(socialFeedPolls)
+            .where(inArray(socialFeedPolls.socialFeedPostId, pollPostIds))
+        : [];
+    const pollIds = pollRows.map((poll) => poll.id);
+    const [pollOptionRows, pollVoteRows] = await Promise.all([
+      pollIds.length > 0
+        ? db
+            .select({
+              id: socialFeedPollOptions.id,
+              pollId: socialFeedPollOptions.pollId,
+              competitorUserId: socialFeedPollOptions.competitorUserId,
+              label: socialFeedPollOptions.label,
+              sortOrder: socialFeedPollOptions.sortOrder,
+            })
+            .from(socialFeedPollOptions)
+            .where(inArray(socialFeedPollOptions.pollId, pollIds))
+            .orderBy(asc(socialFeedPollOptions.sortOrder))
+        : [],
+      pollIds.length > 0
+        ? db
+            .select({
+              pollId: socialFeedPollVotes.pollId,
+              optionId: socialFeedPollVotes.optionId,
+              userId: socialFeedPollVotes.userId,
+            })
+            .from(socialFeedPollVotes)
+            .where(inArray(socialFeedPollVotes.pollId, pollIds))
+        : [],
+    ]);
+    const votesByOptionId = new Map<string, number>();
+    const currentVoteByPollId = new Map<string, string>();
+    for (const vote of pollVoteRows) {
+      votesByOptionId.set(
+        vote.optionId,
+        (votesByOptionId.get(vote.optionId) ?? 0) + 1,
+      );
+      if (vote.userId === user.id) {
+        currentVoteByPollId.set(vote.pollId, vote.optionId);
+      }
+    }
+    const pollByPostId = new Map<
+      string,
+      {
+        id: string;
+        question: string;
+        totalVotes: number;
+        currentUserOptionId: string | null;
+        options: Array<{
+          id: string;
+          competitorUserId: string;
+          label: string;
+          sortOrder: number;
+          voteCount: number;
+        }>;
+      }
+    >();
+    for (const poll of pollRows) {
+      const options = pollOptionRows
+        .filter((option) => option.pollId === poll.id)
+        .map((option) => ({
+          id: option.id,
+          competitorUserId: option.competitorUserId,
+          label: option.label,
+          sortOrder: option.sortOrder,
+          voteCount: votesByOptionId.get(option.id) ?? 0,
+        }));
+      pollByPostId.set(poll.postId, {
+        id: poll.id,
+        question: poll.question,
+        totalVotes: options.reduce(
+          (total, option) => total + option.voteCount,
+          0,
+        ),
+        currentUserOptionId: currentVoteByPollId.get(poll.id) ?? null,
+        options,
+      });
+    }
+
     for (const row of socialRows) {
       const friend = socialAuthorById.get(row.friendId);
       if (!friend || row.kind === "repost") continue;
@@ -1649,7 +1870,7 @@ export async function GET(request: Request) {
           row.sharedGoalId &&
           row.sharedGoalMode &&
           row.sharedGoalScoringType &&
-          currentUserStatus
+          (currentUserStatus || pollByPostId.has(row.entryId))
             ? {
                 id: row.sharedGoalId,
                 name: row.sharedGoalName ?? row.title,
@@ -1660,10 +1881,11 @@ export async function GET(request: Request) {
                 endsOn: row.sharedGoalEndsOn,
                 openInvite: row.sharedGoalOpenInvite ?? false,
                 status: row.sharedGoalStatus ?? "active",
-                currentUserStatus,
+                currentUserStatus: currentUserStatus ?? null,
                 participants: sharedGoalParticipantsForPost,
               }
             : undefined,
+        poll: pollByPostId.get(row.entryId),
         mentions: [],
         comments: [],
         photos: socialPhotosByPostId.get(row.entryId) ?? [],

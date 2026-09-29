@@ -79,9 +79,7 @@ export function TaskFormModal({
         : {
             ...EMPTY_TASK,
             ...initialValues,
-            planOnCalendar:
-              initialValues?.planOnCalendar ??
-              initialValues?.importance === "High",
+            planOnCalendar: initialValues?.planOnCalendar ?? true,
           },
     );
     setError(null);
@@ -429,15 +427,6 @@ export function TaskFormModal({
             </FormSection>
 
             <FormSection title="Schedule">
-              <View style={styles.inputField}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Due date
-                </Text>
-                <DatePartPicker value={form.dueDate} onChange={setDueDate} />
-              </View>
-              {!dueDateValid ? (
-                <Text style={styles.fieldError}>Use YYYY-MM-DD format.</Text>
-              ) : null}
               <View style={styles.scheduleSentence}>
                 <Text
                   style={[styles.scheduleSentenceLabel, { color: theme.text }]}
@@ -451,16 +440,29 @@ export function TaskFormModal({
                       recurrence.value === "none"
                         ? "once"
                         : recurrence.value === "daily"
-                          ? "day"
+                          ? "daily"
                           : recurrence.value === "weekly"
-                            ? "week"
-                            : "month"
+                            ? "weekly"
+                            : "monthly"
                     }
                     selected={form.recurrence === recurrence.value}
                     onPress={() => setRecurrence(recurrence.value)}
                   />
                 ))}
               </View>
+              {form.recurrence === "none" ? (
+                <View style={styles.inputField}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                    Due date
+                  </Text>
+                  <DatePartPicker value={form.dueDate} onChange={setDueDate} />
+                  {!dueDateValid ? (
+                    <Text style={styles.fieldError}>
+                      Use YYYY-MM-DD format.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
               {form.recurrence === "weekly" ? (
                 <View style={styles.inputField}>
                   <Text style={[styles.fieldLabel, { color: theme.text }]}>

@@ -7,6 +7,7 @@ export type Goal = {
   title: string;
   color: string | null;
   timing: GoalTiming;
+  archivedAt: string | null;
   planOnCalendar: boolean;
   sortOrder: number;
   checkpoints: GoalCheckpoint[];
@@ -135,6 +136,18 @@ export const deletePlanGoal = (id: string) =>
     method: "POST",
     body: JSON.stringify({ type: "delete", id }),
   }).then((response) => parseResponse<{ ok: true }>(response));
+
+export const archivePlanGoal = (id: string) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({ type: "archive", id }),
+  }).then((response) => parseResponse<Goal>(response));
+
+export const unarchivePlanGoal = (id: string) =>
+  mobileApiFetch("/api/plan-goals", {
+    method: "POST",
+    body: JSON.stringify({ type: "unarchive", id }),
+  }).then((response) => parseResponse<Goal>(response));
 
 export const reorderPlanGoals = (goalIds: string[]) =>
   mobileApiFetch("/api/plan-goals", {

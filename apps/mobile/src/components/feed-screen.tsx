@@ -91,6 +91,7 @@ import {
   toggleReflectionProp,
   toggleSocialPostProp,
   uploadDailyReflectionPhoto,
+  voteOnFeedPoll,
 } from "@/lib/friends-client";
 import {
   FRIENDS_FEED_PAGE_SIZE,
@@ -585,6 +586,7 @@ export function FeedScreen() {
   const [joinedGoalKeys, setJoinedGoalKeys] = useState<Set<string>>(new Set());
   const [isPreparingJoinGoal, setIsPreparingJoinGoal] = useState(false);
   const [isJoiningSharedGoal, setIsJoiningSharedGoal] = useState(false);
+  const [votingPollId, setVotingPollId] = useState<string | null>(null);
   const [reflectionFavorites, setReflectionFavorites] = useState<Set<string>>(
     new Set(),
   );
@@ -831,6 +833,53 @@ export function FeedScreen() {
       );
     },
     [updateFeedEntries],
+  );
+
+  const handleVotePoll = useCallback(
+    async (entry: FriendFeedEntry, optionId: string) => {
+      const poll = entry.poll;
+      const sourceId = entry.sourceId ?? entry.id;
+      if (!poll || votingPollId) return;
+
+      const previousPoll = poll;
+      const previousOptionId = poll.currentUserOptionId;
+      setVotingPollId(poll.id);
+      updateFeedEntry(entry.id, (current) => {
+        if (!current.poll) return current;
+        const options = current.poll.options.map((option) => ({
+          ...option,
+          voteCount:
+            option.voteCount -
+            (option.id === previousOptionId ? 1 : 0) +
+            (option.id === optionId ? 1 : 0),
+        }));
+        return {
+          ...current,
+          poll: {
+            ...current.poll,
+            currentUserOptionId: optionId,
+            options,
+          },
+        };
+      });
+
+      try {
+        await voteOnFeedPoll(sourceId, optionId);
+        playSelectionHaptic();
+      } catch (error) {
+        updateFeedEntry(entry.id, (current) => ({
+          ...current,
+          poll: previousPoll,
+        }));
+        Alert.alert(
+          "Could not record vote",
+          error instanceof Error ? error.message : undefined,
+        );
+      } finally {
+        if (isMountedRef.current) setVotingPollId(null);
+      }
+    },
+    [updateFeedEntry, votingPollId],
   );
 
   const handleToggleProp = useCallback(
@@ -1947,6 +1996,8 @@ export function FeedScreen() {
           onOpenProfile={() => void openFriendProfile(item.entry)}
           onOpenMention={openMentionProfile}
           onOpenSafetyActions={() => openPostSafetyActions(item.entry)}
+          onVotePoll={(optionId) => void handleVotePoll(item.entry, optionId)}
+          votingPollId={votingPollId}
           onOpenBirthdayMessage={
             item.entry.kind === "birthday"
               ? () => messageBirthdayFriend(item.entry)
@@ -2001,6 +2052,8 @@ export function FeedScreen() {
       reportFeedAd,
       reportingFeedAdKey,
       openMentionProfile,
+      handleVotePoll,
+      votingPollId,
     ],
   );
   const feedHeader = (
@@ -4409,6 +4462,8 @@ export function FeedCard({
   onOpenMention,
   onOpenProfile,
   onOpenSafetyActions,
+  onVotePoll,
+  votingPollId,
 }: {
   entry: FriendFeedEntry;
   joinGoalStatus?: "idle" | "joined" | "loading";
@@ -4421,6 +4476,8 @@ export function FeedCard({
   onOpenMention: (friendId: string, friendName: string) => void;
   onOpenProfile: () => void;
   onOpenSafetyActions: () => void;
+  onVotePoll?: (optionId: string) => void;
+  votingPollId?: string | null;
 }) {
   const theme = useTheme();
   const [notesExpanded, setNotesExpanded] = useState(false);
@@ -4623,12 +4680,21 @@ export function FeedCard({
       ) : null}
 
       {entry.kind === "shared_goal" && entry.sharedGoal ? (
-        <Pressable
-          onPress={() => handlePostContentTap()}
-          style={({ pressed }) => pressed && styles.pressed}
-        >
-          <SharedGoalInviteBody entry={entry} />
-        </Pressable>
+        <>
+          <Pressable
+            onPress={() => handlePostContentTap()}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <SharedGoalInviteBody entry={entry} />
+          </Pressable>
+          {entry.poll && entry.sharedGoal.currentUserStatus === null ? (
+            <CompetitivePoll
+              poll={entry.poll}
+              isVoting={votingPollId === entry.poll.id}
+              onVote={onVotePoll}
+            />
+          ) : null}
+        </>
       ) : null}
 
       {entry.kind === "reflection" && entry.reflectionPrompt ? (
@@ -4882,6 +4948,105 @@ export function FeedCard({
           ) : null}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+function CompetitivePoll({
+  poll,
+  isVoting,
+  onVote,
+}: {
+  poll: NonNullable<FriendFeedEntry["poll"]>;
+  isVoting: boolean;
+  onVote?: (optionId: string) => void;
+}) {
+  const theme = useTheme();
+  const hasVoted = poll.currentUserOptionId !== null;
+
+  return (
+    <View
+      style={[
+        styles.competitivePoll,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.tabBorder,
+        },
+      ]}
+    >
+      <Text style={[styles.competitivePollTitle, { color: theme.text }]}>
+        {poll.question}
+      </Text>
+      {poll.options.map((option) => {
+        const percentage = poll.totalVotes
+          ? Math.round((option.voteCount / poll.totalVotes) * 100)
+          : 0;
+        const isSelected = poll.currentUserOptionId === option.id;
+        return (
+          <Pressable
+            key={option.id}
+            accessibilityRole="button"
+            disabled={!onVote || isVoting}
+            onPress={() => onVote?.(option.id)}
+            style={({ pressed }) => [
+              styles.competitivePollOption,
+              {
+                borderColor: isSelected ? theme.primary : theme.tabBorder,
+                backgroundColor: isSelected
+                  ? `${theme.primary}18`
+                  : theme.background,
+              },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={styles.competitivePollOptionHeader}>
+              <Text
+                style={[
+                  styles.competitivePollOptionLabel,
+                  { color: theme.text },
+                ]}
+              >
+                {option.label}
+              </Text>
+              {hasVoted ? (
+                <Text
+                  style={[
+                    styles.competitivePollOptionCount,
+                    { color: theme.textSecondary },
+                  ]}
+                >
+                  {percentage}% · {option.voteCount}
+                </Text>
+              ) : null}
+            </View>
+            {hasVoted ? (
+              <View
+                style={[
+                  styles.competitivePollTrack,
+                  { backgroundColor: theme.backgroundSelected },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.competitivePollFill,
+                    {
+                      backgroundColor: theme.primary,
+                      width: `${percentage}%`,
+                    },
+                  ]}
+                />
+              </View>
+            ) : null}
+          </Pressable>
+        );
+      })}
+      <Text
+        style={[styles.competitivePollHint, { color: theme.textSecondary }]}
+      >
+        {hasVoted
+          ? `${poll.totalVotes} vote${poll.totalVotes === 1 ? "" : "s"}`
+          : "Tap a competitor to vote"}
+      </Text>
     </View>
   );
 }
@@ -6765,6 +6930,58 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
     marginTop: 3,
+  },
+  competitivePoll: {
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    padding: 13,
+  },
+  competitivePollTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "800",
+  },
+  competitivePollOption: {
+    gap: 7,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+  },
+  competitivePollOptionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  competitivePollOptionLabel: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  competitivePollOptionCount: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  competitivePollTrack: {
+    height: 5,
+    overflow: "hidden",
+    borderRadius: 3,
+  },
+  competitivePollFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  competitivePollHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
   richNote: {
     paddingHorizontal: 14,
