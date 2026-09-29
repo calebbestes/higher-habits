@@ -10,6 +10,7 @@ export type Goal = {
   planOnCalendar: boolean;
   sortOrder: number;
   checkpoints: GoalCheckpoint[];
+  links: GoalLink[];
   createdAt: string;
   updatedAt: string;
 };
@@ -21,16 +22,17 @@ export type GoalCheckpoint = {
   title: string;
   targetDate: string | null;
   sortOrder: number;
+  started: boolean;
+  startedAt: string | null;
   completed: boolean;
   completedAt: string | null;
   notes: string | null;
   visibility: GoalVisibility;
   createdAt: string;
   updatedAt: string;
-  links: GoalCheckpointLink[];
 };
 
-export type GoalCheckpointLink = {
+export type GoalLink = {
   sourceType: "task" | "habit";
   sourceId: string;
 };
@@ -38,6 +40,7 @@ export type GoalCheckpointLink = {
 export type GoalCheckpointInput = {
   title: string;
   targetDate: string | null;
+  started: boolean;
   completed: boolean;
 };
 
@@ -86,6 +89,7 @@ export const updatePlanGoal = (id: string, input: GoalInput) =>
 export const updatePlanGoalCheckpoint = (
   id: string,
   update: {
+    started: boolean;
     completed: boolean;
     notes?: string | null;
     visibility?: GoalVisibility;
@@ -96,31 +100,31 @@ export const updatePlanGoalCheckpoint = (
     body: JSON.stringify({ type: "updateCheckpoint", id, ...update }),
   }).then((response) => parseResponse<Goal>(response));
 
-export const linkGoalCheckpoint = (
-  checkpointId: string,
+export const linkGoal = (
+  goalId: string,
   sourceType: "task" | "habit",
   sourceId: string,
 ) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
     body: JSON.stringify({
-      type: "linkCheckpoint",
-      checkpointId,
+      type: "linkGoal",
+      goalId,
       sourceType,
       sourceId,
     }),
   }).then((response) => parseResponse<Goal>(response));
 
-export const unlinkGoalCheckpoint = (
-  checkpointId: string,
+export const unlinkGoal = (
+  goalId: string,
   sourceType: "task" | "habit",
   sourceId: string,
 ) =>
   mobileApiFetch("/api/plan-goals", {
     method: "POST",
     body: JSON.stringify({
-      type: "unlinkCheckpoint",
-      checkpointId,
+      type: "unlinkGoal",
+      goalId,
       sourceType,
       sourceId,
     }),

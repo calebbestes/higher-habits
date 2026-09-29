@@ -464,6 +464,7 @@ export const goalCheckpoints = pgTable(
     title: text("title").notNull(),
     targetDate: date("target_date", { mode: "string" }),
     sortOrder: integer("sort_order").default(0).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     notes: text("notes"),
     visibility: goalVisibilityEnum("visibility").default("only_me").notNull(),
@@ -478,6 +479,33 @@ export const goalCheckpoints = pgTable(
     index("goal_checkpoints_goal_id_idx").on(table.goalId),
     index("goal_checkpoints_user_id_idx").on(table.userId),
     index("goal_checkpoints_target_date_idx").on(table.targetDate),
+  ],
+);
+
+export const goalLinks = pgTable(
+  "goal_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    goalId: uuid("goal_id")
+      .notNull()
+      .references(() => goals.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").notNull(),
+    sourceId: uuid("source_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("goal_links_goal_id_idx").on(table.goalId),
+    index("goal_links_user_id_idx").on(table.userId),
+    unique("goal_links_source_uidx").on(
+      table.goalId,
+      table.sourceType,
+      table.sourceId,
+    ),
   ],
 );
 

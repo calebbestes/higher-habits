@@ -1,14 +1,14 @@
 import {
   GOAL_VISIBILITIES,
   getDb,
-  goalCheckpointLinks,
   goalCheckpointPhotos,
   goalCheckpoints,
+  goalLinks,
   goals,
   habits,
   tasks,
 } from "@habit/db";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -34,6 +34,7 @@ const colorSchema = z
 const checkpointSchema = z.object({
   title: z.string().trim().min(1).max(200),
   targetDate: z.string().regex(DATE_KEY_REGEX).nullable().default(null),
+  started: z.boolean().default(false),
   completed: z.boolean().default(false),
 });
 
@@ -54,19 +55,20 @@ const updateSchema = z.object({
 const updateCheckpointSchema = z.object({
   type: z.literal("updateCheckpoint"),
   id: z.string().uuid(),
+  started: z.boolean(),
   completed: z.boolean(),
   notes: z.string().max(20_000).nullable().optional(),
   visibility: z.enum(GOAL_VISIBILITIES).optional(),
 });
-const checkpointLinkSchema = z.object({
-  type: z.literal("linkCheckpoint"),
-  checkpointId: z.string().uuid(),
+const goalLinkSchema = z.object({
+  type: z.literal("linkGoal"),
+  goalId: z.string().uuid(),
   sourceType: z.enum(["task", "habit"]),
   sourceId: z.string().uuid(),
 });
-const checkpointUnlinkSchema = z.object({
-  type: z.literal("unlinkCheckpoint"),
-  checkpointId: z.string().uuid(),
+const goalUnlinkSchema = z.object({
+  type: z.literal("unlinkGoal"),
+  goalId: z.string().uuid(),
   sourceType: z.enum(["task", "habit"]),
   sourceId: z.string().uuid(),
 });
@@ -83,8 +85,8 @@ const bodySchema = z.discriminatedUnion("type", [
   createSchema,
   updateSchema,
   updateCheckpointSchema,
-  checkpointLinkSchema,
-  checkpointUnlinkSchema,
+  goalLinkSchema,
+  goalUnlinkSchema,
   deleteSchema,
   reorderSchema,
 ]);
@@ -106,6 +108,7 @@ const selectCheckpointShape = {
   title: goalCheckpoints.title,
   targetDate: goalCheckpoints.targetDate,
   sortOrder: goalCheckpoints.sortOrder,
+  startedAt: goalCheckpoints.startedAt,
   completedAt: goalCheckpoints.completedAt,
   notes: goalCheckpoints.notes,
   visibility: goalCheckpoints.visibility,
@@ -123,42 +126,35 @@ type CheckpointRow = {
   title: string;
   targetDate: string | null;
   sortOrder: number;
+  startedAt: Date | null;
   completedAt: Date | null;
   notes: string | null;
   visibility: (typeof GOAL_VISIBILITIES)[number];
   createdAt: Date;
   updatedAt: Date;
 };
-type CheckpointLinkRow = {
-  checkpointId: string;
+type GoalLinkRow = {
+  goalId: string;
   sourceType: string;
   sourceId: string;
 };
 
 function serializeCheckpoint(
   row: CheckpointRow,
-  links: CheckpointLinkRow[] = [],
 ) {
   return {
     id: row.id,
     title: row.title,
     targetDate: row.targetDate ?? null,
     sortOrder: row.sortOrder,
+    started: Boolean(row.startedAt),
+    startedAt: row.startedAt?.toISOString() ?? null,
     completed: Boolean(row.completedAt),
     completedAt: row.completedAt?.toISOString() ?? null,
     notes: row.notes ?? null,
     visibility: row.visibility,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    links: links
-      .filter(
-        (link) =>
-          link.sourceType === "task" || link.sourceType === "habit",
-      )
-      .map((link) => ({
-        sourceId: link.sourceId,
-        sourceType: link.sourceType as "task" | "habit",
-      })),
   };
 }
 
@@ -175,7 +171,7 @@ function serializeGoal(
     | "updatedAt"
   >,
   checkpoints: CheckpointRow[],
-  linksByCheckpointId: Map<string, CheckpointLinkRow[]> = new Map(),
+  links: GoalLinkRow[] = [],
 ) {
   return {
     id: goal.id,
@@ -184,12 +180,15 @@ function serializeGoal(
     timing: goal.timing === "later" ? "later" : "current",
     planOnCalendar: goal.planOnCalendar,
     sortOrder: goal.sortOrder,
-    checkpoints: checkpoints.map((checkpoint) =>
-      serializeCheckpoint(
-        checkpoint,
-        linksByCheckpointId.get(checkpoint.id) ?? [],
-      ),
-    ),
+    checkpoints: checkpoints.map((checkpoint) => serializeCheckpoint(checkpoint)),
+    links: links
+      .filter(
+        (link) => link.sourceType === "task" || link.sourceType === "habit",
+      )
+      .map((link) => ({
+        sourceId: link.sourceId,
+        sourceType: link.sourceType as "task" | "habit",
+      })),
     createdAt: goal.createdAt.toISOString(),
     updatedAt: goal.updatedAt.toISOString(),
   };
@@ -217,32 +216,18 @@ async function getSerializedGoal(db: Database, userId: string, goalId: string) {
     )
     .orderBy(asc(goalCheckpoints.sortOrder), asc(goalCheckpoints.createdAt));
 
-  const links = checkpoints.length
-    ? await db
-        .select({
-          checkpointId: goalCheckpointLinks.checkpointId,
-          sourceType: goalCheckpointLinks.sourceType,
-          sourceId: goalCheckpointLinks.sourceId,
-        })
-        .from(goalCheckpointLinks)
-        .where(
-          and(
-            eq(goalCheckpointLinks.userId, userId),
-            inArray(
-              goalCheckpointLinks.checkpointId,
-              checkpoints.map((checkpoint) => checkpoint.id),
-            ),
-          ),
-        )
-    : [];
-  const linksByCheckpointId = new Map<string, CheckpointLinkRow[]>();
-  for (const link of links) {
-    const current = linksByCheckpointId.get(link.checkpointId) ?? [];
-    current.push(link);
-    linksByCheckpointId.set(link.checkpointId, current);
-  }
+  const links = await db
+    .select({
+      goalId: goalLinks.goalId,
+      sourceType: goalLinks.sourceType,
+      sourceId: goalLinks.sourceId,
+    })
+    .from(goalLinks)
+    .where(
+      and(eq(goalLinks.userId, userId), eq(goalLinks.goalId, goalId)),
+    );
 
-  return serializeGoal(goal, checkpoints, linksByCheckpointId);
+  return serializeGoal(goal, checkpoints, links);
 }
 
 async function syncGoalCheckpoints(
@@ -252,63 +237,138 @@ async function syncGoalCheckpoints(
   checkpoints: CheckpointInput[],
 ) {
   const existingCheckpoints = await db
-    .select({ id: goalCheckpoints.id })
+    .select({
+      completedAt: goalCheckpoints.completedAt,
+      id: goalCheckpoints.id,
+      startedAt: goalCheckpoints.startedAt,
+    })
     .from(goalCheckpoints)
     .where(
       and(
         eq(goalCheckpoints.goalId, goalId),
         eq(goalCheckpoints.userId, userId),
       ),
-    );
+    )
+    .orderBy(asc(goalCheckpoints.sortOrder), asc(goalCheckpoints.createdAt));
   await deletePlannedEventsForSources(db, {
     sourceIds: existingCheckpoints.map((checkpoint) => checkpoint.id),
     sourceType: "goal_checkpoint",
     userId,
   });
 
-  await db
-    .delete(goalCheckpoints)
-    .where(
-      and(
-        eq(goalCheckpoints.goalId, goalId),
-        eq(goalCheckpoints.userId, userId),
-      ),
-    );
-
-  const values = checkpoints.map((checkpoint, index) => ({
-    goalId,
-    userId,
-    title: checkpoint.title,
-    targetDate: checkpoint.targetDate,
-    sortOrder: index,
-    completedAt: checkpoint.completed ? new Date() : null,
-  }));
-
-  if (values.length > 0) {
-    const insertedCheckpoints = await db
-      .insert(goalCheckpoints)
-      .values(values)
-      .returning(selectCheckpointShape);
-
-    await Promise.all(
-      insertedCheckpoints
-        .filter(
-          (checkpoint) => checkpoint.targetDate && !checkpoint.completedAt,
-        )
-        .map((checkpoint) =>
-          upsertPlannedEvent(db, {
-            dateKey: checkpoint.targetDate as string,
-            plannedEndTime: null,
-            plannedStartTime: null,
-            sourceId: checkpoint.id,
-            sourceType: "goal_checkpoint",
-            title: checkpoint.title,
-            timeZone: null,
-            userId,
-          }),
+  const retainedCount = Math.min(existingCheckpoints.length, checkpoints.length);
+  const activeCheckpointIndex = checkpoints.findIndex(
+    (checkpoint) => checkpoint.started && !checkpoint.completed,
+  );
+  await Promise.all(
+    checkpoints.slice(0, retainedCount).map((checkpoint, index) =>
+      db
+        .update(goalCheckpoints)
+        .set({
+          startedAt:
+            checkpoint.completed || index === activeCheckpointIndex
+              ? (existingCheckpoints[index]?.startedAt ?? new Date())
+              : null,
+          completedAt: checkpoint.completed
+            ? (existingCheckpoints[index]?.completedAt ?? new Date())
+            : null,
+          sortOrder: index,
+          targetDate: checkpoint.targetDate,
+          title: checkpoint.title,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(goalCheckpoints.id, existingCheckpoints[index].id),
+            eq(goalCheckpoints.userId, userId),
+          ),
         ),
-    );
+    ),
+  );
+
+  const removedCheckpointIds = existingCheckpoints
+    .slice(checkpoints.length)
+    .map((checkpoint) => checkpoint.id);
+  if (removedCheckpointIds.length > 0) {
+    await db
+      .delete(goalCheckpoints)
+      .where(
+        and(
+          eq(goalCheckpoints.goalId, goalId),
+          eq(goalCheckpoints.userId, userId),
+          inArray(goalCheckpoints.id, removedCheckpointIds),
+        ),
+      );
   }
+
+  const newCheckpointValues = checkpoints
+    .slice(existingCheckpoints.length)
+    .map((checkpoint, index) => ({
+      startedAt:
+        checkpoint.completed || existingCheckpoints.length + index === activeCheckpointIndex
+          ? new Date()
+          : null,
+      completedAt: checkpoint.completed ? new Date() : null,
+      goalId,
+      sortOrder: existingCheckpoints.length + index,
+      targetDate: checkpoint.targetDate,
+      title: checkpoint.title,
+      userId,
+    }));
+  const insertedCheckpoints = newCheckpointValues.length
+    ? await db
+        .insert(goalCheckpoints)
+        .values(newCheckpointValues)
+        .returning({
+          completedAt: goalCheckpoints.completedAt,
+          id: goalCheckpoints.id,
+          startedAt: goalCheckpoints.startedAt,
+          targetDate: goalCheckpoints.targetDate,
+          title: goalCheckpoints.title,
+        })
+    : [];
+
+  const insertedByIndex = new Map(
+    insertedCheckpoints.map((checkpoint, index) => [
+      existingCheckpoints.length + index,
+      checkpoint,
+    ]),
+  );
+  const finalCheckpoints = checkpoints.map((checkpoint, index) => {
+    const existing = existingCheckpoints[index];
+    const inserted = insertedByIndex.get(index);
+    return {
+      startedAt: checkpoint.started
+        ? (existing?.startedAt ?? inserted?.startedAt ?? new Date())
+        : null,
+      completedAt: checkpoint.completed
+        ? (existing?.completedAt ?? inserted?.completedAt ?? new Date())
+        : null,
+      id: existing?.id ?? inserted?.id,
+      targetDate: checkpoint.targetDate,
+      title: checkpoint.title,
+    };
+  });
+
+  await Promise.all(
+    finalCheckpoints
+      .filter(
+        (checkpoint): checkpoint is typeof checkpoint & { id: string } =>
+          Boolean(checkpoint.id && checkpoint.targetDate && !checkpoint.completedAt),
+      )
+      .map((checkpoint) =>
+        upsertPlannedEvent(db, {
+          dateKey: checkpoint.targetDate as string,
+          plannedEndTime: null,
+          plannedStartTime: null,
+          sourceId: checkpoint.id,
+          sourceType: "goal_checkpoint",
+          title: checkpoint.title,
+          timeZone: null,
+          userId,
+        }),
+      ),
+  );
 }
 
 export async function GET(request: Request) {
@@ -339,30 +399,24 @@ export async function GET(request: Request) {
         ),
     ]);
 
-    const checkpointLinks = checkpointRows.length
+    const goalLinksRows = goalRows.length
       ? await db
           .select({
-            checkpointId: goalCheckpointLinks.checkpointId,
-            sourceType: goalCheckpointLinks.sourceType,
-            sourceId: goalCheckpointLinks.sourceId,
+            goalId: goalLinks.goalId,
+            sourceType: goalLinks.sourceType,
+            sourceId: goalLinks.sourceId,
           })
-          .from(goalCheckpointLinks)
+          .from(goalLinks)
           .where(
             and(
-              eq(goalCheckpointLinks.userId, user.id),
+              eq(goalLinks.userId, user.id),
               inArray(
-                goalCheckpointLinks.checkpointId,
-                checkpointRows.map((checkpoint) => checkpoint.id),
+                goalLinks.goalId,
+                goalRows.map((goal) => goal.id),
               ),
             ),
           )
       : [];
-    const linksByCheckpointId = new Map<string, CheckpointLinkRow[]>();
-    for (const link of checkpointLinks) {
-      const current = linksByCheckpointId.get(link.checkpointId) ?? [];
-      current.push(link);
-      linksByCheckpointId.set(link.checkpointId, current);
-    }
 
     const checkpointsByGoalId = checkpointRows.reduce<
       Record<string, typeof checkpointRows>
@@ -377,7 +431,7 @@ export async function GET(request: Request) {
         serializeGoal(
           goal,
           checkpointsByGoalId[goal.id] ?? [],
-          linksByCheckpointId,
+          goalLinksRows.filter((link) => link.goalId === goal.id),
         ),
       ),
     );
@@ -471,6 +525,12 @@ export async function POST(request: Request) {
     }
 
     if (data.type === "updateCheckpoint") {
+      if (data.completed && !data.started) {
+        return NextResponse.json(
+          { error: "A checkpoint must be started before it can be completed." },
+          { status: 400 },
+        );
+      }
       const [previousCheckpoint] = await db
         .select(selectCheckpointShape)
         .from(goalCheckpoints)
@@ -491,8 +551,21 @@ export async function POST(request: Request) {
                 eq(goalCheckpointPhotos.userId, user.id),
               ),
             )
-            .limit(1)
+        .limit(1)
         : [];
+      if (data.started && previousCheckpoint) {
+        await db
+          .update(goalCheckpoints)
+          .set({ startedAt: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(goalCheckpoints.goalId, previousCheckpoint.goalId),
+              eq(goalCheckpoints.userId, user.id),
+              ne(goalCheckpoints.id, data.id),
+              isNull(goalCheckpoints.completedAt),
+            ),
+          );
+      }
       const wasVisiblePost =
         Boolean(previousCheckpoint?.completedAt) &&
         previousCheckpoint.visibility === "all_friends" &&
@@ -500,6 +573,9 @@ export async function POST(request: Request) {
       const [checkpoint] = await db
         .update(goalCheckpoints)
         .set({
+          startedAt: data.started
+            ? (previousCheckpoint?.startedAt ?? new Date())
+            : null,
           completedAt: data.completed ? new Date() : null,
           ...(data.notes !== undefined ? { notes: data.notes } : {}),
           ...(data.visibility !== undefined
@@ -557,23 +633,17 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      data.type === "linkCheckpoint" ||
-      data.type === "unlinkCheckpoint"
-    ) {
-      const [checkpoint] = await db
-        .select({ id: goalCheckpoints.id, goalId: goalCheckpoints.goalId })
-        .from(goalCheckpoints)
+    if (data.type === "linkGoal" || data.type === "unlinkGoal") {
+      const [goal] = await db
+        .select({ id: goals.id })
+        .from(goals)
         .where(
-          and(
-            eq(goalCheckpoints.id, data.checkpointId),
-            eq(goalCheckpoints.userId, user.id),
-          ),
+          and(eq(goals.id, data.goalId), eq(goals.userId, user.id)),
         )
         .limit(1);
 
-      if (!checkpoint) {
-        return NextResponse.json({ error: "Checkpoint not found" }, { status: 404 });
+      if (!goal) {
+        return NextResponse.json({ error: "Goal not found" }, { status: 404 });
       }
 
       const sourceTable = data.sourceType === "task" ? tasks : habits;
@@ -589,11 +659,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Link target not found" }, { status: 404 });
       }
 
-      if (data.type === "linkCheckpoint") {
+      if (data.type === "linkGoal") {
         await db
-          .insert(goalCheckpointLinks)
+          .insert(goalLinks)
           .values({
-            checkpointId: data.checkpointId,
+            goalId: data.goalId,
             sourceId: data.sourceId,
             sourceType: data.sourceType,
             userId: user.id,
@@ -601,20 +671,18 @@ export async function POST(request: Request) {
           .onConflictDoNothing();
       } else {
         await db
-          .delete(goalCheckpointLinks)
+          .delete(goalLinks)
           .where(
             and(
-              eq(goalCheckpointLinks.checkpointId, data.checkpointId),
-              eq(goalCheckpointLinks.sourceType, data.sourceType),
-              eq(goalCheckpointLinks.sourceId, data.sourceId),
-              eq(goalCheckpointLinks.userId, user.id),
+              eq(goalLinks.goalId, data.goalId),
+              eq(goalLinks.sourceType, data.sourceType),
+              eq(goalLinks.sourceId, data.sourceId),
+              eq(goalLinks.userId, user.id),
             ),
           );
       }
 
-      return NextResponse.json(
-        await getSerializedGoal(db, user.id, checkpoint.goalId),
-      );
+      return NextResponse.json(await getSerializedGoal(db, user.id, data.goalId));
     }
 
     if (data.type === "reorder") {

@@ -19,7 +19,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { BrandedEmptyState } from "@/components/branded-empty-state";
 import { CalendarColorPicker } from "@/components/calendar-color-picker";
@@ -47,6 +50,12 @@ import {
 } from "@/lib/checkpoint-photos-client";
 import { type GoalPhotoSource, pickGoalPhoto } from "@/lib/goal-photo-picker";
 import { type Habit, fetchHabits } from "@/lib/habits-client";
+import {
+  fetchAllHabitLogsSnapshot,
+  fetchHabitLogsSnapshot,
+  getMonthKey,
+  toDateKey,
+} from "@/lib/habit-logs-client";
 import type { GoalVisibility } from "@/lib/goals-client";
 import { getLocalTimeZone } from "@/lib/google-calendar-client";
 import { playSelectionHaptic, playSuccessHaptic } from "@/lib/haptics";
@@ -64,7 +73,7 @@ import {
   upsertPlannedEvent,
 } from "@/lib/planned-events-client";
 import {
-  linkGoalCheckpoint,
+  linkGoal,
   type Goal,
   type GoalCheckpoint,
   type GoalInput,
@@ -75,7 +84,7 @@ import {
   reorderPlanGoals,
   updatePlanGoal,
   updatePlanGoalCheckpoint,
-  unlinkGoalCheckpoint,
+  unlinkGoal,
 } from "@/lib/planning-goals-client";
 import { fetchTasks, type Task } from "@/lib/tasks-client";
 
@@ -84,14 +93,15 @@ type CheckpointDraft = {
   localId: string;
   title: string;
   targetDate: string;
+  started: boolean;
   completed: boolean;
 };
 type ActiveCheckpoint = {
   goal: Goal;
   checkpoint: GoalCheckpoint;
 };
-type ToggleCheckpointLink = (
-  checkpoint: GoalCheckpoint,
+type ToggleGoalLink = (
+  goal: Goal,
   sourceType: "task" | "habit",
   sourceId: string,
 ) => Promise<Goal | null> | void;
@@ -102,6 +112,7 @@ type GoalsScreenCache = {
   goals: Goal[];
   plannedEvents: PlannedEvent[];
 };
+type HabitProgressById = Record<string, string[]>;
 
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
@@ -120,6 +131,51 @@ const MONTH_OPTIONS = [
   "November",
   "December",
 ] as const;
+
+function getPreviousMonthKey(date: Date) {
+  return getMonthKey(new Date(date.getFullYear(), date.getMonth() - 1, 1));
+}
+
+function getLast30DateKeys(referenceDate = new Date()) {
+  return Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(referenceDate);
+    date.setHours(12, 0, 0, 0);
+    date.setDate(referenceDate.getDate() - (29 - index));
+    return toDateKey(date);
+  });
+}
+
+function timestampToDateKey(timestamp: string) {
+  const dateKey = timestamp.slice(0, 10);
+  return DATE_KEY_REGEX.test(dateKey) ? dateKey : toDateKey(new Date(timestamp));
+}
+
+function buildHabitProgressById(
+  snapshots: Array<Awaited<ReturnType<typeof fetchHabitLogsSnapshot>> | null>,
+): HabitProgressById {
+  const completedByHabit = new Map<string, Set<string>>();
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) continue;
+    for (const [key, status] of Object.entries(snapshot.logsByHabitDate)) {
+      if (status !== "complete") continue;
+      const separatorIndex = key.lastIndexOf("_");
+      if (separatorIndex <= 0) continue;
+      const habitId = key.slice(0, separatorIndex);
+      const dateKey = key.slice(separatorIndex + 1);
+      const dates = completedByHabit.get(habitId) ?? new Set<string>();
+      dates.add(dateKey);
+      completedByHabit.set(habitId, dates);
+    }
+  }
+
+  return Object.fromEntries(
+    Array.from(completedByHabit, ([habitId, dates]) => [
+      habitId,
+      Array.from(dates).sort(),
+    ]),
+  );
+}
 
 function symbol(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
@@ -230,6 +286,8 @@ export function GoalsScreen() {
   const [activeGoalDetail, setActiveGoalDetail] = useState<Goal | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [habitProgressById, setHabitProgressById] =
+    useState<HabitProgressById>({});
   const [linkUpdatingKey, setLinkUpdatingKey] = useState<string | null>(null);
   const [plannedEvents, setPlannedEvents] = useState<PlannedEvent[]>(
     cachedScreen?.data.plannedEvents ?? [],
@@ -275,13 +333,26 @@ export function GoalsScreen() {
     setError(null);
 
     try {
-      const [nextGoals, nextPlannedEvents, nextTasks, nextHabits] =
-        await Promise.all([
-          fetchPlanGoals(),
-          fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
-          fetchTasks(),
-          fetchHabits(),
-        ]);
+      const referenceDate = new Date();
+      const [
+        nextGoals,
+        nextPlannedEvents,
+        nextTasks,
+        nextHabits,
+        allHabitLogs,
+        currentHabitLogs,
+        previousHabitLogs,
+      ] = await Promise.all([
+        fetchPlanGoals(),
+        fetchPlannedEvents({ sourceType: "goal_checkpoint" }),
+        fetchTasks(),
+        fetchHabits(),
+        fetchAllHabitLogsSnapshot().catch(() => null),
+        fetchHabitLogsSnapshot(getMonthKey(referenceDate)).catch(() => null),
+        fetchHabitLogsSnapshot(getPreviousMonthKey(referenceDate)).catch(
+          () => null,
+        ),
+      ]);
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
       }
@@ -294,6 +365,13 @@ export function GoalsScreen() {
       setPlannedEvents(nextPlannedEvents);
       setTasks(nextTasks);
       setHabits(nextHabits);
+      setHabitProgressById(
+        buildHabitProgressById(
+          allHabitLogs
+            ? [allHabitLogs]
+            : [currentHabitLogs, previousHabitLogs],
+        ),
+      );
     } catch (loadError) {
       if (!isMountedRef.current || requestId !== loadRequestIdRef.current) {
         return;
@@ -450,27 +528,113 @@ export function GoalsScreen() {
     });
   };
 
-  const toggleCheckpointLink = async (
-    checkpoint: GoalCheckpoint,
+  const offerNextCheckpoint = (
+    updatedGoal: Goal | null,
+    completedCheckpointId: string,
+  ) => {
+    if (!updatedGoal) return;
+    const completedIndex = updatedGoal.checkpoints.findIndex(
+      (checkpoint) => checkpoint.id === completedCheckpointId,
+    );
+    const nextCheckpoint = updatedGoal.checkpoints
+      .slice(Math.max(completedIndex + 1, 0))
+      .find((checkpoint) => !checkpoint.completed);
+    if (!nextCheckpoint) return;
+
+    Alert.alert(
+      "Start the next checkpoint?",
+      `Start “${nextCheckpoint.title}” now?`,
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Start",
+          onPress: () => {
+            void updatePlanGoalCheckpoint(nextCheckpoint.id, {
+              started: true,
+              completed: false,
+            }).then(handleCheckpointSaved);
+          },
+        },
+      ],
+    );
+  };
+
+  const openCheckpoint = (goal: Goal, checkpoint: GoalCheckpoint) => {
+    if (checkpoint.started || checkpoint.completed) {
+      setActiveCheckpoint({ goal, checkpoint });
+      return;
+    }
+
+    Alert.alert(
+      "Start checkpoint",
+      `Start “${checkpoint.title}” for “${goal.title}”?`,
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: "Start",
+          onPress: () => {
+            setError(null);
+            const startedAt = new Date().toISOString();
+            const optimisticGoal: Goal = {
+              ...goal,
+              checkpoints: goal.checkpoints.map((item) =>
+                item.id === checkpoint.id
+                  ? {
+                      ...item,
+                      completed: false,
+                      completedAt: null,
+                      started: true,
+                      startedAt,
+                      updatedAt: startedAt,
+                    }
+                  : !item.completed
+                    ? { ...item, started: false, startedAt: null }
+                    : item,
+              ),
+            };
+            updateGoalInList(optimisticGoal);
+            setActiveGoalDetail((current) =>
+              current?.id === optimisticGoal.id ? optimisticGoal : current,
+            );
+            void updatePlanGoalCheckpoint(checkpoint.id, {
+              started: true,
+              completed: false,
+            })
+              .then(handleCheckpointSaved)
+              .catch((checkpointError) => {
+                updateGoalInList(goal);
+                setActiveGoalDetail((current) =>
+                  current?.id === goal.id ? goal : current,
+                );
+                setError(
+                  checkpointError instanceof Error
+                    ? checkpointError.message
+                    : "Could not start checkpoint.",
+                );
+              });
+          },
+        },
+      ],
+    );
+  };
+
+  const toggleGoalLink = async (
+    goal: Goal,
     sourceType: "task" | "habit",
     sourceId: string,
   ): Promise<Goal | null> => {
-    const ownerGoal =
-      goalsRef.current.find((goal) =>
-        goal.checkpoints.some((item) => item.id === checkpoint.id),
-      ) ?? activeGoalDetail;
-    if (!ownerGoal || linkUpdatingKey) return null;
+    if (linkUpdatingKey) return null;
 
-    const linkKey = `${checkpoint.id}:${sourceType}:${sourceId}`;
-    const isLinked = (checkpoint.links ?? []).some(
+    const linkKey = `${goal.id}:${sourceType}:${sourceId}`;
+    const isLinked = (goal.links ?? []).some(
       (link) =>
         link.sourceType === sourceType && link.sourceId === sourceId,
     );
     setLinkUpdatingKey(linkKey);
     try {
       const updatedGoal = isLinked
-        ? await unlinkGoalCheckpoint(checkpoint.id, sourceType, sourceId)
-        : await linkGoalCheckpoint(checkpoint.id, sourceType, sourceId);
+        ? await unlinkGoal(goal.id, sourceType, sourceId)
+        : await linkGoal(goal.id, sourceType, sourceId);
       updateGoalInList(updatedGoal);
       setActiveGoalDetail((current) =>
         current?.id === updatedGoal.id ? updatedGoal : current,
@@ -595,6 +759,11 @@ export function GoalsScreen() {
                     event.sourceType !== "goal_checkpoint" ||
                     !checkpointIds.has(event.sourceId),
                 ),
+              );
+              setFormOpen(false);
+              setEditingGoal(null);
+              setActiveGoalDetail((current) =>
+                current?.id === goal.id ? null : current,
               );
             } catch (deleteError) {
               setError(
@@ -840,7 +1009,6 @@ export function GoalsScreen() {
                     goal={goal}
                     isDragging={draggingGoalId === goal.id}
                     plannedEventsByCheckpointId={plannedEventsByCheckpointId}
-                    onDelete={() => confirmDelete(goal)}
                     onDragEnd={endGoalDrag}
                     onDragMove={handleGoalDragMove}
                     onDragStart={beginGoalDrag}
@@ -848,7 +1016,7 @@ export function GoalsScreen() {
                     onMeasure={measureGoalCard}
                     onPressGoal={() => setActiveGoalDetail(goal)}
                     onPressCheckpoint={(checkpoint) =>
-                      setActiveCheckpoint({ goal, checkpoint })
+                      openCheckpoint(goal, checkpoint)
                     }
                   />
                 ))}
@@ -903,19 +1071,20 @@ export function GoalsScreen() {
           setFormOpen(false);
           setEditingGoal(null);
         }}
+        onDelete={() => {
+          if (editingGoal) confirmDelete(editingGoal);
+        }}
         onSave={saveGoal}
-        onToggleLink={toggleCheckpointLink}
+        onToggleLink={toggleGoalLink}
         tasks={tasks}
       />
       <GoalDetailModal
         goal={activeGoalDetail}
         habits={habits}
-        linkUpdatingKey={linkUpdatingKey}
+        habitProgressById={habitProgressById}
         tasks={tasks}
         onClose={() => setActiveGoalDetail(null)}
-        onToggleLink={(checkpoint, sourceType, sourceId) => {
-          void toggleCheckpointLink(checkpoint, sourceType, sourceId);
-        }}
+        onPressCheckpoint={openCheckpoint}
       />
       <CheckpointActionsModal
         active={activeCheckpoint}
@@ -932,7 +1101,7 @@ export function GoalsScreen() {
         }}
         onPlan={openCheckpointPlan}
         onSaved={handleCheckpointSaved}
-        onCompleted={() => setCelebrate(true)}
+        onCompleted={offerNextCheckpoint}
         onError={setError}
       />
       <CheckpointPlanModal
@@ -959,7 +1128,6 @@ function GoalCard({
   goal,
   isDragging,
   plannedEventsByCheckpointId,
-  onDelete,
   onDragEnd,
   onDragMove,
   onDragStart,
@@ -971,7 +1139,6 @@ function GoalCard({
   goal: Goal;
   isDragging: boolean;
   plannedEventsByCheckpointId: Map<string, PlannedEvent>;
-  onDelete: () => void;
   onDragEnd: () => void;
   onDragMove: (event: GestureResponderEvent) => void;
   onDragStart: (goalId: string) => void;
@@ -986,19 +1153,6 @@ function GoalCard({
   const completedCount = goal.checkpoints.filter(
     (checkpoint) => checkpoint.completed,
   ).length;
-  const actionItems: MenuAction[] = [
-    {
-      id: "edit-goal",
-      title: "Edit goal",
-      image: "pencil",
-    },
-    {
-      id: "delete-goal",
-      title: "Delete goal",
-      image: "trash",
-    },
-  ];
-
   return (
     <View
       ref={cardRef}
@@ -1087,33 +1241,22 @@ function GoalCard({
             ) : null}
           </View>
         </Pressable>
-        <MenuView
-          actions={actionItems}
-          onPressAction={({ nativeEvent }) => {
-            if (nativeEvent.event === "edit-goal") {
-              onEdit();
-              return;
-            }
-            if (nativeEvent.event === "delete-goal") {
-              onDelete();
-            }
-          }}
-          title={goal.title}
+        <Pressable
+          accessibilityLabel={`Edit ${goal.title}`}
+          accessibilityRole="button"
+          onPress={onEdit}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.pressed,
+          ]}
         >
-          <View
-            accessible
-            accessibilityLabel={`More actions for ${goal.title}`}
-            accessibilityRole="button"
-            style={styles.iconButton}
-          >
-            <SymbolView
-              name={symbol("ellipsis", "more_horiz")}
-              size={18}
-              weight="semibold"
-              tintColor={theme.textSecondary}
-            />
-          </View>
-        </MenuView>
+          <SymbolView
+            name={symbol("pencil", "edit")}
+            size={18}
+            weight="semibold"
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
       </View>
 
       {goal.checkpoints.length ? (
@@ -1190,6 +1333,7 @@ function getCheckpointActionLabel(
   const planTime = formatStoredPlanTimeDisplay(plannedEvent?.startTime);
 
   if (checkpoint.completed) return "Complete";
+  if (checkpoint.started) return "Started";
   if (planTime) return `Planned ${planTime}`;
   if (plannedEvent) return "Planned";
   return null;
@@ -1238,16 +1382,18 @@ function GoalTimeline({
           const hasSchedule = Boolean(plannedEvent || checkpoint.targetDate);
           const markerColor = checkpoint.completed
             ? theme.primary
-            : hasSchedule
-              ? `${theme.primary}1F`
-              : theme.backgroundElement;
+            : checkpoint.started
+              ? `${theme.primary}26`
+              : hasSchedule
+                ? `${theme.primary}1F`
+                : theme.backgroundElement;
           const markerBorderColor =
-            checkpoint.completed || hasSchedule
+            checkpoint.completed || checkpoint.started || hasSchedule
               ? theme.primary
               : theme.tabBorder;
           const dateLabel = getCheckpointDateLabel(checkpoint, plannedEvent);
           const dateColor =
-            checkpoint.completed || hasSchedule
+            checkpoint.completed || checkpoint.started || hasSchedule
               ? theme.primary
               : theme.textSecondary;
 
@@ -1289,6 +1435,13 @@ function GoalTimeline({
                       size={13}
                       weight="semibold"
                       tintColor={theme.primaryForeground}
+                    />
+                  ) : checkpoint.started ? (
+                    <SymbolView
+                      name={symbol("play.fill", "play_arrow")}
+                      size={12}
+                      weight="semibold"
+                      tintColor={theme.primary}
                     />
                   ) : null}
                 </Pressable>
@@ -1419,61 +1572,169 @@ function NextCheckpointAction({
   );
 }
 
+function HabitProgressGrid({
+  completedDates,
+  goalCreatedAt,
+  checkpointCreatedAt,
+  checkpointCompletedAt,
+}: {
+  completedDates: string[];
+  goalCreatedAt: string;
+  checkpointCreatedAt: string;
+  checkpointCompletedAt: string | null;
+}) {
+  const theme = useTheme();
+  const completed = new Set(completedDates);
+  const dateKeys = getLast30DateKeys();
+  const recentCompletedCount = dateKeys.filter((dateKey) =>
+    completed.has(dateKey),
+  ).length;
+  const goalStartDateKey = timestampToDateKey(goalCreatedAt);
+  const checkpointStartDateKey = timestampToDateKey(checkpointCreatedAt);
+  const progressStartDateKey =
+    checkpointStartDateKey < goalStartDateKey
+      ? checkpointStartDateKey
+      : goalStartDateKey;
+  const checkpointEndDateKey = checkpointCompletedAt
+    ? timestampToDateKey(checkpointCompletedAt)
+    : toDateKey(new Date());
+  const totalCompletedCount = completedDates.filter(
+    (dateKey) =>
+      dateKey >= progressStartDateKey && dateKey <= checkpointEndDateKey,
+  ).length;
+  const recentCompletionPercentage = Math.round(
+    (recentCompletedCount / dateKeys.length) * 100,
+  );
+
+  return (
+    <View style={{ gap: 5, paddingLeft: 24, width: 300 }}>
+      <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+        {`${totalCompletedCount} completed since goal · ${recentCompletionPercentage}% last 30 days`}
+      </Text>
+      <View style={{ gap: 5, width: 260 }}>
+        {[0, 1, 2].map((row) => (
+          <View
+            key={`progress-row-${row}`}
+            style={{ flexDirection: "row", gap: 5 }}
+          >
+            {dateKeys.slice(row * 10, row * 10 + 10).map((dateKey) => (
+              <View
+                key={`progress-day-${dateKey}`}
+                style={{
+                  backgroundColor: completed.has(dateKey)
+                    ? theme.primary
+                    : theme.backgroundElement,
+                  borderColor: theme.tabBorder,
+                  borderRadius: 2,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  height: 18,
+                  width: 20,
+                }}
+              />
+            ))}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function GoalDetailModal({
   goal,
   habits,
-  linkUpdatingKey,
+  habitProgressById,
   tasks,
   onClose,
-  onToggleLink,
+  onPressCheckpoint,
 }: {
   goal: Goal | null;
   habits: Habit[];
-  linkUpdatingKey: string | null;
+  habitProgressById: HabitProgressById;
   tasks: Task[];
   onClose: () => void;
-  onToggleLink: ToggleCheckpointLink;
+  onPressCheckpoint: (
+    goal: Goal,
+    checkpoint: GoalCheckpoint,
+  ) => void;
 }) {
   const theme = useTheme();
-  const [linkingCheckpointId, setLinkingCheckpointId] = useState<string | null>(
-    null,
-  );
+  const insets = useSafeAreaInsets();
   if (!goal) return null;
 
-  const linkingCheckpoint =
-    goal.checkpoints.find((checkpoint) => checkpoint.id === linkingCheckpointId) ??
+  type LinkedGoalItem = {
+    icon: ReturnType<typeof symbol>;
+    id: string;
+    kind: "Task" | "Habit";
+    title: string;
+  };
+  const links = goal.links ?? [];
+  const linkedItems = links.flatMap((link): LinkedGoalItem[] => {
+    if (link.sourceType === "task") {
+      const task = tasks.find((item) => item.id === link.sourceId);
+      return task
+        ? [{
+            icon: symbol("checklist", "checklist"),
+            id: link.sourceId,
+            kind: "Task" as const,
+            title: task.name,
+          }]
+        : [];
+    }
+
+    const habit = habits.find((item) => item.id === link.sourceId);
+    return habit
+      ? [{
+          icon: symbol("repeat", "repeat"),
+          id: link.sourceId,
+          kind: "Habit" as const,
+          title: habit.name,
+        }]
+      : [];
+  });
+  const activeCheckpoint =
+    goal.checkpoints.find((checkpoint) => checkpoint.started && !checkpoint.completed) ??
     null;
 
   return (
-    <>
-      <Modal animationType="slide" transparent visible onRequestClose={onClose}>
-        <View style={modalStyles.overlay}>
-          <Pressable
-            accessibilityLabel="Close goal details"
-            style={[StyleSheet.absoluteFill, modalStyles.backdrop]}
-            onPress={onClose}
-          />
-          <SafeAreaView
-            edges={["bottom"]}
-            style={[modalStyles.sheet, { backgroundColor: theme.background }]}
-          >
+    <Modal
+        animationType="slide"
+        presentationStyle="fullScreen"
+        visible
+        onRequestClose={onClose}
+      >
+        <SafeAreaView
+          edges={["bottom"]}
+          style={{ backgroundColor: theme.background, flex: 1 }}
+        >
             <View
               style={[
                 modalStyles.header,
                 {
+                  alignItems: "flex-start",
                   backgroundColor: theme.tabBar,
                   borderBottomColor: theme.tabBorder,
+                  paddingTop: Math.max(28, insets.top + 8),
                 },
               ]}
             >
-              <View style={modalStyles.titleBlock}>
-                <Text style={[modalStyles.title, { color: theme.text }]}>
+              <View style={[modalStyles.titleBlock, { paddingRight: 4 }]}>
+                <Text
+                  style={[
+                    modalStyles.title,
+                    {
+                      color: theme.text,
+                      flexBasis: "auto",
+                      flexGrow: 0,
+                      flexShrink: 1,
+                    },
+                  ]}
+                >
                   {goal.title}
                 </Text>
                 <Text
                   style={[modalStyles.subtitle, { color: theme.textSecondary }]}
                 >
-                  {goal.checkpoints.length} checkpoints · Link tasks and habits
+                  {goal.checkpoints.length} checkpoints
                 </Text>
               </View>
               <Pressable
@@ -1482,7 +1743,10 @@ function GoalDetailModal({
                 onPress={onClose}
                 style={({ pressed }) => [
                   modalStyles.closeBtn,
-                  { backgroundColor: theme.backgroundElement },
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    flexShrink: 0,
+                  },
                   pressed && styles.pressed,
                 ]}
               >
@@ -1500,17 +1764,127 @@ function GoalDetailModal({
               contentContainerStyle={modalStyles.actions}
               showsVerticalScrollIndicator={false}
             >
-              {goal.checkpoints.map((checkpoint, index) => {
-                const links = checkpoint.links ?? [];
+              <View style={{ gap: 10 }}>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 14,
+                    fontWeight: "700",
+                  }}
+                >
+                  Linked tasks and habits
+                </Text>
+                {linkedItems.length ? (
+                  <View style={{ gap: 10, paddingLeft: 6 }}>
+                    {linkedItems.map((item) => (
+                      item.kind === "Habit" ? (
+                        <View key={`${item.kind}:${item.id}`} style={{ gap: 5 }}>
+                          <View
+                            style={{
+                              alignItems: "center",
+                              flexDirection: "row",
+                              gap: 8,
+                              minHeight: 28,
+                            }}
+                          >
+                            <SymbolView
+                              name={item.icon}
+                              size={16}
+                              tintColor={theme.primary}
+                            />
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                color: theme.text,
+                                flex: 1,
+                                fontSize: 14,
+                                fontWeight: "600",
+                              }}
+                            >
+                              {item.title}
+                            </Text>
+                            <Text
+                              style={{ color: theme.textSecondary, fontSize: 11 }}
+                            >
+                              Habit
+                            </Text>
+                          </View>
+                          {activeCheckpoint ? (
+                            <HabitProgressGrid
+                              completedDates={habitProgressById[item.id] ?? []}
+                              goalCreatedAt={goal.createdAt}
+                              checkpointCreatedAt={activeCheckpoint.createdAt}
+                              checkpointCompletedAt={activeCheckpoint.completedAt}
+                            />
+                          ) : null}
+                        </View>
+                      ) : (
+                        <View
+                          key={`${item.kind}:${item.id}`}
+                          style={{
+                            alignItems: "center",
+                            flexDirection: "row",
+                            gap: 8,
+                            minHeight: 28,
+                          }}
+                        >
+                          <SymbolView
+                            name={item.icon}
+                            size={16}
+                            tintColor={theme.primary}
+                          />
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              color: theme.text,
+                              flex: 1,
+                              fontSize: 14,
+                              fontWeight: "600",
+                            }}
+                          >
+                            {item.title}
+                          </Text>
+                          <Text
+                            style={{ color: theme.textSecondary, fontSize: 11 }}
+                          >
+                            Task
+                          </Text>
+                        </View>
+                      )
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                    No tasks or habits linked.
+                  </Text>
+                )}
+              </View>
 
-                return (
+              <View
+                style={{
+                  borderTopColor: theme.tabBorder,
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  gap: 10,
+                  paddingTop: 18,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: 14,
+                    fontWeight: "700",
+                  }}
+                >
+                  Checkpoints
+                </Text>
+                {goal.checkpoints.map((checkpoint, index) => (
                   <View
                     key={checkpoint.id}
                     style={{
                       gap: 10,
                       borderTopColor: theme.tabBorder,
                       borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
-                      paddingTop: index === 0 ? 0 : 18,
+                      paddingTop: index === 0 ? 0 : 14,
                     }}
                   >
                     <View
@@ -1520,15 +1894,29 @@ function GoalDetailModal({
                         gap: 10,
                       }}
                     >
-                      <View
+                      <Pressable
+                        accessibilityLabel={
+                          checkpoint.completed
+                            ? `${checkpoint.title} completed`
+                            : checkpoint.started
+                              ? `Complete ${checkpoint.title}`
+                              : `Start ${checkpoint.title}`
+                        }
+                        accessibilityRole="button"
+                        disabled={checkpoint.completed}
+                        onPress={() => onPressCheckpoint(goal, checkpoint)}
                         style={{
                           alignItems: "center",
                           backgroundColor: checkpoint.completed
                             ? theme.primary
-                            : theme.backgroundElement,
+                            : checkpoint.started
+                              ? `${theme.primary}26`
+                              : theme.backgroundElement,
                           borderColor: checkpoint.completed
                             ? theme.primary
-                            : theme.tabBorder,
+                            : checkpoint.started
+                              ? theme.primary
+                              : theme.tabBorder,
                           borderRadius: 14,
                           borderWidth: 1.5,
                           height: 28,
@@ -1543,92 +1931,47 @@ function GoalDetailModal({
                             tintColor={theme.primaryForeground}
                             weight="bold"
                           />
+                        ) : checkpoint.started ? (
+                          <SymbolView
+                            name={symbol("play.fill", "play_arrow")}
+                            size={12}
+                            tintColor={theme.primary}
+                            weight="bold"
+                          />
                         ) : null}
-                      </View>
-                      <Text
-                        style={{
-                          color: theme.text,
-                          flex: 1,
-                          fontSize: 18,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {checkpoint.title}
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      accessibilityLabel={`Link tasks or habits to ${checkpoint.title}`}
-                      accessibilityRole="button"
-                      onPress={() => setLinkingCheckpointId(checkpoint.id)}
-                      style={({ pressed }) => [
-                        {
-                          alignItems: "center",
-                          borderColor: theme.tabBorder,
-                          borderRadius: 12,
-                          borderWidth: StyleSheet.hairlineWidth,
-                          flexDirection: "row",
-                          gap: 10,
-                          minHeight: 48,
-                          paddingHorizontal: 12,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <SymbolView
-                        name={symbol("link", "link")}
-                        size={18}
-                        tintColor={theme.primary}
-                      />
+                      </Pressable>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text
                           style={{
                             color: theme.text,
-                            fontSize: 15,
+                            fontSize: 18,
                             fontWeight: "700",
                           }}
                         >
-                          Link tasks or habits
+                          {checkpoint.title}
                         </Text>
-                        {links.length ? (
-                          <Text
-                            style={{
-                              color: theme.textSecondary,
-                              fontSize: 12,
-                            }}
-                          >
-                            {links.length} linked
-                          </Text>
-                        ) : null}
+                        <Text
+                          style={{ color: theme.textSecondary, fontSize: 12 }}
+                        >
+                          {checkpoint.completed
+                            ? "Completed"
+                            : checkpoint.started
+                              ? "Started"
+                              : "Not started"}
+                        </Text>
                       </View>
-                      <SymbolView
-                        name={symbol("chevron.right", "chevron_right")}
-                        size={16}
-                        tintColor={theme.textSecondary}
-                      />
-                    </Pressable>
+                    </View>
                   </View>
-                );
-              })}
+                ))}
+              </View>
             </ScrollView>
-          </SafeAreaView>
-        </View>
-      </Modal>
-
-      <LinkCheckpointModal
-        checkpoint={linkingCheckpoint}
-        habits={habits}
-        linkUpdatingKey={linkUpdatingKey}
-        tasks={tasks}
-        onClose={() => setLinkingCheckpointId(null)}
-        onToggleLink={onToggleLink}
-      />
-    </>
+        </SafeAreaView>
+    </Modal>
   );
 }
 
-function LinkCheckpointModal({
-  checkpoint,
+function LinkGoalModal({
+  goal,
   embedded = false,
   habits,
   linkUpdatingKey,
@@ -1636,18 +1979,18 @@ function LinkCheckpointModal({
   onClose,
   onToggleLink,
 }: {
-  checkpoint: GoalCheckpoint | null;
+  goal: Goal | null;
   embedded?: boolean;
   habits: Habit[];
   linkUpdatingKey: string | null;
   tasks: Task[];
   onClose: () => void;
-  onToggleLink: ToggleCheckpointLink;
+  onToggleLink: ToggleGoalLink;
 }) {
   const theme = useTheme();
-  if (!checkpoint) return null;
+  if (!goal) return null;
 
-  const links = checkpoint.links ?? [];
+  const links = goal.links ?? [];
   const linkedTaskIds = new Set(
     links
       .filter((link) => link.sourceType === "task")
@@ -1687,12 +2030,12 @@ function LinkCheckpointModal({
           >
             <View style={modalStyles.titleBlock}>
               <Text style={[modalStyles.title, { color: theme.text }]}>
-                Link to {checkpoint.title}
+                Link to {goal.title}
               </Text>
               <Text
                 style={[modalStyles.subtitle, { color: theme.textSecondary }]}
               >
-                Choose tasks or habits for this checkpoint
+                Choose tasks or habits for this goal
               </Text>
             </View>
             <Pressable
@@ -1733,7 +2076,7 @@ function LinkCheckpointModal({
               updatingKey={linkUpdatingKey}
               sourceType="task"
               linkedIds={linkedTaskIds}
-              checkpoint={checkpoint}
+              goal={goal}
               onToggle={onToggleLink}
             />
             <LinkOptionGroup
@@ -1750,7 +2093,7 @@ function LinkCheckpointModal({
               updatingKey={linkUpdatingKey}
               sourceType="habit"
               linkedIds={linkedHabitIds}
-              checkpoint={checkpoint}
+              goal={goal}
               onToggle={onToggleLink}
             />
           </ScrollView>
@@ -1768,7 +2111,7 @@ function LinkCheckpointModal({
 }
 
 function LinkOptionGroup({
-  checkpoint,
+  goal,
   emptyLabel,
   icon,
   label,
@@ -1778,12 +2121,12 @@ function LinkOptionGroup({
   sourceType,
   updatingKey,
 }: {
-  checkpoint: GoalCheckpoint;
+  goal: Goal;
   emptyLabel: string;
   icon: SymbolName;
   label: string;
   linkedIds: Set<string>;
-  onToggle: ToggleCheckpointLink;
+  onToggle: ToggleGoalLink;
   options: Array<{ id: string; subtitle: string; title: string }>;
   sourceType: "task" | "habit";
   updatingKey: string | null;
@@ -1801,14 +2144,14 @@ function LinkOptionGroup({
         options.map((option) => {
           const linked = linkedIds.has(option.id);
           const isUpdating =
-            updatingKey === `${checkpoint.id}:${sourceType}:${option.id}`;
+            updatingKey === `${goal.id}:${sourceType}:${option.id}`;
           return (
             <Pressable
               accessibilityRole="checkbox"
               accessibilityState={{ checked: linked, disabled: Boolean(updatingKey) }}
               disabled={Boolean(updatingKey)}
               key={option.id}
-              onPress={() => onToggle(checkpoint, sourceType, option.id)}
+              onPress={() => onToggle(goal, sourceType, option.id)}
               style={({ pressed }) => [
                 {
                   alignItems: "center",
@@ -1887,13 +2230,14 @@ function CheckpointActionsModal({
   onClearPlan: (active: ActiveCheckpoint) => void;
   onClose: () => void;
   onEditGoal: (goal: Goal) => void;
-  onCompleted: () => void;
+  onCompleted: (updatedGoal: Goal | null, checkpointId: string) => void;
   onPlan: (active: ActiveCheckpoint) => void;
   onSaved: (updatedGoal: Goal | null) => void;
   onError: (message: string | null) => void;
 }) {
   const theme = useTheme();
   const [completed, setCompleted] = useState(false);
+  const [started, setStarted] = useState(false);
   const [note, setNote] = useState("");
   const [visibility, setVisibility] = useState<GoalVisibility>("only_me");
   const [photoCount, setPhotoCount] = useState(0);
@@ -1913,6 +2257,7 @@ function CheckpointActionsModal({
       return;
     }
     activeCheckpointIdRef.current = active.checkpoint.id;
+    setStarted(active.checkpoint.started);
     setCompleted(active.checkpoint.completed);
     setNote(active.checkpoint.notes ?? "");
     setVisibility(
@@ -1946,6 +2291,7 @@ function CheckpointActionsModal({
   const hasContent = note.trim().length > 0 || photoCount > 0;
 
   const save = async (next: {
+    started: boolean;
     completed: boolean;
     notes: string | null;
     visibility: GoalVisibility;
@@ -1957,12 +2303,13 @@ function CheckpointActionsModal({
       const updatedGoal = await updatePlanGoalCheckpoint(checkpointId, next);
       if (activeCheckpointIdRef.current !== checkpointId) return;
       setCompleted(next.completed);
+      setStarted(next.started);
       setVisibility(next.visibility);
       setNote(next.notes ?? "");
       onSaved(updatedGoal);
       if (!completed && next.completed) {
         playSuccessHaptic();
-        onCompleted();
+        onCompleted(updatedGoal, checkpoint.id);
       }
     } catch (err) {
       if (activeCheckpointIdRef.current !== checkpointId) return;
@@ -2068,9 +2415,10 @@ function CheckpointActionsModal({
             </Text>
 
             <Pressable
-              onPress={() =>
+                onPress={() =>
                 void save({
-                  completed: !completed,
+                  started: completed ? true : !started,
+                  completed: completed ? false : started,
                   notes: notes(),
                   visibility,
                 })
@@ -2088,14 +2436,20 @@ function CheckpointActionsModal({
                   name={
                     completed
                       ? symbol("arrow.uturn.backward.circle.fill", "undo")
-                      : symbol("checkmark.circle.fill", "check_circle")
+                      : started
+                        ? symbol("checkmark.circle.fill", "check_circle")
+                        : symbol("play.circle.fill", "play_circle")
                   }
                   size={26}
                   tintColor={completed ? theme.textSecondary : theme.primary}
                 />
               )}
               <Text style={[modalStyles.actionText, { color: theme.text }]}>
-                {completed ? "Reopen" : "Mark complete"}
+                {completed
+                  ? "Reopen checkpoint"
+                  : started
+                    ? "Mark complete"
+                    : "Start checkpoint"}
               </Text>
             </Pressable>
 
@@ -2244,6 +2598,7 @@ function CheckpointActionsModal({
                   disabled={isUpdating}
                   onPress={() =>
                     void save({
+                      started,
                       completed,
                       notes: notes(),
                       visibility,
@@ -2275,7 +2630,12 @@ function CheckpointActionsModal({
                 disabled={isUpdating}
                 value={visibility}
                 onChange={(next) =>
-                  void save({ completed, notes: notes(), visibility: next })
+                  void save({
+                    started,
+                    completed,
+                    notes: notes(),
+                    visibility: next,
+                  })
                 }
                 allowed={["only_me", "all_friends"]}
                 label="Checkpoint visibility"
@@ -2698,6 +3058,7 @@ export function GoalFormModal({
   isOpen,
   linkUpdatingKey = null,
   onClose,
+  onDelete,
   onSave,
   onToggleLink = async () => null,
   saveHint,
@@ -2709,8 +3070,9 @@ export function GoalFormModal({
   isOpen: boolean;
   linkUpdatingKey?: string | null;
   onClose: () => void;
+  onDelete?: () => void;
   onSave: (input: GoalInput) => Promise<void>;
-  onToggleLink?: ToggleCheckpointLink;
+  onToggleLink?: ToggleGoalLink;
   saveHint?: string;
   tasks?: Task[];
 }) {
@@ -2720,12 +3082,8 @@ export function GoalFormModal({
   const [timing, setTiming] = useState<GoalTiming>("current");
   const [planOnCalendar, setPlanOnCalendar] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointDraft[]>([]);
-  const [checkpointLinks, setCheckpointLinks] = useState<
-    Record<string, GoalCheckpoint["links"]>
-  >({});
-  const [linkingCheckpointId, setLinkingCheckpointId] = useState<string | null>(
-    null,
-  );
+  const [goalLinks, setGoalLinks] = useState<Goal["links"]>([]);
+  const [linkingGoalOpen, setLinkingGoalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2743,6 +3101,7 @@ export function GoalFormModal({
             localId: checkpoint.id,
             title: checkpoint.title,
             targetDate: checkpoint.targetDate ?? "",
+            started: checkpoint.started,
             completed: checkpoint.completed,
           }))
         : initialValues?.checkpoints.length
@@ -2750,49 +3109,25 @@ export function GoalFormModal({
               localId: createCheckpointLocalId(),
               title: checkpoint.title,
               targetDate: checkpoint.targetDate ?? "",
+              started: checkpoint.started,
               completed: checkpoint.completed,
             }))
           : [createEmptyCheckpoint()],
     );
-    setCheckpointLinks(
-      Object.fromEntries(
-        (goal?.checkpoints ?? []).map((checkpoint) => [
-          checkpoint.id,
-          checkpoint.links ?? [],
-        ]),
-      ),
-    );
-    setLinkingCheckpointId(null);
+    setGoalLinks(goal?.links ?? []);
+    setLinkingGoalOpen(false);
     setError(null);
   }, [goal, initialValues, isOpen]);
 
-  const linkingCheckpoint = (() => {
-    if (!goal || !linkingCheckpointId) return null;
-    const checkpoint = goal.checkpoints.find(
-      (item) => item.id === linkingCheckpointId,
-    );
-    if (!checkpoint) return null;
-    return {
-      ...checkpoint,
-      links: checkpointLinks[checkpoint.id] ?? checkpoint.links ?? [],
-    };
-  })();
+  const linkingGoal = goal ? { ...goal, links: goalLinks } : null;
 
   const handleToggleLink = async (
-    checkpoint: GoalCheckpoint,
+    linkedGoal: Goal,
     sourceType: "task" | "habit",
     sourceId: string,
   ) => {
-    const updatedGoal = await onToggleLink(checkpoint, sourceType, sourceId);
-    const updatedCheckpoint = updatedGoal?.checkpoints.find(
-      (item) => item.id === checkpoint.id,
-    );
-    if (updatedCheckpoint) {
-      setCheckpointLinks((current) => ({
-        ...current,
-        [updatedCheckpoint.id]: updatedCheckpoint.links ?? [],
-      }));
-    }
+    const updatedGoal = await onToggleLink(linkedGoal, sourceType, sourceId);
+    if (updatedGoal) setGoalLinks(updatedGoal.links ?? []);
     return updatedGoal ?? null;
   };
 
@@ -2823,6 +3158,7 @@ export function GoalFormModal({
       .map((checkpoint) => ({
         title: checkpoint.title.trim(),
         targetDate: checkpoint.targetDate.trim(),
+        started: checkpoint.started,
         completed: checkpoint.completed,
       }))
       .filter((checkpoint) => checkpoint.title.length > 0);
@@ -2849,6 +3185,7 @@ export function GoalFormModal({
         checkpoints: checkpointInput.map((checkpoint) => ({
           title: checkpoint.title,
           targetDate: checkpoint.targetDate || null,
+          started: checkpoint.started,
           completed: checkpoint.completed,
         })),
       });
@@ -3063,6 +3400,69 @@ export function GoalFormModal({
               <Text
                 style={[styles.sectionTitle, { color: theme.textSecondary }]}
               >
+                Goal links
+              </Text>
+              <Pressable
+                accessibilityLabel={
+                  goal
+                    ? "Link tasks or habits to this goal"
+                    : "Save the goal before linking tasks or habits"
+                }
+                accessibilityRole="button"
+                disabled={!goal}
+                onPress={() => setLinkingGoalOpen(true)}
+                style={({ pressed }) => [
+                  {
+                    alignItems: "center",
+                    borderColor: theme.tabBorder,
+                    borderRadius: 12,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    flexDirection: "row",
+                    gap: 8,
+                    minHeight: 48,
+                    paddingHorizontal: 12,
+                  },
+                  !goal && { opacity: 0.55 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("link", "link")}
+                  size={18}
+                  tintColor={theme.primary}
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontSize: 15,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {goal ? "Link tasks or habits" : "Save goal to add links"}
+                  </Text>
+                  {goalLinks.length ? (
+                    <Text
+                      style={{ color: theme.textSecondary, fontSize: 12 }}
+                    >
+                      {goalLinks.length} linked
+                    </Text>
+                  ) : null}
+                </View>
+                {goal ? (
+                  <SymbolView
+                    name={symbol("chevron.right", "chevron_right")}
+                    size={16}
+                    tintColor={theme.textSecondary}
+                  />
+                ) : null}
+              </Pressable>
+            </View>
+
+            <View style={styles.formSection}>
+              <Text
+                style={[styles.sectionTitle, { color: theme.textSecondary }]}
+              >
                 Checkpoints
               </Text>
               <View
@@ -3075,12 +3475,6 @@ export function GoalFormModal({
                 ]}
               >
                 {checkpoints.map((checkpoint, index) => {
-                  const canLink = Boolean(
-                    goal?.checkpoints.some(
-                      (item) => item.id === checkpoint.localId,
-                    ),
-                  );
-
                   return (
                   <View key={checkpoint.localId} style={styles.checkpointRow}>
                     <View style={styles.checkpointHeader}>
@@ -3094,11 +3488,19 @@ export function GoalFormModal({
                       </Text>
                       <Pressable
                         accessibilityRole="checkbox"
-                        accessibilityState={{ checked: checkpoint.completed }}
+                        accessibilityState={{
+                          checked: checkpoint.completed,
+                          selected: checkpoint.started,
+                        }}
                         onPress={() => {
                           playSelectionHaptic();
                           updateCheckpoint(checkpoint.localId, {
-                            completed: !checkpoint.completed,
+                            started: checkpoint.completed
+                              ? false
+                              : true,
+                            completed: checkpoint.completed
+                              ? false
+                              : checkpoint.started,
                           });
                         }}
                         style={({ pressed }) => [
@@ -3106,9 +3508,13 @@ export function GoalFormModal({
                           {
                             backgroundColor: checkpoint.completed
                               ? theme.primary
+                              : checkpoint.started
+                                ? `${theme.primary}26`
                               : theme.backgroundElement,
                             borderColor: checkpoint.completed
                               ? theme.primary
+                              : checkpoint.started
+                                ? theme.primary
                               : theme.tabBorder,
                           },
                           pressed && styles.pressed,
@@ -3120,6 +3526,13 @@ export function GoalFormModal({
                             size={14}
                             weight="semibold"
                             tintColor={theme.primaryForeground}
+                          />
+                        ) : checkpoint.started ? (
+                          <SymbolView
+                            name={symbol("play.fill", "play_arrow")}
+                            size={12}
+                            tintColor={theme.primary}
+                            weight="bold"
                           />
                         ) : null}
                       </Pressable>
@@ -3167,59 +3580,6 @@ export function GoalFormModal({
                           updateCheckpoint(checkpoint.localId, { targetDate })
                         }
                       />
-                      <Pressable
-                        accessibilityLabel={
-                          canLink
-                            ? `Link tasks or habits to ${checkpoint.title || "this checkpoint"}`
-                            : "Save this checkpoint before linking tasks or habits"
-                        }
-                        accessibilityRole="button"
-                        disabled={!canLink}
-                        onPress={() =>
-                          canLink
-                            ? setLinkingCheckpointId(checkpoint.localId)
-                            : undefined
-                        }
-                        style={({ pressed }) => [
-                          {
-                            alignItems: "center",
-                            borderColor: theme.tabBorder,
-                            borderRadius: 12,
-                            borderWidth: StyleSheet.hairlineWidth,
-                            flexDirection: "row",
-                            gap: 8,
-                            minHeight: 44,
-                            paddingHorizontal: 12,
-                          },
-                          !canLink && { opacity: 0.55 },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <SymbolView
-                          name={symbol("link", "link")}
-                          size={17}
-                          tintColor={theme.primary}
-                        />
-                        <Text
-                          style={{
-                            color: theme.text,
-                            flex: 1,
-                            fontSize: 14,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {canLink
-                            ? "Link tasks or habits"
-                            : "Save to link tasks or habits"}
-                        </Text>
-                        {canLink ? (
-                          <SymbolView
-                            name={symbol("chevron.right", "chevron_right")}
-                            size={15}
-                            tintColor={theme.textSecondary}
-                          />
-                        ) : null}
-                      </Pressable>
                     </View>
                   </View>
                   );
@@ -3251,16 +3611,50 @@ export function GoalFormModal({
               </View>
             </View>
 
+            {goal && onDelete ? (
+              <Pressable
+                accessibilityLabel={`Delete ${goal.title}`}
+                accessibilityRole="button"
+                onPress={onDelete}
+                style={({ pressed }) => [
+                  {
+                    alignItems: "center",
+                    borderColor: "#C94B58",
+                    borderRadius: 12,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    flexDirection: "row",
+                    gap: 8,
+                    justifyContent: "center",
+                    marginTop: 16,
+                    minHeight: 48,
+                    paddingHorizontal: 12,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={symbol("trash", "delete")}
+                  size={17}
+                  tintColor="#C94B58"
+                />
+                <Text
+                  style={{ color: "#C94B58", fontSize: 15, fontWeight: "700" }}
+                >
+                  Delete goal
+                </Text>
+              </Pressable>
+            ) : null}
+
             {error ? <Text style={styles.formError}>{error}</Text> : null}
           </ScrollView>
           </SafeAreaView>
-          <LinkCheckpointModal
+          <LinkGoalModal
             embedded
-            checkpoint={linkingCheckpoint}
+            goal={linkingGoalOpen ? linkingGoal : null}
             habits={habits}
             linkUpdatingKey={linkUpdatingKey}
             tasks={tasks}
-            onClose={() => setLinkingCheckpointId(null)}
+            onClose={() => setLinkingGoalOpen(false)}
             onToggleLink={handleToggleLink}
           />
         </KeyboardAvoidingView>
@@ -3274,6 +3668,7 @@ function createEmptyCheckpoint(): CheckpointDraft {
     localId: createCheckpointLocalId(),
     title: "",
     targetDate: "",
+    started: false,
     completed: false,
   };
 }

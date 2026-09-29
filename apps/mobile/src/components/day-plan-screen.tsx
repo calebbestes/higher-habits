@@ -2362,6 +2362,7 @@ export function DayPlanScreen({
     notes: string,
   ) => {
     await updatePlanGoalCheckpoint(target.ref.checkpoint.id, {
+      started: target.ref.checkpoint.started,
       completed: target.ref.checkpoint.completed,
       notes: notes.trim() ? notes.trim() : null,
       visibility: target.ref.checkpoint.visibility,
@@ -2378,6 +2379,7 @@ export function DayPlanScreen({
     setUpdatingKey(`goal-${activeCheckpoint.checkpoint.id}`);
     try {
       await updatePlanGoalCheckpoint(activeCheckpoint.checkpoint.id, {
+        started: activeCheckpoint.checkpoint.started,
         completed: activeCheckpoint.checkpoint.completed,
         notes: activeCheckpoint.checkpoint.notes,
         visibility,
@@ -2427,6 +2429,7 @@ export function DayPlanScreen({
         const wasComplete = checkpoint.checkpoint.completed;
 
         await updatePlanGoalCheckpoint(checkpoint.checkpoint.id, {
+          started: true,
           completed: !checkpoint.checkpoint.completed,
         });
         if (!wasComplete) {

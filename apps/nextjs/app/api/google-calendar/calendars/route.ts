@@ -11,7 +11,8 @@ const colorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
 const updateColorSchema = z.object({
   backgroundColor: colorSchema,
   calendarId: z.string().min(1),
-  colorId: z.string().min(1),
+  // Optional for older mobile bundles; the server falls back to RGB updates.
+  colorId: z.string().min(1).optional(),
   foregroundColor: colorSchema,
 });
 

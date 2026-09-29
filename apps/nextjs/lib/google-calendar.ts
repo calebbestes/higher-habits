@@ -895,7 +895,7 @@ export async function updateGoogleCalendarColor({
 }: {
   backgroundColor: string;
   calendarId: string;
-  colorId: string;
+  colorId?: string;
   foregroundColor: string;
   userId: string;
 }): Promise<{
