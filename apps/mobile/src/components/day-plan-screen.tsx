@@ -446,7 +446,7 @@ export function DayPlanScreen({
 
     return Math.max(TIMELINE_DEFAULT_VIEWPORT_HEIGHT, availableHeight);
   }, [screenHeight, stickyHeaderHeight, tabBarHeight]);
-  const timelineMinHourHeight = timelineViewportHeight / 16;
+  const timelineMinHourHeight = timelineViewportHeight / 20;
   const timelineMaxHourHeight = timelineViewportHeight / 5;
   const timelineScrollMax = Math.max(
     0,
@@ -1611,6 +1611,31 @@ export function DayPlanScreen({
     },
     [dateKey],
   );
+  const removeGoogleEventsForSource = useCallback(
+    (sourceId: string) => {
+      const removeMatchingEvents = (events: GoogleCalendarDayEvent[]) =>
+        events.filter(
+          (event) =>
+            !(
+              event.higherHabitsSourceType === "other_event" &&
+              event.higherHabitsSourceId === sourceId
+            ),
+        );
+
+      setGoogleEvents((current) => {
+        const next = removeMatchingEvents(current);
+        const cached = googleEventsCacheRef.current.get(dateKey);
+        if (cached) {
+          googleEventsCacheRef.current.set(dateKey, {
+            ...cached,
+            events: removeMatchingEvents(cached.events),
+          });
+        }
+        return next;
+      });
+    },
+    [dateKey],
+  );
   const scheduleEntryNotification = useCallback(
     (
       entry: DayPlanEntry,
@@ -1744,6 +1769,9 @@ export function DayPlanScreen({
           );
         }
         patchPlannedEvent(response.event);
+        if (entry.kind === "other" && entry.sourceId) {
+          removeGoogleEventsForSource(entry.sourceId);
+        }
         notificationEntry = {
           ...entry,
           title: options?.title?.trim() || entry.title,
@@ -4263,7 +4291,18 @@ function InternalEventActionsModal({
             showsVerticalScrollIndicator={false}
           >
             {isTitleEditable ? (
-              <View style={styles.eventActionSection}>
+              <View
+                style={[
+                  styles.eventActionSection,
+                  isTitleEditable && styles.eventActionSectionFlat,
+                  {
+                    backgroundColor: isTitleEditable
+                      ? "transparent"
+                      : theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
                 <Text
                   style={[
                     modalStyles.planTimeSectionTitle,
@@ -4293,7 +4332,18 @@ function InternalEventActionsModal({
               </View>
             ) : null}
             {isEditablePlannedBlock ? (
-              <View style={styles.eventActionSection}>
+              <View
+                style={[
+                  styles.eventActionSection,
+                  isTitleEditable && styles.eventActionSectionFlat,
+                  {
+                    backgroundColor: isTitleEditable
+                      ? "transparent"
+                      : theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                  },
+                ]}
+              >
                 <Text
                   style={[
                     modalStyles.planTimeSectionTitle,
@@ -4403,7 +4453,18 @@ function InternalEventActionsModal({
             ) : null}
             {isEditablePlannedBlock ? (
               <>
-                <View style={styles.eventActionSection}>
+                <View
+                  style={[
+                    styles.eventActionSection,
+                    isTitleEditable && styles.eventActionSectionFlat,
+                    {
+                      backgroundColor: isTitleEditable
+                        ? "transparent"
+                        : theme.backgroundElement,
+                      borderColor: theme.tabBorder,
+                    },
+                  ]}
+                >
                   <Text
                     style={[
                       modalStyles.planTimeSectionTitle,
@@ -4522,7 +4583,18 @@ function InternalEventActionsModal({
                   </View>
                 </View>
                 {isGoogleEvent || isOtherEvent ? (
-                  <View style={styles.eventActionSection}>
+                  <View
+                    style={[
+                      styles.eventActionSection,
+                      isTitleEditable && styles.eventActionSectionFlat,
+                      {
+                        backgroundColor: isTitleEditable
+                          ? "transparent"
+                          : theme.backgroundElement,
+                        borderColor: theme.tabBorder,
+                      },
+                    ]}
+                  >
                     <Pressable
                       accessibilityRole="button"
                       disabled={isUpdating}
@@ -5569,6 +5641,8 @@ function EntryChip({
         const dragStart = dragStartRef.current;
         if (!dragStart) return false;
 
+        if (dragStart.didStartDrag) return true;
+
         const dx = event.nativeEvent.pageX - dragStart.pageX;
         const dy = event.nativeEvent.pageY - dragStart.pageY;
         dragStart.didMove =
@@ -5858,6 +5932,11 @@ function TimedEntryBlock({
         <View
           accessibilityLabel={`Open ${entry.title}, ${timeLabel}`}
           accessibilityRole="button"
+          onStartShouldSetResponder={() => Boolean(onBeginMove)}
+          onMoveShouldSetResponder={() =>
+            Boolean(dragStartRef.current?.didStartDrag)
+          }
+          onResponderMove={handleTouchMove}
           onTouchCancel={handleTouchCancel}
           onTouchEnd={handleTouchEnd}
           onTouchMove={handleTouchMove}
@@ -7517,7 +7596,7 @@ const styles = StyleSheet.create({
   allDayChipText: {
     fontSize: 13,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "600",
   },
   allDayChipTextCompact: {
     fontSize: 12,
@@ -7641,7 +7720,7 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 12,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "600",
   },
   eventTitleTiny: {
     fontSize: 11,
@@ -7771,7 +7850,16 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   eventActionSection: {
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  eventActionSectionFlat: {
     gap: 7,
+    borderWidth: 0,
+    borderRadius: 0,
     paddingHorizontal: 2,
     paddingVertical: 2,
   },

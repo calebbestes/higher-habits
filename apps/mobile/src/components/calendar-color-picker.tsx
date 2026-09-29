@@ -31,12 +31,6 @@ export function CalendarColorPicker({
     foreground: googleColor.foregroundColor,
     label: googleColor.label ?? `Google color ${googleColor.colorId}`,
   }));
-  const defaultColorOption = colorOptions.find(
-    (option) =>
-      option.color &&
-      defaultColor &&
-      option.color.toLowerCase() === defaultColor.toLowerCase(),
-  );
   const selectedColorOption = colorOptions.find(
     (option) =>
       option.color &&
@@ -66,14 +60,57 @@ export function CalendarColorPicker({
           </Text>
         </Pressable>
       </View>
+      <Pressable
+        accessibilityLabel="Use calendar default color"
+        accessibilityRole="radio"
+        accessibilityState={{
+          checked: value === null || value === undefined,
+          disabled,
+        }}
+        disabled={disabled}
+        onPress={() => onChange(null)}
+        style={({ pressed }) => [
+          styles.defaultOption,
+          {
+            borderColor:
+              value === null || value === undefined
+                ? theme.primary
+                : theme.tabBorder,
+          },
+          pressed && styles.pressed,
+          disabled && styles.disabled,
+        ]}
+      >
+        <View
+          style={[
+            styles.defaultSwatch,
+            {
+              backgroundColor: defaultColor ?? theme.backgroundElement,
+              borderColor: theme.tabBorder,
+            },
+          ]}
+        >
+          {value === null || value === undefined ? (
+            <Text style={[styles.checkmark, { color: theme.text }]}>✓</Text>
+          ) : null}
+        </View>
+        <View style={styles.defaultOptionText}>
+          <Text style={[styles.defaultOptionTitle, { color: theme.text }]}>
+            Use calendar default
+          </Text>
+          <Text
+            style={[styles.defaultOptionHint, { color: theme.textSecondary }]}
+          >
+            This event will use the calendar&apos;s color.
+          </Text>
+        </View>
+      </Pressable>
       <View style={styles.options}>
         {isLoadingGoogleColors ? (
           <ActivityIndicator color={theme.primary} size="small" />
         ) : (
           colorOptions.map((option) => {
-            const selected =
-              value === option.color ||
-              (value === null && defaultColorOption?.color === option.color);
+            const selected = value != null && value === option.color;
 
             return (
               <Pressable
@@ -128,6 +165,26 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 13, fontWeight: "700" },
   value: { fontSize: 12, fontWeight: "600" },
+  defaultOption: {
+    alignItems: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  defaultSwatch: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  defaultOptionText: { flex: 1, gap: 1 },
+  defaultOptionTitle: { fontSize: 12, fontWeight: "800" },
+  defaultOptionHint: { fontSize: 11, fontWeight: "600" },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   option: {
     alignItems: "center",

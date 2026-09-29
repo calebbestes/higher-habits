@@ -105,7 +105,7 @@ export type WeekEvent = Pick<
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HOURS = Array.from({ length: 24 }, (_, index) => index);
-const HOUR_HEIGHT = 40;
+const HOUR_HEIGHT = 32;
 const ALL_DAY_ROW_HEIGHT = 28;
 const TIME_LABEL_WIDTH = 48;
 const GRID_HEIGHT = HOURS.length * HOUR_HEIGHT;
@@ -1970,7 +1970,25 @@ export function WeeklyPlanScreen({
                                     <EventChip
                                       event={event}
                                       key={event.id}
+                                      onBeginMove={
+                                        event.sourceType === "google"
+                                          ? undefined
+                                          : (touch) =>
+                                              beginWeeklyEventMove(
+                                                event,
+                                                1,
+                                                0,
+                                                touch,
+                                              )
+                                      }
+                                      onCancel={cancelWeeklyEventMove}
+                                      onMove={
+                                        event.sourceType === "google"
+                                          ? undefined
+                                          : moveWeeklyEvent
+                                      }
                                       onPress={() => onSelectEvent?.(event)}
+                                      onRelease={finishWeeklyEventMove}
                                     />
                                   ))}
                                   {allDayEvents.length > 1 ? (
@@ -2772,13 +2790,126 @@ function WeeklyCalendarCard({
 
 function EventChip({
   event,
+  onBeginMove,
+  onCancel,
+  onMove,
   onPress,
+  onRelease,
 }: {
   event: WeekEvent;
+  onBeginMove?: (touch: { pageY: number }) => void;
+  onCancel?: () => void;
+  onMove?: (event: GestureResponderEvent) => void;
   onPress: () => void;
+  onRelease?: () => void;
 }) {
   const theme = useTheme();
   const palette = eventPalette(event, theme);
+  const dragStartRef = useRef<{
+    didMove: boolean;
+    didStartDrag: boolean;
+    pageX: number;
+    pageY: number;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+  const startMove = () => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart || dragStart.didStartDrag) return;
+    dragStart.didStartDrag = true;
+    clearLongPressTimer();
+    onBeginMove?.({ pageY: dragStart.pageY });
+  };
+  const handleTouchStart = (event: GestureResponderEvent) => {
+    if (!onBeginMove) return;
+    const { pageX, pageY } = event.nativeEvent;
+    dragStartRef.current = {
+      didMove: false,
+      didStartDrag: false,
+      pageX,
+      pageY,
+    };
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(startMove, WEEKLY_CREATE_LONG_PRESS_MS);
+  };
+  const handleTouchMove = (event: GestureResponderEvent) => {
+    const dragStart = dragStartRef.current;
+    if (!dragStart) return;
+    if (!dragStart.didStartDrag) {
+      const touch = event.nativeEvent.touches[0];
+      if (!touch) return;
+      if (
+        Math.hypot(touch.pageX - dragStart.pageX, touch.pageY - dragStart.pageY) >
+        WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE
+      ) {
+        dragStart.didMove = true;
+        clearLongPressTimer();
+      }
+      return;
+    }
+    onMove?.(event);
+  };
+  const handleTouchEnd = () => {
+    const dragStart = dragStartRef.current;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (dragStart?.didStartDrag) {
+      onRelease?.();
+    } else if (!dragStart?.didMove) {
+      onPress();
+    }
+  };
+  const handleTouchCancel = () => {
+    const didStartDrag = dragStartRef.current?.didStartDrag ?? false;
+    clearLongPressTimer();
+    dragStartRef.current = null;
+    if (didStartDrag) onCancel?.();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
+  if (onBeginMove) {
+    return (
+      <View
+        accessibilityLabel={event.title}
+        accessibilityRole="button"
+        onMoveShouldSetResponder={() =>
+          Boolean(dragStartRef.current?.didStartDrag)
+        }
+        onResponderMove={handleTouchMove}
+        onResponderRelease={handleTouchEnd}
+        onResponderTerminate={handleTouchCancel}
+        onResponderTerminationRequest={() =>
+          !(dragStartRef.current?.didStartDrag ?? false)
+        }
+        onStartShouldSetResponder={() => true}
+        onTouchCancel={handleTouchCancel}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onTouchStart={handleTouchStart}
+        style={[
+          styles.eventChip,
+          { backgroundColor: palette.bg },
+        ]}
+      >
+        <Text style={[styles.eventChipText, { color: palette.text }]}>
+          {event.title}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <Pressable
@@ -2951,6 +3082,7 @@ function EventBlock({
     <View
       accessibilityLabel={event.title}
       accessibilityRole="button"
+      onStartShouldSetResponder={() => true}
       onMoveShouldSetResponder={() =>
         Boolean(dragStartRef.current?.didStartDrag)
       }
