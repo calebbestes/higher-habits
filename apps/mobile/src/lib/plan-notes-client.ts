@@ -66,12 +66,6 @@ export const savePlanNote = ({
   notes: string;
   period: PlanNotePeriod;
 }) => {
-  console.log("[Plan Notes] Saving note", {
-    dateKey,
-    noteLength: notes.length,
-    period,
-  });
-
   return mobileApiFetch("/api/plan-notes", {
     method: "POST",
     body: JSON.stringify({ dateKey, notes, period }),

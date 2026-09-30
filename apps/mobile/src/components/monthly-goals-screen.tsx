@@ -115,11 +115,6 @@ const MONTH_ABBRS = [
 ];
 
 const MAX_TILES = 3;
-const PLANNED_STRIPES = Array.from(
-  { length: 24 },
-  (_, index) => `planned-stripe-${index}`,
-);
-
 function sym(ios: string, android: string): SymbolName {
   return { ios, android, web: android } as SymbolName;
 }
@@ -978,7 +973,6 @@ export function MonthlyGoalsScreen({
             <DayDetailPanel
               selectedDate={selectedDate}
               selectedDateKey={selectedDateKey}
-              monthKey={monthKey}
               habitGroups={selectedDayHabitGroups}
               hasMonthlyGoals={periodicHabits.length > 0}
               logsByHabitDate={logsByHabitDate}
@@ -1334,7 +1328,6 @@ const DayCell = memo(function DayCell({
 function DayDetailPanel({
   selectedDate,
   selectedDateKey,
-  monthKey,
   habitGroups,
   hasMonthlyGoals,
   logsByHabitDate,
@@ -1349,7 +1342,6 @@ function DayDetailPanel({
 }: {
   selectedDate: Date;
   selectedDateKey: string;
-  monthKey: string;
   habitGroups: Record<PlanningBucket, PeriodicHabitInfo[]>;
   hasMonthlyGoals: boolean;
   logsByHabitDate: Record<string, MonthLogStatus>;

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { type PlannedEventSourceType, getDb } from "@habit/db";
-import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 

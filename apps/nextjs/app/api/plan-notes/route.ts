@@ -162,12 +162,6 @@ export async function POST(request: Request) {
 
     const data = bodySchema.parse(await request.json());
     const dateKey = normalizeDateKey(data.period, data.dateKey);
-    console.log("[Plan Notes] Saving note", {
-      dateKey,
-      noteLength: data.notes.length,
-      period: data.period,
-      userIdSuffix: user.id.slice(-8),
-    });
     const [row] = await db
       .insert(planNotes)
       .values({

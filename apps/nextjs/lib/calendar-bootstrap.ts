@@ -336,9 +336,6 @@ export const getCalendarBootstrap = async (
 
   return {
     month,
-    prevMonth,
-    hiddenKeys: [],
-    currentCustomDayIconsByDate: {},
     currentGoalLogsSnapshot,
     prevGoalLogsByDate,
   };

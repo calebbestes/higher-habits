@@ -1511,9 +1511,8 @@ export function HabitFormModal({
                             : "month"
                       }
                       selected={form.period === period}
-                      onPress={() =>
-                        setForm((current) => {
-                          const today = new Date();
+                        onPress={() =>
+                          setForm((current) => {
                           return {
                             ...current,
                             period,

@@ -1,8 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { ContactsTable } from "@/components/contacts-table";
 
-export const ContactsTableClient = dynamic(
-  () => import("@/components/contacts-table").then((m) => m.ContactsTable),
-  { ssr: false },
-);
+export const ContactsTableClient = ContactsTable;

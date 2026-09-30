@@ -2033,7 +2033,6 @@ export function FeedScreen() {
       ) : (
         <FeedAdCard
           disabled={reportingFeedAdKey === item.id}
-          item={item}
           onHide={() => hideFeedAd(item)}
           onReport={() => void reportFeedAd(item)}
         />
@@ -5180,12 +5179,10 @@ function CompletionPostBody({ entry }: { entry: FriendFeedEntry }) {
 
 function FeedAdCard({
   disabled,
-  item,
   onHide,
   onReport,
 }: {
   disabled: boolean;
-  item: Extract<FeedRenderItem, { type: "ad" }>;
   onHide: () => void;
   onReport: () => void;
 }) {

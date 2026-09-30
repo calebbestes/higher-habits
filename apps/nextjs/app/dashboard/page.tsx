@@ -4,7 +4,7 @@ import { Dashboard } from "@/components/portable-calendar";
 import { requireUser } from "@/lib/auth";
 import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
-import { getMonthKey, toDateKey } from "@/lib/habit-state";
+import { getMonthKey, toDateKey } from "@/lib/date-utils";
 
 export default async function DashboardPage() {
   const user = await requireUser();

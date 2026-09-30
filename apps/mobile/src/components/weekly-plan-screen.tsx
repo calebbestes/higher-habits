@@ -133,8 +133,6 @@ const EDITOR_ACTIONS = [
   actions.redo,
 ];
 
-const HEADER_INSERT_PREVIEW_LIMIT = 4;
-
 type LaidOutWeekEvent = {
   event: WeekEvent;
   laneCount: number;
@@ -382,15 +380,20 @@ function getEventMinutes(event: WeekEvent) {
 }
 
 function minutesToTime(minutes: number) {
-  const clamped = Math.max(GRID_START_MINUTES, Math.min(minutes, GRID_END_MINUTES));
+  const clamped = Math.max(
+    GRID_START_MINUTES,
+    Math.min(minutes, GRID_END_MINUTES),
+  );
   const hours = Math.floor(clamped / 60);
   const remainder = clamped % 60;
   return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
 function snapWeeklyEventMinutes(minutes: number) {
-  return Math.round(minutes / WEEKLY_CREATE_SNAP_MINUTES) *
-    WEEKLY_CREATE_SNAP_MINUTES;
+  return (
+    Math.round(minutes / WEEKLY_CREATE_SNAP_MINUTES) *
+    WEEKLY_CREATE_SNAP_MINUTES
+  );
 }
 
 function isPlannedRepeatDate(
@@ -440,10 +443,7 @@ function isPlannedRepeatDate(
 function isPeriodicHabitScheduledForDate(
   habit: Pick<
     PeriodicHabitInfo,
-    | "period"
-    | "repeatCadence"
-    | "repeatDays"
-    | "repeatMonthlyType"
+    "period" | "repeatCadence" | "repeatDays" | "repeatMonthlyType"
   >,
   dateKey: string,
 ) {
@@ -461,9 +461,7 @@ function isPeriodicHabitScheduledForDate(
 
   if ((habit.repeatMonthlyType ?? "day_of_month") === "day_of_month") {
     const days = habit.repeatDays?.filter((day) => day >= 1 && day <= 31);
-    return days?.length
-      ? days.includes(date.getDate())
-      : false;
+    return days?.length ? days.includes(date.getDate()) : false;
   }
 
   const cells = habit.repeatDays?.filter((day) => day >= 0 && day <= 34);
@@ -801,8 +799,7 @@ export function WeeklyPlanScreen({
   const weeklyEventDragRef = useRef<WeeklyEventDrag | null>(null);
   const [weeklyEventDrag, setWeeklyEventDrag] =
     useState<WeeklyEventDrag | null>(null);
-  const [isWeeklyEventDragActive, setIsWeeklyEventDragActive] =
-    useState(false);
+  const [isWeeklyEventDragActive, setIsWeeklyEventDragActive] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
   const [headersModalOpen, setHeadersModalOpen] = useState(false);
@@ -1403,13 +1400,6 @@ export function WeeklyPlanScreen({
       }
     });
 
-  const openWeekPicker = useCallback(() => {
-    setWeekPickerMonth(
-      new Date(weekStartDate.getFullYear(), weekStartDate.getMonth(), 1),
-    );
-    setWeekPickerOpen(true);
-  }, [weekStartDate]);
-
   const selectWeekFromPicker = useCallback(
     (date: Date) => {
       setWeekStartDate(startOfWeek(date));
@@ -1875,7 +1865,6 @@ export function WeeklyPlanScreen({
                       todayKey={todayKey}
                       weekDays={previousWeekDays}
                       weekEventsByDate={previousWeekEventsByDate}
-                      weekStartDate={previousWeekStartDate}
                     />
                   </View>
                   <View style={{ width: calendarWidth }}>
@@ -2213,7 +2202,6 @@ export function WeeklyPlanScreen({
                       todayKey={todayKey}
                       weekDays={nextWeekDays}
                       weekEventsByDate={nextWeekEventsByDate}
-                      weekStartDate={nextWeekStartDate}
                     />
                   </View>
                 </Animated.View>
@@ -2549,7 +2537,6 @@ function WeeklyCalendarCard({
   todayKey,
   weekDays,
   weekEventsByDate,
-  weekStartDate,
   weeklyCreatePreview,
 }: {
   initialTimelineScrollY: number;
@@ -2566,7 +2553,6 @@ function WeeklyCalendarCard({
   todayKey: string;
   weekDays: Date[];
   weekEventsByDate: Map<string, WeekEvent[]>;
-  weekStartDate: Date;
   weeklyCreatePreview?: WeeklyCreateRange | null;
 }) {
   const hasAllDayEvents = Array.from(weekEventsByDate.values()).some((events) =>
@@ -2803,17 +2789,14 @@ function EventChip({
   onPress: () => void;
   onRelease?: () => void;
 }) {
-  const theme = useTheme();
-  const palette = eventPalette(event, theme);
+  const palette = eventPalette(event);
   const dragStartRef = useRef<{
     didMove: boolean;
     didStartDrag: boolean;
     pageX: number;
     pageY: number;
   } | null>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearLongPressTimer = () => {
     if (!longPressTimerRef.current) return;
     clearTimeout(longPressTimerRef.current);
@@ -2836,7 +2819,10 @@ function EventChip({
       pageY,
     };
     clearLongPressTimer();
-    longPressTimerRef.current = setTimeout(startMove, WEEKLY_CREATE_LONG_PRESS_MS);
+    longPressTimerRef.current = setTimeout(
+      startMove,
+      WEEKLY_CREATE_LONG_PRESS_MS,
+    );
   };
   const handleTouchMove = (event: GestureResponderEvent) => {
     const dragStart = dragStartRef.current;
@@ -2845,8 +2831,10 @@ function EventChip({
       const touch = event.nativeEvent.touches[0];
       if (!touch) return;
       if (
-        Math.hypot(touch.pageX - dragStart.pageX, touch.pageY - dragStart.pageY) >
-        WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE
+        Math.hypot(
+          touch.pageX - dragStart.pageX,
+          touch.pageY - dragStart.pageY,
+        ) > WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE
       ) {
         dragStart.didMove = true;
         clearLongPressTimer();
@@ -2899,10 +2887,7 @@ function EventChip({
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
         onTouchStart={handleTouchStart}
-        style={[
-          styles.eventChip,
-          { backgroundColor: palette.bg },
-        ]}
+        style={[styles.eventChip, { backgroundColor: palette.bg }]}
       >
         <Text style={[styles.eventChipText, { color: palette.text }]}>
           {event.title}
@@ -2950,7 +2935,6 @@ function EventBlock({
   onPress: () => void;
   onRelease?: () => void;
 }) {
-  const theme = useTheme();
   const dragStartRef = useRef<{
     didMove: boolean;
     didStartDrag: boolean;
@@ -2958,15 +2942,14 @@ function EventBlock({
     pageY: number;
   } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const palette = eventPalette(event, theme);
+  const palette = eventPalette(event);
   const { end, start } = getEventMinutes(event);
   const naturalHeight = ((end - start) / 60) * HOUR_HEIGHT;
   const verticalInset = Math.min(
     WEEKLY_EVENT_VERTICAL_INSET,
     naturalHeight / 3,
   );
-  const top =
-    ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + verticalInset;
+  const top = ((start - GRID_START_MINUTES) / 60) * HOUR_HEIGHT + verticalInset;
   const height = naturalHeight - verticalInset;
   const laneWidth = 100 / laneCount;
 
@@ -2977,7 +2960,11 @@ function EventBlock({
   };
 
   useEffect(
-    () => () => clearLongPressTimer(),
+    () => () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    },
     [],
   );
 
@@ -3103,7 +3090,7 @@ function EventBlock({
   );
 }
 
-function eventPalette(event: WeekEvent, theme: ReturnType<typeof useTheme>) {
+function eventPalette(event: WeekEvent) {
   if (event.sourceType === "google") {
     return {
       bg: getGoogleCalendarEventColor(

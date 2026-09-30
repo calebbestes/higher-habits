@@ -20,8 +20,6 @@ import {
 } from "@/components/weekly-plan-screen";
 import { reportMobileDiagnostic } from "@/lib/mobile-diagnostics";
 import {
-  PLAN_REPORT_VIEW_HREFS,
-  type PlanReportView,
   isPlanReportView,
   setPlanReportDateKey,
   setPlanReportView,

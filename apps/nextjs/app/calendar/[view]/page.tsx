@@ -5,7 +5,7 @@ import { TopTasksPage } from "@/components/top-tasks-page";
 import { requireUser } from "@/lib/auth";
 import { getCalendarBootstrap } from "@/lib/calendar-bootstrap";
 import type { CalendarBootstrapData } from "@/lib/calendar-bootstrap-types";
-import { getMonthKey, toDateKey } from "@/lib/habit-state";
+import { getMonthKey, toDateKey } from "@/lib/date-utils";
 import { notFound } from "next/navigation";
 
 const CALENDAR_VIEWS = ["day", "week", "month", "top-tasks"] as const;

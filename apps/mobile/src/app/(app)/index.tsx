@@ -6,7 +6,6 @@ import { FeedScreen } from "@/components/feed-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
 import {
-  type CollabSection,
   setCollabSection,
   useCollabSection,
 } from "@/lib/tab-view-store";

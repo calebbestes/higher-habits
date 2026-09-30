@@ -161,7 +161,6 @@ const bodySchema = z.discriminatedUnion("type", [
 ]);
 
 const getDatabase = () => getDb() ?? null;
-type Database = NonNullable<ReturnType<typeof getDatabase>>;
 
 type GoalLogSocialSummary = {
   goalLogId: string;

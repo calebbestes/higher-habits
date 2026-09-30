@@ -290,15 +290,15 @@ export async function PATCH(request: Request) {
       .select({ id: friendGroups.id })
       .from(friendGroups)
       .where(
-        and(eq(friendGroups.id, parsed.data.id), eq(friendGroups.ownerId, user.id)),
+        and(
+          eq(friendGroups.id, parsed.data.id),
+          eq(friendGroups.ownerId, user.id),
+        ),
       )
       .limit(1);
 
     if (!existingGroup) {
-      return NextResponse.json(
-        { error: "Group not found." },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Group not found." }, { status: 404 });
     }
 
     const acceptedRows = await db

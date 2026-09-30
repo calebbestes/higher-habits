@@ -1,10 +1,10 @@
 "use client";
 
+import { toDateKey } from "@/lib/date-utils";
 import type {
   CategoryWithGoals,
   PeriodicGoalInfo,
 } from "@/lib/goal-logs-client";
-import { toDateKey } from "@/lib/habit-state";
 import {
   Accordion,
   AccordionItem,

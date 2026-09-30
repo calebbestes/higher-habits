@@ -1,8 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { TasksTable } from "@/components/tasks-table";
 
-export const TasksTableClient = dynamic(
-  () => import("@/components/tasks-table").then((m) => m.TasksTable),
-  { ssr: false },
-);
+export const TasksTableClient = TasksTable;

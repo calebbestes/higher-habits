@@ -193,16 +193,6 @@ function createPrivateProfilePreview({
   };
 }
 
-function startOfWeek(date: Date) {
-  const weekStart = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  return weekStart;
-}
-
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -217,10 +207,6 @@ function formatProfileWeekRange(weekStartDate: string) {
     return `${month.format(start)} ${start.getDate()}-${end.getDate()}`;
   }
   return `${month.format(start)} ${start.getDate()}-${month.format(end)} ${end.getDate()}`;
-}
-
-function getProfileMonthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function dateFromProfileMonthKey(monthKey: string) {

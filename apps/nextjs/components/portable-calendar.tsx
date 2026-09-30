@@ -8,6 +8,7 @@ import {
   fetchCalendarSettings,
   saveCalendarSettings,
 } from "@/lib/calendar-settings-client";
+import { getMonthKey, toDateKey } from "@/lib/date-utils";
 import {
   type AcceptedGoalIncentive,
   type CategoryWithGoals,
@@ -24,32 +25,6 @@ import {
   fetchGoalPhotos,
   uploadGoalPhoto,
 } from "@/lib/goal-photos-client";
-import {
-  type CalendarHabitKey,
-  type CustomDayIconSelection,
-  type DayDrawerNotes,
-  type DrawerNoteKey,
-  EMPTY_DAY_DRAWER_NOTES,
-  EMPTY_PRAYER_CHECKLIST,
-  EMPTY_SALES_CHECKLIST,
-  EMPTY_WEIGHT_CHECKLIST,
-  type PrayerChecklistState,
-  type SalesActivityInput,
-  type SalesActivityLog,
-  type SalesChecklistState,
-  type WeightChecklistState,
-  getMonthKey,
-  toDateKey,
-} from "@/lib/habit-state";
-import {
-  createSalesActivity,
-  persistCustomDayIcon,
-  persistDayHabit,
-  persistDrawerNote,
-  persistPrayerChecklist,
-  persistSalesChecklist,
-  persistWeightChecklist,
-} from "@/lib/habit-state-client";
 import {
   Button,
   Card,
@@ -80,12 +55,9 @@ import {
 import { Icon } from "@iconify/react";
 import type { CSSProperties, ChangeEvent, FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CategoryGoalDrawer } from "./category-goal-drawer";
 import { DayIconPickerDrawer } from "./day-icon-picker-drawer";
-import { PRAYER_CHECKLIST_ITEMS } from "./prayer-checklist-drawer";
 import { RichTextEditor } from "./rich-text-editor";
 import { SettingsLink } from "./settings-link";
-import { WEIGHT_CHECKLIST_ITEMS } from "./weight-checklist-drawer";
 
 type CalendarView = "month" | "week" | "day";
 
@@ -183,11 +155,6 @@ const MONTH_NAMES = [
 ];
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_HABIT_ICONS = [
-  { key: "prayer", label: "Spiritual", icon: "mdi:hands-pray" },
-  { key: "gym", label: "Health", icon: "mdi:dumbbell" },
-  { key: "outreach", label: "Career", icon: "mdi:currency-usd" },
-] as const;
 
 const CATEGORY_FILL_CONFIG: Record<
   string,
@@ -241,8 +208,6 @@ type DailyGoalMetric = {
     days: Array<{ dateKey: string; done: boolean }>;
   }>;
 };
-
-const ROW_START = ["row-start-1", "row-start-2", "row-start-3"] as const;
 
 const cn = (...values: Array<string | false | null | undefined>) =>
   values.filter(Boolean).join(" ");
@@ -497,31 +462,6 @@ const filterDailyGoalMetricsByPriority = (
     }))
     .filter(({ goals }) => goals.length > 0);
 
-const getHabitStateKey = (dateKey: string, habitKey: CalendarHabitKey) =>
-  `${dateKey}::${habitKey}`;
-
-const formatWeekRange = (date: Date) => {
-  const weekStart = startOfWeek(date);
-  const weekEnd = addDays(weekStart, 6);
-  const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
-  const sameYear = weekStart.getFullYear() === weekEnd.getFullYear();
-
-  if (sameMonth && sameYear) {
-    return `${
-      MONTH_NAMES[weekStart.getMonth()]
-    } ${weekStart.getDate()} - ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
-  }
-
-  return `${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(weekStart)} - ${new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(weekEnd)}`;
-};
-
 const formatTime = (date: Date) =>
   new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
@@ -623,86 +563,6 @@ const navigateDate = (date: Date, view: CalendarView, direction: number) => {
   if (view === "week") return addWeeks(date, direction);
   return addMonths(date, direction);
 };
-
-const ProgressFillIcon = ({
-  icon,
-  progress,
-  className,
-  fillClassName,
-}: {
-  icon: string;
-  progress: number;
-  className?: string;
-  fillClassName?: string;
-}) => {
-  const clampedProgress = Math.max(0, Math.min(progress, 1));
-  const topInset = `${100 - clampedProgress * 100}%`;
-
-  return (
-    <span className={cn("relative block h-3.5 w-3.5", className)}>
-      <Icon
-        icon={icon}
-        className="absolute inset-0 h-full w-full text-foreground-300"
-      />
-      <span
-        className="absolute inset-0 overflow-hidden"
-        style={{ clipPath: `inset(${topInset} 0 0 0)` }}
-      >
-        <Icon
-          icon={icon}
-          className={cn(
-            "absolute inset-0 h-full w-full",
-            fillClassName ?? "text-[#2C5352]",
-          )}
-        />
-      </span>
-    </span>
-  );
-};
-
-const PrayerProgressIcon = ({
-  progress,
-  className,
-}: {
-  progress: number;
-  className?: string;
-}) => (
-  <ProgressFillIcon
-    icon="mdi:hands-pray"
-    progress={progress}
-    className={className}
-  />
-);
-
-const WeightProgressIcon = ({
-  progress,
-  className,
-}: {
-  progress: number;
-  className?: string;
-}) => (
-  <ProgressFillIcon
-    icon="mdi:dumbbell"
-    progress={progress}
-    className={className}
-    fillClassName="text-[#9D7474]"
-  />
-);
-
-const SalesProgressIcon = ({
-  progress,
-  className,
-}: {
-  progress: number;
-  className?: string;
-}) => (
-  <ProgressFillIcon
-    icon="mdi:currency-usd"
-    progress={progress}
-    className={className}
-    fillClassName="text-[#516162]"
-  />
-);
 
 const ChevronLeftIcon = () => (
   <svg
@@ -806,11 +666,6 @@ const MonthView = ({
   entries,
   onSelectDate,
   onSelectEntry,
-  hiddenGoalKeys,
-  onCustomDayIconsByDateChange,
-  onPrayerChecklistsByDateChange,
-  onWeightChecklistsByDateChange,
-  onSalesChecklistsByDateChange,
   onGoalLogsSnapshotChange,
   onShareHabitResults,
   monthlyGoalSlots = 3,
@@ -821,19 +676,6 @@ const MonthView = ({
   entries: NormalizedCalendarEntry[];
   onSelectDate: (date: Date) => void;
   onSelectEntry: (entry: NormalizedCalendarEntry) => void;
-  hiddenGoalKeys?: Set<string>;
-  onCustomDayIconsByDateChange?: (
-    data: Record<string, CustomDayIconSelection | null>,
-  ) => void;
-  onPrayerChecklistsByDateChange?: (
-    data: Record<string, PrayerChecklistState>,
-  ) => void;
-  onWeightChecklistsByDateChange?: (
-    data: Record<string, WeightChecklistState>,
-  ) => void;
-  onSalesChecklistsByDateChange?: (
-    data: Record<string, SalesChecklistState>,
-  ) => void;
   onGoalLogsSnapshotChange?: (snapshot: GoalLogsSnapshot) => void;
   onShareHabitResults?: (date: Date) => void;
   monthlyGoalSlots?: number;
@@ -841,53 +683,12 @@ const MonthView = ({
 }) => {
   const [selectedDayForOverflow, setSelectedDayForOverflow] =
     useState<Date | null>(null);
-  const [activeHabitIcons, setActiveHabitIcons] = useState<Set<string>>(
-    new Set(),
-  );
-  const [prayerChecklistsByDate, setPrayerChecklistsByDate] = useState<
-    Record<string, PrayerChecklistState>
-  >({});
-  useEffect(() => {
-    onPrayerChecklistsByDateChange?.(prayerChecklistsByDate);
-  }, [prayerChecklistsByDate, onPrayerChecklistsByDateChange]);
-  const [weightChecklistsByDate, setWeightChecklistsByDate] = useState<
-    Record<string, WeightChecklistState>
-  >({});
-  useEffect(() => {
-    onWeightChecklistsByDateChange?.(weightChecklistsByDate);
-  }, [weightChecklistsByDate, onWeightChecklistsByDateChange]);
-  const [drawerNotesByDate, setDrawerNotesByDate] = useState<
-    Record<string, DayDrawerNotes>
-  >({});
-  const [customDayIconsByDate, setCustomDayIconsByDate] = useState<
-    Record<string, CustomDayIconSelection | null>
-  >({});
-  useEffect(() => {
-    onCustomDayIconsByDateChange?.(customDayIconsByDate);
-  }, [customDayIconsByDate, onCustomDayIconsByDateChange]);
-  const [salesChecklistsByDate, setSalesChecklistsByDate] = useState<
-    Record<string, SalesChecklistState>
-  >({});
-  useEffect(() => {
-    onSalesChecklistsByDateChange?.(salesChecklistsByDate);
-  }, [salesChecklistsByDate, onSalesChecklistsByDateChange]);
-  const [salesByDate, setSalesByDate] = useState<
-    Record<string, SalesActivityLog[]>
-  >({});
   const [goalLogsSnapshot, setGoalLogsSnapshot] = useState<GoalLogsSnapshot>(
     EMPTY_GOAL_LOGS_SNAPSHOT,
   );
   useEffect(() => {
     onGoalLogsSnapshotChange?.(goalLogsSnapshot);
   }, [goalLogsSnapshot, onGoalLogsSnapshotChange]);
-  const [activeDrawerCategoryId, setActiveDrawerCategoryId] = useState<
-    string | null
-  >(null);
-  const [activeDrawerDate, setActiveDrawerDate] = useState<Date | null>(null);
-
-  const [prayerDrawerDate, setPrayerDrawerDate] = useState<Date | null>(null);
-  const [weightDrawerDate, setWeightDrawerDate] = useState<Date | null>(null);
-  const [salesDrawerDate, setSalesDrawerDate] = useState<Date | null>(null);
   const [iconPickerDate, setIconPickerDate] = useState<Date | null>(null);
   const weeks = useMemo(() => buildMonthWeeks(currentDate), [currentDate]);
   const currentMonthKey = useMemo(
@@ -1051,281 +852,9 @@ const MonthView = ({
     };
   }, [currentMonthKey, prevMonthKey]);
 
-  const handleHabitIconClick = async (
-    date: Date,
-    habitKey: CalendarHabitKey,
-  ) => {
-    if (habitKey === "prayer") {
-      setPrayerDrawerDate(startOfDay(date));
-      setWeightDrawerDate(null);
-      setSalesDrawerDate(null);
-      setIconPickerDate(null);
-      return;
-    }
-
-    if (habitKey === "gym") {
-      setWeightDrawerDate(startOfDay(date));
-      setPrayerDrawerDate(null);
-      setSalesDrawerDate(null);
-      setIconPickerDate(null);
-      return;
-    }
-
-    if (habitKey === "outreach") {
-      setSalesDrawerDate(startOfDay(date));
-      setPrayerDrawerDate(null);
-      setWeightDrawerDate(null);
-      setIconPickerDate(null);
-      return;
-    }
-
-    const dateKey = toDateKey(date);
-    const iconKey = getHabitStateKey(dateKey, habitKey);
-    const nextIsActive = !activeHabitIcons.has(iconKey);
-
-    setActiveHabitIcons((previous) => {
-      const next = new Set(previous);
-
-      if (nextIsActive) {
-        next.add(iconKey);
-      } else {
-        next.delete(iconKey);
-      }
-
-      return next;
-    });
-
-    try {
-      await persistDayHabit({
-        dateKey,
-        habitKey,
-        isActive: nextIsActive,
-      });
-    } catch (error) {
-      setActiveHabitIcons((previous) => {
-        const next = new Set(previous);
-
-        if (nextIsActive) {
-          next.delete(iconKey);
-        } else {
-          next.add(iconKey);
-        }
-
-        return next;
-      });
-
-      addToast({
-        title: "Could not save that habit",
-        description:
-          error instanceof Error
-            ? error.message
-            : "We couldn't save that habit change to the database.",
-        color: "danger",
-      });
-    }
-  };
-
-  const handlePrayerChecklistChange = (
-    dateKey: string,
-    nextChecklist: PrayerChecklistState,
-  ) => {
-    const previousChecklist =
-      prayerChecklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST;
-
-    setPrayerChecklistsByDate((previous) => ({
-      ...previous,
-      [dateKey]: nextChecklist,
-    }));
-
-    void persistPrayerChecklist({
-      dateKey,
-      checklist: nextChecklist,
-    }).catch((error) => {
-      setPrayerChecklistsByDate((previous) => ({
-        ...previous,
-        [dateKey]: previousChecklist,
-      }));
-
-      addToast({
-        title: "Could not save checklist",
-        description:
-          error instanceof Error
-            ? error.message
-            : "We couldn't save that prayer checklist change.",
-        color: "danger",
-      });
-    });
-  };
-
-  const getPrayerProgress = (date: Date) => {
-    const dateKey = toDateKey(date);
-    const checklist = prayerChecklistsByDate[dateKey] ?? EMPTY_PRAYER_CHECKLIST;
-    const completedCount = Object.values(checklist).filter(Boolean).length;
-
-    return completedCount / PRAYER_CHECKLIST_ITEMS.length;
-  };
-
   const handleOpenMonthlyGoalPicker = (date: Date) => {
     setIconPickerDate(startOfDay(date));
-    setActiveDrawerCategoryId(null);
-    setActiveDrawerDate(null);
-    setPrayerDrawerDate(null);
-    setWeightDrawerDate(null);
-    setSalesDrawerDate(null);
   };
-
-  const handleWeightChecklistChange = (
-    dateKey: string,
-    nextChecklist: WeightChecklistState,
-  ) => {
-    const previousChecklist =
-      weightChecklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST;
-
-    setWeightChecklistsByDate((previous) => ({
-      ...previous,
-      [dateKey]: nextChecklist,
-    }));
-
-    void persistWeightChecklist({
-      dateKey,
-      checklist: nextChecklist,
-    }).catch((error) => {
-      setWeightChecklistsByDate((previous) => ({
-        ...previous,
-        [dateKey]: previousChecklist,
-      }));
-
-      addToast({
-        title: "Could not save checklist",
-        description:
-          error instanceof Error
-            ? error.message
-            : "We couldn't save that weight checklist change.",
-        color: "danger",
-      });
-    });
-  };
-
-  const handleSalesChecklistChange = (
-    dateKey: string,
-    nextChecklist: SalesChecklistState,
-  ) => {
-    const previousChecklist =
-      salesChecklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST;
-
-    setSalesChecklistsByDate((previous) => ({
-      ...previous,
-      [dateKey]: nextChecklist,
-    }));
-
-    void persistSalesChecklist({ dateKey, checklist: nextChecklist }).catch(
-      (error) => {
-        setSalesChecklistsByDate((previous) => ({
-          ...previous,
-          [dateKey]: previousChecklist,
-        }));
-
-        addToast({
-          title: "Could not save checklist",
-          description:
-            error instanceof Error
-              ? error.message
-              : "We couldn't save that sales checklist change.",
-          color: "danger",
-        });
-      },
-    );
-  };
-
-  const getSalesProgress = (date: Date) => {
-    const dateKey = toDateKey(date);
-    const checklist = salesChecklistsByDate[dateKey] ?? EMPTY_SALES_CHECKLIST;
-    return Object.values(checklist).filter(Boolean).length / 6;
-  };
-
-  const getWeightProgress = (date: Date) => {
-    const dateKey = toDateKey(date);
-    const checklist = weightChecklistsByDate[dateKey] ?? EMPTY_WEIGHT_CHECKLIST;
-    const completedCount = Object.values(checklist).filter(Boolean).length;
-
-    return completedCount / WEIGHT_CHECKLIST_ITEMS.length;
-  };
-
-  const handleCustomDayIconChange = (
-    slotKey: string,
-    nextIcon: CustomDayIconSelection | null,
-  ) => {
-    const previousIcon = customDayIconsByDate[slotKey] ?? null;
-
-    setCustomDayIconsByDate((previous) => ({
-      ...previous,
-      [slotKey]: nextIcon,
-    }));
-
-    const lastUnderscore = slotKey.lastIndexOf("_");
-    const dateKey = slotKey.slice(0, lastUnderscore);
-    const slotIndex = Number.parseInt(slotKey.slice(lastUnderscore + 1), 10);
-
-    void persistCustomDayIcon({
-      dateKey,
-      slotIndex,
-      selection: nextIcon,
-    }).catch((error) => {
-      setCustomDayIconsByDate((previous) => ({
-        ...previous,
-        [slotKey]: previousIcon,
-      }));
-
-      addToast({
-        title: "Could not save icon",
-        description:
-          error instanceof Error
-            ? error.message
-            : "We couldn't save that custom icon change.",
-        color: "danger",
-      });
-    });
-  };
-
-  const handleDrawerNoteChange = (
-    dateKey: string,
-    drawerKey: DrawerNoteKey,
-    nextNotes: string | null,
-  ) => {
-    const previousNotesForDay =
-      drawerNotesByDate[dateKey] ?? EMPTY_DAY_DRAWER_NOTES;
-
-    setDrawerNotesByDate((previous) => ({
-      ...previous,
-      [dateKey]: {
-        ...(previous[dateKey] ?? EMPTY_DAY_DRAWER_NOTES),
-        [drawerKey]: nextNotes,
-      },
-    }));
-
-    void persistDrawerNote({
-      dateKey,
-      drawerKey,
-      notes: nextNotes,
-    }).catch((error) => {
-      setDrawerNotesByDate((previous) => ({
-        ...previous,
-        [dateKey]: previousNotesForDay,
-      }));
-
-      addToast({
-        title: "Could not save notes",
-        description:
-          error instanceof Error
-            ? error.message
-            : "We couldn't save those drawer notes.",
-        color: "danger",
-      });
-    });
-  };
-
-  const getDrawerNotes = (dateKey: string) =>
-    drawerNotesByDate[dateKey] ?? EMPTY_DAY_DRAWER_NOTES;
 
   const handleToggleGoalLog = (goalId: string, dateKey: string) => {
     const key = `${goalId}_${dateKey}`;
@@ -1359,21 +888,6 @@ const MonthView = ({
         color: "danger",
       });
     });
-  };
-
-  const handleSaveSalesActivity = async (
-    dateKey: string,
-    activity: SalesActivityInput,
-  ) => {
-    const { activity: savedActivity } = await createSalesActivity({
-      dateKey,
-      activity,
-    });
-
-    setSalesByDate((previous) => ({
-      ...previous,
-      [dateKey]: [savedActivity, ...(previous[dateKey] ?? [])],
-    }));
   };
 
   return (
@@ -2007,22 +1521,6 @@ const MonthView = ({
           ))}
         </TableBody>
       </Table>
-
-      <CategoryGoalDrawer
-        isOpen={activeDrawerCategoryId != null && activeDrawerDate != null}
-        date={activeDrawerDate}
-        category={
-          goalLogsSnapshot.categories.find(
-            (c) => c.id === activeDrawerCategoryId,
-          ) ?? null
-        }
-        logsByGoalDate={goalLogsSnapshot.logsByGoalDate}
-        onToggle={handleToggleGoalLog}
-        onClose={() => {
-          setActiveDrawerCategoryId(null);
-          setActiveDrawerDate(null);
-        }}
-      />
 
       <DayIconPickerDrawer
         iconPickerDate={iconPickerDate}
@@ -3498,17 +2996,9 @@ export const PortableCalendar = ({
   const [selectedDate, setSelectedDate] = useState(resolvedInitialDate);
   const view = initialView;
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [selectedCategoryIds, setSelectedCategoryIds] =
-    useState<Set<string> | null>(null);
-  const [monthViewIconsByDate, setMonthViewIconsByDate] = useState<
-    Record<string, CustomDayIconSelection | null>
-  >(() => initialCalendarData?.currentCustomDayIconsByDate ?? {});
   const [goalsCollapsed, setGoalsCollapsed] = useState(false);
   const [dailyGoalsCollapsed, setDailyGoalsCollapsed] = useState(false);
   const [showLowerPriorityGoals, setShowLowerPriorityGoals] = useState(false);
-  const [hiddenGoalKeys, setHiddenGoalKeys] = useState<Set<string>>(
-    () => new Set(initialCalendarData?.hiddenKeys ?? []),
-  );
   const [goalLogsSnapshot, setGoalLogsSnapshot] = useState<GoalLogsSnapshot>(
     () =>
       initialCalendarData?.currentGoalLogsSnapshot ?? EMPTY_GOAL_LOGS_SNAPSHOT,
@@ -3576,8 +3066,6 @@ export const PortableCalendar = ({
           return;
         }
 
-        setHiddenGoalKeys(new Set(snapshot.hiddenKeys));
-        setMonthViewIconsByDate(snapshot.currentCustomDayIconsByDate);
         setGoalLogsSnapshot(snapshot.currentGoalLogsSnapshot);
         setPrevMonthGoalLogsByDate(snapshot.prevGoalLogsByDate);
         setLoadedBootstrapMonth(snapshot.month);
@@ -3896,27 +3384,7 @@ export const PortableCalendar = ({
     );
   }, [normalizedEntries]);
 
-  const availableCategoryIds = useMemo(
-    () => new Set(categoryFilters.map((category) => category.id)),
-    [categoryFilters],
-  );
-
-  const effectiveSelectedCategoryIds = useMemo(() => {
-    if (selectedCategoryIds === null) return null;
-    return new Set(
-      [...selectedCategoryIds].filter((categoryId) =>
-        availableCategoryIds.has(categoryId),
-      ),
-    );
-  }, [availableCategoryIds, selectedCategoryIds]);
-
-  const visibleEntries = useMemo(() => {
-    if (effectiveSelectedCategoryIds === null) return normalizedEntries;
-    if (effectiveSelectedCategoryIds.size === 0) return [];
-    return normalizedEntries.filter((entry) =>
-      effectiveSelectedCategoryIds.has(entry.category.id),
-    );
-  }, [effectiveSelectedCategoryIds, normalizedEntries]);
+  const visibleEntries = normalizedEntries;
 
   const existingCategories = useMemo(
     () =>
@@ -3925,33 +3393,6 @@ export const PortableCalendar = ({
       ),
     [categoryFilters],
   );
-
-  const isCategorySelected = (categoryId: string) =>
-    effectiveSelectedCategoryIds === null ||
-    effectiveSelectedCategoryIds.has(categoryId);
-
-  const toggleCategorySelection = (categoryId: string) => {
-    setSelectedCategoryIds((prev) => {
-      const next = new Set(
-        prev === null
-          ? categoryFilters.map((category) => category.id)
-          : [...prev].filter((id) => availableCategoryIds.has(id)),
-      );
-      if (next.has(categoryId)) next.delete(categoryId);
-      else next.add(categoryId);
-      return next;
-    });
-  };
-
-  const selectAllCategories = () => {
-    setSelectedCategoryIds(
-      new Set(categoryFilters.map((category) => category.id)),
-    );
-  };
-
-  const clearCategorySelection = () => {
-    setSelectedCategoryIds(new Set());
-  };
 
   const handleSelectDate = (date: Date) => {
     const next = startOfDay(date);
@@ -3989,23 +3430,13 @@ export const PortableCalendar = ({
       0,
     );
 
-    const preferredCategory =
-      effectiveSelectedCategoryIds && effectiveSelectedCategoryIds.size === 1
-        ? categoryFilters.find((category) =>
-            effectiveSelectedCategoryIds.has(category.id),
-          )
-        : undefined;
-
     setDraftEntry({
       title: "",
       start: formatDateTimeLocalValue(defaultStart),
       end: formatDateTimeLocalValue(defaultEnd),
       notes: "",
-      categoryName:
-        preferredCategory?.id === UNCATEGORIZED_CATEGORY.id
-          ? ""
-          : (preferredCategory?.name ?? ""),
-      categoryColor: preferredCategory?.color ?? DEFAULT_ENTRY_COLOR,
+      categoryName: "",
+      categoryColor: DEFAULT_ENTRY_COLOR,
     });
 
     onOpen();
@@ -4409,8 +3840,6 @@ export const PortableCalendar = ({
                         entries={visibleEntries}
                         onSelectDate={handleSelectDate}
                         onSelectEntry={handleSelectEntry}
-                        hiddenGoalKeys={hiddenGoalKeys}
-                        onCustomDayIconsByDateChange={setMonthViewIconsByDate}
                         onGoalLogsSnapshotChange={setGoalLogsSnapshot}
                         onShareHabitResults={(date) =>
                           void handleShareHabitResults(date)

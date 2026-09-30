@@ -3258,7 +3258,7 @@ export function DayPlanScreen({
                                     (entry) => entry.kind === filter.key,
                                   );
                                 const accentColor = representative
-                                  ? getEntryColors(representative, theme)
+                                  ? getEntryColors(representative)
                                       .accentColor
                                   : theme.backgroundElement;
 
@@ -5446,7 +5446,7 @@ function FloatingScheduleChip({
   screenWidth: number;
 }) {
   const theme = useTheme();
-  const { accentColor } = getEntryColors(entry, theme);
+  const { accentColor } = getEntryColors(entry);
   const width = Math.min(220, Math.max(140, screenWidth - 32));
   const left = clampNumber(pageX - width / 2, 16, screenWidth - width - 16);
   const top = Math.max(8, pageY - 26);
@@ -5509,7 +5509,7 @@ function EntryChip({
   } | null>(null);
   const dismissPressRef = useRef(false);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { accentColor, backgroundColor, color } = getEntryColors(entry, theme);
+  const { accentColor, backgroundColor, color } = getEntryColors(entry);
   const isUnscheduledChip = Boolean(onBeginSchedule);
   const chipColor = isUnscheduledChip ? theme.text : color;
   const metaLabel = isUnscheduledChip
@@ -5796,7 +5796,7 @@ function TimedEntryBlock({
     pageY: number;
   } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { accentColor, backgroundColor, color } = getEntryColors(entry, theme);
+  const { accentColor, backgroundColor, color } = getEntryColors(entry);
   const isUnscheduledPreview = variant === "unscheduled";
   const isDraggingPreview = variant === "dragging";
   const previewColor = isUnscheduledPreview ? theme.text : color;
@@ -5954,7 +5954,6 @@ function TimedEntryBlock({
 
 function getEntryColors(
   entry: DayPlanEntry,
-  theme: ReturnType<typeof useTheme>,
 ) {
   const isGoogleEntry = entry.kind === "google";
   const accentColor = isGoogleEntry

@@ -11,7 +11,7 @@ import {
   userSettings,
   users,
 } from "@habit/db";
-import { and, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne, or } from "drizzle-orm";
 
 import { sendNotificationOnce } from "@/lib/notification-delivery";
 
