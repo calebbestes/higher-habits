@@ -1,5 +1,5 @@
 import { getDb, projects, tasks } from "@habit/db";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -14,8 +14,23 @@ const deleteSchema = z.object({
   type: z.literal("delete"),
   id: z.string().uuid(),
 });
+const renameSchema = z.object({
+  type: z.literal("rename"),
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+});
+const pinSchema = z.object({
+  type: z.literal("pin"),
+  id: z.string().uuid(),
+  pinned: z.boolean(),
+});
 
-const bodySchema = z.discriminatedUnion("type", [createSchema, deleteSchema]);
+const bodySchema = z.discriminatedUnion("type", [
+  createSchema,
+  deleteSchema,
+  renameSchema,
+  pinSchema,
+]);
 
 const getDatabase = () => getDb() ?? null;
 
@@ -24,6 +39,7 @@ function projectSummarySelect() {
     id: projects.id,
     name: projects.name,
     color: projects.color,
+    pinned: projects.pinned,
     createdAt: projects.createdAt,
     totalTasks: count(tasks.id),
     completedTasks: count(tasks.completedAt),
@@ -48,7 +64,7 @@ export async function GET(request: Request) {
       .leftJoin(tasks, eq(tasks.projectId, projects.id))
       .where(eq(projects.userId, user.id))
       .groupBy(projects.id)
-      .orderBy(asc(projects.name));
+      .orderBy(desc(projects.pinned), asc(projects.name));
 
     return NextResponse.json(rows);
   } catch (error) {
@@ -109,9 +125,77 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         ...row,
+        pinned: row.pinned,
         totalTasks: 0,
         completedTasks: 0,
       });
+    }
+
+    if (data.type === "rename") {
+      const [duplicate] = await db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(
+          and(
+            eq(projects.userId, user.id),
+            eq(projects.name, data.name),
+            ne(projects.id, data.id),
+          ),
+        )
+        .limit(1);
+
+      if (duplicate) {
+        return NextResponse.json(
+          { error: "A project with that name already exists." },
+          { status: 409 },
+        );
+      }
+
+      const [updated] = await db
+        .update(projects)
+        .set({ name: data.name, updatedAt: new Date() })
+        .where(and(eq(projects.id, data.id), eq(projects.userId, user.id)))
+        .returning({ id: projects.id });
+
+      if (!updated) {
+        return NextResponse.json(
+          { error: "Project not found." },
+          { status: 404 },
+        );
+      }
+
+      const [summary] = await db
+        .select(projectSummarySelect())
+        .from(projects)
+        .leftJoin(tasks, eq(tasks.projectId, projects.id))
+        .where(eq(projects.id, updated.id))
+        .groupBy(projects.id);
+
+      return NextResponse.json(summary);
+    }
+
+    if (data.type === "pin") {
+      const [updated] = await db
+        .update(projects)
+        .set({ pinned: data.pinned, updatedAt: new Date() })
+        .where(and(eq(projects.id, data.id), eq(projects.userId, user.id)))
+        .returning({ id: projects.id });
+
+      if (!updated) {
+        return NextResponse.json(
+          { error: "Project not found." },
+          { status: 404 },
+        );
+      }
+
+      const [summary] = await db
+        .select(projectSummarySelect())
+        .from(projects)
+        .leftJoin(tasks, eq(tasks.projectId, projects.id))
+        .where(eq(projects.id, updated.id))
+        .groupBy(projects.id);
+
+      return NextResponse.json(summary);
     }
 
     await db

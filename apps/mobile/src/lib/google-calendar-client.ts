@@ -16,6 +16,13 @@ export type GoogleCalendarDayEvent = {
   eventLabelId?: string | null;
   foregroundColor?: string | null;
   id: string;
+  originalStartTime?: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+  recurrence?: string[];
+  recurringEventId?: string;
   title: string;
   description: string | null;
   start: { date?: string; dateTime?: string; timeZone?: string };
@@ -85,6 +92,9 @@ export type UpdateGoogleCalendarEventInput = CreateGoogleCalendarEventInput & {
   color?: string | null;
   eventLabelId?: string | null;
   eventId: string;
+  originalStartTime?: string;
+  recurringEventId?: string;
+  recurringScope?: "this" | "future";
   targetCalendarId?: string;
 };
 
@@ -343,6 +353,9 @@ export const updateGoogleCalendarEvent = ({
   endTime,
   eventLabelId,
   eventId,
+  originalStartTime,
+  recurringEventId,
+  recurringScope,
   startTime,
   targetCalendarId,
   timeZone,
@@ -359,6 +372,9 @@ export const updateGoogleCalendarEvent = ({
       ...(color === undefined ? {} : { color }),
       ...(eventLabelId === undefined ? {} : { eventLabelId }),
       ...(targetCalendarId === undefined ? {} : { targetCalendarId }),
+      ...(originalStartTime === undefined ? {} : { originalStartTime }),
+      ...(recurringEventId === undefined ? {} : { recurringEventId }),
+      ...(recurringScope === undefined ? {} : { recurringScope }),
       plannedStartTime: startTime ?? null,
       plannedEndTime: endTime ?? null,
       plannedTimeZone: timeZone ?? null,
@@ -371,15 +387,24 @@ export const updateGoogleCalendarEvent = ({
 export const deleteGoogleCalendarEvent = ({
   calendarId,
   eventId,
+  originalStartTime,
+  recurringEventId,
+  recurringScope = "this",
 }: {
   calendarId?: string;
   eventId: string;
+  originalStartTime?: string;
+  recurringEventId?: string;
+  recurringScope?: "this" | "future";
 }): Promise<DeleteGoogleCalendarEventResponse> =>
   mobileApiFetch("/api/google-calendar/events", {
     method: "DELETE",
     body: JSON.stringify({
       eventId,
       ...(calendarId === undefined ? {} : { calendarId }),
+      ...(originalStartTime === undefined ? {} : { originalStartTime }),
+      ...(recurringEventId === undefined ? {} : { recurringEventId }),
+      recurringScope,
     }),
   }).then((response) =>
     parseResponse<DeleteGoogleCalendarEventResponse>(response),

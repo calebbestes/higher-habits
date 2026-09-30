@@ -11,13 +11,24 @@ import {
   createProject as createProjectApi,
   deleteProject as deleteProjectApi,
   fetchProjects,
+  renameProject as renameProjectApi,
+  setProjectPinned as setProjectPinnedApi,
 } from "@/lib/projects-client";
 
 const TASK_PROJECTS_CACHE_KEY = "tasks:projects";
 
+function sortProjects(projects: Project[]) {
+  return [...projects].sort((left, right) => {
+    if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+      return left.pinned ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
 /**
  * Shared projects state for the task screens: the project list (with progress
- * counts), a refresh, inline creation, and a confirm-and-delete flow. Both
+ * counts), a refresh, inline creation, and project management actions. Both
  * task screens use this so the logic lives in one place.
  */
 export function useTaskProjects() {
@@ -56,10 +67,10 @@ export function useTaskProjects() {
     const created = await createProjectApi(name);
     if (isMountedRef.current) {
       setProjects((current) => {
-        const next = [
+        const next = sortProjects([
           ...current.filter((project) => project.id !== created.id),
           created,
-        ].sort((a, b) => a.name.localeCompare(b.name));
+        ]);
         setCachedData(TASK_PROJECTS_CACHE_KEY, next);
         return next;
       });
@@ -106,5 +117,60 @@ export function useTaskProjects() {
     [],
   );
 
-  return { projects, reloadProjects, createProject, confirmDeleteProject };
+  const renameProject = useCallback(async (project: Project, name: string) => {
+    try {
+      const updated = await renameProjectApi(project.id, name);
+      if (isMountedRef.current) {
+        setProjects((current) => {
+          const next = sortProjects(
+            current.map((item) =>
+              item.id === updated.id ? { ...item, ...updated } : item,
+            ),
+          );
+          setCachedData(TASK_PROJECTS_CACHE_KEY, next);
+          return next;
+        });
+      }
+    } catch (error) {
+      Alert.alert(
+        "Could not rename project",
+        error instanceof Error
+          ? error.message
+          : "The project could not be renamed.",
+      );
+    }
+  }, []);
+
+  const toggleProjectPin = useCallback(async (project: Project) => {
+    try {
+      const updated = await setProjectPinnedApi(project.id, !project.pinned);
+      if (isMountedRef.current) {
+        setProjects((current) => {
+          const next = sortProjects(
+            current.map((item) =>
+              item.id === updated.id ? { ...item, ...updated } : item,
+            ),
+          );
+          setCachedData(TASK_PROJECTS_CACHE_KEY, next);
+          return next;
+        });
+      }
+    } catch (error) {
+      Alert.alert(
+        "Could not update project",
+        error instanceof Error
+          ? error.message
+          : "The project could not be updated.",
+      );
+    }
+  }, []);
+
+  return {
+    projects,
+    reloadProjects,
+    createProject,
+    confirmDeleteProject,
+    renameProject,
+    toggleProjectPin,
+  };
 }

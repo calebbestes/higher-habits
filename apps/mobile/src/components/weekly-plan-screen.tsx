@@ -115,7 +115,7 @@ const MAX_INITIAL_TIMELINE_START_HOUR = 9;
 const WEEKLY_CREATE_SNAP_MINUTES = 15;
 const WEEKLY_CREATE_MIN_DURATION_MINUTES = 30;
 const WEEKLY_MIN_EVENT_DURATION_MINUTES = 15;
-const WEEKLY_EVENT_VERTICAL_INSET = 12;
+const WEEKLY_EVENT_VERTICAL_INSET = 3;
 const WEEKLY_CREATE_LONG_PRESS_MS = 350;
 const WEEKLY_CREATE_SCROLL_CANCEL_DISTANCE = 14;
 const WEEK_SWIPE_DISTANCE = 64;
@@ -2889,7 +2889,11 @@ function EventChip({
         onTouchStart={handleTouchStart}
         style={[styles.eventChip, { backgroundColor: palette.bg }]}
       >
-        <Text style={[styles.eventChipText, { color: palette.text }]}>
+        <Text
+          ellipsizeMode="tail"
+          numberOfLines={1}
+          style={[styles.eventChipText, { color: palette.text }]}
+        >
           {event.title}
         </Text>
       </View>
@@ -2907,7 +2911,11 @@ function EventChip({
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.eventChipText, { color: palette.text }]}>
+      <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
+        style={[styles.eventChipText, { color: palette.text }]}
+      >
         {event.title}
       </Text>
     </Pressable>
@@ -3039,7 +3047,11 @@ function EventBlock({
     },
   ];
   const content = (
-    <Text style={[styles.eventTitle, { color: palette.text }]}>
+    <Text
+      ellipsizeMode="tail"
+      numberOfLines={2}
+      style={[styles.eventTitle, { color: palette.text }]}
+    >
       {event.title}
     </Text>
   );
@@ -3277,29 +3289,28 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   eventBlock: {
-    borderRadius: 6,
+    borderRadius: 4,
     gap: 0,
     minWidth: 0,
     overflow: "hidden",
     paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingVertical: 2,
     position: "absolute",
   },
   eventChip: {
-    borderRadius: 5,
+    borderRadius: 4,
     paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingVertical: 2,
   },
   eventChipText: {
     fontSize: 9,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 10,
   },
   eventTitle: {
-    flex: 1,
     minWidth: 0,
     fontSize: 10,
-    fontWeight: "700",
+    fontWeight: "600",
     lineHeight: 11,
   },
   headingActionText: {

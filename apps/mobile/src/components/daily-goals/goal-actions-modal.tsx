@@ -291,6 +291,7 @@ function GoalActionsModalImpl({
   const [planStartPeriod, setPlanStartPeriod] = useState<PlanPeriod>("AM");
   const [planEndPeriod, setPlanEndPeriod] = useState<PlanPeriod>("AM");
   const [planRepeat, setPlanRepeat] = useState<PlannedRepeat | null>(null);
+  const [removeFutureRepeats, setRemoveFutureRepeats] = useState(false);
   const [isRepeatOptionsOpen, setIsRepeatOptionsOpen] = useState(false);
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
@@ -389,6 +390,7 @@ function GoalActionsModalImpl({
       plannedTime?.repeat ??
       (plannedTime?.repeatsDaily ? DEFAULT_PLANNED_REPEAT : null);
     setPlanRepeat(nextRepeat);
+    setRemoveFutureRepeats(false);
     setIsRepeatOptionsOpen(Boolean(nextRepeat));
     setIsPlanEditorOpen(isPlanned || Boolean(start.time || end.time));
     setIsColorPickerOpen(false);
@@ -422,6 +424,7 @@ function GoalActionsModalImpl({
         endTime: nextPlanEndTime,
         repeat: planRepeat,
         repeatPlan: Boolean(canRepeatPlan && planRepeat),
+        repeatStop: removeFutureRepeats,
         timeZone: getLocalTimeZone(),
       });
     }, 450);
@@ -443,6 +446,7 @@ function GoalActionsModalImpl({
     nextPlanStartTime,
     onSetStatus,
     planRepeat,
+    removeFutureRepeats,
     showPlanAction,
     showPlanEditor,
     visible,
@@ -963,9 +967,31 @@ function GoalActionsModalImpl({
                           accessibilityState={{ checked: planRepeat !== null }}
                           onPress={() => {
                             if (planRepeat) {
-                              setPlanRepeat(null);
-                              setIsRepeatOptionsOpen(false);
+                              Alert.alert(
+                                "Remove repeat?",
+                                "Do you also want to remove all future items?",
+                                [
+                                  {
+                                    text: "This item only",
+                                    onPress: () => {
+                                      setRemoveFutureRepeats(false);
+                                      setPlanRepeat(null);
+                                      setIsRepeatOptionsOpen(false);
+                                    },
+                                  },
+                                  {
+                                    text: "All future items",
+                                    onPress: () => {
+                                      setRemoveFutureRepeats(true);
+                                      setPlanRepeat(null);
+                                      setIsRepeatOptionsOpen(false);
+                                    },
+                                  },
+                                  { text: "Cancel", style: "cancel" },
+                                ],
+                              );
                             } else {
+                              setRemoveFutureRepeats(false);
                               setPlanRepeat(DEFAULT_PLANNED_REPEAT);
                               setIsRepeatOptionsOpen(true);
                             }

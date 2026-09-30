@@ -25,6 +25,8 @@ type PlannedRepeat = {
   monthlyType: "day_of_month" | "day_of_week" | null;
 };
 
+type RecurringChangeScope = "this" | "future";
+
 type GoogleTokenResult =
   | { status: "connected"; accessToken: string; scopes: string[] }
   | {
@@ -77,6 +79,13 @@ type GoogleCalendarApiEvent = {
   eventLabelId?: string;
   foregroundColor?: string;
   id?: string;
+  originalStartTime?: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+  recurrence?: string[];
+  recurringEventId?: string;
   status?: string;
   summary?: string;
   description?: string;
@@ -106,6 +115,13 @@ export type GoogleCalendarEvent = {
   eventLabelId?: string | null;
   foregroundColor?: string | null;
   id: string;
+  originalStartTime?: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+  recurrence?: string[];
+  recurringEventId?: string;
   title: string;
   description: string | null;
   start: { date?: string; dateTime?: string; timeZone?: string };
@@ -169,8 +185,9 @@ type GoogleCalendarDirectEventBody = {
   description?: string;
   start: { date: string } | { dateTime: string; timeZone: string };
   end: { date: string } | { dateTime: string; timeZone: string };
+  recurrence?: string[];
   extendedProperties?: {
-    private: Record<string, string>;
+    private?: Record<string, string | undefined>;
   };
 };
 
@@ -577,13 +594,61 @@ export async function deleteGoogleCalendarHabitPlan({
   });
 }
 
+async function deleteGoogleCalendarFutureEvent({
+  accessToken,
+  calendarId,
+  originalStartTime,
+  recurringEventId,
+}: {
+  accessToken: string;
+  calendarId: string;
+  originalStartTime: string;
+  recurringEventId: string;
+}): Promise<"deleted"> {
+  const masterResponse = await googleCalendarFetch(
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(recurringEventId)}`,
+    accessToken,
+    { method: "GET" },
+  );
+  await throwIfGoogleCalendarError(masterResponse);
+  const master = (await masterResponse
+    .json()
+    .catch(() => null)) as GoogleCalendarApiEvent | null;
+  if (!master?.recurrence?.length) {
+    throw new Error("That recurring event could not be found.");
+  }
+
+  const response = await googleCalendarFetch(
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(recurringEventId)}`,
+    accessToken,
+    {
+      body: JSON.stringify({
+        recurrence: recurrenceThroughPreviousEvent(
+          master.recurrence,
+          originalStartTime,
+          Boolean(master.start?.date && master.end?.date),
+        ),
+      }),
+      method: "PATCH",
+    },
+  );
+  await throwIfGoogleCalendarError(response);
+  return "deleted";
+}
+
 export async function deleteGoogleCalendarPrimaryEvent({
   calendarId = "primary",
   eventId,
+  originalStartTime,
+  recurringEventId,
+  recurringScope = "this",
   userId,
 }: {
   calendarId?: string;
   eventId: string;
+  originalStartTime?: string;
+  recurringEventId?: string;
+  recurringScope?: RecurringChangeScope;
   userId: string;
 }): Promise<{
   status:
@@ -595,6 +660,24 @@ export async function deleteGoogleCalendarPrimaryEvent({
     | "missing_scope"
     | "error";
 }> {
+  if (recurringScope === "future" && recurringEventId && originalStartTime) {
+    try {
+      const token = await getGoogleCalendarAccessToken(userId);
+      if (token.status !== "connected") return { status: token.status };
+      return {
+        status: await deleteGoogleCalendarFutureEvent({
+          accessToken: token.accessToken,
+          calendarId,
+          originalStartTime,
+          recurringEventId,
+        }),
+      };
+    } catch (error) {
+      console.error("Google Calendar recurring event delete failed", error);
+      return { status: "error" };
+    }
+  }
+
   return deleteGoogleCalendarPlannedEvent({ calendarId, eventId, userId });
 }
 
@@ -1350,6 +1433,187 @@ export async function createGoogleCalendarPrimaryEvent({
   }
 }
 
+async function updateGoogleCalendarFutureEvent({
+  allDay,
+  calendarId,
+  color,
+  dateKey,
+  description,
+  eventLabelId,
+  originalStartTime,
+  plannedEndTime,
+  plannedStartTime,
+  recurringEventId,
+  targetCalendarId,
+  timeZone,
+  title,
+  accessToken,
+}: {
+  accessToken: string;
+  allDay?: boolean;
+  calendarId: string;
+  color?: string | null;
+  dateKey: string;
+  description?: string | null;
+  eventLabelId?: string | null;
+  originalStartTime: string;
+  plannedEndTime?: string | null;
+  plannedStartTime?: string | null;
+  recurringEventId: string;
+  targetCalendarId?: string;
+  timeZone?: string | null;
+  title: string;
+}): Promise<{
+  status:
+    | "synced"
+    | "auth_unavailable"
+    | "not_configured"
+    | "not_connected"
+    | "missing_scope"
+    | "error";
+  event?: GoogleCalendarEvent | null;
+}> {
+  let activeCalendarId = calendarId;
+  let activeSeriesId = recurringEventId;
+  let calendarList: GoogleCalendarListItemWithId[] | null = null;
+
+  if (targetCalendarId && targetCalendarId !== calendarId) {
+    calendarList = await fetchGoogleCalendarList(accessToken);
+    const sourceCalendar = calendarList.find(
+      (calendar) => calendar.id === calendarId,
+    );
+    const targetCalendar = calendarList.find(
+      (calendar) => calendar.id === targetCalendarId,
+    );
+
+    if (
+      (sourceCalendar?.summaryOverride?.trim() ||
+        sourceCalendar?.summary?.trim()) === FLOAT_GOOGLE_CALENDAR_NAME
+    ) {
+      throw new Error("Float calendar events cannot be moved.");
+    }
+    if (!targetCalendar) throw new Error("That calendar is not available.");
+
+    const moveResponse = await googleCalendarFetch(
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(activeSeriesId)}/move?destination=${encodeURIComponent(targetCalendarId)}`,
+      accessToken,
+      { method: "POST" },
+    );
+    await throwIfGoogleCalendarError(moveResponse);
+    const moved = (await moveResponse
+      .json()
+      .catch(() => null)) as GoogleCalendarApiEvent | null;
+    activeCalendarId = targetCalendarId;
+    activeSeriesId = moved?.id ?? activeSeriesId;
+  }
+
+  const masterResponse = await googleCalendarFetch(
+    `/calendars/${encodeURIComponent(activeCalendarId)}/events/${encodeURIComponent(activeSeriesId)}`,
+    accessToken,
+    { method: "GET" },
+  );
+  await throwIfGoogleCalendarError(masterResponse);
+  const master = (await masterResponse
+    .json()
+    .catch(() => null)) as GoogleCalendarApiEvent | null;
+  if (!master?.recurrence?.length) {
+    throw new Error("That recurring event could not be found.");
+  }
+
+  const seriesAllDay = Boolean(master.start?.date && master.end?.date);
+  const truncatedRecurrence = recurrenceThroughPreviousEvent(
+    master.recurrence,
+    originalStartTime,
+    seriesAllDay,
+  );
+  const truncateResponse = await googleCalendarFetch(
+    `/calendars/${encodeURIComponent(activeCalendarId)}/events/${encodeURIComponent(activeSeriesId)}`,
+    accessToken,
+    {
+      body: JSON.stringify({ recurrence: truncatedRecurrence }),
+      method: "PATCH",
+    },
+  );
+  await throwIfGoogleCalendarError(truncateResponse);
+
+  const colorSelection =
+    color === undefined
+      ? undefined
+      : color === null
+        ? eventLabelId
+          ? { eventLabelId: "" }
+          : { colorId: "" }
+        : await resolveGoogleCalendarEventColorSelection(
+            accessToken,
+            activeCalendarId,
+            color,
+          );
+  if (color !== undefined && color !== null && !colorSelection) {
+    throw new Error("That color is not available in Google Calendar.");
+  }
+  const usesEventLabels = colorSelection?.eventLabelId !== undefined;
+  const nextEventBody: GoogleCalendarDirectEventBody = {
+    summary: title,
+    ...(description?.trim() ? { description: description.trim() } : {}),
+    ...(colorSelection?.colorId === undefined
+      ? {}
+      : { colorId: colorSelection.colorId }),
+    ...(colorSelection?.eventLabelId === undefined
+      ? {}
+      : { eventLabelId: colorSelection.eventLabelId }),
+    ...((allDay ?? seriesAllDay)
+      ? buildGoogleCalendarEventTime({
+          dateKey,
+          plannedEndTime: null,
+          plannedStartTime: null,
+          timeZone,
+        })
+      : buildGoogleCalendarEventTime({
+          dateKey,
+          plannedEndTime,
+          plannedStartTime,
+          timeZone,
+        })),
+    recurrence: master.recurrence,
+    ...(master.extendedProperties
+      ? { extendedProperties: master.extendedProperties }
+      : {}),
+  };
+  const insertResponse = await googleCalendarFetch(
+    `/calendars/${encodeURIComponent(activeCalendarId)}/events${usesEventLabels ? "?eventLabelVersion=1" : ""}`,
+    accessToken,
+    {
+      body: JSON.stringify(nextEventBody),
+      method: "POST",
+    },
+  );
+  await throwIfGoogleCalendarError(insertResponse);
+  const inserted = (await insertResponse
+    .json()
+    .catch(() => null)) as GoogleCalendarApiEvent | null;
+
+  let calendar: GoogleCalendarListItemWithId | undefined;
+  try {
+    calendar = (
+      calendarList ?? (await fetchGoogleCalendarList(accessToken))
+    ).find((item) => item.id === activeCalendarId);
+  } catch {
+    // The event update already succeeded; color metadata is optional here.
+  }
+
+  return {
+    status: "synced",
+    event: inserted
+      ? await normalizeGoogleCalendarEventWithColors(
+          accessToken,
+          inserted,
+          activeCalendarId,
+          calendar,
+        )
+      : null,
+  };
+}
+
 export async function updateGoogleCalendarPrimaryEvent({
   allDay,
   calendarId = "primary",
@@ -1358,8 +1622,11 @@ export async function updateGoogleCalendarPrimaryEvent({
   description,
   eventLabelId,
   eventId,
+  originalStartTime,
   plannedEndTime,
   plannedStartTime,
+  recurringEventId,
+  recurringScope = "this",
   targetCalendarId,
   timeZone,
   title,
@@ -1372,8 +1639,11 @@ export async function updateGoogleCalendarPrimaryEvent({
   description?: string | null;
   eventLabelId?: string | null;
   eventId: string;
+  originalStartTime?: string;
   plannedEndTime?: string | null;
   plannedStartTime?: string | null;
+  recurringEventId?: string;
+  recurringScope?: RecurringChangeScope;
   targetCalendarId?: string;
   timeZone?: string | null;
   title: string;
@@ -1392,6 +1662,25 @@ export async function updateGoogleCalendarPrimaryEvent({
     const token = await getGoogleCalendarAccessToken(userId);
     if (token.status !== "connected") {
       return { status: token.status };
+    }
+
+    if (recurringScope === "future" && recurringEventId && originalStartTime) {
+      return await updateGoogleCalendarFutureEvent({
+        accessToken: token.accessToken,
+        allDay,
+        calendarId,
+        color,
+        dateKey,
+        description,
+        eventLabelId,
+        originalStartTime,
+        plannedEndTime,
+        plannedStartTime,
+        recurringEventId,
+        targetCalendarId,
+        timeZone,
+        title,
+      });
     }
 
     let activeCalendarId = calendarId;
@@ -1658,6 +1947,47 @@ function buildGoogleCalendarEventDescription(description?: string | null) {
   return trimmedDescription
     ? `${trimmedDescription}\n\nPlanned from Float.`
     : "Planned from Float.";
+}
+
+function recurrenceCutoff(originalStartTime: string, allDay: boolean): string {
+  if (allDay || /^\d{4}-\d{2}-\d{2}$/.test(originalStartTime)) {
+    const date = new Date(`${originalStartTime.slice(0, 10)}T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error("Could not determine the recurring event date.");
+    }
+    date.setUTCDate(date.getUTCDate() - 1);
+    return [
+      date.getUTCFullYear(),
+      String(date.getUTCMonth() + 1).padStart(2, "0"),
+      String(date.getUTCDate()).padStart(2, "0"),
+    ].join("");
+  }
+
+  const date = new Date(originalStartTime);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Could not determine the recurring event date.");
+  }
+  date.setUTCSeconds(date.getUTCSeconds() - 1);
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}${String(date.getUTCMinutes()).padStart(2, "0")}${String(date.getUTCSeconds()).padStart(2, "0")}Z`;
+}
+
+function recurrenceThroughPreviousEvent(
+  recurrence: string[],
+  originalStartTime: string,
+  allDay: boolean,
+): string[] {
+  const until = recurrenceCutoff(originalStartTime, allDay);
+  return recurrence.map((rule) => {
+    if (!rule.startsWith("RRULE:")) return rule;
+    const parts = rule
+      .slice("RRULE:".length)
+      .split(";")
+      .filter(
+        (part) => !part.startsWith("UNTIL=") && !part.startsWith("COUNT="),
+      );
+    parts.push(`UNTIL=${until}`);
+    return `RRULE:${parts.join(";")}`;
+  });
 }
 
 async function getGoogleCalendarColors(accessToken?: string): Promise<{
@@ -1963,6 +2293,9 @@ function normalizeGoogleCalendarEvent(
     higherHabitsSourceId: privateProperties?.higherHabitsSourceId ?? null,
     higherHabitsSourceType: privateProperties?.higherHabitsSourceType ?? null,
     id,
+    originalStartTime: event.originalStartTime,
+    recurrence: event.recurrence,
+    recurringEventId: event.recurringEventId,
     title: event.summary?.trim() || "Untitled event",
     description: event.description?.trim() || null,
     start,

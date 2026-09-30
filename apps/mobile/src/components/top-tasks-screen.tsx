@@ -135,8 +135,14 @@ export function TopTasksScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
 
-  const { projects, reloadProjects, createProject, confirmDeleteProject } =
-    useTaskProjects();
+  const {
+    projects,
+    reloadProjects,
+    createProject,
+    confirmDeleteProject,
+    renameProject,
+    toggleProjectPin,
+  } = useTaskProjects();
 
   const unlinkTasksFromProject = useCallback((projectId: string) => {
     setTasks((current) =>
@@ -432,6 +438,8 @@ export function TopTasksScreen() {
             onDeleteProject={(project) =>
               confirmDeleteProject(project, unlinkTasksFromProject)
             }
+            onRenameProject={renameProject}
+            onTogglePinProject={toggleProjectPin}
           />
 
           {/* Error */}

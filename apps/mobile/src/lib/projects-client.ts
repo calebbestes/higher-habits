@@ -4,6 +4,7 @@ export type Project = {
   id: string;
   name: string;
   color: string;
+  pinned: boolean;
   createdAt: string;
   totalTasks: number;
   completedTasks: number;
@@ -36,3 +37,15 @@ export const deleteProject = (id: string) =>
     method: "POST",
     body: JSON.stringify({ type: "delete", id }),
   }).then((response) => parseResponse<{ ok: true }>(response));
+
+export const renameProject = (id: string, name: string) =>
+  mobileApiFetch("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ type: "rename", id, name }),
+  }).then((response) => parseResponse<Project>(response));
+
+export const setProjectPinned = (id: string, pinned: boolean) =>
+  mobileApiFetch("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ type: "pin", id, pinned }),
+  }).then((response) => parseResponse<Project>(response));

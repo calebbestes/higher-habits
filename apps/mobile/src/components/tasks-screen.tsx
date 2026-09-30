@@ -175,8 +175,14 @@ export function TasksScreen() {
     plannedEventsRef.current = plannedEvents;
   }, [plannedEvents]);
 
-  const { projects, reloadProjects, createProject, confirmDeleteProject } =
-    useTaskProjects();
+  const {
+    projects,
+    reloadProjects,
+    createProject,
+    confirmDeleteProject,
+    renameProject,
+    toggleProjectPin,
+  } = useTaskProjects();
 
   const unlinkTasksFromProject = useCallback((projectId: string) => {
     setSelectedProjectId((current) => (current === projectId ? null : current));
@@ -590,11 +596,13 @@ export function TasksScreen() {
             onDeleteProject={(project) =>
               confirmDeleteProject(project, unlinkTasksFromProject)
             }
+            onRenameProject={renameProject}
             onSelectProject={(project) =>
               setSelectedProjectId((current) =>
                 project === null || current === project.id ? null : project.id,
               )
             }
+            onTogglePinProject={toggleProjectPin}
           />
 
           {error ? (

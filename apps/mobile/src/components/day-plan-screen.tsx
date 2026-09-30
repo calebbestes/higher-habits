@@ -158,6 +158,13 @@ type DayPlanEntry = {
   laneIndex: number;
   laneSpan: number;
   nestedInEvent?: boolean;
+  originalStartTime?: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+  recurrence?: string[];
+  recurringEventId?: string;
   sourceId?: string;
   startMinutes: number;
   title: string;
@@ -176,6 +183,7 @@ type PlanRange = {
   endMinutes: number;
   startMinutes: number;
 };
+type RecurringChangeScope = "this" | "future";
 type TimelineTouch = {
   locationY: number;
   pageY: number;
@@ -1672,6 +1680,7 @@ export function DayPlanScreen({
       googleEventLabelId?: string | null;
       googleColor?: string | null;
       googleCalendarId?: string;
+      recurringScope?: RecurringChangeScope;
       title?: string;
     },
   ): Promise<{
@@ -1788,6 +1797,10 @@ export function DayPlanScreen({
           endTime,
           eventId,
           eventLabelId: options?.googleEventLabelId,
+          originalStartTime:
+            entry.originalStartTime?.dateTime ?? entry.originalStartTime?.date,
+          recurringEventId: entry.recurringEventId,
+          recurringScope: options?.recurringScope,
           startTime,
           targetCalendarId: options?.googleCalendarId,
           timeZone,
@@ -1834,6 +1847,32 @@ export function DayPlanScreen({
     } finally {
       if (isMountedRef.current) setUpdatingKey(null);
     }
+  };
+  const saveMovedEntryWithRecurringChoice = (
+    entry: DayPlanEntry,
+    range: PlanRange,
+  ) => {
+    const save = (recurringScope: RecurringChangeScope) => {
+      void saveMovedEntry(entry, range, { recurringScope });
+    };
+
+    if (
+      entry.kind === "google" &&
+      (entry.recurringEventId || entry.recurrence?.length)
+    ) {
+      Alert.alert(
+        "Recurring event",
+        "Should this change apply to this event or all future events?",
+        [
+          { text: "This event", onPress: () => save("this") },
+          { text: "All future events", onPress: () => save("future") },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
+      return;
+    }
+
+    save("this");
   };
   const finishTimelineGesture = () => {
     pendingEmptyPressRef.current = null;
@@ -1882,7 +1921,7 @@ export function DayPlanScreen({
     setDragPlanRange(null);
     setDragEntry(null);
     setFloatingScheduleDrag(null);
-    void saveMovedEntry(gesture.entry, gesture.latestRange);
+    saveMovedEntryWithRecurringChoice(gesture.entry, gesture.latestRange);
   };
   const clearTimelineLongPressTimer = () => {
     if (timelineLongPressTimerRef.current) {
@@ -2578,7 +2617,9 @@ export function DayPlanScreen({
     }
   };
 
-  const deleteActiveEntry = async () => {
+  const deleteActiveEntry = async (
+    recurringScope: RecurringChangeScope = "this",
+  ) => {
     if (!activeEntry?.sourceId) return;
 
     const entry = activeEntry;
@@ -2590,6 +2631,10 @@ export function DayPlanScreen({
         const result = await deleteGoogleCalendarEvent({
           calendarId: entry.calendarId,
           eventId: sourceId,
+          originalStartTime:
+            entry.originalStartTime?.dateTime ?? entry.originalStartTime?.date,
+          recurringEventId: entry.recurringEventId,
+          recurringScope,
         });
         if (result.status !== "deleted" && result.status !== "skipped") {
           throw new Error("The calendar event could not be deleted.");
@@ -2625,6 +2670,7 @@ export function DayPlanScreen({
     preserveGoogleAllDay = false,
     title?: string,
     googleCalendarId?: string,
+    recurringScope: RecurringChangeScope = "this",
   ) => {
     if (!activeEntry) return;
     const entry = activeEntry;
@@ -2634,10 +2680,17 @@ export function DayPlanScreen({
       googleEventLabelId: entry.calendarEventLabelId,
       googleColor: eventColor,
       googleCalendarId,
+      recurringScope,
       title,
     });
     if (!isMountedRef.current) return;
     if (!saveResult.success) return;
+    if (recurringScope === "future" && entry.kind === "google") {
+      setActiveEntry(null);
+      invalidateCurrentCaches({ google: true });
+      await load({ quiet: true });
+      return;
+    }
     setActiveEntry({
       ...entry,
       ...(saveResult.googleEvent
@@ -3607,7 +3660,9 @@ export function DayPlanScreen({
           onAddPhoto={() => void addCheckpointPhotoForActiveEntry("library")}
           onClearPlan={() => void clearActiveEntryPlan()}
           onClose={() => setActiveEntry(null)}
-          onDeleteEvent={() => void deleteActiveEntry()}
+          onDeleteEvent={(recurringScope) =>
+            void deleteActiveEntry(recurringScope)
+          }
           onOpenNote={openAttachmentForActiveEntry}
           defaultOtherEventColor={
             calendars.find((calendar) => calendar.summary === "Float")
@@ -3623,6 +3678,7 @@ export function DayPlanScreen({
             preserveGoogleAllDay,
             title,
             googleCalendarId,
+            recurringScope,
           ) =>
             void saveActiveEntryTimeRange(
               range,
@@ -3630,6 +3686,7 @@ export function DayPlanScreen({
               preserveGoogleAllDay,
               title,
               googleCalendarId,
+              recurringScope,
             )
           }
           onSetVisibility={(visibility) =>
@@ -4087,7 +4144,7 @@ function InternalEventActionsModal({
   onAddPhoto: () => void;
   onClearPlan: () => void;
   onClose: () => void;
-  onDeleteEvent: () => void;
+  onDeleteEvent: (recurringScope?: RecurringChangeScope) => void;
   onOpenNote: () => void;
   onSaveTimeRange: (
     range: PlanRange,
@@ -4095,6 +4152,7 @@ function InternalEventActionsModal({
     preserveGoogleAllDay?: boolean,
     title?: string,
     targetCalendarId?: string,
+    recurringScope?: RecurringChangeScope,
   ) => void;
   onSetVisibility: (visibility: HabitVisibility) => void;
   onTakePhoto: () => void;
@@ -4114,6 +4172,9 @@ function InternalEventActionsModal({
   const isOtherEvent = entry?.kind === "other";
   const isHabitEvent = entry?.kind === "habit";
   const isGoogleEvent = entry?.kind === "google";
+  const isRecurringGoogleEvent = Boolean(
+    isGoogleEvent && (entry?.recurringEventId || entry?.recurrence?.length),
+  );
   const isTitleEditable = isOtherEvent || isGoogleEvent;
   const isEditablePlannedBlock =
     Boolean(entry?.sourceId) &&
@@ -4188,6 +4249,25 @@ function InternalEventActionsModal({
     setTimeout(() => {
       pressLocksRef.current.delete(key);
     }, 500);
+  };
+  const askRecurringScope = (action: (scope: RecurringChangeScope) => void) => {
+    if (!isRecurringGoogleEvent) {
+      action("this");
+      return;
+    }
+
+    Alert.alert(
+      "Recurring event",
+      "Should this change apply to this event or all future events?",
+      [
+        { text: "This event", onPress: () => action("this") },
+        {
+          text: "All future events",
+          onPress: () => action("future"),
+        },
+        { text: "Cancel", style: "cancel" },
+      ],
+    );
   };
 
   useEffect(() => {
@@ -4811,23 +4891,30 @@ function InternalEventActionsModal({
                         nextStartMinutes !== null &&
                         nextEndMinutes !== null
                       ) {
-                        onSaveTimeRange(
-                          {
-                            endMinutes: normalizeEndMinutes(
-                              nextStartMinutes,
-                              nextEndMinutes,
-                            ),
-                            startMinutes: nextStartMinutes,
-                          },
-                          isGoogleEvent || isOtherEvent
-                            ? eventColor
-                            : undefined,
-                          isGoogleEvent && entry.allDay && !hasTimeRangeChanges,
-                          isTitleEditable ? eventTitle.trim() : undefined,
-                          hasCalendarChanges
-                            ? (selectedCalendarId ?? undefined)
-                            : undefined,
-                        );
+                        const saveChanges = (
+                          recurringScope: RecurringChangeScope,
+                        ) =>
+                          onSaveTimeRange(
+                            {
+                              endMinutes: normalizeEndMinutes(
+                                nextStartMinutes,
+                                nextEndMinutes,
+                              ),
+                              startMinutes: nextStartMinutes,
+                            },
+                            isGoogleEvent || isOtherEvent
+                              ? eventColor
+                              : undefined,
+                            isGoogleEvent &&
+                              entry.allDay &&
+                              !hasTimeRangeChanges,
+                            isTitleEditable ? eventTitle.trim() : undefined,
+                            hasCalendarChanges
+                              ? (selectedCalendarId ?? undefined)
+                              : undefined,
+                            recurringScope,
+                          );
+                        askRecurringScope(saveChanges);
                         return;
                       }
 
@@ -4883,18 +4970,36 @@ function InternalEventActionsModal({
                     disabled={isUpdating}
                     onPress={() =>
                       runPressAction("delete-event", () =>
-                        Alert.alert(
-                          "Delete event?",
-                          `This will permanently delete “${entry.title}”.`,
-                          [
-                            { text: "Cancel", style: "cancel" },
-                            {
-                              text: "Delete",
-                              style: "destructive",
-                              onPress: onDeleteEvent,
-                            },
-                          ],
-                        ),
+                        isRecurringGoogleEvent
+                          ? Alert.alert(
+                              "Recurring event",
+                              "Should this delete apply to this event or all future events?",
+                              [
+                                {
+                                  text: "This event",
+                                  style: "destructive",
+                                  onPress: () => onDeleteEvent("this"),
+                                },
+                                {
+                                  text: "All future events",
+                                  style: "destructive",
+                                  onPress: () => onDeleteEvent("future"),
+                                },
+                                { text: "Cancel", style: "cancel" },
+                              ],
+                            )
+                          : Alert.alert(
+                              "Delete event?",
+                              `This will permanently delete “${entry.title}”.`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Delete",
+                                  style: "destructive",
+                                  onPress: () => onDeleteEvent("this"),
+                                },
+                              ],
+                            ),
                       )
                     }
                     style={({ pressed }) => [
@@ -6280,6 +6385,9 @@ function googleEventToEntry(
       laneCount: 1,
       laneIndex: 0,
       laneSpan: 1,
+      originalStartTime: event.originalStartTime,
+      recurrence: event.recurrence,
+      recurringEventId: event.recurringEventId,
       sourceId: event.id,
       startMinutes: 0,
       title: event.title,
@@ -6326,6 +6434,9 @@ function googleEventToEntry(
     laneCount: 1,
     laneIndex: 0,
     laneSpan: 1,
+    originalStartTime: event.originalStartTime,
+    recurrence: event.recurrence,
+    recurringEventId: event.recurringEventId,
     sourceId: event.id,
     startMinutes,
     title: event.title,

@@ -145,6 +145,44 @@ function isGoalCurrent(goal: Goal) {
   );
 }
 
+function getVisibleGoalCheckpoints(checkpoints: GoalCheckpoint[]) {
+  const completed = checkpoints
+    .map((checkpoint, index) => ({ checkpoint, index }))
+    .filter(({ checkpoint }) => checkpoint.completed);
+  const mostRecentCompleted = [...completed].sort((left, right) => {
+    const leftCompletedAt = left.checkpoint.completedAt ?? "";
+    const rightCompletedAt = right.checkpoint.completedAt ?? "";
+    return (
+      rightCompletedAt.localeCompare(leftCompletedAt) ||
+      right.index - left.index
+    );
+  })[0];
+  const startedIndex = checkpoints.findIndex(
+    (checkpoint) => checkpoint.started && !checkpoint.completed,
+  );
+  const currentIndex =
+    startedIndex >= 0
+      ? startedIndex
+      : checkpoints.findIndex((checkpoint) => !checkpoint.completed);
+  const nextIndex =
+    currentIndex >= 0
+      ? checkpoints.findIndex(
+          (checkpoint, index) => index > currentIndex && !checkpoint.completed,
+        )
+      : -1;
+  const visibleIds = new Set(
+    [
+      mostRecentCompleted?.checkpoint,
+      checkpoints[currentIndex],
+      checkpoints[nextIndex],
+    ]
+      .filter((checkpoint): checkpoint is GoalCheckpoint => Boolean(checkpoint))
+      .map((checkpoint) => checkpoint.id),
+  );
+
+  return checkpoints.filter((checkpoint) => visibleIds.has(checkpoint.id));
+}
+
 const DATE_KEY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const CLEAR_TARGET_DATE_ACTION = "clear-target-date";
 const GOALS_SCREEN_CACHE_KEY = "screen:goals";
@@ -1598,7 +1636,7 @@ function GoalCard({
 
           {goal.checkpoints.length ? (
             <View style={styles.goalCheckpointList}>
-              {goal.checkpoints.map((checkpoint) => (
+              {getVisibleGoalCheckpoints(goal.checkpoints).map((checkpoint) => (
                 <Pressable
                   accessibilityLabel={`Open ${checkpoint.title} checkpoint actions`}
                   accessibilityRole="button"
@@ -1977,17 +2015,13 @@ function GoalDetailModal({
           hitSlop={8}
           onPress={onClose}
           style={({ pressed }) => [
-            modalStyles.closeBtn,
-            {
-              backgroundColor: theme.backgroundElement,
-              flexShrink: 0,
-            },
+            styles.goalDetailClose,
             pressed && styles.pressed,
           ]}
         >
           <SymbolView
             name={symbol("xmark", "close")}
-            size={14}
+            size={25}
             weight="bold"
             tintColor={theme.tabIcon}
           />
@@ -4478,6 +4512,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 21,
+  },
+  goalDetailClose: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
   },
   planSheetContent: { gap: 14, padding: 18, paddingBottom: 28 },
   planTimeGrid: { flexDirection: "row", gap: 10 },

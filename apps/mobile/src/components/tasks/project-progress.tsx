@@ -1,4 +1,16 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SymbolView, type SymbolViewProps } from "expo-symbols";
+import { useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { useTheme } from "@/hooks/use-theme";
 import type { Project } from "@/lib/projects-client";
@@ -75,17 +87,28 @@ export function ProjectProgressCard({
   onSelectProject,
   projects,
   onDeleteProject,
+  onRenameProject,
+  onTogglePinProject,
   selectedProjectId = null,
 }: {
   onSelectProject?: (project: Project | null) => void;
   projects: Project[];
   onDeleteProject: (project: Project) => void;
+  onRenameProject: (project: Project, name: string) => Promise<void>;
+  onTogglePinProject: (project: Project) => Promise<void>;
   selectedProjectId?: string | null;
 }) {
   const theme = useTheme();
+  const [actionProject, setActionProject] = useState<Project | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
   const activeProjects = projects
     .filter((project) => project.totalTasks > project.completedTasks)
     .sort((left, right) => {
+      if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+        return left.pinned ? -1 : 1;
+      }
       const leftRemaining = Math.max(left.totalTasks - left.completedTasks, 0);
       const rightRemaining = Math.max(
         right.totalTasks - right.completedTasks,
@@ -97,6 +120,42 @@ export function ProjectProgressCard({
       return left.name.localeCompare(right.name);
     });
   if (activeProjects.length === 0) return null;
+
+  const openProjectActions = (project: Project) => {
+    setActionProject(project);
+    setIsRenaming(false);
+    setRenameValue(project.name);
+  };
+
+  const closeProjectActions = () => {
+    if (isSaving) return;
+    setActionProject(null);
+    setIsRenaming(false);
+  };
+
+  const saveRename = async () => {
+    if (!actionProject || !renameValue.trim() || isSaving) return;
+    setIsSaving(true);
+    await onRenameProject(actionProject, renameValue.trim());
+    setIsSaving(false);
+    setActionProject(null);
+    setIsRenaming(false);
+  };
+
+  const togglePin = async () => {
+    if (!actionProject || isSaving) return;
+    setIsSaving(true);
+    await onTogglePinProject(actionProject);
+    setIsSaving(false);
+    setActionProject(null);
+  };
+
+  const deleteProject = () => {
+    if (!actionProject || isSaving) return;
+    const project = actionProject;
+    setActionProject(null);
+    onDeleteProject(project);
+  };
 
   if (onSelectProject) {
     const totalOpenTasks = activeProjects.reduce(
@@ -127,11 +186,23 @@ export function ProjectProgressCard({
               count={Math.max(project.totalTasks - project.completedTasks, 0)}
               isSelected={project.id === selectedProjectId}
               label={project.name}
-              onLongPress={() => onDeleteProject(project)}
+              onLongPress={() => openProjectActions(project)}
               onPress={() => onSelectProject(project)}
             />
           ))}
         </ScrollView>
+        <ProjectActionsModal
+          isRenaming={isRenaming}
+          isSaving={isSaving}
+          onChangeRename={setRenameValue}
+          onClose={closeProjectActions}
+          onDelete={deleteProject}
+          onRename={() => setIsRenaming(true)}
+          onSaveRename={() => void saveRename()}
+          onTogglePin={() => void togglePin()}
+          project={actionProject}
+          renameValue={renameValue}
+        />
       </View>
     );
   }
@@ -146,10 +217,198 @@ export function ProjectProgressCard({
           key={project.id}
           isSelected={project.id === selectedProjectId}
           project={project}
-          onLongPress={() => onDeleteProject(project)}
+          onLongPress={() => openProjectActions(project)}
         />
       ))}
+      <ProjectActionsModal
+        isRenaming={isRenaming}
+        isSaving={isSaving}
+        onChangeRename={setRenameValue}
+        onClose={closeProjectActions}
+        onDelete={deleteProject}
+        onRename={() => setIsRenaming(true)}
+        onSaveRename={() => void saveRename()}
+        onTogglePin={() => void togglePin()}
+        project={actionProject}
+        renameValue={renameValue}
+      />
     </View>
+  );
+}
+
+function ProjectActionsModal({
+  isRenaming,
+  isSaving,
+  onChangeRename,
+  onClose,
+  onDelete,
+  onRename,
+  onSaveRename,
+  onTogglePin,
+  project,
+  renameValue,
+}: {
+  isRenaming: boolean;
+  isSaving: boolean;
+  onChangeRename: (value: string) => void;
+  onClose: () => void;
+  onDelete: () => void;
+  onRename: () => void;
+  onSaveRename: () => void;
+  onTogglePin: () => void;
+  project: Project | null;
+  renameValue: string;
+}) {
+  const theme = useTheme();
+  if (!project) return null;
+
+  const actions: {
+    label: string;
+    icon: SymbolViewProps["name"];
+    onPress: () => void;
+    danger?: boolean;
+  }[] = [
+    {
+      label: "Rename project",
+      icon: { ios: "pencil", android: "edit", web: "edit" },
+      onPress: onRename,
+    },
+    {
+      label: project.pinned ? "Unpin project" : "Pin project",
+      icon: {
+        ios: project.pinned ? "pin.slash" : "pin",
+        android: project.pinned ? "push_pin" : "push_pin",
+        web: project.pinned ? "push_pin" : "push_pin",
+      },
+      onPress: onTogglePin,
+    },
+    {
+      label: "Delete project",
+      icon: { ios: "trash", android: "delete", web: "delete" },
+      onPress: onDelete,
+      danger: true,
+    },
+  ];
+
+  return (
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.modalOverlay}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View
+          style={[
+            styles.actionSheet,
+            { backgroundColor: theme.tabBar, borderColor: theme.tabBorder },
+          ]}
+        >
+          <Text style={[styles.actionTitle, { color: theme.text }]}>
+            {project.name}
+          </Text>
+          {isRenaming ? (
+            <View style={styles.renamePanel}>
+              <TextInput
+                autoFocus
+                editable={!isSaving}
+                maxLength={120}
+                onChangeText={onChangeRename}
+                onSubmitEditing={onSaveRename}
+                returnKeyType="done"
+                style={[
+                  styles.renameInput,
+                  {
+                    backgroundColor: theme.backgroundElement,
+                    borderColor: theme.tabBorder,
+                    color: theme.text,
+                  },
+                ]}
+                value={renameValue}
+              />
+              <View style={styles.renameButtons}>
+                <Pressable
+                  disabled={isSaving}
+                  onPress={onClose}
+                  style={({ pressed }) => [
+                    styles.renameButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.renameButtonLabel,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
+                </Pressable>
+                <Pressable
+                  disabled={isSaving || !renameValue.trim()}
+                  onPress={onSaveRename}
+                  style={({ pressed }) => [
+                    styles.renameButton,
+                    { backgroundColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.renameButtonLabel,
+                      { color: theme.primaryForeground },
+                    ]}
+                  >
+                    {isSaving ? "Saving…" : "Save"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <>
+              {actions.map((action) => (
+                <Pressable
+                  disabled={isSaving}
+                  key={action.label}
+                  onPress={action.onPress}
+                  style={({ pressed }) => [
+                    styles.actionRow,
+                    pressed && { backgroundColor: theme.backgroundElement },
+                  ]}
+                >
+                  <SymbolView
+                    name={action.icon}
+                    size={20}
+                    tintColor={action.danger ? "#B84D54" : theme.tabIcon}
+                  />
+                  <Text
+                    style={[
+                      styles.actionLabel,
+                      { color: action.danger ? "#B84D54" : theme.text },
+                    ]}
+                  >
+                    {action.label}
+                  </Text>
+                </Pressable>
+              ))}
+              <Pressable
+                disabled={isSaving}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.actionRow,
+                  pressed && { backgroundColor: theme.backgroundElement },
+                ]}
+              >
+                <Text
+                  style={[styles.actionLabel, { color: theme.textSecondary }]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -262,5 +521,54 @@ const styles = StyleSheet.create({
   },
   projectTrack: { height: 4, borderRadius: 999, overflow: "hidden" },
   projectFill: { height: "100%", borderRadius: 999 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    padding: 12,
+  },
+  actionSheet: {
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    paddingBottom: 8,
+  },
+  actionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 10,
+  },
+  actionRow: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+  },
+  actionLabel: { fontSize: 16, fontWeight: "600" },
+  renamePanel: { gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
+  renameInput: {
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    fontSize: 16,
+  },
+  renameButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  renameButton: {
+    minWidth: 84,
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  renameButtonLabel: { fontSize: 15, fontWeight: "700" },
   pressed: { opacity: 0.72 },
 });

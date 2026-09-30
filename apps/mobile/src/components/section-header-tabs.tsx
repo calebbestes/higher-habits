@@ -42,9 +42,8 @@ const COLLAB_SECTIONS: Array<{
 ];
 
 export function PageHeaderTitle({ title }: { title: string }) {
-  const theme = useTheme();
-
-  return <Text style={[styles.pageTitle, { color: theme.text }]}>{title}</Text>;
+  void title;
+  return null;
 }
 
 export function CreateSectionHeaderTabs({

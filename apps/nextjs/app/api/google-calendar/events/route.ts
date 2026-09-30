@@ -25,6 +25,7 @@ const colorSchema = z
   .string()
   .regex(/^#[0-9A-Fa-f]{6}$/)
   .nullable();
+const recurringScopeSchema = z.enum(["this", "future"]).default("this");
 const createEventSchema = z.object({
   dateKey: dateKeySchema,
   description: z.string().trim().max(20_000).nullable().optional(),
@@ -39,11 +40,17 @@ const updateEventSchema = createEventSchema.extend({
   color: colorSchema.optional(),
   eventLabelId: z.string().max(1024).nullable().optional(),
   eventId: z.string().min(1).max(1024),
+  originalStartTime: z.string().min(1).optional(),
+  recurringEventId: z.string().min(1).optional(),
+  recurringScope: recurringScopeSchema,
   targetCalendarId: z.string().min(1).optional(),
 });
 const deleteEventSchema = z.object({
   calendarId: z.string().min(1).optional(),
   eventId: z.string().min(1).max(1024),
+  originalStartTime: z.string().min(1).optional(),
+  recurringEventId: z.string().min(1).optional(),
+  recurringScope: recurringScopeSchema,
 });
 
 export async function GET(request: Request) {
@@ -127,8 +134,11 @@ export async function PATCH(request: Request) {
       description: data.description ?? null,
       eventLabelId: data.eventLabelId,
       eventId: data.eventId,
+      originalStartTime: data.originalStartTime,
       plannedEndTime: data.plannedEndTime,
       plannedStartTime: data.plannedStartTime,
+      recurringEventId: data.recurringEventId,
+      recurringScope: data.recurringScope,
       targetCalendarId: data.targetCalendarId,
       timeZone: data.plannedTimeZone ?? null,
       title: data.title,
@@ -159,6 +169,9 @@ export async function DELETE(request: Request) {
     const result = await deleteGoogleCalendarPrimaryEvent({
       calendarId: data.calendarId,
       eventId: data.eventId,
+      originalStartTime: data.originalStartTime,
+      recurringEventId: data.recurringEventId,
+      recurringScope: data.recurringScope,
       userId: user.id,
     });
 

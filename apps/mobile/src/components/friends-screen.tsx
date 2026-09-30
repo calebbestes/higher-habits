@@ -356,9 +356,6 @@ export function FriendsScreen() {
           <View style={styles.pageHeader}>
             <View style={styles.pageHeaderLeft}>
               <View style={styles.pageHeaderText}>
-                <Text style={[styles.pageTitle, { color: theme.text }]}>
-                  Friends
-                </Text>
                 <FriendsSectionTabs
                   activeSection={activeSection}
                   onChange={(section) => {

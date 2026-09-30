@@ -799,34 +799,28 @@ export function FriendProfileScreen({
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView edges={["top", "left", "right"]} style={styles.safeArea}>
-        <View style={[styles.header, { borderBottomColor: theme.tabBorder }]}>
-          {showHistoryHeader ? (
-            <View style={styles.headerMenuWrap}>
-              <Text style={[styles.headerSectionTitle, { color: theme.text }]}>
-                Profile
-              </Text>
-            </View>
-          ) : onBack ? (
-            <Pressable
-              accessibilityLabel="Go back"
-              hitSlop={12}
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("chevron.left", "arrow_back")}
-                size={22}
-                weight="semibold"
-                tintColor={theme.text}
-              />
-            </Pressable>
-          ) : (
-            <View style={styles.headerSpacer} />
-          )}
-          {!showHistoryHeader ? (
+        {!showHistoryHeader ? (
+          <View style={[styles.header, { borderBottomColor: theme.tabBorder }]}>
+            {onBack ? (
+              <Pressable
+                accessibilityLabel="Go back"
+                hitSlop={12}
+                onPress={onBack}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <SymbolView
+                  name={sym("chevron.left", "arrow_back")}
+                  size={22}
+                  weight="semibold"
+                  tintColor={theme.text}
+                />
+              </Pressable>
+            ) : (
+              <View style={styles.headerSpacer} />
+            )}
             <Text
               numberOfLines={1}
               style={[styles.headerTitle, { color: theme.text }]}
@@ -835,28 +829,9 @@ export function FriendProfileScreen({
                 initialName ??
                 (self ? "You" : "Profile")}
             </Text>
-          ) : null}
-          {showHistoryHeader && self ? (
-            <Pressable
-              accessibilityLabel="Open settings"
-              hitSlop={12}
-              onPress={openSettings}
-              style={({ pressed }) => [
-                styles.headerIconButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <SymbolView
-                name={sym("gearshape.fill", "settings")}
-                size={22}
-                weight="semibold"
-                tintColor={theme.text}
-              />
-            </Pressable>
-          ) : !showHistoryHeader ? (
             <View style={styles.headerSpacer} />
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
         <ScrollView
           canCancelContentTouches
@@ -912,19 +887,55 @@ export function FriendProfileScreen({
                   </Text>
                 </View>
                 <View style={styles.statsRow}>
-                  <ProfileStat
-                    label="friends"
-                    value={profile.stats.friendCount}
-                    onPress={self ? openFriendsSheet : undefined}
-                  />
-                  <ProfileStat
-                    label="longest streak"
-                    value={profile.stats.longestStreak}
-                  />
-                  <ProfileStat
-                    label="days until birthday"
-                    value={profile.stats.daysUntilBirthday}
-                  />
+                  <View
+                    style={[
+                      styles.statWithGearOffset,
+                      !(showHistoryHeader && self) &&
+                        styles.statWithoutGearOffset,
+                    ]}
+                  >
+                    <ProfileStat
+                      label="friends"
+                      value={profile.stats.friendCount}
+                      onPress={self ? openFriendsSheet : undefined}
+                    />
+                  </View>
+                  <View
+                    style={[
+                      styles.statWithGearOffset,
+                      !(showHistoryHeader && self) &&
+                        styles.statWithoutGearOffset,
+                    ]}
+                  >
+                    <ProfileStat
+                      label="longest streak"
+                      value={profile.stats.longestStreak}
+                    />
+                  </View>
+                  <View style={styles.birthdayStat}>
+                    {showHistoryHeader && self ? (
+                      <Pressable
+                        accessibilityLabel="Open settings"
+                        hitSlop={12}
+                        onPress={openSettings}
+                        style={({ pressed }) => [
+                          styles.profileSettingsButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <SymbolView
+                          name={sym("gearshape.fill", "settings")}
+                          size={22}
+                          weight="semibold"
+                          tintColor={theme.text}
+                        />
+                      </Pressable>
+                    ) : null}
+                    <ProfileStat
+                      label="days until birthday"
+                      value={profile.stats.daysUntilBirthday}
+                    />
+                  </View>
                   {/*
                   <ProfileStat
                     label="incentives given"
@@ -2704,25 +2715,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIconButton: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   headerTitle: {
     flex: 1,
     textAlign: "center",
     fontSize: 18,
-    fontWeight: "700",
-  },
-  headerMenuWrap: {
-    flex: 1,
-    alignItems: "flex-start",
-  },
-  headerSectionTitle: {
-    fontSize: 24,
-    lineHeight: 28,
     fontWeight: "700",
   },
   headerSpacer: { width: 42 },
@@ -2805,6 +2801,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 4,
+  },
+  birthdayStat: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "stretch",
+  },
+  statWithGearOffset: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 42,
+  },
+  statWithoutGearOffset: {
+    paddingTop: 0,
+  },
+  profileSettingsButton: {
+    alignSelf: "center",
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    transform: [{ translateY: -6 }],
   },
   stat: { flex: 1, minWidth: 0, alignItems: "center" },
   pressableStat: {
