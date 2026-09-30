@@ -1,14 +1,11 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { FeedScreen } from "@/components/feed-screen";
 import { IncentivesScreen } from "@/components/incentives-screen";
 import { SharedGoalsScreen } from "@/components/shared-goals-screen";
-import {
-  setCollabSection,
-  useCollabSection,
-} from "@/lib/tab-view-store";
+import { setCollabSection, useCollabSection } from "@/lib/tab-view-store";
 
 export default function CollabScreen() {
   const router = useRouter();
@@ -20,6 +17,15 @@ export default function CollabScreen() {
       : rememberedSection === "friends"
         ? "feed"
         : rememberedSection;
+  const [mountedSections, setMountedSections] = useState<string[]>([
+    activeSection,
+  ]);
+
+  useEffect(() => {
+    setMountedSections((current) =>
+      current.includes(activeSection) ? current : [...current, activeSection],
+    );
+  }, [activeSection]);
 
   useEffect(() => {
     if (section === "friends") {
@@ -39,9 +45,36 @@ export default function CollabScreen() {
   return (
     <View style={styles.pageStack}>
       <View style={styles.page}>
-        {activeSection === "feed" ? <FeedScreen /> : null}
-        {activeSection === "incentives" ? <IncentivesScreen /> : null}
-        {activeSection === "shared-goals" ? <SharedGoalsScreen /> : null}
+        {mountedSections.includes("feed") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "feed" && styles.hiddenScreen,
+            ]}
+          >
+            <FeedScreen />
+          </View>
+        ) : null}
+        {mountedSections.includes("incentives") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "incentives" && styles.hiddenScreen,
+            ]}
+          >
+            <IncentivesScreen />
+          </View>
+        ) : null}
+        {mountedSections.includes("shared-goals") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "shared-goals" && styles.hiddenScreen,
+            ]}
+          >
+            <SharedGoalsScreen />
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -50,4 +83,6 @@ export default function CollabScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1 },
   pageStack: { flex: 1 },
+  screen: { flex: 1 },
+  hiddenScreen: { display: "none" },
 });

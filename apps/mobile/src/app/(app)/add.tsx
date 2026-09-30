@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { DailyGoalsScreen } from "@/components/daily-goals-screen";
@@ -18,6 +18,15 @@ export default function AddScreen() {
     type === "goals" || type === "tasks" || type === "habits"
       ? type
       : rememberedSection;
+  const [mountedSections, setMountedSections] = useState<CreateSection[]>([
+    activeSection,
+  ]);
+
+  useEffect(() => {
+    setMountedSections((current) =>
+      current.includes(activeSection) ? current : [...current, activeSection],
+    );
+  }, [activeSection]);
 
   useEffect(() => {
     if (type === "goals" || type === "tasks" || type === "habits") {
@@ -28,9 +37,36 @@ export default function AddScreen() {
   return (
     <View style={styles.pageStack}>
       <View style={styles.page}>
-        {activeSection === "habits" ? <DailyGoalsScreen /> : null}
-        {activeSection === "goals" ? <GoalsScreen /> : null}
-        {activeSection === "tasks" ? <TasksScreen /> : null}
+        {mountedSections.includes("habits") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "habits" && styles.hiddenScreen,
+            ]}
+          >
+            <DailyGoalsScreen />
+          </View>
+        ) : null}
+        {mountedSections.includes("goals") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "goals" && styles.hiddenScreen,
+            ]}
+          >
+            <GoalsScreen />
+          </View>
+        ) : null}
+        {mountedSections.includes("tasks") ? (
+          <View
+            style={[
+              styles.screen,
+              activeSection !== "tasks" && styles.hiddenScreen,
+            ]}
+          >
+            <TasksScreen />
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -39,4 +75,6 @@ export default function AddScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1 },
   pageStack: { flex: 1 },
+  screen: { flex: 1 },
+  hiddenScreen: { display: "none" },
 });

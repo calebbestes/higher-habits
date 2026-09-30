@@ -3,6 +3,8 @@ import {
   type ReactNode,
   createContext,
   useContext,
+  useEffect,
+  useState,
 } from "react";
 import { StyleSheet, View } from "react-native";
 
@@ -44,10 +46,25 @@ export function PlanReportViewSlot({
   view: ActivePlanReportView;
 }) {
   const context = usePlanReportContext();
+  const [hasMounted, setHasMounted] = useState(
+    () => context.activeView === view,
+  );
 
-  if (context.activeView !== view) return null;
+  useEffect(() => {
+    if (context.activeView === view) {
+      setHasMounted(true);
+    }
+  }, [context.activeView, view]);
 
-  return <View style={styles.slot}>{children}</View>;
+  if (!hasMounted) return null;
+
+  return (
+    <View
+      style={[styles.slot, context.activeView !== view && styles.hiddenSlot]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function usePlanReportContext(): PlanReportContextValue {
@@ -62,4 +79,5 @@ export function usePlanReportContext(): PlanReportContextValue {
 
 const styles = StyleSheet.create({
   slot: { flex: 1 },
+  hiddenSlot: { display: "none" },
 });
