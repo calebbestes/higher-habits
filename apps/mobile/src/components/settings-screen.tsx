@@ -65,6 +65,8 @@ import { uploadProfilePicture } from "@/lib/profile-picture-client";
 import {
   registerForPushNotificationsAsync,
   sendTestNotificationAsync,
+  syncHabitRemindersFromServerAsync,
+  syncStartCompleteCheckInFromServerAsync,
 } from "@/lib/push-notifications";
 import {
   type AppStartPage,
@@ -667,6 +669,8 @@ export function SettingsScreen() {
       const result = await registerForPushNotificationsAsync();
 
       if (result === "registered") {
+        void syncHabitRemindersFromServerAsync();
+        void syncStartCompleteCheckInFromServerAsync();
         playSuccessHaptic();
         Alert.alert("Notifications enabled", "float can now send reminders.");
         return;

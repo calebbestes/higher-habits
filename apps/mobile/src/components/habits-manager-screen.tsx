@@ -59,6 +59,7 @@ import { playSelectionHaptic } from "@/lib/haptics";
 import {
   cancelHabitReminderAsync,
   scheduleHabitReminderAsync,
+  syncStartCompleteCheckInFromServerAsync,
 } from "@/lib/push-notifications";
 import { VISIBILITY_LABELS } from "@/lib/visibility-labels";
 
@@ -337,6 +338,7 @@ export function HabitsManagerScreen() {
       : await createHabit(input);
     try {
       await scheduleHabitReminderAsync(saved);
+      void syncStartCompleteCheckInFromServerAsync();
     } catch (reminderError) {
       Alert.alert(
         "Reminder not scheduled",
@@ -430,6 +432,7 @@ export function HabitsManagerScreen() {
       } else {
         await scheduleHabitReminderAsync(updated);
       }
+      void syncStartCompleteCheckInFromServerAsync();
       setHabits((current) => {
         const nextHabits = current.map((item) =>
           item.id === updated.id ? updated : item,
@@ -463,6 +466,7 @@ export function HabitsManagerScreen() {
             try {
               await deleteHabit(habit.id);
               await cancelHabitReminderAsync(habit.id);
+              void syncStartCompleteCheckInFromServerAsync();
               setHabits((current) => {
                 const nextHabits = current.filter(
                   (item) => item.id !== habit.id,

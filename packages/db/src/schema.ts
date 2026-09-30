@@ -1665,6 +1665,9 @@ export const userSettings = pgTable("user_settings", {
   notifyInactivityReminder: boolean("notify_inactivity_reminder")
     .notNull()
     .default(true),
+  notifyStartCompleteCheckIn: boolean("notify_start_complete_check_in")
+    .notNull()
+    .default(true),
   notifySharedGoalInvites: boolean("notify_shared_goal_invites")
     .notNull()
     .default(true),
@@ -1710,6 +1713,9 @@ export const userSettings = pgTable("user_settings", {
     .notNull()
     .default(true),
   dailyNotificationTime: text("daily_notification_time")
+    .notNull()
+    .default("20:30"),
+  startCompleteNotificationTime: text("start_complete_notification_time")
     .notNull()
     .default("20:30"),
   weeklyNotificationTime: text("weekly_notification_time")

@@ -15,6 +15,7 @@ export type NotificationSettings = {
   notifyMonthlyGoalToday: boolean;
   notifyTasksDueToday: boolean;
   notifyInactivityReminder: boolean;
+  notifyStartCompleteCheckIn: boolean;
   notifySharedGoalInvites: boolean;
   notifyStreakAtRisk: boolean;
   notifyStreakMilestone: boolean;
@@ -34,6 +35,7 @@ export type NotificationSettings = {
   notifyWeeklyRecap: boolean;
   notifyScheduleEvents: boolean;
   dailyNotificationTime: string;
+  startCompleteNotificationTime: string;
   weeklyNotificationTime: string;
   weeklyNotificationDay: string;
   monthlyNotificationTime: string;
@@ -61,6 +63,7 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   notifyMonthlyGoalToday: true,
   notifyTasksDueToday: true,
   notifyInactivityReminder: true,
+  notifyStartCompleteCheckIn: true,
   notifySharedGoalInvites: true,
   notifyStreakAtRisk: false,
   notifyStreakMilestone: false,
@@ -80,6 +83,7 @@ export const USER_SETTING_DEFAULTS: UserSettings = {
   notifyWeeklyRecap: false,
   notifyScheduleEvents: true,
   dailyNotificationTime: "20:30",
+  startCompleteNotificationTime: "20:30",
   weeklyNotificationTime: "18:00",
   weeklyNotificationDay: "sunday",
   monthlyNotificationTime: "09:00",
@@ -91,6 +95,7 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyMonthlyGoalToday: USER_SETTING_DEFAULTS.notifyMonthlyGoalToday,
   notifyTasksDueToday: USER_SETTING_DEFAULTS.notifyTasksDueToday,
   notifyInactivityReminder: USER_SETTING_DEFAULTS.notifyInactivityReminder,
+  notifyStartCompleteCheckIn: USER_SETTING_DEFAULTS.notifyStartCompleteCheckIn,
   notifySharedGoalInvites: USER_SETTING_DEFAULTS.notifySharedGoalInvites,
   notifyStreakAtRisk: USER_SETTING_DEFAULTS.notifyStreakAtRisk,
   notifyStreakMilestone: USER_SETTING_DEFAULTS.notifyStreakMilestone,
@@ -111,6 +116,8 @@ export const NOTIFICATION_SETTING_DEFAULTS: NotificationSettings = {
   notifyWeeklyRecap: USER_SETTING_DEFAULTS.notifyWeeklyRecap,
   notifyScheduleEvents: USER_SETTING_DEFAULTS.notifyScheduleEvents,
   dailyNotificationTime: USER_SETTING_DEFAULTS.dailyNotificationTime,
+  startCompleteNotificationTime:
+    USER_SETTING_DEFAULTS.startCompleteNotificationTime,
   weeklyNotificationTime: USER_SETTING_DEFAULTS.weeklyNotificationTime,
   weeklyNotificationDay: USER_SETTING_DEFAULTS.weeklyNotificationDay,
   monthlyNotificationTime: USER_SETTING_DEFAULTS.monthlyNotificationTime,

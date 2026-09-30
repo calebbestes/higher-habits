@@ -11,6 +11,7 @@ const NOTIFICATION_KEYS = [
   "notifyMonthlyGoalToday",
   "notifyTasksDueToday",
   "notifyInactivityReminder",
+  "notifyStartCompleteCheckIn",
   "notifySharedGoalInvites",
   "notifyStreakAtRisk",
   "notifyStreakMilestone",
@@ -36,6 +37,7 @@ const TIME_SETTING_KEYS = [
   "dailyNotificationTime",
   "weeklyNotificationTime",
   "monthlyNotificationTime",
+  "startCompleteNotificationTime",
 ] as const;
 const DAY_SETTING_KEYS = [
   "weeklyNotificationDay",
@@ -52,6 +54,7 @@ const DEFAULTS: Record<NotificationKey, boolean> = {
   notifyMonthlyGoalToday: true,
   notifyTasksDueToday: true,
   notifyInactivityReminder: true,
+  notifyStartCompleteCheckIn: true,
   notifySharedGoalInvites: true,
   notifyStreakAtRisk: false,
   notifyStreakMilestone: false,
@@ -73,6 +76,7 @@ const DEFAULTS: Record<NotificationKey, boolean> = {
 };
 const TIME_DEFAULTS = {
   dailyNotificationTime: "20:30",
+  startCompleteNotificationTime: "20:30",
   weeklyNotificationTime: "18:00",
   monthlyNotificationTime: "09:00",
 } as const satisfies Record<TimeSettingKey, string>;

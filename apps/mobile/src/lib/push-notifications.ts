@@ -3,6 +3,7 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
+import { setHabitLog, toDateKey } from "@/lib/habit-logs-client";
 import { type Habit, fetchHabits } from "@/lib/habits-client";
 import { mobileApiFetch } from "@/lib/mobile-api";
 import { formatPlanMinutesDisplay } from "@/lib/plan-time";
@@ -27,6 +28,13 @@ type HabitReminder = Pick<
 
 const HABIT_REMINDER_PREFIX = "habit-reminder";
 const SCHEDULE_EVENT_PREFIX = "schedule-event";
+const START_COMPLETE_CHECKIN_PREFIX = "start-complete-checkin";
+export const START_COMPLETE_CHECKIN_CATEGORY = "start_complete_checkin";
+export const START_COMPLETE_CHECKIN_ACTIONS = {
+  all: "start_complete_all",
+  some: "start_complete_some",
+  none: "start_complete_none",
+} as const;
 
 // Show notifications while the app is foregrounded.
 Notifications.setNotificationHandler({
@@ -322,6 +330,108 @@ export async function syncHabitRemindersFromServerAsync(): Promise<void> {
   } catch {
     // Reminder sync is best-effort; never block app startup.
   }
+}
+
+async function registerStartCompleteCheckInCategoryAsync() {
+  await Notifications.setNotificationCategoryAsync(
+    START_COMPLETE_CHECKIN_CATEGORY,
+    [
+      {
+        identifier: START_COMPLETE_CHECKIN_ACTIONS.all,
+        buttonTitle: "Yes, All",
+        options: { opensAppToForeground: true },
+      },
+      {
+        identifier: START_COMPLETE_CHECKIN_ACTIONS.some,
+        buttonTitle: "Some",
+        options: { opensAppToForeground: true },
+      },
+      {
+        identifier: START_COMPLETE_CHECKIN_ACTIONS.none,
+        buttonTitle: "None",
+        options: { opensAppToForeground: true },
+      },
+    ],
+  );
+}
+
+export async function cancelStartCompleteCheckInAsync(): Promise<void> {
+  await cancelScheduledNotificationsByPrefix(
+    `${START_COMPLETE_CHECKIN_PREFIX}:`,
+  );
+}
+
+export async function scheduleStartCompleteCheckInAsync({
+  enabled,
+  time,
+}: {
+  enabled: boolean;
+  time: string;
+}): Promise<void> {
+  await cancelStartCompleteCheckInAsync();
+  if (!enabled) return;
+
+  const startCompleteHabits = (await fetchHabits()).filter(
+    (habit) => habit.defaultComplete && !habit.hidden,
+  );
+  if (startCompleteHabits.length === 0) return;
+
+  const reminderTime = parseReminderTime(time);
+  if (!reminderTime) return;
+
+  await registerStartCompleteCheckInCategoryAsync();
+  await ensureDefaultAndroidNotificationChannelAsync();
+  const hasPermission = await requestNotificationPermissionAsync();
+  if (!hasPermission) {
+    throw new Error("Notifications are not enabled for float.");
+  }
+
+  await Notifications.scheduleNotificationAsync({
+    identifier: `${START_COMPLETE_CHECKIN_PREFIX}:daily`,
+    content: {
+      title: "Start-complete check-in",
+      body: "Did you complete your start-complete habits today?",
+      categoryIdentifier: START_COMPLETE_CHECKIN_CATEGORY,
+      data: { type: "start-complete-checkin" },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
+      hour: reminderTime.hour,
+      minute: reminderTime.minute,
+    },
+  });
+}
+
+export async function syncStartCompleteCheckInFromServerAsync(): Promise<void> {
+  try {
+    const [settings, habits] = await Promise.all([
+      fetchNotificationSettings(),
+      fetchHabits(),
+    ]);
+    await cancelStartCompleteCheckInAsync();
+    if (!settings.notifyStartCompleteCheckIn) return;
+    if (!habits.some((habit) => habit.defaultComplete && !habit.hidden)) {
+      return;
+    }
+    await scheduleStartCompleteCheckInAsync({
+      enabled: true,
+      time: settings.startCompleteNotificationTime,
+    });
+  } catch {
+    // Check-in scheduling is best-effort and must never block app startup.
+  }
+}
+
+export async function applyStartCompleteCheckInAsync(
+  status: "complete" | "incomplete",
+  dateKey = toDateKey(new Date()),
+): Promise<void> {
+  const habits = (await fetchHabits()).filter(
+    (habit) => habit.defaultComplete && !habit.hidden,
+  );
+  await Promise.all(
+    habits.map((habit) => setHabitLog(habit.id, dateKey, status)),
+  );
 }
 
 /**

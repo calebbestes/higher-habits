@@ -1,4 +1,10 @@
 {
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm turbo run build --filter=@habit/nextjs"
+  "buildCommand": "cd ../.. && pnpm turbo run build --filter=@habit/nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

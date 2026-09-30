@@ -15,7 +15,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MaxContentWidth } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { cancelAllScheduleEventNotificationsAsync } from "@/lib/push-notifications";
+import {
+  cancelAllScheduleEventNotificationsAsync,
+  syncStartCompleteCheckInFromServerAsync,
+} from "@/lib/push-notifications";
 import {
   NOTIFICATION_SETTING_DEFAULTS,
   type NotificationSettings,
@@ -31,6 +34,7 @@ type NotificationToggleKey = {
 }[keyof NotificationSettings];
 type NotificationTimeKey =
   | "dailyNotificationTime"
+  | "startCompleteNotificationTime"
   | "weeklyNotificationTime"
   | "monthlyNotificationTime";
 type NotificationDayKey = "weeklyNotificationDay" | "monthlyNotificationDay";
@@ -214,6 +218,13 @@ const SECTIONS: ToggleSection[] = [
   },
 ];
 const TIME_ITEMS: TimeItem[] = [
+  {
+    key: "startCompleteNotificationTime",
+    icon: sym("checkmark.circle.fill", "check_circle"),
+    notificationKey: "notifyStartCompleteCheckIn",
+    title: "Start-complete check-in",
+    description: "Confirm your start-complete habits at this time.",
+  },
   {
     key: "dailyNotificationTime",
     icon: sym("bell.and.waves.left.and.right.fill", "notifications_active"),
@@ -456,7 +467,10 @@ export function NotificationSettingsModal({
     setError(null);
     fetchNotificationSettings()
       .then((data) => {
-        if (active) setSettings(data);
+        if (active) {
+          setSettings(data);
+          void syncStartCompleteCheckInFromServerAsync();
+        }
       })
       .catch((err: unknown) => {
         if (active) {
@@ -481,17 +495,29 @@ export function NotificationSettingsModal({
       void cancelAllScheduleEventNotificationsAsync();
     }
     // Persist just the changed field; revert on failure.
-    updateNotificationSettings({ [key]: value }).catch(() => {
-      setSettings(previous);
-    });
+    updateNotificationSettings({ [key]: value })
+      .then(() => {
+        if (key === "notifyStartCompleteCheckIn") {
+          void syncStartCompleteCheckInFromServerAsync();
+        }
+      })
+      .catch(() => {
+        setSettings(previous);
+      });
   };
   const updateTime = (key: NotificationTimeKey, value: string) => {
     const previous = settings;
     const next = { ...settings, [key]: value };
     setSettings(next);
-    updateNotificationSettings({ [key]: value }).catch(() => {
-      setSettings(previous);
-    });
+    updateNotificationSettings({ [key]: value })
+      .then(() => {
+        if (key === "startCompleteNotificationTime") {
+          void syncStartCompleteCheckInFromServerAsync();
+        }
+      })
+      .catch(() => {
+        setSettings(previous);
+      });
   };
   const updateDay = (key: NotificationDayKey, value: string) => {
     const previous = settings;

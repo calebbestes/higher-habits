@@ -157,7 +157,6 @@ type DayPlanEntry = {
   laneCount: number;
   laneIndex: number;
   laneSpan: number;
-  nestedInEvent?: boolean;
   originalStartTime?: {
     date?: string;
     dateTime?: string;
@@ -260,8 +259,6 @@ const TIMELINE_VISIBLE_HOURS = 12;
 const TIMELINE_INITIAL_OFFSET = TIMELINE_START_HOUR * HOUR_HEIGHT;
 const TIMELINE_DEFAULT_VIEWPORT_HEIGHT = TIMELINE_VISIBLE_HOURS * HOUR_HEIGHT;
 const TIMELINE_VIEWPORT_BOTTOM_GAP = 18;
-const NESTED_EVENT_LEFT_PERCENT = 10;
-const NESTED_EVENT_WIDTH_PERCENT = 90;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_NAMES = [
   "January",
@@ -2314,6 +2311,7 @@ export function DayPlanScreen({
   const setActiveStatus = async (
     status: HabitLogStatus,
     options?: {
+      completedCount?: number;
       endTime?: string | null;
       repeat?: PlannedRepeat | null;
       repeatPlan?: boolean;
@@ -3613,6 +3611,11 @@ export function DayPlanScreen({
               : "only_me"
           }
           status={activeModalStatus}
+          completedCount={
+            activeKey
+              ? (snapshot?.completedCountsByHabitDate[activeKey] ?? 0)
+              : 0
+          }
           isUpdating={Boolean(activeKey && updatingKey === activeKey)}
           isUpdatingVisibility={Boolean(activeKey && updatingKey === activeKey)}
           canPlan={isTodayOrFutureDate(selectedDate)}
@@ -6166,6 +6169,7 @@ function buildDayPlanEntries({
         defaultCalendarColor,
         habitById,
         liveCalendarColor: liveGoogleColorByPlannedEventId.get(event.id),
+        snapshot,
         taskById,
       });
       if (entry) entries.push(entry);
@@ -6291,6 +6295,7 @@ function plannedEventToEntry(
     defaultCalendarColor,
     habitById,
     liveCalendarColor,
+    snapshot,
     taskById,
   }: {
     calendarNameById: Map<string, string>;
@@ -6299,6 +6304,7 @@ function plannedEventToEntry(
     defaultCalendarColor: string;
     habitById: Map<string, ActionHabit>;
     liveCalendarColor?: string;
+    snapshot: HabitLogsSnapshot | null;
     taskById: Map<string, Task>;
   },
 ): DayPlanEntry | null {
@@ -6313,7 +6319,8 @@ function plannedEventToEntry(
     event.sourceType === "task"
       ? Boolean(taskById.get(event.sourceId)?.completedAt)
       : event.sourceType === "habit_instance"
-        ? event.completed
+        ? event.completed ||
+          snapshot?.logsByHabitDate[`${habitId}_${event.date}`] === "complete"
         : Boolean(checkpointById.get(event.sourceId)?.checkpoint.completed);
   const habit = habitId ? habitById.get(habitId) : null;
   const task =
@@ -6884,7 +6891,7 @@ function getLastPlannedDurationMinutes(
 }
 function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
   const sorted = [...entries].sort(
-    (a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes,
+    (a, b) => a.startMinutes - b.startMinutes || b.endMinutes - a.endMinutes,
   );
   const laidOut: DayPlanEntry[] = [];
   let cluster: DayPlanEntry[] = [];
@@ -6911,10 +6918,6 @@ function layoutTimedEntries(entries: DayPlanEntry[]): DayPlanEntry[] {
         ...entry,
         laneCount,
         laneSpan: getLaneSpan(entry, entriesByLane),
-        nestedInEvent: clusterEntries.some(
-          (container) =>
-            container.id !== entry.id && isStrictlyInside(entry, container),
-        ),
       })),
     );
     cluster = [];
@@ -6967,13 +6970,6 @@ function entriesOverlap(left: DayPlanEntry, right: DayPlanEntry) {
 }
 
 function getEntryLayoutPercent(entry: DayPlanEntry) {
-  if (entry.nestedInEvent) {
-    return {
-      left: NESTED_EVENT_LEFT_PERCENT,
-      width: NESTED_EVENT_WIDTH_PERCENT,
-    };
-  }
-
   const laneWidth = 100 / Math.max(entry.laneCount, 1);
   return {
     left: laneWidth * entry.laneIndex,

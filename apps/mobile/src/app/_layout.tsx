@@ -1,4 +1,5 @@
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import * as Notifications from "expo-notifications";
 import {
   DarkTheme,
   DefaultTheme,
@@ -20,12 +21,18 @@ import {
   wrapWithCrashReporting,
 } from "@/lib/crash-reporting";
 import { friendsFeedQueryOptions } from "@/lib/friends-feed-query";
+import { toDateKey } from "@/lib/habit-logs-client";
 import { initializeMobileAds } from "@/lib/mobile-ads";
 import {
   myPostsQueryOptions,
   myProfileQueryOptions,
 } from "@/lib/my-profile-query";
-import { syncHabitRemindersFromServerAsync } from "@/lib/push-notifications";
+import {
+  START_COMPLETE_CHECKIN_ACTIONS,
+  applyStartCompleteCheckInAsync,
+  syncHabitRemindersFromServerAsync,
+  syncStartCompleteCheckInFromServerAsync,
+} from "@/lib/push-notifications";
 import { mobileQueryClient } from "@/lib/query-client";
 import {
   type AppStartPage,
@@ -96,6 +103,7 @@ function AuthNavigator() {
   const [navigationDefaults, setNavigationDefaults] =
     useState<NavigationDefaults | null>(null);
   const appliedStartPageUserRef = useRef<string | null>(null);
+  const handledNotificationResponseRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!sessionUserId) {
@@ -196,6 +204,7 @@ function AuthNavigator() {
 
     record();
     void syncHabitRemindersFromServerAsync();
+    void syncStartCompleteCheckInFromServerAsync();
     void syncTodayPlanWidgetAsync();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
@@ -206,6 +215,50 @@ function AuthNavigator() {
 
     return () => subscription.remove();
   }, [sessionUserId]);
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+
+    let active = true;
+    const handleResponse = (response: Notifications.NotificationResponse) => {
+      const data = response.notification.request.content.data;
+      if (data?.type !== "start-complete-checkin") return;
+
+      const responseKey = `${response.notification.request.identifier}:${response.notification.date}:${response.actionIdentifier}`;
+      if (handledNotificationResponseRef.current === responseKey) return;
+      handledNotificationResponseRef.current = responseKey;
+
+      const dateKey = toDateKey(new Date());
+      const action = response.actionIdentifier;
+      if (action === START_COMPLETE_CHECKIN_ACTIONS.all) {
+        void applyStartCompleteCheckInAsync("complete", dateKey).catch(
+          () => undefined,
+        );
+      } else if (action === START_COMPLETE_CHECKIN_ACTIONS.none) {
+        void applyStartCompleteCheckInAsync("incomplete", dateKey).catch(
+          () => undefined,
+        );
+      } else {
+        router.push({
+          pathname: "/start-complete-check-in",
+          params: { dateKey },
+        });
+      }
+
+      Notifications.clearLastNotificationResponse();
+    };
+
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener(handleResponse);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (active && response) handleResponse(response);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [router, sessionUserId]);
 
   useEffect(() => {
     if (!sessionUserId || onboardingCompleted === null) {
@@ -251,6 +304,7 @@ function AuthNavigator() {
       <Stack.Protected guard={Boolean(session)}>
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="(app)" />
+        <Stack.Screen name="start-complete-check-in" />
         <Stack.Screen name="friend-profile" />
         <Stack.Screen name="post" />
         <Stack.Screen name="profile" />
